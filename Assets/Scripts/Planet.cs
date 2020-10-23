@@ -8,10 +8,12 @@ public class Planet : MonoBehaviour
     public double dist = 0;
     public double radius_au = 0;
     public LineRenderer orbitRenderer = null;
+    public Orbit orbit = null;
 
     // Start is called before the first frame update
     void Start()
     {
+        orbit = gameObject.GetComponent<Orbit>();
     }
 
     // Update is called once per frame

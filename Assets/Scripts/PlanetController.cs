@@ -21,10 +21,9 @@ public class PlanetController : MonoBehaviour
             GameEvents.current.allPlanets.Add(gameObject);
         }
 
-        if (gameObject.name == "Sun")
-        {
-            GameEvents.current.sun = gameObject.GetComponent<Planet>();
-        }
+        if (gameObject.name == "Sun") { GameEvents.current.sun = gameObject.GetComponent<Planet>(); }
+        if (gameObject.name == "Earth") { GameEvents.current.earth = gameObject; }
+        if (gameObject.name == "Mars") { GameEvents.current.mars = gameObject; }
 
         SetupPlanetOrbit();
     }
