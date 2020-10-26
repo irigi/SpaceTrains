@@ -83,13 +83,11 @@ public class Player : MonoBehaviour
         {
             if (Time.timeScale > 0)
             {
-                Debug.Log(Time.timeScale.ToString());
                 m_timeScaleBeforePause = Time.timeScale;
                 Time.timeScale = 0;
             }
             else
             {
-                Debug.Log(Time.timeScale);
                 Time.timeScale = m_timeScaleBeforePause;
             }
         }
