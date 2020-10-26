@@ -39,6 +39,7 @@ public class GameEvents : MonoBehaviour
         if (shipNr == 3) { Ship.SetupInstance(earth, jupiter); }
         if (shipNr == 4) { Ship.SetupInstance(earth, saturn); }
         
+        // to prevent update every call, worth it?
         if((int)(10 * Time.unscaledTime) > counter)
         {
             counter = (int)(10 * Time.unscaledTime);
