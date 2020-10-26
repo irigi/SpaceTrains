@@ -110,7 +110,7 @@ public class Orbit : MonoBehaviour
 
     public double AnglePhi()
     {
-        return 2 * Math.PI * Time.timeSinceLevelLoad / PeriodT();
+        return (2 * Math.PI * Time.timeSinceLevelLoad / PeriodT()) % (2 * Math.PI);
     }
 
     static public double HohmannTransferTime(Planet a, Planet b)
@@ -125,7 +125,8 @@ public class Orbit : MonoBehaviour
         double phiB = b.orbit.AnglePhi();
         double missingAngleB = (6 * Math.PI - phiA + b.orbit.AnglePhi() - Math.PI * (1 - 2 * HohmannTransferTime(a, b) / b.orbit.PeriodT())) % (2 * Math.PI);
 
-        return missingAngleB / (2*Math.PI) * b.orbit.PeriodT();
+        double syncT = Math.Abs(1 / (1 / b.orbit.PeriodT() - 1 / a.orbit.PeriodT()));
+        return missingAngleB / (2*Math.PI) * syncT;
     }
 
     static public double HohmannVelocity(Planet a, Planet b)

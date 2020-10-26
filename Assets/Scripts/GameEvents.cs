@@ -14,8 +14,13 @@ public class GameEvents : MonoBehaviour
     public Planet sun = null;
     public GameObject earth = null;
     public GameObject mars = null;
+    public GameObject venus = null;
+    public GameObject jupiter = null;
+    public GameObject mercury = null;
+    public GameObject saturn = null;
 
-    private int shipNr = 0;
+    int shipNr = 0;
+    int counter = 0;
 
     private void Awake()
     {
@@ -26,9 +31,19 @@ public class GameEvents : MonoBehaviour
 
     private void Update()
     {
-        Planet earthp = earth.GetComponent<Planet>();
-        Planet marsp = mars.GetComponent<Planet>();
+        //if (shipNr == 0) { Ship.SetupInstance(earth, mars); }
+
         if (shipNr == 0) { Ship.SetupInstance(earth, mars); }
+        if (shipNr == 1) { Ship.SetupInstance(earth, venus); }
+        if (shipNr == 2) { Ship.SetupInstance(earth, mercury); }
+        if (shipNr == 3) { Ship.SetupInstance(earth, jupiter); }
+        if (shipNr == 4) { Ship.SetupInstance(earth, saturn); }
+        
+        if((int)(10 * Time.unscaledTime) > counter)
+        {
+            counter = (int)(10 * Time.unscaledTime);
+            UpdateScales();
+        }
     }
 
     public event Action onPlanetClick;

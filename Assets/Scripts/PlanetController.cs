@@ -19,8 +19,12 @@ public class PlanetController : MonoBehaviour
         }
 
         if (gameObject.name == "Sun") { GameEvents.current.sun = gameObject.GetComponent<Planet>(); }
+        if (gameObject.name == "Mercury") { GameEvents.current.mercury = gameObject; }
+        if (gameObject.name == "Venus") { GameEvents.current.venus = gameObject; }
         if (gameObject.name == "Earth") { GameEvents.current.earth = gameObject; }
         if (gameObject.name == "Mars") { GameEvents.current.mars = gameObject; }
+        if (gameObject.name == "Jupiter") { GameEvents.current.jupiter = gameObject; }
+        if (gameObject.name == "Saturn") { GameEvents.current.saturn = gameObject; }
 
         SetupPlanetOrbit();
     }

@@ -45,10 +45,6 @@ public class FlightState
         // from surface only to LO
         if (flightState == StateEnum.OnSurface && next.flightState != StateEnum.LO) { return false; }
 
-        // orbit if and only if next phase is interplanetary transfer
-        //if (next.flightState == StateEnum.InterplanetaryTransfer && newOrbit == null) { return false; }
-        //if (next.flightState != StateEnum.InterplanetaryTransfer && newOrbit != null) { return false; }
-
         if (next.flightState == StateEnum.InterplanetaryTransfer)
         {
             if (next.parentBody == null) { Debug.Log("Attempt to start interplanetary flight without specifiying the destination"); return false; }
@@ -96,7 +92,6 @@ public class PendlerTargetSelector : TargetSelector
 public abstract class Autopilot
 {
     /// Issue instructions about where to go next
-    /// TODO: bounce there and back
     /// TODO: launch from surface only before the transfer window
 
     public FlightState target;
@@ -133,7 +128,7 @@ public abstract class Autopilot
 
                     if (parent.flightState.SetNextFlightState(new FlightState(target.parentBody, FlightState.StateEnum.InterplanetaryTransfer, parent), null,
                         TransferOrbit(parent.flightState.parentBody, target.parentBody)))
-                    { Debug.Log($"{parent.name} launched to interplanetary transfer orbit"); }
+                    { Debug.Log($"{parent.name} launched to interplanetary transfer orbit towards {target.parentBody.name}"); }
                 }
 
             }
@@ -173,6 +168,7 @@ public class HohmannTransferAutopilot : Autopilot
 
     protected override bool InLaunchWindow(Planet from, Planet to)
     {
+        //Debug.Log($"Hohmann {Orbit.TimeUntilHohmann(from, to)}");
         return Orbit.TimeUntilHohmann(from, to) < 0.002;
     }
 
@@ -256,7 +252,7 @@ public class Ship : MonoBehaviour
         GameEvents.current.allShips.Add(newRen);
         GameEvents.current.UpdateScales();
 
-        return newRen;
+        return newRen;  
     }
 
     public void SetupOrbit(InterpolatedOrbit orb)
