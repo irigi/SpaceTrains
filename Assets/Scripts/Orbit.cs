@@ -123,7 +123,7 @@ public class Orbit : MonoBehaviour
         double transferT = HohmannTransferTime(a, b);
         double phiA = a.orbit.AnglePhi();
         double phiB = b.orbit.AnglePhi();
-        double missingAngleB = (6*Math.PI-phiA + b.orbit.AnglePhi() - Math.PI*(1-2* HohmannTransferTime(a, b)/ b.orbit.PeriodT())) % (2 * Math.PI);
+        double missingAngleB = (6 * Math.PI - phiA + b.orbit.AnglePhi() - Math.PI * (1 - 2 * HohmannTransferTime(a, b) / b.orbit.PeriodT())) % (2 * Math.PI);
 
         return missingAngleB / (2*Math.PI) * b.orbit.PeriodT();
     }

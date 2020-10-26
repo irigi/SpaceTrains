@@ -28,13 +28,7 @@ public class GameEvents : MonoBehaviour
     {
         Planet earthp = earth.GetComponent<Planet>();
         Planet marsp = mars.GetComponent<Planet>();
-        if (shipNr == 0 && Orbit.TimeUntilHohmann(earthp, marsp) < 0.002)
-        {
-            Vector3 pos0 = earth.transform.position;
-            Vector3 v0 = new Vector3(-pos0.normalized[1], pos0.normalized[0]) * (float)Orbit.HohmannVelocity(earthp, marsp);
-            GameObject newShip = Ship.SetupInstance(earth, mars, new InterpolatedOrbit(pos0, v0, Time.time));
-            allShips.Add(newShip);
-        }
+        if (shipNr == 0) { Ship.SetupInstance(earth, mars); }
     }
 
     public event Action onPlanetClick;
@@ -62,8 +56,12 @@ public class GameEvents : MonoBehaviour
         foreach (GameObject ship in allShips)
         {
             ship.transform.localScale = new Vector3(z * q, z * q, z * q);
-            ship.GetComponent<Ship>().orbitRenderer.startWidth = r * z;
-            ship.GetComponent<Ship>().orbitRenderer.endWidth = r * z;
+            LineRenderer orbRen = ship.GetComponent<Ship>().orbitRenderer;
+            if (orbRen != null)
+            {
+                orbRen.startWidth = r * z;
+                orbRen.endWidth = r * z;
+            }
         }
     }
 

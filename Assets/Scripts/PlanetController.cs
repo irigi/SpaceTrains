@@ -4,9 +4,6 @@ using UnityEngine;
 
 public class PlanetController : MonoBehaviour
 {
-    //public Material Dark = Resources.Find;
-    //public Material DarkRed;
-
     void Awake()
     {
         
