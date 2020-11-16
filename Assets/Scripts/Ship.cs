@@ -73,6 +73,8 @@ public class Ship : MonoBehaviour
     
     public LineRenderer orbitRenderer = null;
     public InterpolatedOrbit orbit = null;
+    public Engine engine = null;
+    public List<Resource> carriedResources = new List<Resource>();
 
     Autopilot autopilot;
     public FlightState flightState;
@@ -117,6 +119,13 @@ public class Ship : MonoBehaviour
         FlightState autopilotTarget = new FlightState(dest.GetComponent<Planet>(), FlightState.StateEnum.OnSurface, ship);
         ship.autopilot = new HohmannTransferPendlerAutopilot(ship, ship.flightState, autopilotTarget);
         ship.autopilot.target = autopilotTarget;
+
+        // fuel and engine initialization
+        RP1Resource rp1 = new RP1Resource();
+        LOXResource lox = new LOXResource();
+        // TODO: set amounts
+        Fuel fuel = new RP1Fuel(rp1, lox);
+        ship.engine = new ChemicalEngine(fuel);
         
         ship.orbit = null;
         ship.orbitRenderer = null;

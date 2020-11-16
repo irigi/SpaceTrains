@@ -118,11 +118,7 @@ public class HohmannTransferAutopilot : Autopilot
 }
 
 public class HohmannTransferPendlerAutopilot : HohmannTransferAutopilot
-{ public HohmannTransferPendlerAutopilot(Ship parent_in, FlightState start, FlightState end) : base(parent_in, new PendlerTargetSelector(start, end)) { }
-}
-
-public class DeltaVCalculator
 {
-
+    public HohmannTransferPendlerAutopilot(Ship parent_in, FlightState start, FlightState end) : base(parent_in, new PendlerTargetSelector(start, end)) { }
 }
 
