@@ -34,9 +34,7 @@ public class FlightState
         parentShip = parentShipIn;
     }
 
-    public delegate void OnFlightStateChange(FlightState previous, FlightState next);
-
-    public bool SetNextFlightState(FlightState next, OnFlightStateChange onFlightStateChange, InterpolatedOrbit newOrbit)
+    public bool SetNextFlightState(FlightState next, InterpolatedOrbit newOrbit, double insertionDeltaV)
     {
         // inconsistent parent body
         if (parentBody != next.parentBody && next.flightState != StateEnum.InterplanetaryTransfer && flightState != StateEnum.InterplanetaryTransfer) { return false; }
@@ -58,7 +56,7 @@ public class FlightState
             parentShip.DestroyOrbit();
         }
 
-        onFlightStateChange?.Invoke(this, next);
+        parentShip.engine.BurnFuelByDeltaV(insertionDeltaV, 3600 / 2);
         flightState = next.flightState;
         parentBody = next.parentBody;
 
@@ -75,9 +73,10 @@ public class Ship : MonoBehaviour
     public InterpolatedOrbit orbit = null;
     public Engine engine = null;
     public List<Resource> carriedResources = new List<Resource>();
+    public List<FuelTank> fuelTanks = new List<FuelTank>();
 
     Autopilot autopilot;
-    public FlightState flightState;
+    public FlightState flightState { get; private set; }
 
     // Start is called before the first frame update
     void Start()
@@ -88,7 +87,7 @@ public class Ship : MonoBehaviour
     void Update()
     {
         // update positions according to trajectory
-        if (orbit != null) { gameObject.transform.localPosition = orbit.CurrentPosition(Time.time); }
+        if (orbit != null) { gameObject.transform.localPosition = orbit.CurrentPosition(Time.timeSinceLevelLoad); }
         else
         {
             if (flightState.parentBody != null) { gameObject.transform.localPosition = flightState.parentBody.transform.localPosition; }
@@ -101,6 +100,23 @@ public class Ship : MonoBehaviour
     {
         GameEvents.current.allShips.Remove(gameObject);
         if (orbitRenderer != null) { Destroy(orbitRenderer.gameObject); }
+    }
+
+    public void Refuel()
+    {
+        Debug.Log($"Refueling");
+        foreach (FuelTank tank in fuelTanks)
+        {
+            tank.resource.amountKg = tank.capacity;
+        }
+    }
+
+    public double Mass()
+    {
+        double amount = 0;
+        amount += engine.Mass();
+        foreach(FuelTank fuelTank in fuelTanks) { amount += fuelTank.Mass(); }
+        return amount;
     }
 
     static public GameObject SetupInstance(GameObject source, GameObject dest)
@@ -122,10 +138,15 @@ public class Ship : MonoBehaviour
 
         // fuel and engine initialization
         RP1Resource rp1 = new RP1Resource();
-        LOXResource lox = new LOXResource();
-        // TODO: set amounts
+        LOXResource lox = new LOXResource();        
         Fuel fuel = new RP1Fuel(rp1, lox);
-        ship.engine = new ChemicalEngine(fuel);
+        double fuelMass = 100000;
+        FuelTank rp1Tank = new FuelTank(fuelMass, rp1, fuelMass*0.07);
+        FuelTank loxTank = new FuelTank(fuelMass * rp1.oxidizer_ratio, lox, fuelMass * rp1.oxidizer_ratio*0.07);
+        ship.engine = new ChemicalEngine(fuel, fuelMass*0.07, ship);
+        ship.fuelTanks.Add(rp1Tank);
+        ship.fuelTanks.Add(loxTank);
+        ship.Refuel();
         
         ship.orbit = null;
         ship.orbitRenderer = null;
@@ -152,6 +173,13 @@ public class Ship : MonoBehaviour
         Color c = new Color(0 / 256.0f, 0 / 256.0f, 256 / 256.0f);
         orbitRenderer.startColor = c;
         orbitRenderer.endColor = c;
+    }
+
+    public void ChangeColor(Color c)
+    {
+        orbitRenderer.startColor = c;
+        orbitRenderer.endColor = c;
+        gameObject.GetComponent<MeshRenderer>().material.color = c;
     }
 
     public void DestroyOrbit()

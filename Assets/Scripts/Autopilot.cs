@@ -1,6 +1,8 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System;
+
 
 public abstract class TargetSelector
 {
@@ -31,7 +33,7 @@ public abstract class Autopilot
     /// TODO: launch from surface only before the transfer window
 
     public FlightState target;
-    Ship parent;
+    protected Ship parent;
     TargetSelector targetSelector;
 
     protected Autopilot(Ship parent_in, TargetSelector selector)
@@ -54,17 +56,25 @@ public abstract class Autopilot
                 if (parent.flightState.flightState == FlightState.StateEnum.OnSurface && parent.flightState.parentBody != null)
                 {
                     // launch to low orbit
-                    if (parent.flightState.SetNextFlightState(new FlightState(parent.flightState.parentBody, FlightState.StateEnum.LO, parent), null, null))
+                    double deltaV = StartToLeoDeltaV(parent.flightState.parentBody);
+                    if (parent.flightState.SetNextFlightState(new FlightState(parent.flightState.parentBody, FlightState.StateEnum.LO, parent), null, deltaV))
                     { Debug.Log($"{parent.name} launched to LO of {parent.flightState.parentBody.name}"); }
                 }
 
                 if (parent.flightState.flightState != FlightState.StateEnum.OnSurface && parent.flightState.parentBody != null && InLaunchWindow(parent.flightState.parentBody, target.parentBody))
                 {
-                    // launch to interplanetary transfer orbit                
+                    InterpolatedOrbit proposedOrbit = TransferOrbit(parent.flightState.parentBody, target.parentBody);
 
-                    if (parent.flightState.SetNextFlightState(new FlightState(target.parentBody, FlightState.StateEnum.InterplanetaryTransfer, parent), null,
-                        TransferOrbit(parent.flightState.parentBody, target.parentBody)))
-                    { Debug.Log($"{parent.name} launched to interplanetary transfer orbit towards {target.parentBody.name}"); }
+                    double deltaV = StartInsertionBurnDeltaV(parent.flightState.parentBody, target.parentBody);
+                    if (parent.engine.CanProvideDeltaV(deltaV, 3600 / 2))
+                    {
+                        // launch to interplanetary transfer orbit                
+                        if (parent.flightState.SetNextFlightState(new FlightState(target.parentBody, FlightState.StateEnum.InterplanetaryTransfer, parent), proposedOrbit, deltaV))
+                        { Debug.Log($"{parent.name} launched to interplanetary transfer orbit towards {target.parentBody.name}, fuel {parent.fuelTanks[0].resource.amountKg:F0}, {parent.fuelTanks[1].resource.amountKg:F0}"); }
+                    } else
+                    {
+                        Debug.Log($"{parent.name} does not have fuel for insertion burn to {target.parentBody.name}");
+                    }
                 }
 
             }
@@ -75,10 +85,21 @@ public abstract class Autopilot
                     // arrival at destination
                     if ((parent.gameObject.transform.localPosition - target.parentBody.gameObject.transform.localPosition).sqrMagnitude < 0.00025)
                     {
-                        if (parent.flightState.SetNextFlightState(new FlightState(target.parentBody, target.flightState, parent), null, null))
-                        { Debug.Log($"{parent.name} arrived from interplanetary orbit to {target.flightState} of {target.parentBody.name}"); }
+                        double deltaV = EndInsertionBurnDeltaV(parent.flightState.parentBody, target.parentBody);
+                        if (parent.engine.CanProvideDeltaV(deltaV, 3600 / 2))
+                        {
+                            if (parent.flightState.SetNextFlightState(new FlightState(target.parentBody, target.flightState, parent), null, deltaV))
+                            {
+                                Debug.Log($"{parent.name} arrived from interplanetary orbit to {target.flightState} of {target.parentBody.name}, fuel {parent.fuelTanks[0].resource.amountKg:F0}, {parent.fuelTanks[1].resource.amountKg:F0}");
+                                parent.Refuel();
+                            }
+                            else
+                            { Debug.Log($"Setting flight state failed: {parent.name}, {target.flightState} of {target.parentBody.name}"); }
+                        }
                         else
-                        { Debug.Log($"Setting flight state failed: {parent.name}, {target.flightState} of {target.parentBody.name}"); }
+                        {
+                            Debug.Log($"Ship {parent.name} run out of fuel!");
+                        }
                     }
                 }                
             }
@@ -87,6 +108,13 @@ public abstract class Autopilot
 
     abstract protected bool InLaunchWindow(Planet from, Planet to);
     abstract protected InterpolatedOrbit TransferOrbit(Planet from, Planet to);
+    abstract protected double StartInsertionBurnDeltaV(Planet from, Planet to);
+    abstract protected double EndInsertionBurnDeltaV(Planet from, Planet to);
+    virtual protected double StartToLeoDeltaV(Planet from)
+    {
+        //return Orbit.OrbitalVelocity(from);
+        return 1;
+    }
 
     void OnTargetReached()
     {
@@ -111,9 +139,19 @@ public class HohmannTransferAutopilot : Autopilot
     protected override InterpolatedOrbit TransferOrbit(Planet from, Planet to)
     {
         Vector3 pos0 = from.transform.position;
-        Vector3 v0 = new Vector3(-pos0.normalized[1], pos0.normalized[0]) * (float)Orbit.HohmannVelocity(from, to);
-        InterpolatedOrbit newOrbit = new InterpolatedOrbit(pos0, v0, Time.time);
+        Vector3 v0 = new Vector3(-pos0.normalized[1], pos0.normalized[0]) * (float)Orbit.HohmannVelocityDeparture(from, to);
+        InterpolatedOrbit newOrbit = new InterpolatedOrbit(pos0, v0, Time.timeSinceLevelLoad);
         return newOrbit;
+    }
+
+    protected override double StartInsertionBurnDeltaV(Planet from, Planet to)
+    {
+        return Math.Abs(Orbit.VelToMps(Orbit.HohmannDeltaVelocityDeparture(from, to)));
+    }
+
+    protected override double EndInsertionBurnDeltaV(Planet from, Planet to)
+    {
+        return Orbit.VelToMps((parent.orbit.CurrentVelocity(Time.time) - parent.flightState.parentBody.orbit.CurrentVelocity(Time.time)).magnitude);
     }
 }
 

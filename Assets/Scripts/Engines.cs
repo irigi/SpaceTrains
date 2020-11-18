@@ -1,7 +1,13 @@
 ﻿using System.Collections.Generic;
 using System;
+using UnityEngine;
 
-public class Resource { }
+public class Resource
+{
+    public Resource(double mass_in) { mass = mass_in; }
+    protected double mass;
+    public virtual double Mass() { return mass; }
+}
 
 abstract public class Fuel 
 {
@@ -50,7 +56,7 @@ abstract public class Fuel
 
 public class FuelResource : Resource
 {
-    protected FuelResource(double fuel_density, double fuel_pressure, double fuel_temperature)
+    protected FuelResource(double fuel_density, double fuel_pressure, double fuel_temperature) : base(0)
     {
         density_kgm3 = fuel_density;
         pressure_bar = fuel_pressure;
@@ -61,6 +67,11 @@ public class FuelResource : Resource
     public double density_kgm3 { get; private set; }
     public double pressure_bar { get; private set; }
     public double temperature_K { get; private set; }     // this could vary, and with it the pressure. But let us assume it does not for now
+
+    public override double Mass()
+    {
+        return amountKg;
+    }
 }
 
 public class OxidizerResource : FuelResource
@@ -107,14 +118,33 @@ public class MethaneFuel : ChemicalFuel { public MethaneFuel(MethaneResource fue
 public class HydrogenFuel : ChemicalFuel { public HydrogenFuel(HydrogenResource fuelResource, OxidizerResource oxidizerResource) : base(fuelResource, oxidizerResource) { } }
 
 
-public class Engine
+public class FuelTank : Resource
 {
-    protected Engine(Fuel fuel_in, double powerLimit_GW_in)
+    public FuelTank(double capacity_in, FuelResource resource_in, double dryMass) : base(dryMass)
     {
-        fuel = fuel_in;
-        double powerLimit_GW = powerLimit_GW_in;
+        capacity = capacity_in;
+        resource = resource_in;
     }
 
+    public double capacity { get; private set; }
+    public FuelResource resource { get; private set; }
+    public override double Mass()
+    {
+        return mass + resource.Mass();
+    }
+}
+
+
+public class Engine : Resource
+{
+    protected Engine(Fuel fuel_in, double powerLimit_GW_in, double mass, Ship parent) : base(mass)
+    {
+        fuel = fuel_in;
+        powerLimit_GW = powerLimit_GW_in;
+        parentShip = parent;
+    }
+
+    public Ship parentShip;
     Fuel fuel;
     double powerLimit_GW;
 
@@ -125,11 +155,18 @@ public class Engine
         return consumedFuel;
     }
 
-    public void BurnFuel(double amount) { fuel.BurnFuel(amount); }
-
-    public bool CanProvideDeltaV(double shipMass, double requestedDeltaV, double maxManeuverTime)
+    public void BurnFuelByDeltaV(double requestedDeltaV, double maxManeuverTime)
     {
-        return FuelBurnedDeltaV(shipMass, requestedDeltaV, maxManeuverTime) <= fuel.AmountKg();
+        double amount = FuelBurnedDeltaV(parentShip.Mass(), Math.Abs(requestedDeltaV), maxManeuverTime);
+        Debug.Log($"Burn fuel {amount:F0} for dv {requestedDeltaV:F0}");
+        BurnFuelByAmount(amount);
+    }
+
+    public void BurnFuelByAmount(double amount) { fuel.BurnFuel(amount); }
+
+    public bool CanProvideDeltaV(double requestedDeltaV, double maxManeuverTime)
+    {
+        return FuelBurnedDeltaV(parentShip.Mass(), requestedDeltaV, maxManeuverTime) <= fuel.AmountKg();
     }
 
     // Start is called before the first frame update
@@ -145,4 +182,4 @@ public class Engine
     }
 }
 
-public class ChemicalEngine : Engine { public ChemicalEngine(Fuel fuel_in) : base(fuel_in, 1e60) { } } // maximum engine power is not needed for chemical engines
+public class ChemicalEngine : Engine { public ChemicalEngine(Fuel fuel_in, double mass, Ship parent) : base(fuel_in, 1e60, mass, parent) { } } // maximum engine power is not needed for chemical engines

@@ -69,12 +69,30 @@ public class InterpolatedOrbit
 
         return pos;
     }
+
+    public Vector3 CurrentVelocity(float t)
+    {
+        return (CurrentPosition(t) - CurrentPosition(t - 0.01f)) / 0.01f;
+    }
 }
 
 public class Orbit : MonoBehaviour
 {
     Planet planet;
-    public const float gravityParameter = 39.4876393f;
+    public const double gravityParameter = 39.4876393;
+    public const double AU_PER_YEAR_TO_MPS = 4740.57172;
+
+    public Vector3 CurrentPosition(float t)
+    {
+        float R = planet.GetScaledDist();
+        double phi = AnglePhi(t);
+        return new Vector3((float)(R * Math.Cos(phi)), (float)(R * Math.Sin(phi)), 0);
+    }
+
+    public Vector3 CurrentVelocity(float t)
+    {
+        return (CurrentPosition(t) - CurrentPosition(t - 0.01f)) / 0.01f;
+    }
 
     // Start is called before the first frame update
     void Start()
@@ -90,11 +108,8 @@ public class Orbit : MonoBehaviour
     {
         if (gameObject.name != "Sun")
         {
-            float R = planet.GetScaledDist();
-            double phi = AnglePhi();
-            double q = GameEvents.current.sun.radius_au;
-            q = 1;
-            gameObject.transform.localPosition = new Vector3((float)(1 /q * R * Math.Cos(phi)), (float)(1 /q * R * Math.Sin(phi)), 0);
+            float q = 1;
+            gameObject.transform.localPosition = CurrentPosition(Time.timeSinceLevelLoad) / q;
         }
     }
 
@@ -103,14 +118,14 @@ public class Orbit : MonoBehaviour
         return 2 * Math.PI * Math.Sqrt(planet.dist * planet.dist * planet.dist / gravityParameter / GameEvents.current.sun.mass);
     }
 
-    public double OrbitalVelocity()
+    static public double OrbitalVelocity(Planet planet)
     {
         return Math.Sqrt(gravityParameter / planet.dist);
     }
 
-    public double AnglePhi()
+    public double AnglePhi(float t)
     {
-        return (2 * Math.PI * Time.timeSinceLevelLoad / PeriodT()) % (2 * Math.PI);
+        return (2 * Math.PI * t / PeriodT()) % (2 * Math.PI);
     }
 
     static public double HohmannTransferTime(Planet a, Planet b)
@@ -120,18 +135,39 @@ public class Orbit : MonoBehaviour
 
     static public double TimeUntilHohmann(Planet a, Planet b)
     {
+        float t = Time.timeSinceLevelLoad;
         double transferT = HohmannTransferTime(a, b);
-        double phiA = a.orbit.AnglePhi();
-        double phiB = b.orbit.AnglePhi();
-        double missingAngleB = (6 * Math.PI - phiA + b.orbit.AnglePhi() - Math.PI * (1 - 2 * HohmannTransferTime(a, b) / b.orbit.PeriodT())) % (2 * Math.PI);
+        double phiA = a.orbit.AnglePhi(t);
+        double phiB = b.orbit.AnglePhi(t);
+        double missingAngleB = (6 * Math.PI - phiA + b.orbit.AnglePhi(t) - Math.PI * (1 - 2 * HohmannTransferTime(a, b) / b.orbit.PeriodT())) % (2 * Math.PI);
 
         double syncT = Math.Abs(1 / (1 / b.orbit.PeriodT() - 1 / a.orbit.PeriodT()));
         return missingAngleB / (2*Math.PI) * syncT;
     }
 
-    static public double HohmannVelocity(Planet a, Planet b)
+    static public double HohmannVelocityDeparture(Planet a, Planet b)
     {
-        return Math.Sqrt(2*b.dist*gravityParameter / a.dist / (a.dist+ b.dist));
+        // unit: AU / year
+        return Math.Sqrt(2 * b.dist * gravityParameter / a.dist / (a.dist + b.dist));
     }
 
+    static public double HohmannVelocityArrival(Planet a, Planet b)
+    {
+        // unit: AU / year
+        return Math.Sqrt(2 * a.dist * gravityParameter / b.dist / (a.dist + b.dist));
+    }
+
+    static public double HohmannDeltaVelocityDeparture(Planet a, Planet b)
+    {
+        // unit: AU / year
+        return HohmannVelocityDeparture(a, b) - OrbitalVelocity(a);
+    }
+
+    static public double HohmannDeltaVelocityArrival(Planet a, Planet b)
+    {
+        // unit: AU / year
+        return OrbitalVelocity(b) - HohmannVelocityArrival(a, b);
+    }
+
+    static public double VelToMps(double vel) { return vel * AU_PER_YEAR_TO_MPS; }
 }
