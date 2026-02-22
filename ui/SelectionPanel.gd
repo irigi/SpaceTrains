@@ -15,6 +15,8 @@ func _ready() -> void:
 	visible = false
 	EventBus.entity_selected.connect(_on_entity_selected)
 	EventBus.entity_deselected.connect(_on_entity_deselected)
+	if details_text != null:
+		details_text.meta_clicked.connect(_on_details_meta_clicked)
 
 func _on_entity_selected(entity_type: String, entity_id: int) -> void:
 	selected_type = entity_type
@@ -60,7 +62,8 @@ func _display_body() -> void:
 	for sid in body.station_ids:
 		if sid in simulation.world.stations:
 			var s = simulation.world.stations[sid]
-			text += "  • %s (%s)\n" % [s.entity_name, s.faction_name]
+			var station_link := _make_entity_link("station", sid, s.entity_name)
+			text += "  • %s (%s)\n" % [station_link, s.faction_name]
 	details_text.text = text
 
 func _display_station() -> void:
@@ -84,7 +87,8 @@ func _display_station() -> void:
 	for ship_id in station.ship_ids:
 		if ship_id in simulation.world.ships:
 			var ship = simulation.world.ships[ship_id]
-			text += "  • %s [%s]\n" % [ship.entity_name, ship.state]
+			var ship_link := _make_entity_link("ship", ship_id, ship.entity_name)
+			text += "  • %s [%s]\n" % [ship_link, ship.state]
 	details_text.text = text
 
 func _display_ship() -> void:
@@ -120,6 +124,23 @@ func _display_ship() -> void:
 		text += "\n[i]No cargo[/i]\n"
 
 	if ship.docked_station_id >= 0 and ship.docked_station_id in simulation.world.stations:
-		text += "\n[b]Docked at:[/b] %s\n" % simulation.world.stations[ship.docked_station_id].entity_name
+		var docked_station = simulation.world.stations[ship.docked_station_id]
+		text += "\n[b]Docked at:[/b] %s\n" % _make_entity_link("station", ship.docked_station_id, docked_station.entity_name)
 
 	details_text.text = text
+
+func _on_details_meta_clicked(meta: Variant) -> void:
+	var meta_text := str(meta)
+	var parts := meta_text.split(":")
+	if parts.size() != 2:
+		return
+
+	var entity_type := parts[0]
+	if entity_type != "station" and entity_type != "ship":
+		return
+
+	var entity_id := int(parts[1])
+	EventBus.entity_selected.emit(entity_type, entity_id)
+
+func _make_entity_link(entity_type: String, entity_id: int, name: String) -> String:
+	return "[url=%s:%d][color=#9fc5ff][u]%s[/u][/color][/url]" % [entity_type, entity_id, name]
