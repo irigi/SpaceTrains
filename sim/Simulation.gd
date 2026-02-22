@@ -213,7 +213,7 @@ func _spawn_initial_ships() -> void:
 		var station = world.stations[station_id]
 		# Each station gets 2-4 starting ships
 		var num_ships = world.rng.randi_range(2, 4)
-		for _ in range(num_ships):
+		for i in range(num_ships):
 			var ship := WorldState.ShipData.new()
 			ship.id = world.allocate_id()
 			ship.entity_name = _generate_ship_name(ship.id)
