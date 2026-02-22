@@ -32,7 +32,7 @@ func _ready() -> void:
 	# Create camera
 	camera = OrbitCamera.new()
 	camera.name = "OrbitCamera"
-	camera.far = 5000.0
+	camera.far = 10000.0
 	camera.near = 0.05
 	camera.fov = 60.0
 	world_3d.add_child(camera)
@@ -295,8 +295,6 @@ func _create_time_controls() -> TimeControls:
 	time_label.add_theme_font_size_override("font_size", 14)
 	hbox.add_child(time_label)
 	hbox.time_label = time_label
-
-	pause_btn.pressed.connect(hbox._on_pause_pressed)
 
 	return hbox
 

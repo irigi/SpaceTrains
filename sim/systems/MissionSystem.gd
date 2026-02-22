@@ -23,9 +23,9 @@ func _try_create_cargo_missions(world: WorldState, station: WorldState.StationDa
 	var idle_ships: Array = []
 	for ship_id in station.docked_ship_ids:
 		if ship_id in world.ships:
-			var ship = world.ships[ship_id]
-			if ship.state == "docked" and ship.mission_type == "":
-				idle_ships.append(ship)
+			var candidate = world.ships[ship_id]
+			if candidate.state == "docked" and candidate.mission_type == "":
+				idle_ships.append(candidate)
 
 	if idle_ships.is_empty():
 		return
@@ -47,6 +47,7 @@ func _try_create_cargo_missions(world: WorldState, station: WorldState.StationDa
 	# Assign mission to first idle ship
 	var ship = idle_ships[0]
 	var commodity = _pick_best_commodity(station, dest_station, surplus_commodities)
+	@warning_ignore("integer_division")
 	var amount = mini(ship.cargo_capacity, station.inventory.get(commodity, 0) / 2)
 	amount = maxi(amount, 1)
 
@@ -70,7 +71,7 @@ func _find_needy_station(world: WorldState, source: WorldState.StationData, surp
 
 	return best_station
 
-func _pick_best_commodity(source: WorldState.StationData, dest: WorldState.StationData, surplus: Array) -> String:
+func _pick_best_commodity(_source: WorldState.StationData, dest: WorldState.StationData, surplus: Array) -> String:
 	var best_commodity: String = surplus[0]
 	var best_deficit: int = 0
 	for commodity in surplus:

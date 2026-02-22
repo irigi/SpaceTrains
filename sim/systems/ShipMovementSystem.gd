@@ -73,7 +73,7 @@ func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) 
 		ship.state = "arriving"
 		ship.travel_progress = 0.0
 
-func _update_arriving(world: WorldState, ship: WorldState.ShipData, _dt: float) -> void:
+func _update_arriving(_world: WorldState, ship: WorldState.ShipData, _dt: float) -> void:
 	# Snap to destination, transition to docking
 	ship.position = ship.travel_destination
 	ship.state = "docking"
@@ -112,7 +112,7 @@ func _dock_ship(world: WorldState, ship: WorldState.ShipData) -> void:
 	# Refuel
 	ship.fuel = ship.fuel_max
 
-func _deliver_cargo(world: WorldState, ship: WorldState.ShipData, station: WorldState.StationData) -> void:
+func _deliver_cargo(_world: WorldState, ship: WorldState.ShipData, station: WorldState.StationData) -> void:
 	for commodity in ship.cargo:
 		var amount = ship.cargo[commodity]
 		if commodity in station.inventory:

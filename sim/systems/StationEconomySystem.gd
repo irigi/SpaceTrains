@@ -13,10 +13,11 @@ func update(world: WorldState, dt: float) -> void:
 			_run_production(world, station)
 			_run_consumption(world, station)
 
-func _run_production(world: WorldState, station: WorldState.StationData) -> void:
+func _run_production(_world: WorldState, station: WorldState.StationData) -> void:
 	for module in station.modules:
 		match module:
 			"FARM":
+				@warning_ignore("integer_division")
 				_produce(station, "FOOD", 5 + station.population / 50)
 			"REFINERY":
 				if station.inventory.get("METALS", 0) >= 3:
@@ -26,10 +27,13 @@ func _run_production(world: WorldState, station: WorldState.StationData) -> void
 				_produce(station, "OXYGEN", 2)
 				_produce(station, "WATER", 2)
 
-func _run_consumption(world: WorldState, station: WorldState.StationData) -> void:
+func _run_consumption(_world: WorldState, station: WorldState.StationData) -> void:
 	# Population consumes resources
+	@warning_ignore("integer_division")
 	var food_need = max(1, station.population / 100)
+	@warning_ignore("integer_division")
 	var water_need = max(1, station.population / 100)
+	@warning_ignore("integer_division")
 	var oxygen_need = max(1, station.population / 150)
 
 	_consume(station, "FOOD", food_need)
