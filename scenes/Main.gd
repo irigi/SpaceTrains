@@ -411,3 +411,7 @@ func _process(_delta: float) -> void:
 	# Keep camera focused on target
 	if camera and camera.focus_target_id >= 0:
 		camera.update_focus(simulation)
+
+	# Floating origin check
+	if floating_origin and camera:
+		floating_origin.check_and_shift()
