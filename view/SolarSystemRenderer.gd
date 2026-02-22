@@ -33,10 +33,26 @@ func _create_materials() -> void:
 	orbit_material.no_depth_test = true
 
 func initialize(sim: Simulation) -> void:
+	_clear_render_nodes()
 	simulation = sim
 	_create_body_nodes()
 	_create_station_nodes()
 	_create_orbit_lines()
+
+func _clear_render_nodes() -> void:
+	for node in body_nodes.values():
+		node.queue_free()
+	for node in station_nodes.values():
+		node.queue_free()
+	for node in ship_nodes.values():
+		node.queue_free()
+	for node in orbit_lines.values():
+		node.queue_free()
+
+	body_nodes.clear()
+	station_nodes.clear()
+	ship_nodes.clear()
+	orbit_lines.clear()
 
 func _process(_delta: float) -> void:
 	if simulation == null or simulation.world == null:

@@ -45,6 +45,7 @@ A self-playing 3D space simulation set in the Solar System, built with Godot 4.x
 | H | Toggle help overlay |
 | Ctrl+S | Save game |
 | Ctrl+L | Load game |
+| Ctrl+Q | Quit game |
 
 ## Architecture
 
