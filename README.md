@@ -33,6 +33,7 @@ A self-playing 3D space simulation set in the Solar System, built with Godot 4.x
 | Input | Action |
 |-------|--------|
 | Space | Pause / Resume |
+| 0 | Speed 0.2× (slow) |
 | 1 | Speed 1× |
 | 2 | Speed 5× |
 | 3 | Speed 20× |
