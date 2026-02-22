@@ -21,6 +21,7 @@ func _process(_delta: float) -> void:
 
 	if time_label:
 		var hours = int(simulation.world.sim_time / 60.0)
+		@warning_ignore("integer_division")
 		var days = hours / 24
 		var remaining_hours = hours % 24
 		time_label.text = "Day %d, %02d:00" % [days + 1, remaining_hours]

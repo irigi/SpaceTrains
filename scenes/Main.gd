@@ -32,7 +32,7 @@ func _ready() -> void:
 	# Create camera
 	camera = OrbitCamera.new()
 	camera.name = "OrbitCamera"
-	camera.far = 5000.0
+	camera.far = 10000.0
 	camera.near = 0.05
 	camera.fov = 60.0
 	world_3d.add_child(camera)
@@ -81,7 +81,7 @@ func _setup_environment(parent: Node3D) -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.1, 0.1, 0.15)
 	env.ambient_light_energy = 0.3
-	env.tonemap_mode = Environment.TONE_MAP_ACES
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.glow_enabled = true
 	env.glow_intensity = 0.3
 	env.glow_bloom = 0.1
@@ -295,8 +295,6 @@ func _create_time_controls() -> TimeControls:
 	time_label.add_theme_font_size_override("font_size", 14)
 	hbox.add_child(time_label)
 	hbox.time_label = time_label
-
-	pause_btn.pressed.connect(hbox._on_pause_pressed)
 
 	return hbox
 
