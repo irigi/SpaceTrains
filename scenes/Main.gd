@@ -98,6 +98,7 @@ func _create_ui() -> void:
 	# Main UI container
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_theme_constant_override("margin_left", 10)
 	margin.add_theme_constant_override("margin_right", 10)
 	margin.add_theme_constant_override("margin_top", 10)
@@ -106,6 +107,7 @@ func _create_ui() -> void:
 
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(hbox)
 
 	# --- Left Panel (Selection) ---
@@ -116,11 +118,13 @@ func _create_ui() -> void:
 	# Spacer
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hbox.add_child(spacer)
 
 	# --- Right side (vertical) ---
 	var right_vbox := VBoxContainer.new()
 	right_vbox.custom_minimum_size = Vector2(350, 0)
+	right_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hbox.add_child(right_vbox)
 
 	# Time controls at top-right
@@ -131,6 +135,7 @@ func _create_ui() -> void:
 	# Spacer
 	var right_spacer := Control.new()
 	right_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	right_vbox.add_child(right_spacer)
 
 	# Event log at bottom-right
@@ -269,10 +274,10 @@ func _create_time_controls() -> TimeControls:
 	hbox.add_child(pause_btn)
 	hbox.pause_button = pause_btn
 
-	for i in range(4):
+	for i in range(5):
 		var speed_btn := Button.new()
-		var speeds = [1, 5, 20, 50]
-		speed_btn.text = "%d×" % speeds[i]
+		var speeds = [0.2, 1, 5, 20, 50]
+		speed_btn.text = "%.1f×" % speeds[i] if speeds[i] < 1.0 else "%d×" % int(speeds[i])
 		speed_btn.custom_minimum_size = Vector2(50, 35)
 		var idx = i
 		speed_btn.pressed.connect(func(): hbox._set_speed(idx))
@@ -281,7 +286,7 @@ func _create_time_controls() -> TimeControls:
 	var speed_label := Label.new()
 	speed_label.unique_name_in_owner = true
 	speed_label.name = "SpeedLabel"
-	speed_label.text = "1×"
+	speed_label.text = "0.2×"
 	speed_label.add_theme_font_size_override("font_size", 16)
 	speed_label.custom_minimum_size = Vector2(60, 0)
 	speed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -302,7 +307,10 @@ func _create_help_overlay() -> HelpOverlay:
 	var panel := HelpOverlay.new()
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.custom_minimum_size = Vector2(500, 400)
-	panel.position = Vector2(710, 340)  # Roughly centered on 1920x1080
+	panel.offset_left = -250
+	panel.offset_top = -200
+	panel.offset_right = 250
+	panel.offset_bottom = 200
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.05, 0.05, 0.1, 0.95)
@@ -339,6 +347,7 @@ func _create_help_overlay() -> HelpOverlay:
 
 [b]Time Controls[/b]
   Space — Pause / Resume
+  0 — Speed 0.2× (slow)
   1 — Speed 1× (real-time)
   2 — Speed 5×
   3 — Speed 20×
@@ -364,17 +373,16 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("focus_selected"):
 		_focus_selected()
+		get_viewport().set_input_as_handled()
 
-	# Save/Load shortcuts
-	if event is InputEventKey:
-		var key = event as InputEventKey
-		if key.pressed and key.ctrl_pressed:
-			if key.keycode == KEY_S:
-				simulation.save_game()
-			elif key.keycode == KEY_L:
-				simulation.load_game()
-				# Reinitialize renderer after load
-				renderer.initialize(simulation)
+	if event.is_action_pressed("save_game"):
+		simulation.save_game()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("load_game"):
+		simulation.load_game()
+		# Reinitialize renderer after load
+		renderer.initialize(simulation)
+		get_viewport().set_input_as_handled()
 
 func _handle_click(screen_pos: Vector2) -> void:
 	if camera == null:
