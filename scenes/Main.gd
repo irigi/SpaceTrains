@@ -81,7 +81,7 @@ func _setup_environment(parent: Node3D) -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.1, 0.1, 0.15)
 	env.ambient_light_energy = 0.3
-	env.tonemap_mode = Environment.TONE_MAP_ACES
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.glow_enabled = true
 	env.glow_intensity = 0.3
 	env.glow_bloom = 0.1
