@@ -356,7 +356,8 @@ func _create_help_overlay() -> HelpOverlay:
 [b]Other[/b]
   H — Toggle this help overlay
   Ctrl+S — Save game
-  Ctrl+L — Load game"""
+  Ctrl+L — Load game
+  Ctrl+Q — Quit game"""
 	vbox.add_child(help_text)
 
 	return panel
@@ -382,6 +383,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		simulation.load_game()
 		# Reinitialize renderer after load
 		renderer.initialize(simulation)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("quit_game"):
+		get_tree().quit()
 		get_viewport().set_input_as_handled()
 
 func _handle_click(screen_pos: Vector2) -> void:
