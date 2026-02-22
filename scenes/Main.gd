@@ -413,9 +413,14 @@ func _handle_click(screen_pos: Vector2) -> void:
 
 func _focus_selected() -> void:
 	if camera and camera.focus_target_id >= 0:
+		if floating_origin:
+			camera.set_world_origin_offset(floating_origin.origin_offset)
 		camera.update_focus(simulation)
 
 func _process(_delta: float) -> void:
+	if camera and floating_origin:
+		camera.set_world_origin_offset(floating_origin.origin_offset)
+
 	# Keep camera focused on target
 	if camera and camera.focus_target_id >= 0:
 		camera.update_focus(simulation)

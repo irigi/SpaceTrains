@@ -18,6 +18,7 @@ var _panning: bool = false
 
 var focus_target_id: int = -1
 var focus_target_type: String = ""  # "body", "station", "ship"
+var world_origin_offset: Vector3 = Vector3.ZERO
 
 func _ready() -> void:
 	_update_camera_transform()
@@ -78,16 +79,19 @@ func clear_focus_target() -> void:
 	focus_target_type = ""
 	focus_target_id = -1
 
+func set_world_origin_offset(offset: Vector3) -> void:
+	world_origin_offset = offset
+
 func update_focus(sim: Simulation) -> void:
 	if focus_target_id < 0:
 		return
 
 	match focus_target_type:
 		"body":
-			pivot_point = sim.get_body_position(focus_target_id)
+			pivot_point = sim.get_body_position(focus_target_id) - world_origin_offset
 		"station":
-			pivot_point = sim.get_station_position(focus_target_id)
+			pivot_point = sim.get_station_position(focus_target_id) - world_origin_offset
 		"ship":
 			if focus_target_id in sim.world.ships:
-				pivot_point = sim.world.ships[focus_target_id].position
+				pivot_point = sim.world.ships[focus_target_id].position - world_origin_offset
 	_update_camera_transform()

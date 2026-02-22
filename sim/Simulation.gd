@@ -2,14 +2,14 @@ class_name Simulation
 extends Node
 ## Main simulation controller. Owns WorldState and runs tick-based systems.
 
-const TICK_DELTA: float = 1.0  # 1 sim-minute per tick
+const TICK_DELTA: float = 0.2  # 0.2 sim-minutes per tick for smoother movement at low speeds
 const AU_SCALE: float = 50.0   # 1 AU = 50 Godot units for rendering
 
 var world: WorldState
 var paused: bool = false
 var speed_multiplier: float = 1.0
 var accumulated_time: float = 0.0
-var max_ticks_per_frame: int = 100
+var max_ticks_per_frame: int = 400
 
 # Systems
 var orbit_system: OrbitSystem
