@@ -83,12 +83,19 @@ func _display_station() -> void:
 	text += "\n[b]Inventory:[/b]\n"
 	for commodity in station.inventory:
 		text += "  %s: %d\n" % [commodity, station.inventory[commodity]]
-	text += "\n[b]Ships (%d):[/b]\n" % station.ship_ids.size()
+	text += "\n[b]Owned Ships (%d):[/b]\n" % station.ship_ids.size()
 	for ship_id in station.ship_ids:
 		if ship_id in simulation.world.ships:
 			var ship = simulation.world.ships[ship_id]
 			var ship_link := _make_entity_link("ship", ship_id, ship.entity_name)
 			text += "  • %s [%s]\n" % [ship_link, ship.state]
+
+	text += "\n[b]Docked Ships (%d):[/b]\n" % station.docked_ship_ids.size()
+	for ship_id in station.docked_ship_ids:
+		if ship_id in simulation.world.ships:
+			var docked_ship = simulation.world.ships[ship_id]
+			var docked_ship_link := _make_entity_link("ship", ship_id, docked_ship.entity_name)
+			text += "  • %s [%s]\n" % [docked_ship_link, docked_ship.state]
 	details_text.text = text
 
 func _display_ship() -> void:

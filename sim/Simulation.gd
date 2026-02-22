@@ -213,10 +213,10 @@ func _spawn_initial_ships() -> void:
 		var station = world.stations[station_id]
 		# Each station gets 2-4 starting ships
 		var num_ships = world.rng.randi_range(2, 4)
-		for i in range(num_ships):
+		for _ in range(num_ships):
 			var ship := WorldState.ShipData.new()
 			ship.id = world.allocate_id()
-			ship.entity_name = "%s Freighter %d" % [station.entity_name.split(" ")[0], i + 1]
+			ship.entity_name = _generate_ship_name(ship.id)
 			ship.faction_name = station.faction_name
 			ship.home_station_id = station_id
 			ship.ship_type = "LIGHT_FREIGHTER"
@@ -237,6 +237,10 @@ func _spawn_initial_ships() -> void:
 			ship_count += 1
 
 	EventBus.emit_log("system", "Spawned %d initial ships across all stations." % ship_count)
+
+func _generate_ship_name(ship_id: int) -> String:
+	return "Freighter-%03d" % ship_id
+
 
 # ============================================================
 # Save / Load
