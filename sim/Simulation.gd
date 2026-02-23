@@ -2,14 +2,17 @@ class_name Simulation
 extends Node
 ## Main simulation controller. Owns WorldState and runs tick-based systems.
 
-const TICK_DELTA: float = 0.2  # 0.2 sim-minutes per tick for smoother movement at low speeds
+const TICK_DELTA: float = 24.0  # Coarser fixed step (scaled with faster base time)
 const AU_SCALE: float = 50.0   # 1 AU = 50 Godot units for rendering
+const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 720.0  # 1 sim-day per 2 real seconds at 1x
+const MAX_CATCHUP_TICKS_AT_1X: float = 8.0  # Catch-up budget in ticks at 1x, scales sublinearly
+const TIME_MODEL_VERSION: int = 2  # v2 = real-like orbital periods
 
 var world: WorldState
 var paused: bool = false
 var speed_multiplier: float = 1.0
 var accumulated_time: float = 0.0
-var max_ticks_per_frame: int = 400
+var max_ticks_per_frame: int = 240
 
 # Systems
 var orbit_system: OrbitSystem
@@ -37,13 +40,20 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 
-	accumulated_time += delta * speed_multiplier * 60.0  # Convert real seconds to sim-minutes
+	accumulated_time += delta * speed_multiplier * BASE_SIM_MINUTES_PER_REAL_SECOND
+	var catchup_ticks_budget: float = minf(float(max_ticks_per_frame), MAX_CATCHUP_TICKS_AT_1X * sqrt(maxf(speed_multiplier, 0.01)))
+	var max_catchup_sim_minutes: float = catchup_ticks_budget * TICK_DELTA
+	accumulated_time = minf(accumulated_time, max_catchup_sim_minutes)
 	var ticks_this_frame := 0
 
 	while accumulated_time >= TICK_DELTA and ticks_this_frame < max_ticks_per_frame:
 		_tick(TICK_DELTA)
 		accumulated_time -= TICK_DELTA
 		ticks_this_frame += 1
+
+	# Keep a bounded remainder to avoid long-tail backlog stutter.
+	if accumulated_time >= TICK_DELTA:
+		accumulated_time = fmod(accumulated_time, TICK_DELTA)
 
 func _tick(dt: float) -> void:
 	world.sim_time += dt
@@ -63,6 +73,8 @@ func set_paused(p: bool) -> void:
 
 func set_speed(mult: float) -> void:
 	speed_multiplier = mult
+	var catchup_ticks_budget: float = minf(float(max_ticks_per_frame), MAX_CATCHUP_TICKS_AT_1X * sqrt(maxf(speed_multiplier, 0.01)))
+	accumulated_time = minf(accumulated_time, catchup_ticks_budget * TICK_DELTA)
 	EventBus.simulation_speed_changed.emit(mult)
 
 func get_body_position(body_id: int) -> Vector3:
@@ -125,20 +137,19 @@ func _create_factions() -> void:
 	neutral.relations["Mars Corp"] = 0.4
 
 func _create_celestial_bodies() -> void:
-	# Orbital periods in sim-minutes (scaled for gameplay, not realistic)
-	# Real ratios preserved roughly: Mercury fastest, Neptune slowest
+	# Orbital periods in sim-minutes (real-like values)
 	var body_defs := [
 		# [name, type, orbital_radius_AU, period_minutes, display_radius, color_hex]
 		["Sun", "star", 0.0, 0.0, 5.0, "fff44f"],
-		["Mercury", "planet", 0.39, 5280.0, 0.4, "b5b5b5"],
-		["Venus", "planet", 0.72, 13500.0, 0.9, "e8cda0"],
-		["Earth", "planet", 1.0, 21900.0, 1.0, "4488ff"],
-		["Mars", "planet", 1.52, 41160.0, 0.6, "dd6644"],
-		["Jupiter", "planet", 5.2, 259560.0, 3.5, "d4a574"],
-		["Saturn", "planet", 9.5, 645480.0, 3.0, "e8d5a0"],
-		["Uranus", "planet", 19.2, 1839960.0, 1.8, "88ccdd"],
-		["Neptune", "planet", 30.0, 3607200.0, 1.7, "4466cc"],
-		["Ceres", "dwarf", 2.77, 101520.0, 0.2, "999999"],
+		["Mercury", "planet", 0.39, 126700.0, 0.4, "b5b5b5"],
+		["Venus", "planet", 0.72, 323570.0, 0.9, "e8cda0"],
+		["Earth", "planet", 1.0, 525600.0, 1.0, "4488ff"],
+		["Mars", "planet", 1.52, 989250.0, 0.6, "dd6644"],
+		["Jupiter", "planet", 5.2, 6238930.0, 3.5, "d4a574"],
+		["Saturn", "planet", 9.5, 15493280.0, 3.0, "e8d5a0"],
+		["Uranus", "planet", 19.2, 44191440.0, 1.8, "88ccdd"],
+		["Neptune", "planet", 30.0, 86662080.0, 1.7, "4466cc"],
+		["Ceres", "dwarf", 2.77, 2419920.0, 0.2, "999999"],
 	]
 
 	for def in body_defs:
@@ -238,6 +249,25 @@ func _spawn_initial_ships() -> void:
 
 	EventBus.emit_log("system", "Spawned %d initial ships across all stations." % ship_count)
 
+
+func _migrate_world_to_real_orbital_periods() -> void:
+	var real_periods := {
+		"Mercury": 126700.0,
+		"Venus": 323570.0,
+		"Earth": 525600.0,
+		"Mars": 989250.0,
+		"Jupiter": 6238930.0,
+		"Saturn": 15493280.0,
+		"Uranus": 44191440.0,
+		"Neptune": 86662080.0,
+		"Ceres": 2419920.0,
+	}
+	for body_id in world.bodies:
+		var body: WorldState.CelestialBodyData = world.bodies[body_id]
+		if body.entity_name in real_periods:
+			body.orbital_period = real_periods[body.entity_name]
+	EventBus.emit_log("system", "Migrated save to real orbital period time model.")
+
 func _generate_ship_name(ship_id: int) -> String:
 	return "Freighter-%03d" % ship_id
 
@@ -259,6 +289,7 @@ func save_game(filename: String = "savegame.json") -> bool:
 	var data = world.to_dict()
 	data["paused"] = paused
 	data["speed_multiplier"] = speed_multiplier
+	data["time_model_version"] = TIME_MODEL_VERSION
 
 	file.store_string(JSON.stringify(data, "\t"))
 	file.close()
@@ -288,6 +319,9 @@ func load_game(filename: String = "savegame.json") -> bool:
 	var data = json.data
 	world = WorldState.new()
 	world.from_dict(data)
+	var time_model_version: int = int(data.get("time_model_version", 1))
+	if time_model_version < TIME_MODEL_VERSION:
+		_migrate_world_to_real_orbital_periods()
 	paused = data.get("paused", false)
 	speed_multiplier = data.get("speed_multiplier", 1.0)
 

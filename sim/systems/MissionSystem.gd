@@ -106,7 +106,7 @@ func _dispatch_cargo_mission(world: WorldState, ship: WorldState.ShipData, sourc
 
 	# Set travel origin
 	if source.body_id in world.bodies:
-		var body_pos = world.bodies[source.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+		var body_pos: Vector3 = world.bodies[source.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 		ship.travel_origin = source.get_world_position(body_pos)
 		ship.position = ship.travel_origin
 

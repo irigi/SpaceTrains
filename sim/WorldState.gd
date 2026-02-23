@@ -91,7 +91,7 @@ class CelestialBodyData:
 	var entity_name: String = ""
 	var body_type: String = "planet"  # star, planet, moon, dwarf, asteroid
 	var orbital_radius: float = 0.0   # AU (scaled in rendering)
-	var orbital_period: float = 0.0   # in sim-hours
+	var orbital_period: float = 0.0   # in sim-minutes
 	var orbital_phase: float = 0.0    # starting angle in radians
 	var display_radius: float = 1.0   # visual scale
 	var color: Color = Color.WHITE
@@ -233,7 +233,12 @@ class ShipData:
 	var travel_origin: Vector3 = Vector3.ZERO
 	var travel_destination: Vector3 = Vector3.ZERO
 	var travel_progress: float = 0.0  # 0.0 to 1.0
-	var travel_duration: float = 0.0  # sim-hours
+	var travel_duration: float = 0.0  # sim-minutes
+
+	# Active trajectory object — null when docked.
+	# Controls position/velocity computation during travel.
+	# Replaced with a new object whenever the ship replans its route.
+	var trajectory: Trajectory = null
 
 	func to_dict() -> Dictionary:
 		return {
@@ -266,6 +271,7 @@ class ShipData:
 			"travel_destination": [travel_destination.x, travel_destination.y, travel_destination.z],
 			"travel_progress": travel_progress,
 			"travel_duration": travel_duration,
+			"trajectory": trajectory.to_dict() if trajectory != null else null,
 		}
 
 	func from_dict(d: Dictionary) -> void:
@@ -302,6 +308,22 @@ class ShipData:
 		travel_destination = Vector3(td[0], td[1], td[2])
 		travel_progress = d.get("travel_progress", 0.0)
 		travel_duration = d.get("travel_duration", 0.0)
+		# Reconstruct trajectory object from saved data.
+		# Supports legacy saves that lack a "trajectory" key (trajectory stays null;
+		# ShipMovementSystem will create one on the first traveling tick).
+		var traj_data = d.get("trajectory", null)
+		trajectory = null
+		if traj_data != null:
+			var traj_type: String = traj_data.get("type", "linear")
+			match traj_type:
+				"linear":
+					var t := LinearTrajectory.new()
+					t.from_dict(traj_data)
+					trajectory = t
+				"keplerian":
+					var t := KeplerianTrajectory.new()
+					t.from_dict(traj_data)
+					trajectory = t
 
 
 class FactionData:

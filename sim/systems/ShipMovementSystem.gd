@@ -1,10 +1,22 @@
 class_name ShipMovementSystem
 extends RefCounted
-## Handles ship travel between stations using straight-line movement.
-## Ships accelerate, cruise, and decelerate (simplified 3-phase).
+## Handles ship travel between stations via pluggable Trajectory objects.
+##
+## The state machine (docked → launching → traveling → arriving → docking)
+## is unchanged from Phase 0. The key difference is that during "traveling"
+## the ship's position and velocity are computed by its Trajectory object
+## rather than a direct lerp, enabling different physics models to be
+## swapped in without touching this file.
+##
+## Phase 1: LinearTrajectory (smoothstep straight-line, identical to original).
+## Phase 2+: KeplerianTrajectory, LowThrustTrajectory, etc.
 
-const DOCKING_RADIUS: float = 0.5  # Distance at which docking triggers
 const AU_SCALE: float = 50.0
+const MAX_TOTAL_DELTA_V: float = 0.010
+const MAX_DEPARTURE_SPEED: float = 0.030
+const FEASIBILITY_RETRY_DELAY: float = 15.0
+
+var _trajectory_planner: TrajectoryPlanner = TrajectoryPlanner.new()
 
 func update(world: WorldState, dt: float) -> void:
 	for ship_id in world.ships:
@@ -21,100 +33,182 @@ func update(world: WorldState, dt: float) -> void:
 			"docking":
 				_update_docking(world, ship, dt)
 
+
 func _update_docked(world: WorldState, ship: WorldState.ShipData) -> void:
-	# Update position to match station (station moves with planet)
+	# Update position to match station (station moves with planet).
 	if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
-		var station = world.stations[ship.docked_station_id]
+		var station: WorldState.StationData = world.stations[ship.docked_station_id]
 		if station.body_id in world.bodies:
-			var body_pos = world.bodies[station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			var body_pos: Vector3 = world.bodies[station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 			ship.position = station.get_world_position(body_pos)
 
+
 func _update_launching(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
-	# Brief launch phase then transition to traveling
-	ship.travel_progress += dt / 5.0  # 5 minutes to undock
+	# Brief undocking phase, then create trajectory and transition to traveling.
+	ship.travel_progress += dt / 5.0  # 5 sim-minutes to undock
 	if ship.travel_progress >= 1.0:
 		ship.state = "traveling"
 		ship.travel_progress = 0.0
 
-		# Compute travel parameters
+		# Compute destination at this moment (stations orbit with their planet).
 		if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
-			var dest_station = world.stations[ship.target_station_id]
+			var dest_station: WorldState.StationData = world.stations[ship.target_station_id]
 			if dest_station.body_id in world.bodies:
-				var body_pos = world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+				var body_pos: Vector3 = world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 				ship.travel_destination = dest_station.get_world_position(body_pos)
 
 		ship.travel_origin = ship.position
-		var distance = ship.travel_origin.distance_to(ship.travel_destination)
-		ship.travel_duration = maxf(distance / ship.base_speed, 1.0)
+
+		var origin_body_pos := Vector3.ZERO
+		if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
+			var origin_station: WorldState.StationData = world.stations[ship.docked_station_id]
+			if origin_station.body_id in world.bodies:
+				origin_body_pos = world.bodies[origin_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+
+		var dest_body_pos := ship.travel_destination
+		if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
+			var target_station: WorldState.StationData = world.stations[ship.target_station_id]
+			if target_station.body_id in world.bodies:
+				dest_body_pos = world.bodies[target_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+
+		ship.trajectory = _trajectory_planner.plan_station_transfer(
+			ship.travel_origin,
+			ship.travel_destination,
+			world.sim_time,
+			ship.base_speed,
+			origin_body_pos,
+			dest_body_pos
+		)
+		var departure_speed: float = ship.trajectory.get_velocity_at_time(ship.trajectory.get_start_time()).length()
+		var total_delta_v: float = ship.trajectory.get_total_delta_v()
+		if departure_speed > MAX_DEPARTURE_SPEED or total_delta_v > MAX_TOTAL_DELTA_V:
+			_set_ship_waiting_for_feasible_transfer(world, ship, departure_speed, total_delta_v)
+			return
+
+		ship.travel_duration = ship.trajectory.get_duration()
+		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
+		ship.docked_station_id = -1
+
+
+func _set_ship_waiting_for_feasible_transfer(world: WorldState, ship: WorldState.ShipData, departure_speed: float, total_delta_v: float) -> void:
+	ship.state = "launching"
+	ship.travel_progress = -FEASIBILITY_RETRY_DELAY / 5.0
+	ship.trajectory = null
+
+	var dock_station_id: int = ship.mission_source_id if ship.mission_source_id >= 0 else ship.home_station_id
+	if dock_station_id >= 0 and dock_station_id in world.stations:
+		ship.docked_station_id = dock_station_id
+		var station: WorldState.StationData = world.stations[dock_station_id]
+		if ship.id in station.docked_ship_ids:
+			station.docked_ship_ids.erase(ship.id)
+		if station.body_id in world.bodies:
+			var body_pos: Vector3 = world.bodies[station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			ship.position = station.get_world_position(body_pos)
+
+	EventBus.emit_log("system", "%s waiting at dock: transfer too aggressive (speed %.4f, Δv %.4f). Retrying in %.1f sim-min." % [ship.entity_name, departure_speed, total_delta_v, FEASIBILITY_RETRY_DELAY])
+
 
 func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
-	if ship.travel_duration <= 0.0:
-		ship.state = "arriving"
-		return
+	# Guard: if no trajectory (legacy save) or a legacy LinearTrajectory sneaks in,
+	# replan to Keplerian immediately.
+	if ship.trajectory == null or ship.trajectory is LinearTrajectory:
+		_replan_to_keplerian(world, ship)
 
-	ship.travel_progress += dt / ship.travel_duration
+	# Position and velocity come from the trajectory object.
+	ship.position = ship.trajectory.get_position_at_time(world.sim_time)
+	ship.velocity = ship.trajectory.get_velocity_at_time(world.sim_time)
 
-	# Recalculate destination (target station moves with its planet)
-	if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
-		var dest_station = world.stations[ship.target_station_id]
-		if dest_station.body_id in world.bodies:
-			var body_pos = world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
-			ship.travel_destination = dest_station.get_world_position(body_pos)
+	# Keep travel_progress in sync for UI queries (ETA, progress bar).
+	ship.travel_progress = ship.trajectory.get_progress(world.sim_time)
 
-	# Smooth interpolation with ease-in/ease-out
-	var t = clampf(ship.travel_progress, 0.0, 1.0)
-	var smooth_t = _smoothstep(t)
-	ship.position = ship.travel_origin.lerp(ship.travel_destination, smooth_t)
-
-	# Fuel consumption
+	# Fuel consumption — unchanged from Phase 0, will be replaced in Phase 3.
 	ship.fuel -= dt * 0.01 * ship.base_speed
+	ship.fuel = maxf(ship.fuel, 0.0)
 
-	if ship.travel_progress >= 1.0:
+	if ship.trajectory.is_complete(world.sim_time):
+		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
 		ship.state = "arriving"
 		ship.travel_progress = 0.0
 
+
+func _replan_to_keplerian(world: WorldState, ship: WorldState.ShipData) -> void:
+	var origin_pos: Vector3 = ship.position
+	var destination_pos: Vector3 = ship.travel_destination
+	var origin_body_pos: Vector3 = origin_pos
+	var dest_body_pos: Vector3 = destination_pos
+
+	if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
+		var target_station: WorldState.StationData = world.stations[ship.target_station_id]
+		if target_station.body_id in world.bodies:
+			dest_body_pos = world.bodies[target_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			destination_pos = target_station.get_world_position(dest_body_pos)
+
+	if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
+		var origin_station: WorldState.StationData = world.stations[ship.docked_station_id]
+		if origin_station.body_id in world.bodies:
+			origin_body_pos = world.bodies[origin_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+
+	ship.travel_origin = origin_pos
+	ship.travel_destination = destination_pos
+	ship.trajectory = _trajectory_planner.plan_station_transfer(
+		origin_pos,
+		destination_pos,
+		world.sim_time,
+		ship.base_speed,
+		origin_body_pos,
+		dest_body_pos
+	)
+	ship.travel_duration = ship.trajectory.get_duration()
+	ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
+
+
 func _update_arriving(_world: WorldState, ship: WorldState.ShipData, _dt: float) -> void:
-	# Snap to destination, transition to docking
+	# Snap to destination and begin the docking sequence.
 	ship.position = ship.travel_destination
+	ship.velocity = Vector3.ZERO
 	ship.state = "docking"
 	ship.travel_progress = 0.0
 
+
 func _update_docking(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
-	ship.travel_progress += dt / 3.0  # 3 minutes to dock
+	ship.travel_progress += dt / 3.0  # 3 sim-minutes to dock
 	if ship.travel_progress >= 1.0:
 		_dock_ship(world, ship)
+
 
 func _dock_ship(world: WorldState, ship: WorldState.ShipData) -> void:
 	ship.state = "docked"
 	ship.docked_station_id = ship.target_station_id
 	ship.target_station_id = -1
 	ship.travel_progress = 0.0
+	ship.trajectory = null  # Clear trajectory — ship is no longer in transit.
 
 	if ship.docked_station_id in world.stations:
-		var station = world.stations[ship.docked_station_id]
+		var station: WorldState.StationData = world.stations[ship.docked_station_id]
 		if ship.id not in station.docked_ship_ids:
 			station.docked_ship_ids.append(ship.id)
 
-		# Deliver cargo if on cargo mission
+		# Deliver cargo if on a cargo mission to this station.
 		if ship.mission_type == "cargo_delivery" and ship.docked_station_id == ship.mission_dest_id:
 			_deliver_cargo(world, ship, station)
 
 		EventBus.ship_docked.emit(ship.id, ship.docked_station_id)
 		EventBus.emit_log("trade", "%s docked at %s" % [ship.entity_name, station.entity_name])
 
-	# Clear mission
+	# Clear mission fields.
 	ship.mission_type = ""
 	ship.mission_commodity = ""
 	ship.mission_amount = 0
 	ship.mission_source_id = -1
 	ship.mission_dest_id = -1
 
-	# Refuel
+	# Refuel at station.
 	ship.fuel = ship.fuel_max
+
 
 func _deliver_cargo(_world: WorldState, ship: WorldState.ShipData, station: WorldState.StationData) -> void:
 	for commodity in ship.cargo:
-		var amount = ship.cargo[commodity]
+		var amount: int = ship.cargo[commodity]
 		if commodity in station.inventory:
 			station.inventory[commodity] += amount
 		else:
@@ -122,7 +216,3 @@ func _deliver_cargo(_world: WorldState, ship: WorldState.ShipData, station: Worl
 		EventBus.cargo_delivered.emit(ship.id, station.id, commodity, amount)
 		EventBus.emit_log("trade", "%s delivered %d %s to %s" % [ship.entity_name, amount, commodity, station.entity_name])
 	ship.cargo.clear()
-
-func _smoothstep(t: float) -> float:
-	# Hermite smoothstep for ease-in/ease-out
-	return t * t * (3.0 - 2.0 * t)

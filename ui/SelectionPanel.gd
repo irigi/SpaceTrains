@@ -130,7 +130,7 @@ func _display_ship() -> void:
 	elif ship.mission_type == "":
 		text += "\n[i]No cargo[/i]\n"
 
-	if ship.docked_station_id >= 0 and ship.docked_station_id in simulation.world.stations:
+	if ship.state == "docked" and ship.docked_station_id >= 0 and ship.docked_station_id in simulation.world.stations:
 		var docked_station = simulation.world.stations[ship.docked_station_id]
 		text += "\n[b]Docked at:[/b] %s\n" % _make_entity_link("station", ship.docked_station_id, docked_station.entity_name)
 
