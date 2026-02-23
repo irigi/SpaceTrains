@@ -101,12 +101,13 @@ func _dispatch_cargo_mission(world: WorldState, ship: WorldState.ShipData, sourc
 	# Undock
 	ship.state = "launching"
 	ship.travel_progress = 0.0
+	ship.docked_station_id = -1
 	if ship.id in source.docked_ship_ids:
 		source.docked_ship_ids.erase(ship.id)
 
 	# Set travel origin
 	if source.body_id in world.bodies:
-		var body_pos = world.bodies[source.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+		var body_pos: Vector3 = world.bodies[source.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 		ship.travel_origin = source.get_world_position(body_pos)
 		ship.position = ship.travel_origin
 

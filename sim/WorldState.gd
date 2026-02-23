@@ -91,7 +91,7 @@ class CelestialBodyData:
 	var entity_name: String = ""
 	var body_type: String = "planet"  # star, planet, moon, dwarf, asteroid
 	var orbital_radius: float = 0.0   # AU (scaled in rendering)
-	var orbital_period: float = 0.0   # in sim-hours
+	var orbital_period: float = 0.0   # in sim-minutes
 	var orbital_phase: float = 0.0    # starting angle in radians
 	var display_radius: float = 1.0   # visual scale
 	var color: Color = Color.WHITE
@@ -312,11 +312,16 @@ class ShipData:
 		# Supports legacy saves that lack a "trajectory" key (trajectory stays null;
 		# ShipMovementSystem will create one on the first traveling tick).
 		var traj_data = d.get("trajectory", null)
+		trajectory = null
 		if traj_data != null:
 			var traj_type: String = traj_data.get("type", "linear")
 			match traj_type:
 				"linear":
 					var t := LinearTrajectory.new()
+					t.from_dict(traj_data)
+					trajectory = t
+				"keplerian":
+					var t := KeplerianTrajectory.new()
 					t.from_dict(traj_data)
 					trajectory = t
 
