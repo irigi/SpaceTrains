@@ -4,6 +4,7 @@ extends Node
 
 const TICK_DELTA: float = 0.2  # 0.2 sim-minutes per tick for smoother movement at low speeds
 const AU_SCALE: float = 50.0   # 1 AU = 50 Godot units for rendering
+const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 1440.0  # 1 sim-day per real second at 1x
 
 var world: WorldState
 var paused: bool = false
@@ -37,13 +38,18 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 
-	accumulated_time += delta * speed_multiplier * 60.0  # Convert real seconds to sim-minutes
+	accumulated_time += delta * speed_multiplier * BASE_SIM_MINUTES_PER_REAL_SECOND
 	var ticks_this_frame := 0
 
 	while accumulated_time >= TICK_DELTA and ticks_this_frame < max_ticks_per_frame:
 		_tick(TICK_DELTA)
 		accumulated_time -= TICK_DELTA
 		ticks_this_frame += 1
+
+	# If we hit the tick budget, discard backlog to prevent "slow forever" behavior
+	# after temporarily running at high speed.
+	if ticks_this_frame >= max_ticks_per_frame and accumulated_time >= TICK_DELTA:
+		accumulated_time = fmod(accumulated_time, TICK_DELTA)
 
 func _tick(dt: float) -> void:
 	world.sim_time += dt
@@ -63,6 +69,7 @@ func set_paused(p: bool) -> void:
 
 func set_speed(mult: float) -> void:
 	speed_multiplier = mult
+	accumulated_time = minf(accumulated_time, TICK_DELTA)
 	EventBus.simulation_speed_changed.emit(mult)
 
 func get_body_position(body_id: int) -> Vector3:
@@ -130,15 +137,15 @@ func _create_celestial_bodies() -> void:
 	var body_defs := [
 		# [name, type, orbital_radius_AU, period_minutes, display_radius, color_hex]
 		["Sun", "star", 0.0, 0.0, 5.0, "fff44f"],
-		["Mercury", "planet", 0.39, 5280.0, 0.4, "b5b5b5"],
-		["Venus", "planet", 0.72, 13500.0, 0.9, "e8cda0"],
-		["Earth", "planet", 1.0, 21900.0, 1.0, "4488ff"],
-		["Mars", "planet", 1.52, 41160.0, 0.6, "dd6644"],
-		["Jupiter", "planet", 5.2, 259560.0, 3.5, "d4a574"],
-		["Saturn", "planet", 9.5, 645480.0, 3.0, "e8d5a0"],
-		["Uranus", "planet", 19.2, 1839960.0, 1.8, "88ccdd"],
-		["Neptune", "planet", 30.0, 3607200.0, 1.7, "4466cc"],
-		["Ceres", "dwarf", 2.77, 101520.0, 0.2, "999999"],
+		["Mercury", "planet", 0.39, 126700.0, 0.4, "b5b5b5"],
+		["Venus", "planet", 0.72, 323570.0, 0.9, "e8cda0"],
+		["Earth", "planet", 1.0, 525600.0, 1.0, "4488ff"],
+		["Mars", "planet", 1.52, 989250.0, 0.6, "dd6644"],
+		["Jupiter", "planet", 5.2, 6238930.0, 3.5, "d4a574"],
+		["Saturn", "planet", 9.5, 15493280.0, 3.0, "e8d5a0"],
+		["Uranus", "planet", 19.2, 44191440.0, 1.8, "88ccdd"],
+		["Neptune", "planet", 30.0, 86662080.0, 1.7, "4466cc"],
+		["Ceres", "dwarf", 2.77, 2419920.0, 0.2, "999999"],
 	]
 
 	for def in body_defs:

@@ -7,7 +7,7 @@ extends RefCounted
 
 const AU_SCALE: float = 50.0
 const EARTH_ORBIT_RADIUS_GU: float = 1.0 * AU_SCALE
-const EARTH_ORBIT_PERIOD_MIN: float = 21900.0
+const EARTH_ORBIT_PERIOD_MIN: float = 525600.0
 const MU_SUN: float = (TAU * TAU) * pow(EARTH_ORBIT_RADIUS_GU, 3.0) / pow(EARTH_ORBIT_PERIOD_MIN, 2.0)
 
 const MIN_TRANSFER_DURATION_MIN: float = 5.0

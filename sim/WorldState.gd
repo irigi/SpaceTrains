@@ -91,7 +91,7 @@ class CelestialBodyData:
 	var entity_name: String = ""
 	var body_type: String = "planet"  # star, planet, moon, dwarf, asteroid
 	var orbital_radius: float = 0.0   # AU (scaled in rendering)
-	var orbital_period: float = 0.0   # in sim-hours
+	var orbital_period: float = 0.0   # in sim-minutes
 	var orbital_phase: float = 0.0    # starting angle in radians
 	var display_radius: float = 1.0   # visual scale
 	var color: Color = Color.WHITE
