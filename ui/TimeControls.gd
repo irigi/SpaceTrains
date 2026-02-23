@@ -20,11 +20,14 @@ func _process(_delta: float) -> void:
 		return
 
 	if time_label:
-		var hours = int(simulation.world.sim_time / 60.0)
+		var total_minutes: int = int(simulation.world.sim_time)
 		@warning_ignore("integer_division")
-		var days = hours / 24
-		var remaining_hours = hours % 24
-		time_label.text = "Day %d, %02d:00" % [days + 1, remaining_hours]
+		var day_index: int = total_minutes / 1440
+		var year_index: int = day_index / 365
+		var day_of_year: int = day_index % 365
+		@warning_ignore("integer_division")
+		var hour_of_day: int = (total_minutes % 1440) / 60
+		time_label.text = "Y%02d D%03d %02d:00" % [year_index + 1, day_of_year + 1, hour_of_day]
 
 	if speed_label:
 		if simulation.paused:

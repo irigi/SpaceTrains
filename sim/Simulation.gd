@@ -6,6 +6,7 @@ const TICK_DELTA: float = 2.0  # Coarser fixed step to keep tick throughput affo
 const AU_SCALE: float = 50.0   # 1 AU = 50 Godot units for rendering
 const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 60.0  # 1 sim-hour per real second at 1x
 const MAX_CATCHUP_SIM_MINUTES: float = 8.0  # Hard cap on backlog processed per frame
+const TIME_MODEL_VERSION: int = 2  # v2 = real-like orbital periods
 
 var world: WorldState
 var paused: bool = false
@@ -133,8 +134,7 @@ func _create_factions() -> void:
 	neutral.relations["Mars Corp"] = 0.4
 
 func _create_celestial_bodies() -> void:
-	# Orbital periods in sim-minutes (scaled for gameplay, not realistic)
-	# Real ratios preserved roughly: Mercury fastest, Neptune slowest
+	# Orbital periods in sim-minutes (real-like values)
 	var body_defs := [
 		# [name, type, orbital_radius_AU, period_minutes, display_radius, color_hex]
 		["Sun", "star", 0.0, 0.0, 5.0, "fff44f"],
@@ -246,6 +246,25 @@ func _spawn_initial_ships() -> void:
 
 	EventBus.emit_log("system", "Spawned %d initial ships across all stations." % ship_count)
 
+
+func _migrate_world_to_real_orbital_periods() -> void:
+	var real_periods := {
+		"Mercury": 126700.0,
+		"Venus": 323570.0,
+		"Earth": 525600.0,
+		"Mars": 989250.0,
+		"Jupiter": 6238930.0,
+		"Saturn": 15493280.0,
+		"Uranus": 44191440.0,
+		"Neptune": 86662080.0,
+		"Ceres": 2419920.0,
+	}
+	for body_id in world.bodies:
+		var body: WorldState.CelestialBodyData = world.bodies[body_id]
+		if body.entity_name in real_periods:
+			body.orbital_period = real_periods[body.entity_name]
+	EventBus.emit_log("system", "Migrated save to real orbital period time model.")
+
 func _generate_ship_name(ship_id: int) -> String:
 	return "Freighter-%03d" % ship_id
 
@@ -267,6 +286,7 @@ func save_game(filename: String = "savegame.json") -> bool:
 	var data = world.to_dict()
 	data["paused"] = paused
 	data["speed_multiplier"] = speed_multiplier
+	data["time_model_version"] = TIME_MODEL_VERSION
 
 	file.store_string(JSON.stringify(data, "\t"))
 	file.close()
@@ -296,6 +316,9 @@ func load_game(filename: String = "savegame.json") -> bool:
 	var data = json.data
 	world = WorldState.new()
 	world.from_dict(data)
+	var time_model_version: int = int(data.get("time_model_version", 1))
+	if time_model_version < TIME_MODEL_VERSION:
+		_migrate_world_to_real_orbital_periods()
 	paused = data.get("paused", false)
 	speed_multiplier = data.get("speed_multiplier", 1.0)
 
