@@ -1,7 +1,9 @@
 class_name TrajectoryPlanner
 extends RefCounted
-## Plans ship trajectories. Phase 2 uses Keplerian transfers with
-## a Lambert universal-variable solve and robust fallbacks.
+## Plans ship trajectories.
+##
+## For now we prioritize Hohmann-like bounded ellipses to keep interplanetary
+## travel physically plausible (long-duration, smooth heliocentric arcs).
 
 const AU_SCALE: float = 50.0
 const EARTH_ORBIT_RADIUS_GU: float = 1.0 * AU_SCALE
@@ -9,8 +11,8 @@ const EARTH_ORBIT_PERIOD_MIN: float = 21900.0
 const MU_SUN: float = (TAU * TAU) * pow(EARTH_ORBIT_RADIUS_GU, 3.0) / pow(EARTH_ORBIT_PERIOD_MIN, 2.0)
 
 const MIN_LINEAR_SPEED: float = 0.1
-const MAX_ENDPOINT_ERROR_GU: float = 1.5
-const DURATION_FACTORS: Array[float] = [1.0, 0.9, 1.1, 0.8, 1.2]
+const MIN_TRANSFER_DURATION_MIN: float = 5.0
+const MIN_ELLIPTIC_ENERGY_EPS: float = 1e-8
 
 
 func plan_station_transfer(
@@ -22,39 +24,82 @@ func plan_station_transfer(
 	dest_body_pos: Vector3
 ) -> Trajectory:
 	var linear_duration := maxf(origin.distance_to(destination) / maxf(base_speed, MIN_LINEAR_SPEED), 1.0)
-	var baseline_duration := _estimate_transfer_duration(origin_body_pos.length(), dest_body_pos.length(), base_speed)
 
-	for factor in DURATION_FACTORS:
-		var transfer_duration := maxf(1.0, baseline_duration * factor)
-		var solve := _solve_lambert_universal(origin, destination, transfer_duration, MU_SUN)
-		if not solve.get("ok", false):
-			continue
+	# Very short hops keep linear behavior.
+	if origin.distance_to(destination) <= 1.0:
+		return LinearTrajectory.create(origin, destination, start_time, linear_duration)
 
+	var hohmann := _build_hohmann_like_trajectory(origin, start_time, base_speed, origin_body_pos, dest_body_pos)
+	if hohmann != null:
+		return hohmann
+
+	# As a fallback, try Lambert before dropping to linear.
+	var lambert_duration := _estimate_transfer_duration(origin_body_pos.length(), dest_body_pos.length(), base_speed)
+	var solve := _solve_lambert_universal(origin, destination, lambert_duration, MU_SUN)
+	if solve.get("ok", false):
 		var v1: Vector3 = solve["v1"]
 		var v2: Vector3 = solve["v2"]
-		if not _is_elliptic_state(origin, v1):
-			continue
-
-		var dep_dv := (v1 - _circular_velocity_at_position(origin_body_pos)).length()
-		var arr_dv := (v2 - _circular_velocity_at_position(dest_body_pos)).length()
-		var trajectory := KeplerianTrajectory.create(
-			origin,
-			v1,
-			start_time,
-			start_time + transfer_duration,
-			MU_SUN,
-			dep_dv,
-			arr_dv
-		)
-		if _endpoint_error(trajectory, destination) <= MAX_ENDPOINT_ERROR_GU:
-			return trajectory
+		if _is_elliptic_state(origin, v1):
+			var dep_dv := (v1 - _circular_velocity_at_position(origin_body_pos)).length()
+			var arr_dv := (v2 - _circular_velocity_at_position(dest_body_pos)).length()
+			return KeplerianTrajectory.create(
+				origin,
+				v1,
+				start_time,
+				start_time + lambert_duration,
+				MU_SUN,
+				dep_dv,
+				arr_dv
+			)
 
 	return LinearTrajectory.create(origin, destination, start_time, linear_duration)
 
 
-func _endpoint_error(trajectory: Trajectory, expected_destination: Vector3) -> float:
-	var endpoint := trajectory.get_position_at_time(trajectory.get_end_time())
-	return endpoint.distance_to(expected_destination)
+func _build_hohmann_like_trajectory(
+	origin: Vector3,
+	start_time: float,
+	base_speed: float,
+	origin_body_pos: Vector3,
+	dest_body_pos: Vector3
+) -> KeplerianTrajectory:
+	var r1 := maxf(origin_body_pos.length(), 1e-3)
+	var r2 := maxf(dest_body_pos.length(), 1e-3)
+	var a_transfer := maxf((r1 + r2) * 0.5, 1e-3)
+
+	# Hohmann half-period with a gentle ship-speed factor around 1.0.
+	var hohmann_duration := PI * sqrt(pow(a_transfer, 3.0) / MU_SUN)
+	var speed_factor := clampf(1.05 - base_speed * 0.03, 0.85, 1.10)
+	var transfer_duration := maxf(MIN_TRANSFER_DURATION_MIN, hohmann_duration * speed_factor)
+
+	var radial := Vector3(origin.x, 0.0, origin.z)
+	var radial_len := radial.length()
+	if radial_len <= 1e-6:
+		return null
+	radial /= radial_len
+	var tangent := Vector3(-radial.z, 0.0, radial.x)
+
+	# Vis-viva speed on the transfer ellipse at r1 (guaranteed bound for a>0).
+	var transfer_speed := sqrt(maxf(MU_SUN * (2.0 / r1 - 1.0 / a_transfer), 0.0))
+	if transfer_speed <= 1e-6:
+		return null
+
+	var departure_velocity := tangent * transfer_speed
+	if not _is_elliptic_state(origin, departure_velocity):
+		return null
+
+	var dep_dv := absf(transfer_speed - sqrt(MU_SUN / r1))
+	var arr_speed := sqrt(maxf(MU_SUN * (2.0 / r2 - 1.0 / a_transfer), 0.0))
+	var arr_dv := absf(arr_speed - sqrt(MU_SUN / r2))
+
+	return KeplerianTrajectory.create(
+		origin,
+		departure_velocity,
+		start_time,
+		start_time + transfer_duration,
+		MU_SUN,
+		dep_dv,
+		arr_dv
+	)
 
 
 func _is_elliptic_state(pos: Vector3, vel: Vector3) -> bool:
@@ -62,14 +107,14 @@ func _is_elliptic_state(pos: Vector3, vel: Vector3) -> bool:
 	if r <= 1e-6:
 		return false
 	var specific_energy := 0.5 * vel.length_squared() - MU_SUN / r
-	return specific_energy < 0.0
+	return specific_energy < -MIN_ELLIPTIC_ENERGY_EPS
 
 
 func _estimate_transfer_duration(r1: float, r2: float, base_speed: float) -> float:
 	var a_transfer := maxf((r1 + r2) * 0.5, 1e-3)
 	var hohmann_time := PI * sqrt(pow(a_transfer, 3.0) / MU_SUN)
-	var speed_factor := clampf(1.2 - base_speed * 0.2, 0.55, 1.15)
-	return maxf(1.0, hohmann_time * speed_factor)
+	var speed_factor := clampf(1.05 - base_speed * 0.03, 0.85, 1.10)
+	return maxf(MIN_TRANSFER_DURATION_MIN, hohmann_time * speed_factor)
 
 
 func _circular_velocity_at_position(pos: Vector3) -> Vector3:
@@ -78,7 +123,6 @@ func _circular_velocity_at_position(pos: Vector3) -> Vector3:
 		return Vector3.ZERO
 	var speed := sqrt(MU_SUN / r)
 	var radial := pos / r
-	# Prograde tangent in XZ plane.
 	var tangent := Vector3(-radial.z, 0.0, radial.x)
 	return tangent * speed
 
