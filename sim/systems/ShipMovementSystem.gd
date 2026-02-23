@@ -12,6 +12,8 @@ extends RefCounted
 ## Phase 2+: KeplerianTrajectory, LowThrustTrajectory, etc.
 
 const AU_SCALE: float = 50.0
+const MAX_TOTAL_DELTA_V: float = 0.010
+const MAX_DEPARTURE_SPEED: float = 0.030
 
 var _trajectory_planner: TrajectoryPlanner = TrajectoryPlanner.new()
 
@@ -76,8 +78,32 @@ func _update_launching(world: WorldState, ship: WorldState.ShipData, dt: float) 
 			origin_body_pos,
 			dest_body_pos
 		)
+		var departure_speed: float = ship.trajectory.get_velocity_at_time(ship.trajectory.get_start_time()).length()
+		var total_delta_v: float = ship.trajectory.get_total_delta_v()
+		if departure_speed > MAX_DEPARTURE_SPEED or total_delta_v > MAX_TOTAL_DELTA_V:
+			_set_ship_waiting_for_feasible_transfer(world, ship, departure_speed, total_delta_v)
+			return
+
 		ship.travel_duration = ship.trajectory.get_duration()
 		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
+
+
+func _set_ship_waiting_for_feasible_transfer(world: WorldState, ship: WorldState.ShipData, departure_speed: float, total_delta_v: float) -> void:
+	ship.state = "docked"
+	ship.travel_progress = 0.0
+	ship.trajectory = null
+
+	var dock_station_id: int = ship.mission_source_id if ship.mission_source_id >= 0 else ship.home_station_id
+	if dock_station_id >= 0 and dock_station_id in world.stations:
+		ship.docked_station_id = dock_station_id
+		var station: WorldState.StationData = world.stations[dock_station_id]
+		if ship.id not in station.docked_ship_ids:
+			station.docked_ship_ids.append(ship.id)
+		if station.body_id in world.bodies:
+			var body_pos: Vector3 = world.bodies[station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			ship.position = station.get_world_position(body_pos)
+
+	EventBus.emit_log("system", "%s waiting at dock: transfer too aggressive (speed %.4f, Δv %.4f)." % [ship.entity_name, departure_speed, total_delta_v])
 
 
 func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
