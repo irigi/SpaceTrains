@@ -312,11 +312,16 @@ class ShipData:
 		# Supports legacy saves that lack a "trajectory" key (trajectory stays null;
 		# ShipMovementSystem will create one on the first traveling tick).
 		var traj_data = d.get("trajectory", null)
+		trajectory = null
 		if traj_data != null:
 			var traj_type: String = traj_data.get("type", "linear")
 			match traj_type:
 				"linear":
 					var t := LinearTrajectory.new()
+					t.from_dict(traj_data)
+					trajectory = t
+				"keplerian":
+					var t := KeplerianTrajectory.new()
 					t.from_dict(traj_data)
 					trajectory = t
 

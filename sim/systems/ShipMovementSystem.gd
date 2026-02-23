@@ -13,6 +13,8 @@ extends RefCounted
 
 const AU_SCALE: float = 50.0
 
+var _trajectory_planner: TrajectoryPlanner = TrajectoryPlanner.new()
+
 func update(world: WorldState, dt: float) -> void:
 	for ship_id in world.ships:
 		var ship: WorldState.ShipData = world.ships[ship_id]
@@ -53,16 +55,29 @@ func _update_launching(world: WorldState, ship: WorldState.ShipData, dt: float) 
 				ship.travel_destination = dest_station.get_world_position(body_pos)
 
 		ship.travel_origin = ship.position
-		var distance := ship.travel_origin.distance_to(ship.travel_destination)
-		ship.travel_duration = maxf(distance / ship.base_speed, 1.0)
 
-		# Create the trajectory object. Phase 1 always uses LinearTrajectory.
-		ship.trajectory = LinearTrajectory.create(
+		var origin_body_pos := Vector3.ZERO
+		if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
+			var origin_station := world.stations[ship.docked_station_id]
+			if origin_station.body_id in world.bodies:
+				origin_body_pos = world.bodies[origin_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+
+		var dest_body_pos := ship.travel_destination
+		if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
+			var target_station := world.stations[ship.target_station_id]
+			if target_station.body_id in world.bodies:
+				dest_body_pos = world.bodies[target_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+
+		ship.trajectory = _trajectory_planner.plan_station_transfer(
 			ship.travel_origin,
 			ship.travel_destination,
 			world.sim_time,
-			ship.travel_duration
+			ship.base_speed,
+			origin_body_pos,
+			dest_body_pos
 		)
+		ship.travel_duration = ship.trajectory.get_duration()
+		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
 
 
 func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
@@ -77,8 +92,8 @@ func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) 
 			ship.travel_duration
 		)
 
-	# Recalculate destination every tick — target station moves with its planet.
-	if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
+	# Linear trajectories continue to track moving destinations each tick.
+	if ship.trajectory is LinearTrajectory and ship.target_station_id >= 0 and ship.target_station_id in world.stations:
 		var dest_station := world.stations[ship.target_station_id]
 		if dest_station.body_id in world.bodies:
 			var body_pos := world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
@@ -98,6 +113,7 @@ func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) 
 	ship.fuel = maxf(ship.fuel, 0.0)
 
 	if ship.trajectory.is_complete(world.sim_time):
+		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
 		ship.state = "arriving"
 		ship.travel_progress = 0.0
 
