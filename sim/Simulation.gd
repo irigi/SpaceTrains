@@ -2,15 +2,16 @@ class_name Simulation
 extends Node
 ## Main simulation controller. Owns WorldState and runs tick-based systems.
 
-const TICK_DELTA: float = 0.2  # 0.2 sim-minutes per tick for smoother movement at low speeds
+const TICK_DELTA: float = 2.0  # Coarser fixed step to keep tick throughput affordable
 const AU_SCALE: float = 50.0   # 1 AU = 50 Godot units for rendering
-const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 1440.0  # 1 sim-day per real second at 1x
+const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 60.0  # 1 sim-hour per real second at 1x
+const MAX_CATCHUP_SIM_MINUTES: float = 8.0  # Hard cap on backlog processed per frame
 
 var world: WorldState
 var paused: bool = false
 var speed_multiplier: float = 1.0
 var accumulated_time: float = 0.0
-var max_ticks_per_frame: int = 400
+var max_ticks_per_frame: int = 240
 
 # Systems
 var orbit_system: OrbitSystem
@@ -39,6 +40,7 @@ func _process(delta: float) -> void:
 		return
 
 	accumulated_time += delta * speed_multiplier * BASE_SIM_MINUTES_PER_REAL_SECOND
+	accumulated_time = minf(accumulated_time, MAX_CATCHUP_SIM_MINUTES)
 	var ticks_this_frame := 0
 
 	while accumulated_time >= TICK_DELTA and ticks_this_frame < max_ticks_per_frame:
@@ -46,9 +48,8 @@ func _process(delta: float) -> void:
 		accumulated_time -= TICK_DELTA
 		ticks_this_frame += 1
 
-	# If we hit the tick budget, discard backlog to prevent "slow forever" behavior
-	# after temporarily running at high speed.
-	if ticks_this_frame >= max_ticks_per_frame and accumulated_time >= TICK_DELTA:
+	# Keep a bounded remainder to avoid long-tail backlog stutter.
+	if accumulated_time >= TICK_DELTA:
 		accumulated_time = fmod(accumulated_time, TICK_DELTA)
 
 func _tick(dt: float) -> void:
@@ -69,7 +70,7 @@ func set_paused(p: bool) -> void:
 
 func set_speed(mult: float) -> void:
 	speed_multiplier = mult
-	accumulated_time = minf(accumulated_time, TICK_DELTA)
+	accumulated_time = minf(accumulated_time, MAX_CATCHUP_SIM_MINUTES)
 	EventBus.simulation_speed_changed.emit(mult)
 
 func get_body_position(body_id: int) -> Vector3:
