@@ -2,10 +2,10 @@ class_name Simulation
 extends Node
 ## Main simulation controller. Owns WorldState and runs tick-based systems.
 
-const TICK_DELTA: float = 2.0  # Coarser fixed step to keep tick throughput affordable
+const TICK_DELTA: float = 24.0  # Coarser fixed step (scaled with faster base time)
 const AU_SCALE: float = 50.0   # 1 AU = 50 Godot units for rendering
-const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 60.0  # 1 sim-hour per real second at 1x
-const MAX_CATCHUP_SIM_MINUTES: float = 8.0  # Hard cap on backlog processed per frame
+const BASE_SIM_MINUTES_PER_REAL_SECOND: float = 720.0  # 1 sim-day per 2 real seconds at 1x
+const MAX_CATCHUP_TICKS_AT_1X: float = 8.0  # Catch-up budget in ticks at 1x, scales sublinearly
 const TIME_MODEL_VERSION: int = 2  # v2 = real-like orbital periods
 
 var world: WorldState
@@ -41,7 +41,9 @@ func _process(delta: float) -> void:
 		return
 
 	accumulated_time += delta * speed_multiplier * BASE_SIM_MINUTES_PER_REAL_SECOND
-	accumulated_time = minf(accumulated_time, MAX_CATCHUP_SIM_MINUTES)
+	var catchup_ticks_budget: float = minf(float(max_ticks_per_frame), MAX_CATCHUP_TICKS_AT_1X * sqrt(maxf(speed_multiplier, 0.01)))
+	var max_catchup_sim_minutes: float = catchup_ticks_budget * TICK_DELTA
+	accumulated_time = minf(accumulated_time, max_catchup_sim_minutes)
 	var ticks_this_frame := 0
 
 	while accumulated_time >= TICK_DELTA and ticks_this_frame < max_ticks_per_frame:
@@ -71,7 +73,8 @@ func set_paused(p: bool) -> void:
 
 func set_speed(mult: float) -> void:
 	speed_multiplier = mult
-	accumulated_time = minf(accumulated_time, MAX_CATCHUP_SIM_MINUTES)
+	var catchup_ticks_budget: float = minf(float(max_ticks_per_frame), MAX_CATCHUP_TICKS_AT_1X * sqrt(maxf(speed_multiplier, 0.01)))
+	accumulated_time = minf(accumulated_time, catchup_ticks_budget * TICK_DELTA)
 	EventBus.simulation_speed_changed.emit(mult)
 
 func get_body_position(body_id: int) -> Vector3:
