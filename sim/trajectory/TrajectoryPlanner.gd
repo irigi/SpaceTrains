@@ -2,15 +2,14 @@ class_name TrajectoryPlanner
 extends RefCounted
 ## Plans ship trajectories.
 ##
-## For now we prioritize Hohmann-like bounded ellipses to keep interplanetary
-## travel physically plausible (long-duration, smooth heliocentric arcs).
+## Linear trajectories are intentionally disabled for now. All mission travel
+## should use Keplerian transfers (Hohmann-like first, Lambert fallback).
 
 const AU_SCALE: float = 50.0
 const EARTH_ORBIT_RADIUS_GU: float = 1.0 * AU_SCALE
 const EARTH_ORBIT_PERIOD_MIN: float = 21900.0
 const MU_SUN: float = (TAU * TAU) * pow(EARTH_ORBIT_RADIUS_GU, 3.0) / pow(EARTH_ORBIT_PERIOD_MIN, 2.0)
 
-const MIN_LINEAR_SPEED: float = 0.1
 const MIN_TRANSFER_DURATION_MIN: float = 5.0
 const MIN_ELLIPTIC_ENERGY_EPS: float = 1e-8
 
@@ -23,17 +22,11 @@ func plan_station_transfer(
 	origin_body_pos: Vector3,
 	dest_body_pos: Vector3
 ) -> Trajectory:
-	var linear_duration := maxf(origin.distance_to(destination) / maxf(base_speed, MIN_LINEAR_SPEED), 1.0)
-
-	# Very short hops keep linear behavior.
-	if origin.distance_to(destination) <= 1.0:
-		return LinearTrajectory.create(origin, destination, start_time, linear_duration)
-
 	var hohmann := _build_hohmann_like_trajectory(origin, start_time, base_speed, origin_body_pos, dest_body_pos)
 	if hohmann != null:
 		return hohmann
 
-	# As a fallback, try Lambert before dropping to linear.
+	# Fallback: Lambert with Hohmann-like duration target. Still Keplerian.
 	var lambert_duration := _estimate_transfer_duration(origin_body_pos.length(), dest_body_pos.length(), base_speed)
 	var solve := _solve_lambert_universal(origin, destination, lambert_duration, MU_SUN)
 	if solve.get("ok", false):
@@ -52,7 +45,9 @@ func plan_station_transfer(
 				arr_dv
 			)
 
-	return LinearTrajectory.create(origin, destination, start_time, linear_duration)
+	# Last-resort Keplerian: circular coasting orbit at current radius.
+	# This preserves the "no linear" rule even in pathological geometries.
+	return _build_circular_coast_trajectory(origin, start_time, base_speed)
 
 
 func _build_hohmann_like_trajectory(
@@ -66,7 +61,6 @@ func _build_hohmann_like_trajectory(
 	var r2 := maxf(dest_body_pos.length(), 1e-3)
 	var a_transfer := maxf((r1 + r2) * 0.5, 1e-3)
 
-	# Hohmann half-period with a gentle ship-speed factor around 1.0.
 	var hohmann_duration := PI * sqrt(pow(a_transfer, 3.0) / MU_SUN)
 	var speed_factor := clampf(1.05 - base_speed * 0.03, 0.85, 1.10)
 	var transfer_duration := maxf(MIN_TRANSFER_DURATION_MIN, hohmann_duration * speed_factor)
@@ -78,7 +72,6 @@ func _build_hohmann_like_trajectory(
 	radial /= radial_len
 	var tangent := Vector3(-radial.z, 0.0, radial.x)
 
-	# Vis-viva speed on the transfer ellipse at r1 (guaranteed bound for a>0).
 	var transfer_speed := sqrt(maxf(MU_SUN * (2.0 / r1 - 1.0 / a_transfer), 0.0))
 	if transfer_speed <= 1e-6:
 		return null
@@ -99,6 +92,25 @@ func _build_hohmann_like_trajectory(
 		MU_SUN,
 		dep_dv,
 		arr_dv
+	)
+
+
+func _build_circular_coast_trajectory(origin: Vector3, start_time: float, _base_speed: float) -> KeplerianTrajectory:
+	var radius := maxf(origin.length(), 1e-3)
+	var tangent := Vector3(-origin.z, 0.0, origin.x)
+	if tangent.length() <= 1e-6:
+		tangent = Vector3(0.0, 0.0, 1.0)
+	tangent = tangent.normalized()
+	var circ_speed := sqrt(MU_SUN / radius)
+	var period := TAU * sqrt(pow(radius, 3.0) / MU_SUN)
+	return KeplerianTrajectory.create(
+		origin,
+		tangent * circ_speed,
+		start_time,
+		start_time + maxf(period, MIN_TRANSFER_DURATION_MIN),
+		MU_SUN,
+		0.0,
+		0.0
 	)
 
 

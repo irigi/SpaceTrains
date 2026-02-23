@@ -81,25 +81,10 @@ func _update_launching(world: WorldState, ship: WorldState.ShipData, dt: float) 
 
 
 func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
-	# Guard: if no trajectory (e.g. loaded from a legacy save mid-travel),
-	# reconstruct a LinearTrajectory from the stored travel fields.
-	if ship.trajectory == null:
-		var elapsed := ship.travel_progress * ship.travel_duration
-		ship.trajectory = LinearTrajectory.create(
-			ship.travel_origin,
-			ship.travel_destination,
-			world.sim_time - elapsed,
-			ship.travel_duration
-		)
-
-	# Linear trajectories continue to track moving destinations each tick.
-	if ship.trajectory is LinearTrajectory and ship.target_station_id >= 0 and ship.target_station_id in world.stations:
-		var dest_station: WorldState.StationData = world.stations[ship.target_station_id]
-		if dest_station.body_id in world.bodies:
-			var body_pos: Vector3 = world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
-			var new_dest: Vector3 = dest_station.get_world_position(body_pos)
-			ship.travel_destination = new_dest
-			ship.trajectory.update_destination(new_dest)
+	# Guard: if no trajectory (legacy save) or a legacy LinearTrajectory sneaks in,
+	# replan to Keplerian immediately.
+	if ship.trajectory == null or ship.trajectory is LinearTrajectory:
+		_replan_to_keplerian(world, ship)
 
 	# Position and velocity come from the trajectory object.
 	ship.position = ship.trajectory.get_position_at_time(world.sim_time)
@@ -116,6 +101,37 @@ func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) 
 		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
 		ship.state = "arriving"
 		ship.travel_progress = 0.0
+
+
+func _replan_to_keplerian(world: WorldState, ship: WorldState.ShipData) -> void:
+	var origin_pos: Vector3 = ship.position
+	var destination_pos: Vector3 = ship.travel_destination
+	var origin_body_pos: Vector3 = origin_pos
+	var dest_body_pos: Vector3 = destination_pos
+
+	if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
+		var target_station: WorldState.StationData = world.stations[ship.target_station_id]
+		if target_station.body_id in world.bodies:
+			dest_body_pos = world.bodies[target_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			destination_pos = target_station.get_world_position(dest_body_pos)
+
+	if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
+		var origin_station: WorldState.StationData = world.stations[ship.docked_station_id]
+		if origin_station.body_id in world.bodies:
+			origin_body_pos = world.bodies[origin_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+
+	ship.travel_origin = origin_pos
+	ship.travel_destination = destination_pos
+	ship.trajectory = _trajectory_planner.plan_station_transfer(
+		origin_pos,
+		destination_pos,
+		world.sim_time,
+		ship.base_speed,
+		origin_body_pos,
+		dest_body_pos
+	)
+	ship.travel_duration = ship.trajectory.get_duration()
+	ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
 
 
 func _update_arriving(_world: WorldState, ship: WorldState.ShipData, _dt: float) -> void:
