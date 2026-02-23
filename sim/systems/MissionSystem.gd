@@ -101,7 +101,6 @@ func _dispatch_cargo_mission(world: WorldState, ship: WorldState.ShipData, sourc
 	# Undock
 	ship.state = "launching"
 	ship.travel_progress = 0.0
-	ship.docked_station_id = -1
 	if ship.id in source.docked_ship_ids:
 		source.docked_ship_ids.erase(ship.id)
 
