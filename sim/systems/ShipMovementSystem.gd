@@ -34,9 +34,9 @@ func update(world: WorldState, dt: float) -> void:
 func _update_docked(world: WorldState, ship: WorldState.ShipData) -> void:
 	# Update position to match station (station moves with planet).
 	if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
-		var station := world.stations[ship.docked_station_id]
+		var station: WorldState.StationData = world.stations[ship.docked_station_id]
 		if station.body_id in world.bodies:
-			var body_pos := world.bodies[station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			var body_pos: Vector3 = world.bodies[station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 			ship.position = station.get_world_position(body_pos)
 
 
@@ -49,22 +49,22 @@ func _update_launching(world: WorldState, ship: WorldState.ShipData, dt: float) 
 
 		# Compute destination at this moment (stations orbit with their planet).
 		if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
-			var dest_station := world.stations[ship.target_station_id]
+			var dest_station: WorldState.StationData = world.stations[ship.target_station_id]
 			if dest_station.body_id in world.bodies:
-				var body_pos := world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+				var body_pos: Vector3 = world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 				ship.travel_destination = dest_station.get_world_position(body_pos)
 
 		ship.travel_origin = ship.position
 
 		var origin_body_pos := Vector3.ZERO
 		if ship.docked_station_id >= 0 and ship.docked_station_id in world.stations:
-			var origin_station := world.stations[ship.docked_station_id]
+			var origin_station: WorldState.StationData = world.stations[ship.docked_station_id]
 			if origin_station.body_id in world.bodies:
 				origin_body_pos = world.bodies[origin_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 
 		var dest_body_pos := ship.travel_destination
 		if ship.target_station_id >= 0 and ship.target_station_id in world.stations:
-			var target_station := world.stations[ship.target_station_id]
+			var target_station: WorldState.StationData = world.stations[ship.target_station_id]
 			if target_station.body_id in world.bodies:
 				dest_body_pos = world.bodies[target_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
 
@@ -94,10 +94,10 @@ func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) 
 
 	# Linear trajectories continue to track moving destinations each tick.
 	if ship.trajectory is LinearTrajectory and ship.target_station_id >= 0 and ship.target_station_id in world.stations:
-		var dest_station := world.stations[ship.target_station_id]
+		var dest_station: WorldState.StationData = world.stations[ship.target_station_id]
 		if dest_station.body_id in world.bodies:
-			var body_pos := world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
-			var new_dest := dest_station.get_world_position(body_pos)
+			var body_pos: Vector3 = world.bodies[dest_station.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+			var new_dest: Vector3 = dest_station.get_world_position(body_pos)
 			ship.travel_destination = new_dest
 			ship.trajectory.update_destination(new_dest)
 
@@ -140,7 +140,7 @@ func _dock_ship(world: WorldState, ship: WorldState.ShipData) -> void:
 	ship.trajectory = null  # Clear trajectory — ship is no longer in transit.
 
 	if ship.docked_station_id in world.stations:
-		var station := world.stations[ship.docked_station_id]
+		var station: WorldState.StationData = world.stations[ship.docked_station_id]
 		if ship.id not in station.docked_ship_ids:
 			station.docked_ship_ids.append(ship.id)
 
