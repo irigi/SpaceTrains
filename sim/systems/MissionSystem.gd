@@ -97,6 +97,14 @@ func _dispatch_cargo_mission(world: WorldState, ship: WorldState.ShipData, sourc
 	ship.mission_source_id = source.id
 	ship.mission_dest_id = dest.id
 	ship.target_station_id = dest.id
+	ship.target_ship_id = -1
+	ship.trajectory_class = "kepler_transfer"
+	ship.trajectory_parameters = {
+		"arrival_mode": "planet_insertion",
+	}
+	ship.trajectory_points.clear()
+	ship.insertion_burn_done = false
+	ship.final_burn_done = false
 
 	# Undock
 	ship.state = "launching"

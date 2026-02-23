@@ -111,6 +111,10 @@ func _display_ship() -> void:
 	text += "[b]Hull:[/b] %.0f / %.0f\n" % [ship.hull, ship.hull_max]
 	text += "[b]Fuel:[/b] %.0f / %.0f\n" % [ship.fuel, ship.fuel_max]
 	text += "[b]Speed:[/b] %.1f\n" % ship.base_speed
+	text += "[b]Trajectory:[/b] %s\n" % ship.trajectory_class
+	if ship.trajectory_class == "kepler_transfer":
+		text += "  Insertion burn: %.1f (%s)\n" % [ship.insertion_burn_cost, "done" if ship.insertion_burn_done else "pending"]
+		text += "  Final burn: %.1f (%s)\n" % [ship.final_burn_cost, "done" if ship.final_burn_done else "pending"]
 
 	if ship.mission_type != "":
 		text += "\n[b]Mission:[/b] %s\n" % ship.mission_type

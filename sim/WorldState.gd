@@ -220,6 +220,7 @@ class ShipData:
 	var state: String = "docked"  # docked, launching, traveling, arriving, docking
 	var docked_station_id: int = -1
 	var target_station_id: int = -1
+	var target_ship_id: int = -1
 	var cargo: Dictionary = {}   # commodity -> amount
 
 	# Mission
@@ -234,6 +235,14 @@ class ShipData:
 	var travel_destination: Vector3 = Vector3.ZERO
 	var travel_progress: float = 0.0  # 0.0 to 1.0
 	var travel_duration: float = 0.0  # sim-hours
+	var trajectory_class: String = "linear"
+	var trajectory_parameters: Dictionary = {}
+	var trajectory_points: Array[Vector3] = []
+	var trajectory_plan_age: float = 0.0
+	var insertion_burn_cost: float = 0.0
+	var final_burn_cost: float = 0.0
+	var insertion_burn_done: bool = false
+	var final_burn_done: bool = false
 
 	func to_dict() -> Dictionary:
 		return {
@@ -256,6 +265,7 @@ class ShipData:
 			"state": state,
 			"docked_station_id": docked_station_id,
 			"target_station_id": target_station_id,
+			"target_ship_id": target_ship_id,
 			"cargo": cargo.duplicate(),
 			"mission_type": mission_type,
 			"mission_commodity": mission_commodity,
@@ -266,6 +276,14 @@ class ShipData:
 			"travel_destination": [travel_destination.x, travel_destination.y, travel_destination.z],
 			"travel_progress": travel_progress,
 			"travel_duration": travel_duration,
+			"trajectory_class": trajectory_class,
+			"trajectory_parameters": trajectory_parameters.duplicate(true),
+			"trajectory_points": _serialize_points(trajectory_points),
+			"trajectory_plan_age": trajectory_plan_age,
+			"insertion_burn_cost": insertion_burn_cost,
+			"final_burn_cost": final_burn_cost,
+			"insertion_burn_done": insertion_burn_done,
+			"final_burn_done": final_burn_done,
 		}
 
 	func from_dict(d: Dictionary) -> void:
@@ -290,6 +308,7 @@ class ShipData:
 		state = d.get("state", "docked")
 		docked_station_id = d.get("docked_station_id", -1)
 		target_station_id = d.get("target_station_id", -1)
+		target_ship_id = d.get("target_ship_id", -1)
 		cargo = d.get("cargo", {}).duplicate()
 		mission_type = d.get("mission_type", "")
 		mission_commodity = d.get("mission_commodity", "")
@@ -302,6 +321,27 @@ class ShipData:
 		travel_destination = Vector3(td[0], td[1], td[2])
 		travel_progress = d.get("travel_progress", 0.0)
 		travel_duration = d.get("travel_duration", 0.0)
+		trajectory_class = d.get("trajectory_class", "linear")
+		trajectory_parameters = d.get("trajectory_parameters", {}).duplicate(true)
+		trajectory_points = _deserialize_points(d.get("trajectory_points", []))
+		trajectory_plan_age = d.get("trajectory_plan_age", 0.0)
+		insertion_burn_cost = d.get("insertion_burn_cost", 0.0)
+		final_burn_cost = d.get("final_burn_cost", 0.0)
+		insertion_burn_done = d.get("insertion_burn_done", false)
+		final_burn_done = d.get("final_burn_done", false)
+
+	func _serialize_points(points: Array[Vector3]) -> Array:
+		var serialized: Array = []
+		for p in points:
+			serialized.append([p.x, p.y, p.z])
+		return serialized
+
+	func _deserialize_points(serialized_points: Array) -> Array[Vector3]:
+		var points: Array[Vector3] = []
+		for p in serialized_points:
+			if p is Array and p.size() >= 3:
+				points.append(Vector3(float(p[0]), float(p[1]), float(p[2])))
+		return points
 
 
 class FactionData:
