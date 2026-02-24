@@ -236,6 +236,8 @@ func _spawn_initial_ships() -> void:
 			ship.hull_max = 100.0
 			ship.fuel = 100.0
 			ship.fuel_max = 100.0
+			ship.delta_v_capacity = 0.010
+			ship.delta_v_remaining = ship.delta_v_capacity
 			ship.cargo_capacity = 50
 			ship.base_speed = 1.5 + world.rng.randf() * 1.0
 			ship.state = "docked"

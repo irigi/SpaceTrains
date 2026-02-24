@@ -209,6 +209,11 @@ class ShipData:
 	var hull_max: float = 100.0
 	var fuel: float = 100.0
 	var fuel_max: float = 100.0
+	var delta_v_capacity: float = 0.010
+	var delta_v_remaining: float = 0.010
+	var specific_impulse: float = 3000.0
+	var dry_mass: float = 50.0
+	var wet_mass: float = 100.0
 	var cargo_capacity: int = 50
 	var base_speed: float = 2.0  # units per sim-hour
 	var scan_strength: float = 1.0
@@ -240,6 +245,29 @@ class ShipData:
 	# Replaced with a new object whenever the ship replans its route.
 	var trajectory: Trajectory = null
 
+	func sync_delta_v_from_fuel() -> void:
+		if fuel_max <= 0.0:
+			delta_v_remaining = 0.0
+			return
+		var fuel_fraction := clampf(fuel / fuel_max, 0.0, 1.0)
+		delta_v_remaining = delta_v_capacity * fuel_fraction
+
+	func sync_fuel_from_delta_v() -> void:
+		if delta_v_capacity <= 0.0:
+			fuel = 0.0
+			return
+		var dv_fraction := clampf(delta_v_remaining / delta_v_capacity, 0.0, 1.0)
+		fuel = fuel_max * dv_fraction
+
+	func consume_delta_v(delta_v_amount: float) -> bool:
+		if delta_v_amount <= 0.0:
+			return true
+		if delta_v_remaining + 1e-9 < delta_v_amount:
+			return false
+		delta_v_remaining = maxf(delta_v_remaining - delta_v_amount, 0.0)
+		sync_fuel_from_delta_v()
+		return true
+
 	func to_dict() -> Dictionary:
 		return {
 			"id": id,
@@ -252,6 +280,11 @@ class ShipData:
 			"hull_max": hull_max,
 			"fuel": fuel,
 			"fuel_max": fuel_max,
+			"delta_v_capacity": delta_v_capacity,
+			"delta_v_remaining": delta_v_remaining,
+			"specific_impulse": specific_impulse,
+			"dry_mass": dry_mass,
+			"wet_mass": wet_mass,
 			"cargo_capacity": cargo_capacity,
 			"base_speed": base_speed,
 			"scan_strength": scan_strength,
@@ -285,6 +318,13 @@ class ShipData:
 		hull_max = d.get("hull_max", 100.0)
 		fuel = d.get("fuel", 100.0)
 		fuel_max = d.get("fuel_max", 100.0)
+		delta_v_capacity = d.get("delta_v_capacity", 0.010)
+		delta_v_remaining = d.get("delta_v_remaining", -1.0)
+		if delta_v_remaining < 0.0:
+			sync_delta_v_from_fuel()
+		specific_impulse = d.get("specific_impulse", 3000.0)
+		dry_mass = d.get("dry_mass", 50.0)
+		wet_mass = d.get("wet_mass", 100.0)
 		cargo_capacity = d.get("cargo_capacity", 50)
 		base_speed = d.get("base_speed", 2.0)
 		scan_strength = d.get("scan_strength", 1.0)

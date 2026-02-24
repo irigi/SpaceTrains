@@ -85,6 +85,11 @@ func _update_launching(world: WorldState, ship: WorldState.ShipData, dt: float) 
 			_set_ship_waiting_for_feasible_transfer(world, ship, departure_speed, total_delta_v)
 			return
 
+		var departure_burn := ship.trajectory.get_departure_delta_v()
+		if not ship.consume_delta_v(departure_burn):
+			_set_ship_waiting_for_feasible_transfer(world, ship, departure_speed, total_delta_v)
+			return
+
 		ship.travel_duration = ship.trajectory.get_duration()
 		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
 		ship.docked_station_id = -1
@@ -108,7 +113,7 @@ func _set_ship_waiting_for_feasible_transfer(world: WorldState, ship: WorldState
 	EventBus.emit_log("system", "%s waiting at dock: transfer too aggressive (speed %.4f, Δv %.4f). Retrying in %.1f sim-min." % [ship.entity_name, departure_speed, total_delta_v, FEASIBILITY_RETRY_DELAY])
 
 
-func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) -> void:
+func _update_traveling(world: WorldState, ship: WorldState.ShipData, _dt: float) -> void:
 	# Guard: if no trajectory (legacy save) or a legacy LinearTrajectory sneaks in,
 	# replan to Keplerian immediately.
 	if ship.trajectory == null or ship.trajectory is LinearTrajectory:
@@ -120,10 +125,6 @@ func _update_traveling(world: WorldState, ship: WorldState.ShipData, dt: float) 
 
 	# Keep travel_progress in sync for UI queries (ETA, progress bar).
 	ship.travel_progress = ship.trajectory.get_progress(world.sim_time)
-
-	# Fuel consumption — unchanged from Phase 0, will be replaced in Phase 3.
-	ship.fuel -= dt * 0.01 * ship.base_speed
-	ship.fuel = maxf(ship.fuel, 0.0)
 
 	if ship.trajectory.is_complete(world.sim_time):
 		ship.travel_destination = ship.trajectory.get_position_at_time(ship.trajectory.get_end_time())
@@ -164,6 +165,10 @@ func _replan_to_keplerian(world: WorldState, ship: WorldState.ShipData) -> void:
 
 func _update_arriving(_world: WorldState, ship: WorldState.ShipData, _dt: float) -> void:
 	# Snap to destination and begin the docking sequence.
+	if ship.trajectory != null:
+		if not ship.consume_delta_v(ship.trajectory.get_arrival_delta_v()):
+			ship.delta_v_remaining = 0.0
+			ship.sync_fuel_from_delta_v()
 	ship.position = ship.travel_destination
 	ship.velocity = Vector3.ZERO
 	ship.state = "docking"
@@ -204,6 +209,7 @@ func _dock_ship(world: WorldState, ship: WorldState.ShipData) -> void:
 
 	# Refuel at station.
 	ship.fuel = ship.fuel_max
+	ship.delta_v_remaining = ship.delta_v_capacity
 
 
 func _deliver_cargo(_world: WorldState, ship: WorldState.ShipData, station: WorldState.StationData) -> void:

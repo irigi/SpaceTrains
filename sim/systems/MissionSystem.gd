@@ -6,6 +6,7 @@ const MISSION_CHECK_INTERVAL: float = 30.0  # Check every 30 sim-minutes
 const AU_SCALE: float = 50.0
 
 var mission_timer: float = 0.0
+var _trajectory_planner: TrajectoryPlanner = TrajectoryPlanner.new()
 
 func update(world: WorldState, dt: float) -> void:
 	mission_timer += dt
@@ -51,7 +52,8 @@ func _try_create_cargo_missions(world: WorldState, station: WorldState.StationDa
 	var amount = mini(ship.cargo_capacity, station.inventory.get(commodity, 0) / 2)
 	amount = maxi(amount, 1)
 
-	_dispatch_cargo_mission(world, ship, station, dest_station, commodity, amount)
+	if _can_ship_reach_destination(world, ship, station, dest_station):
+		_dispatch_cargo_mission(world, ship, station, dest_station, commodity, amount)
 
 func _find_needy_station(world: WorldState, source: WorldState.StationData, surplus: Array) -> WorldState.StationData:
 	var best_station: WorldState.StationData = null
@@ -80,6 +82,36 @@ func _pick_best_commodity(_source: WorldState.StationData, dest: WorldState.Stat
 			best_deficit = deficit
 			best_commodity = commodity
 	return best_commodity
+
+func _can_ship_reach_destination(world: WorldState, ship: WorldState.ShipData, source: WorldState.StationData, dest: WorldState.StationData) -> bool:
+	if source.body_id not in world.bodies or dest.body_id not in world.bodies:
+		return false
+
+	var source_body_pos: Vector3 = world.bodies[source.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+	var dest_body_pos: Vector3 = world.bodies[dest.body_id].get_position_at_time(world.sim_time) * AU_SCALE
+	var origin_pos: Vector3 = source.get_world_position(source_body_pos)
+	var destination_pos: Vector3 = dest.get_world_position(dest_body_pos)
+
+	var trajectory := _trajectory_planner.plan_station_transfer(
+		origin_pos,
+		destination_pos,
+		world.sim_time,
+		ship.base_speed,
+		source_body_pos,
+		dest_body_pos
+	)
+	var required_delta_v := trajectory.get_total_delta_v()
+	var margin := 0.0005
+	if ship.delta_v_remaining + 1e-9 < required_delta_v + margin:
+		EventBus.emit_log("system", "%s waiting at %s: insufficient Δv for transfer to %s (need %.4f, have %.4f)." % [
+			ship.entity_name,
+			source.entity_name,
+			dest.entity_name,
+			required_delta_v + margin,
+			ship.delta_v_remaining
+		])
+		return false
+	return true
 
 func _dispatch_cargo_mission(world: WorldState, ship: WorldState.ShipData, source: WorldState.StationData, dest: WorldState.StationData, commodity: String, amount: int) -> void:
 	# Load cargo from station

@@ -109,8 +109,17 @@ func _display_ship() -> void:
 	text += "[b]Faction:[/b] %s\n" % ship.faction_name
 	text += "[b]State:[/b] %s\n" % ship.state
 	text += "[b]Hull:[/b] %.0f / %.0f\n" % [ship.hull, ship.hull_max]
-	text += "[b]Fuel:[/b] %.0f / %.0f\n" % [ship.fuel, ship.fuel_max]
+	var fuel_pct := 0.0 if ship.fuel_max <= 0.0 else (ship.fuel / ship.fuel_max) * 100.0
+	text += "[b]Fuel:[/b] %.1f / %.1f (%.0f%%)\n" % [ship.fuel, ship.fuel_max, fuel_pct]
+	text += "[b]Delta-V:[/b] %.4f / %.4f\n" % [ship.delta_v_remaining, ship.delta_v_capacity]
 	text += "[b]Speed:[/b] %.1f\n" % ship.base_speed
+
+
+	if ship.trajectory != null:
+		text += "\n[b]Current Trajectory:[/b] %s\n" % ship.trajectory.get_type().capitalize()
+		text += "  Departure Δv: %.4f\n" % ship.trajectory.get_departure_delta_v()
+		text += "  Arrival Δv: %.4f\n" % ship.trajectory.get_arrival_delta_v()
+		text += "  Transfer time: %.0f min\n" % ship.trajectory.get_duration()
 
 	if ship.mission_type != "":
 		text += "\n[b]Mission:[/b] %s\n" % ship.mission_type
