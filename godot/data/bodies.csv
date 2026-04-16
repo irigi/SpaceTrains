@@ -1,0 +1,7 @@
+id,name,radius_m,mu_m3_s2,parent_id,semi_major_axis_m,eccentricity,orbital_period_s,phase_at_epoch_rad
+sun,Sun,696340000,1.32712440018e20,,0,0,0,0
+mercury,Mercury,2439700,2.2032e13,sun,5.7909e10,0.2056,7600521.6,0.2
+venus,Venus,6051800,3.24859e14,sun,1.0821e11,0.0067,19414149.1,1.0
+earth,Earth,6371000,3.986004418e14,sun,1.495978707e11,0.0167,31558149.8,2.0
+mars,Mars,3389500,4.282837e13,sun,2.2794e11,0.0934,59355072.0,2.8
+ceres,Ceres,473000,6.26325e10,sun,4.137e11,0.0758,145195200.0,1.9

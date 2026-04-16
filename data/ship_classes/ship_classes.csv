@@ -1,0 +1,4 @@
+id,name,dry_mass_kg,propellant_capacity_kg,cargo_capacity_units,max_delta_v_mps,cruise_accel_mps2
+light_freighter,Light Freighter,8000,12000,40,8500,0.02
+tanker,Orbital Tanker,12000,18000,60,7000,0.015
+fast_courier,Fast Courier,5000,7000,15,10500,0.03
