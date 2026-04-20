@@ -328,7 +328,7 @@ math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) 
     return origin_position * (1.0 - progress) + destination_position * progress;
 }
 
-std::string Simulation::build_bridge_snapshot_json(bool paused) const {
+std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const {
     auto inventory_value = [](const domain::Inventory& inventory, const std::string& commodity_id) {
         const auto it = inventory.find(commodity_id);
         return it == inventory.end() ? 0.0 : it->second;
@@ -341,6 +341,8 @@ std::string Simulation::build_bridge_snapshot_json(bool paused) const {
     std::ostringstream output;
     output << std::fixed << std::setprecision(6);
     output << "{";
+    output << "\"snapshot_seq\":" << snapshot_seq << ",";
+    output << "\"snapshot_real_time_s\":" << snapshot_real_time_s << ",";
     output << "\"game_time_s\":" << game_time_s_ << ",";
     output << "\"game_time_days\":" << (game_time_s_ / 86400.0) << ",";
     output << "\"timewarp_factor\":" << timewarp_factor_ << ",";

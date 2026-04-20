@@ -24,7 +24,7 @@ public:
     [[nodiscard]] const domain::UniverseDefinition& universe() const;
     [[nodiscard]] domain::SimulationSnapshot snapshot() const;
     [[nodiscard]] std::string build_report() const;
-    [[nodiscard]] std::string build_bridge_snapshot_json(bool paused) const;
+    [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
     [[nodiscard]] double timewarp_factor() const;
 
 private:

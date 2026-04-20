@@ -1,10 +1,12 @@
 extends Node3D
 
 const POSITION_SCALE := 1.0 / 8_000_000_000.0
-const SHIP_SCALE := 0.06
-const STATION_SCALE := 0.11
-const SNAPSHOT_POLL_INTERVAL := 0.12
+const SHIP_SCALE := 0.035
+const STATION_SCALE := 0.07
+const BRIDGE_STEP_SECONDS := 0.1
 const DEFAULT_TIMEWARP := 86400.0
+const TIMEWARP_STEPS := [600.0, 3600.0, 21600.0, 86400.0, 432000.0]
+const SUN_HALO_MODE := "subtle"
 
 @onready var world_root: Node3D = $WorldRoot
 @onready var camera_rig: Node3D = $CameraRig
@@ -13,17 +15,27 @@ const DEFAULT_TIMEWARP := 86400.0
 @onready var entity_list: ItemList = $CanvasLayer/EntityList
 @onready var selection_label: Label = $CanvasLayer/Selection
 @onready var event_log: Label = $CanvasLayer/EventLog
+@onready var scene_light: DirectionalLight3D = $DirectionalLight3D
 
 var bridge_pid := -1
 var snapshot_path := ""
 var command_path := ""
 var repo_root := ""
 var executable_path := ""
-var poll_accumulator := 0.0
+var snapshot_blend := 1.0
+var current_snapshot_seq := -1
+var previous_snapshot_arrival_s := 0.0
+var current_snapshot_arrival_s := 0.0
+var previous_snapshot_bridge_time_s := 0.0
+var current_snapshot_bridge_time_s := 0.0
+var snapshot_interval_s := BRIDGE_STEP_SECONDS
 var selected_id := ""
 var selected_kind := ""
+var focused_id := ""
+var focused_kind := ""
 var bridge_state: Dictionary = {}
 var entity_nodes: Dictionary = {}
+var entity_previous_targets: Dictionary = {}
 var entity_targets: Dictionary = {}
 var entity_details: Dictionary = {}
 var entity_kinds: Dictionary = {}
@@ -37,6 +49,13 @@ var debug_guides: Array[Node3D] = []
 var station_positions: Dictionary = {}
 var body_positions: Dictionary = {}
 var body_display_radii: Dictionary = {}
+var render_origin := Vector3.ZERO
+var faction_colors := {
+    "sol_fed": Color(0.48, 0.72, 1.0),
+    "mars_corp": Color(1.0, 0.45, 0.28),
+    "independent": Color(0.86, 0.82, 0.72)
+}
+var sun_light: OmniLight3D
 
 func _ready() -> void:
     repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
@@ -46,6 +65,7 @@ func _ready() -> void:
     _write_bridge_commands()
     _start_bridge()
     _create_debug_guides()
+    _setup_scene_lighting()
     if bridge_started:
         info_label.text = "SpaceTrains\nStarting bridge...\n%s" % executable_path
     selection_label.text = "No selection\nControls: RMB rotate, MMB pan, wheel zoom, left click select, F focus, Space pause, 1/2/3 timewarp"
@@ -57,11 +77,10 @@ func _exit_tree() -> void:
         OS.kill(bridge_pid)
 
 func _process(delta: float) -> void:
-    poll_accumulator += delta
-    if poll_accumulator >= SNAPSHOT_POLL_INTERVAL:
-        poll_accumulator = 0.0
-        _read_snapshot()
+    _read_snapshot()
+    snapshot_blend = _current_snapshot_alpha()
     _update_nodes(delta)
+    _update_camera_focus()
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo:
@@ -77,10 +96,16 @@ func _unhandled_input(event: InputEvent) -> void:
         elif event.keycode == KEY_3:
             current_timewarp = 86400.0
             _write_bridge_commands()
+        elif event.keycode == KEY_COMMA:
+            _step_timewarp(-1)
+        elif event.keycode == KEY_PERIOD:
+            _step_timewarp(1)
         elif event.keycode == KEY_F and selected_id != "" and entity_targets.has(selected_id):
-            camera_rig.focus_point(entity_targets[selected_id])
+            _focus_entity(selected_id, selected_kind)
     elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
         _pick_entity(event.position)
+        if event.double_click and selected_id != "" and entity_targets.has(selected_id):
+            _focus_entity(selected_id, selected_kind)
 
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
@@ -91,7 +116,7 @@ func _start_bridge() -> void:
         "--data-root", repo_root.path_join("data"),
         "--snapshot-file", snapshot_path,
         "--command-file", command_path,
-        "--step-seconds", "0.1"
+        "--step-seconds", str(BRIDGE_STEP_SECONDS)
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
@@ -120,8 +145,28 @@ func _read_snapshot() -> void:
     var parse_status := json.parse(file.get_as_text())
     if parse_status != OK or typeof(json.data) != TYPE_DICTIONARY:
         return
+    var new_seq := int(json.data.get("snapshot_seq", -1))
+    if new_seq == current_snapshot_seq:
+        return
+    var arrival_now_s := _wall_time_s()
+    var new_bridge_time_s := float(json.data.get("snapshot_real_time_s", arrival_now_s))
+    if current_snapshot_seq >= 0:
+        previous_snapshot_arrival_s = current_snapshot_arrival_s
+        previous_snapshot_bridge_time_s = current_snapshot_bridge_time_s
+    current_snapshot_seq = new_seq
+    current_snapshot_arrival_s = arrival_now_s
+    current_snapshot_bridge_time_s = new_bridge_time_s
+    var arrival_interval_s := current_snapshot_arrival_s - previous_snapshot_arrival_s
+    var bridge_interval_s := current_snapshot_bridge_time_s - previous_snapshot_bridge_time_s
+    if bridge_interval_s > 0.0:
+        snapshot_interval_s = bridge_interval_s
+    elif arrival_interval_s > 0.0:
+        snapshot_interval_s = arrival_interval_s
+    else:
+        snapshot_interval_s = BRIDGE_STEP_SECONDS
     bridge_state = json.data
     _apply_snapshot()
+    snapshot_blend = 0.0
 
 func _apply_snapshot() -> void:
     var seen_ids := {}
@@ -153,11 +198,15 @@ func _apply_snapshot() -> void:
         if not seen_ids.has(entity_id):
             entity_nodes[entity_id].queue_free()
             entity_nodes.erase(entity_id)
+            entity_previous_targets.erase(entity_id)
             entity_targets.erase(entity_id)
             entity_details.erase(entity_id)
             entity_kinds.erase(entity_id)
             entity_visual_signatures.erase(entity_id)
             ids_changed = true
+            if entity_id == focused_id:
+                focused_id = ""
+                focused_kind = ""
 
     if ids_changed or entity_list.item_count != seen_ids.size():
         _rebuild_entity_list()
@@ -178,21 +227,39 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         mesh_instance.mesh = _make_mesh(kind)
         world_root.add_child(mesh_instance)
         entity_nodes[entity_id] = mesh_instance
+        entity_previous_targets[entity_id] = Vector3.ZERO
         entity_targets[entity_id] = Vector3.ZERO
         entity_visual_signatures[entity_id] = ""
+        _attach_entity_label(mesh_instance, kind, data)
+        if kind == "body" and entity_id == "sun":
+            _attach_sun_halo(mesh_instance)
 
     var visual_signature := _visual_signature(kind, data)
     if entity_visual_signatures.get(entity_id, "") != visual_signature:
         entity_nodes[entity_id].material_override = _make_material(kind, data)
         entity_nodes[entity_id].scale = _make_scale(kind, data)
         entity_visual_signatures[entity_id] = visual_signature
-    entity_targets[entity_id] = _display_position(data, kind)
+    var new_target := _display_position(data, kind)
+    entity_previous_targets[entity_id] = entity_targets.get(entity_id, new_target)
+    entity_targets[entity_id] = new_target
 
 func _update_nodes(delta: float) -> void:
+    var focus_position := Vector3.ZERO
     for entity_id in entity_nodes.keys():
         var node: Node3D = entity_nodes[entity_id]
+        var previous_target: Vector3 = entity_previous_targets.get(entity_id, entity_targets[entity_id])
         var target: Vector3 = entity_targets[entity_id]
-        node.position = node.position.lerp(target, clamp(delta * 8.0, 0.0, 1.0))
+        var display_position: Vector3 = previous_target.lerp(target, snapshot_blend)
+        node.position = display_position
+        if entity_id == focused_id:
+            focus_position = display_position
+    if focused_id != "" and entity_nodes.has(focused_id):
+        render_origin = focus_position
+    else:
+        render_origin = Vector3.ZERO
+    world_root.position = -render_origin
+    if sun_light != null and entity_nodes.has("sun"):
+        sun_light.global_position = entity_nodes["sun"].global_position
 
 func _scaled_position(data: Dictionary) -> Vector3:
     return Vector3(
@@ -235,12 +302,13 @@ func _make_mesh(kind: String) -> Mesh:
             var sphere := SphereMesh.new()
             sphere.radius = 1.0
             sphere.height = 2.0
+            sphere.radial_segments = 24
+            sphere.rings = 12
             return sphere
         "ship":
-            var ship_mesh := SphereMesh.new()
-            ship_mesh.radius = 1.0
-            ship_mesh.height = 2.0
-            return ship_mesh
+            var prism := PrismMesh.new()
+            prism.size = Vector3(0.7, 0.7, 1.4)
+            return prism
         _:
             var box := BoxMesh.new()
             box.size = Vector3.ONE
@@ -249,19 +317,19 @@ func _make_mesh(kind: String) -> Mesh:
 func _body_display_scale(body_id: String) -> float:
     match body_id:
         "sun":
-            return 2.1
+            return 1.75
         "mercury":
-            return 0.24
+            return 0.19
         "venus":
-            return 0.48
+            return 0.39
         "earth":
-            return 0.50
+            return 0.40
         "mars":
-            return 0.38
+            return 0.30
         "ceres":
-            return 0.15
+            return 0.11
         _:
-            return 0.28
+            return 0.22
 
 func _make_scale(kind: String, data: Dictionary) -> Vector3:
     if kind == "body":
@@ -289,32 +357,48 @@ func _body_color(body_id: String) -> Color:
 
 func _make_material(kind: String, data: Dictionary) -> Material:
     var material := StandardMaterial3D.new()
-    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
     if kind == "body":
         var body_id := String(data["id"])
         material.albedo_color = _body_color(body_id)
+        material.roughness = 0.82
+        material.metallic = 0.0
         if body_id == "sun":
+            material.albedo_color = Color(1.0, 0.96, 0.31)
             material.emission_enabled = true
-            material.emission = Color(1.0, 0.72, 0.2)
-            material.emission_energy_multiplier = 2.0
+            material.emission = Color(1.0, 0.96, 0.31)
+            material.emission_energy_multiplier = 3.8
+            material.roughness = 0.6
     elif kind == "station":
-        material.albedo_color = Color(0.98, 0.8, 0.32)
+        var faction_id := String(data.get("faction_id", ""))
+        var color: Color = faction_colors.get(faction_id, Color(0.95, 0.82, 0.36))
+        material.albedo_color = color
+        material.emission_enabled = true
+        material.emission = color * 0.5
+        material.emission_energy_multiplier = 0.6
+        material.roughness = 0.4
     else:
         var phase := String(data.get("phase", "idle"))
+        var faction_id := String(data.get("faction_id", ""))
+        var ship_color: Color = faction_colors.get(faction_id, Color(0.84, 0.84, 0.9))
+        material.albedo_color = ship_color
+        material.emission_enabled = true
+        material.emission = ship_color * 0.35
+        material.emission_energy_multiplier = 0.35
+        material.roughness = 0.35
         if phase == "in_transit":
-            material.albedo_color = Color(0.35, 1.0, 0.8)
+            material.emission_energy_multiplier = 0.7
         elif phase == "stranded":
             material.albedo_color = Color(1.0, 0.3, 0.3)
-        else:
-            material.albedo_color = Color(0.92, 0.95, 1.0)
+            material.emission = Color(0.6, 0.1, 0.1)
+            material.emission_energy_multiplier = 0.5
     return material
 
 func _visual_signature(kind: String, data: Dictionary) -> String:
     if kind == "body":
         return "body:%s" % String(data["id"])
     if kind == "station":
-        return "station"
-    return "ship:%s" % String(data.get("phase", "idle"))
+        return "station:%s" % String(data.get("faction_id", ""))
+    return "ship:%s:%s" % [String(data.get("phase", "idle")), String(data.get("faction_id", ""))]
 
 func _refresh_labels() -> void:
     var sim_day := float(bridge_state.get("game_time_days", 0.0))
@@ -329,6 +413,7 @@ func _refresh_labels() -> void:
         len(bridge_state.get("stations", [])),
         len(bridge_state.get("ships", []))
     ]
+    info_label.text += "\nSnapshots: #%d every %.3fs" % [current_snapshot_seq, snapshot_interval_s]
 
     var event_lines := ["Recent events"]
     for event in bridge_state.get("recent_events", []):
@@ -407,6 +492,123 @@ func _hide_debug_guides() -> void:
     for marker in debug_guides:
         marker.visible = false
 
+func _setup_scene_lighting() -> void:
+    if scene_light != null:
+        scene_light.visible = false
+        scene_light.light_energy = 0.0
+    sun_light = OmniLight3D.new()
+    sun_light.name = "SunLight"
+    sun_light.light_energy = 10.0
+    sun_light.omni_range = 420.0
+    sun_light.shadow_enabled = false
+    sun_light.light_color = Color(1.0, 0.96, 0.82)
+    world_root.add_child(sun_light)
+    RenderingServer.set_default_clear_color(Color(0.02, 0.02, 0.05, 1.0))
+
+    var env := Environment.new()
+    env.background_mode = Environment.BG_COLOR
+    env.background_color = Color(0.02, 0.02, 0.05, 1.0)
+    env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+    env.ambient_light_color = Color(0.1, 0.1, 0.15, 1.0)
+    env.ambient_light_energy = 0.22
+    env.tonemap_mode = Environment.TONE_MAPPER_ACES
+    env.glow_enabled = true
+    env.glow_intensity = 0.75
+    env.glow_bloom = 0.30
+    env.glow_strength = 1.25
+    env.glow_hdr_threshold = 0.70
+    env.glow_hdr_scale = 1.30
+    env.glow_map_strength = 0.85
+    var world_env := WorldEnvironment.new()
+    world_env.environment = env
+    add_child(world_env)
+
+func _attach_entity_label(node: MeshInstance3D, kind: String, data: Dictionary) -> void:
+    var label := Label3D.new()
+    label.text = String(data.get("name", data.get("id", "")))
+    label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    label.no_depth_test = true
+    label.modulate = Color(0.92, 0.94, 1.0, 0.78)
+    label.outline_size = 6
+    if kind == "body":
+        label.font_size = 22
+        label.pixel_size = 0.03
+        label.position = Vector3(0, _body_display_scale(String(data["id"])) + 0.6, 0)
+    elif kind == "station":
+        label.font_size = 16
+        label.pixel_size = 0.02
+        label.position = Vector3(0, STATION_SCALE + 0.18, 0)
+    else:
+        label.font_size = 14
+        label.pixel_size = 0.018
+        label.position = Vector3(0, SHIP_SCALE + 0.12, 0)
+        label.visible = false
+    node.add_child(label)
+
+func _attach_sun_halo(node: MeshInstance3D) -> void:
+    if SUN_HALO_MODE == "off":
+        return
+    var halo := MeshInstance3D.new()
+    halo.name = "SunHalo"
+    var quad := QuadMesh.new()
+    quad.size = Vector2.ONE * 6.0
+    halo.mesh = quad
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+    material.no_depth_test = true
+    material.cull_mode = BaseMaterial3D.CULL_DISABLED
+    material.albedo_texture = _make_sun_halo_texture()
+    material.albedo_color = Color(1.0, 0.97, 0.86, 0.92)
+    material.emission_enabled = true
+    material.emission = Color(1.0, 0.96, 0.84)
+    material.emission_energy_multiplier = 1.45
+    halo.material_override = material
+    node.add_child(halo)
+
+func _make_sun_halo_texture() -> ImageTexture:
+    var size: int = 512
+    var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+    var center: Vector2 = Vector2(size * 0.5, size * 0.5)
+    var radius: float = size * 0.5
+    for y in range(size):
+        for x in range(size):
+            var distance_to_center: float = Vector2(x, y).distance_to(center) / radius
+            var falloff: float = clamp(1.0 - distance_to_center, 0.0, 1.0)
+            var smooth_falloff: float = falloff * falloff * (3.0 - 2.0 * falloff)
+            var alpha: float = pow(smooth_falloff, 2.1) * 0.72
+            var warmth: float = pow(smooth_falloff, 0.45)
+            var color: Color = Color(
+                1.0,
+                lerp(0.90, 0.98, warmth),
+                lerp(0.62, 0.90, warmth),
+                alpha
+            )
+            image.set_pixel(x, y, color)
+    return ImageTexture.create_from_image(image)
+
+func _wall_time_s() -> float:
+    return float(Time.get_ticks_usec()) / 1000000.0
+
+func _current_snapshot_alpha() -> float:
+    if current_snapshot_arrival_s <= 0.0:
+        return 1.0
+    return clamp((_wall_time_s() - current_snapshot_arrival_s) / max(snapshot_interval_s, 0.001), 0.0, 1.0)
+
+
+func _step_timewarp(direction: int) -> void:
+    var best_index := 0
+    for i in range(TIMEWARP_STEPS.size()):
+        if is_equal_approx(current_timewarp, TIMEWARP_STEPS[i]):
+            best_index = i
+            break
+        if current_timewarp >= TIMEWARP_STEPS[i]:
+            best_index = i
+    best_index = clamp(best_index + direction, 0, TIMEWARP_STEPS.size() - 1)
+    current_timewarp = TIMEWARP_STEPS[best_index]
+    _write_bridge_commands()
+
 func _rebuild_entity_list() -> void:
     var previous_selected := selected_id
     entity_list.clear()
@@ -442,6 +644,8 @@ func _auto_focus_initial_entity() -> void:
         return
 
     camera_rig.focus_point(entity_targets.get(selected_id, Vector3.ZERO))
+    focused_id = selected_id
+    focused_kind = selected_kind
     _select_entity_in_list(selected_id)
     has_auto_focused = true
 
@@ -506,8 +710,27 @@ func _on_entity_selected(index: int) -> void:
     selected_id = entity_id
     selected_kind = entity_kinds.get(entity_id, "")
     if entity_targets.has(entity_id):
-        camera_rig.focus_point(entity_targets[entity_id])
+        _focus_entity(entity_id, selected_kind)
     _refresh_labels()
+
+func _focus_entity(entity_id: String, entity_kind: String) -> void:
+    if not entity_targets.has(entity_id):
+        return
+    focused_id = entity_id
+    focused_kind = entity_kind
+    if entity_nodes.has(entity_id):
+        camera_rig.focus_point(entity_nodes[entity_id].global_position)
+    else:
+        camera_rig.focus_point(entity_targets[entity_id] - render_origin)
+
+func _update_camera_focus() -> void:
+    if focused_id == "":
+        return
+    if not entity_nodes.has(focused_id):
+        focused_id = ""
+        focused_kind = ""
+        return
+    camera_rig.focus_point(entity_nodes[focused_id].global_position)
 
 func _update_trail_segment(segment: MeshInstance3D, from_point: Vector3, to_point: Vector3) -> void:
     var midpoint: Vector3 = (from_point + to_point) * 0.5

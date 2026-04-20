@@ -91,6 +91,8 @@ double parse_number_flag(const std::string& text, const std::string& key, double
 int main(int argc, char** argv) {
     const auto config = parse_args(argc, argv);
     auto simulation = spacetrains::simulation::Simulation::from_data_root(config.data_root);
+    const auto bridge_start = std::chrono::steady_clock::now();
+    std::uint64_t snapshot_seq = 0;
 
     bool paused = false;
     double timewarp = simulation.timewarp_factor();
@@ -109,7 +111,9 @@ int main(int argc, char** argv) {
         if (!paused) {
             simulation.step(config.step_seconds);
         }
-        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused));
+        const auto now = std::chrono::steady_clock::now();
+        const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
+        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused, snapshot_seq++, snapshot_real_time_s));
     };
 
     if (config.once) {

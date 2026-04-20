@@ -36,7 +36,7 @@ int main() {
     const auto after = sim.snapshot();
     require(after.game_time_s > before.game_time_s, "time should advance");
     require(!after.recent_events.empty(), "simulation should emit events");
-    const auto bridge_json = sim.build_bridge_snapshot_json(false);
+    const auto bridge_json = sim.build_bridge_snapshot_json(false, 1, 0.1);
     require(bridge_json.find("\"bodies\"") != std::string::npos, "bridge snapshot should include bodies");
     require(bridge_json.find("\"ships\"") != std::string::npos, "bridge snapshot should include ships");
 
