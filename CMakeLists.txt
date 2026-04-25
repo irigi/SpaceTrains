@@ -13,6 +13,7 @@ add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/celestial/CelestialMechanics.cpp
     src/trajectory/TrajectoryPlanner.cpp
+    src/variable_isp/VariableIsp.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
 )
@@ -31,3 +32,8 @@ add_executable(spacetrains_tests tests/test_main.cpp)
 target_link_libraries(spacetrains_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_tests COMMAND spacetrains_tests)
 set_tests_properties(spacetrains_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(spacetrains_variable_isp_tests tests/variable_isp_test.cpp)
+target_link_libraries(spacetrains_variable_isp_tests PRIVATE spacetrains_core)
+add_test(NAME spacetrains_variable_isp_tests COMMAND spacetrains_variable_isp_tests)
+set_tests_properties(spacetrains_variable_isp_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
