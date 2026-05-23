@@ -41,11 +41,15 @@ struct CommodityDefinition {
 struct ShipClassDefinition {
     std::string id;
     std::string name;
+    std::string propulsion_type {"chemical"};   // "chemical" or "electric_ion"
     double dry_mass_kg {0.0};
     double propellant_capacity_kg {0.0};
     double cargo_capacity_units {0.0};
+    // Chemical propulsion fields:
     double max_delta_v_mps {0.0};
     double cruise_accel_mps2 {0.0};
+    // Electric ion propulsion fields:
+    double specific_engine_power_w_per_kg {0.0};  // alpha [W/kg_dry]
 };
 
 struct StationDefinition {
@@ -88,6 +92,7 @@ struct UniverseDefinition {
 
 enum class ShipMissionPhase {
     Idle,
+    AwaitingDeparture,
     InTransit,
     Refueling,
     Stranded
@@ -105,9 +110,14 @@ struct MissionAssignment {
     double cargo_units {0.0};
     double departure_time_s {0.0};
     double arrival_time_s {0.0};
+    double wait_time_s {0.0};
+    double coast_time_s {0.0};
     double total_travel_time_s {0.0};
     double remaining_travel_time_s {0.0};
     double propellant_cost_kg {0.0};
+    std::vector<math::Vec3d> sampled_path;
+    std::vector<double> sampled_times_s;
+    std::vector<double> sampled_propellant_kg;
 };
 
 struct ShipState {
@@ -138,9 +148,13 @@ struct TrajectoryPlan {
     bool feasible {false};
     double departure_time_s {0.0};
     double arrival_time_s {0.0};
+    double wait_time_s {0.0};
+    double coast_time_s {0.0};
     double travel_time_s {0.0};
     double propellant_required_kg {0.0};
     std::vector<math::Vec3d> sampled_path;
+    std::vector<double> sampled_times_s;
+    std::vector<double> sampled_propellant_kg;
     std::string summary;
 };
 
