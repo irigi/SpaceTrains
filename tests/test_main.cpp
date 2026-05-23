@@ -162,6 +162,56 @@ int main() {
     const auto impossible_plan = planner.plan_transfer(origin, mars_destination, ship, ship_class, 0.0);
     require(!impossible_plan.feasible, "planner should fail when propellant is insufficient");
 
+    // --- Kepler moon-route endpoint regression (heliocentric rate bug) ---
+    // Before the fix, omega_dest/omega_origin used each body's own orbital period instead
+    // of the parent planet's heliocentric period.  For moons this gave the local
+    // moon-around-planet rate, making phase calculations wrong:
+    //   - Luna: old synodic period ≈ 29.5 days, fixed synodic period → ∞ (co-moving)
+    //   - Ganymede: old synodic period ≈ 7.3 days, fixed synodic period ≈ 399 days
+    ship.propellant_kg = ship_class.propellant_capacity_kg;
+
+    // Earth L1 → Lunar Gateway: Moon co-moves heliocentrically with Earth.
+    // Both bodies walk up to Earth's heliocentric rate → relative_rate == 0 → wait == 0.
+    const auto& luna_station = station_by_id(universe, "luna_base");
+    const auto luna_plan = planner.plan_transfer(origin, luna_station, ship, ship_class, 0.0);
+    require(luna_plan.sampled_path.size() >= 2, "Kepler Earth->Luna should produce a sampled path");
+    require(luna_plan.sampled_times_s.size() == luna_plan.sampled_path.size(),
+        "Kepler Earth->Luna times and path sizes must match");
+    require(luna_plan.wait_time_s == 0.0,
+        "Kepler Earth->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
+    require(distance_between(luna_plan.sampled_path.front(),
+            mechanics.get_station_position(origin, luna_plan.departure_time_s)) < 1.0,
+        "Kepler Earth->Luna path start must match origin station at departure time");
+    require(distance_between(luna_plan.sampled_path.back(),
+            mechanics.get_station_position(luna_station, luna_plan.arrival_time_s)) < 1.0,
+        "Kepler Earth->Luna path end must match destination station at arrival time");
+
+    // Earth L1 → Ganymede Deep Mine: worst-case outer moon.
+    // Old code used Ganymede's 7.2-day local period → synodic period ≈ 7.3 days.
+    // Fixed code uses Jupiter's 11.9-year heliocentric period → synodic period ≈ 399 days.
+    // We verify that wait_time_s is within the correct (large) synodic window, and that
+    // the Hohmann coast time reflects the true Earth→Jupiter heliocentric distance.
+    const auto& ganymede_station = station_by_id(universe, "ganymede_depot");
+    const auto ganymede_plan = planner.plan_transfer(origin, ganymede_station, ship, ship_class, 0.0);
+    require(ganymede_plan.sampled_path.size() >= 2, "Kepler Earth->Ganymede should produce a sampled path");
+    require(ganymede_plan.sampled_times_s.size() == ganymede_plan.sampled_path.size(),
+        "Kepler Earth->Ganymede times and path sizes must match");
+    require(ganymede_plan.wait_time_s >= 0.0, "Kepler Earth->Ganymede wait must be non-negative");
+    // Old buggy synodic period ≤ 7.3 days; correct synodic period ≈ 399 days.
+    // Any wait value up to ~399 days is consistent with the fix.
+    require(ganymede_plan.wait_time_s < 400.0 * 86400.0,
+        "Kepler Earth->Ganymede wait must be within the Jupiter-Earth synodic period (~399 days)");
+    // Hohmann coast for Earth→Jupiter distance ≈ 997 days — far larger than the buggy
+    // ~7-day Ganymede synodic, so coast_time being large is indirect evidence of the fix.
+    require(ganymede_plan.coast_time_s > 300.0 * 86400.0,
+        "Kepler Earth->Ganymede Hohmann coast must exceed 300 days (true heliocentric distance)");
+    require(distance_between(ganymede_plan.sampled_path.front(),
+            mechanics.get_station_position(origin, ganymede_plan.departure_time_s)) < 1.0,
+        "Kepler Earth->Ganymede path start must match origin station at departure time");
+    require(distance_between(ganymede_plan.sampled_path.back(),
+            mechanics.get_station_position(ganymede_station, ganymede_plan.arrival_time_s)) < 1.0,
+        "Kepler Earth->Ganymede path end must match destination station at arrival time");
+
     auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
     sim.set_timewarp(86400.0);
     const auto before = sim.snapshot();
@@ -291,11 +341,74 @@ int main() {
         require(std::abs(arrive_r - mars_r) < mars_r * 0.15,
             "VariableISP arrival point should be near Mars orbit");
 
+        // --- VariableISP endpoint regression (atlas bilinear interpolation endpoint snap) ---
+        // Before the fix, path endpoints came from atlas interpolation which could miss the
+        // target body by up to 0.34 AU (radial error in bilinear seed interpolation).
+        // Both endpoints are now snapped to exact station positions at departure/arrival time.
+        require(distance_between(visp_plan.sampled_path.front(),
+                mechanics.get_station_position(earth_station, visp_plan.departure_time_s)) < 1.0,
+            "VariableISP departure point must match origin station position (endpoint snap)");
+        require(distance_between(visp_plan.sampled_path.back(),
+                mechanics.get_station_position(mars_station, visp_plan.arrival_time_s)) < 1.0,
+            "VariableISP arrival point must match destination station position (endpoint snap)");
+
+        // --- VariableISP propellant sample regression ---
+        // Before the fix, sampled_propellant_kg was empty; ion ships showed ~0 propellant
+        // throughout transit because propellant was deducted upfront at mission assignment.
+        require(visp_plan.sampled_propellant_kg.size() == visp_plan.sampled_path.size(),
+            "VariableISP plan must have one propellant sample per path point");
+        require_near(visp_plan.sampled_propellant_kg.front(),
+            ion_class.propellant_capacity_kg, 1.0,
+            "VariableISP first propellant sample must be near full tank capacity");
+        require_near(visp_plan.sampled_propellant_kg.back(),
+            ion_class.propellant_capacity_kg - visp_plan.propellant_required_kg, 1.0,
+            "VariableISP last propellant sample must match computed propellant cost");
+        for (std::size_t i = 1; i < visp_plan.sampled_propellant_kg.size(); ++i) {
+            require(visp_plan.sampled_propellant_kg[i] <= visp_plan.sampled_propellant_kg[i - 1] + 1.0,
+                "VariableISP propellant samples must be monotonically non-increasing");
+        }
+
         std::cout << std::format(
             "VariableISP Earth-Mars: wait={:.1f}d transfer={:.1f}d propellant={:.0f}kg\n",
             visp_plan.wait_time_s / 86400.0,
             transfer_days,
             visp_plan.propellant_required_kg);
+
+        // --- VariableISP heliocentric rate regression (moon-station origin/destination) ---
+        // Before the fix, omega for moon stations used the moon's local orbital period instead
+        // of the parent planet's heliocentric period, producing wrong phase offsets.
+        // Earth Orbit → Luna Base: both stations walk up to Earth's heliocentric rate,
+        // so relative_rate == 0 and wait_s must be 0.0.  Old code gave wait ≈ 0-29 days
+        // (Moon's synodic period) because it used Luna's 27.3-day local period for omega_dest.
+        const auto& ion_courier_class = ship_class_by_id(universe, "ion_courier");
+        const auto& earth_orbit_station = station_by_id(universe, "earth_orbit");
+        const auto& luna_station_visp = station_by_id(universe, "luna_base");
+        spacetrains::domain::ShipState ion_courier_ship {
+            .id = "test_courier",
+            .name = "Test Courier",
+            .faction_id = "sol_fed",
+            .class_id = ion_courier_class.id,
+            .home_station_id = earth_orbit_station.id,
+            .current_station_id = earth_orbit_station.id,
+            .phase = spacetrains::domain::ShipMissionPhase::Idle,
+            .propellant_kg = ion_courier_class.propellant_capacity_kg,
+            .active_mission = {},
+        };
+        const auto visp_luna_plan = visp_planner.plan_transfer(
+            earth_orbit_station, luna_station_visp, ion_courier_ship, ion_courier_class, 0.0);
+        // rho ≈ 1.0 for Earth-Moon; plan may or may not be feasible (heliocentric model
+        // doesn't apply well this close), but if a path is returned the checks below must hold.
+        if (visp_luna_plan.sampled_path.size() >= 2 && visp_luna_plan.sampled_times_s.size() >= 2) {
+            require(distance_between(visp_luna_plan.sampled_path.front(),
+                    mechanics.get_station_position(earth_orbit_station, visp_luna_plan.departure_time_s)) < 1.0,
+                "VariableISP Earth Orbit->Luna departure must match origin station (moon heliocentric rate fix)");
+            require(distance_between(visp_luna_plan.sampled_path.back(),
+                    mechanics.get_station_position(luna_station_visp, visp_luna_plan.arrival_time_s)) < 1.0,
+                "VariableISP Earth Orbit->Luna arrival must match destination station (moon heliocentric rate fix)");
+            // Moon co-moves with Earth heliocentrically → relative_rate == 0 → wait_s == 0.
+            require(visp_luna_plan.wait_time_s == 0.0,
+                "VariableISP Earth Orbit->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
+        }
     }
 
     std::cout << "All SpaceTrains tests passed.\n";
