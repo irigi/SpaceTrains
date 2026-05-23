@@ -18,7 +18,7 @@ The first playable target is an **observer sandbox**: the player watches station
 ┌────────────────────────────────────────────────────────────────────┐
 │                          GODOT LAYER                              │
 │  map view │ camera │ selection UI │ event log │ time controls     │
-│  preview shell now, authoritative bridge later                    │
+│  bridge-backed observer scene                                     │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │ reads snapshots, sends commands
                                ▼
@@ -56,9 +56,11 @@ The first playable target is an **observer sandbox**: the player watches station
 - Provides spatial queries required by planners and renderers.
 
 ### `trajectory`
-- Defines the stable planner interface.
-- Version 1 uses `KeplerTrajectoryPlanner`.
-- Future versions add `VariableISPPlanner` and correctness comparison against `/VariableISP`.
+- Defines the stable planner interface (`ITrajectoryPlanner`).
+- `KeplerTrajectoryPlanner`: local same-parent transfers and launch-windowed Hohmann interplanetary transfers.
+- `VariableIspTrajectoryPlanner`: constant-power optimal trajectories backed by the precomputed atlas. Searches the theta grid for the launch window minimizing total trip time. Uses similarity scaling to handle any heliocentric origin radius.
+- `TrajectoryPlan::sampled_path` plus timed samples are authoritative for ship motion and selected trajectory rendering.
+- The simulation dispatches to the appropriate planner based on each ship class's `propulsion_type`.
 
 ### `economy`
 - Applies production and consumption rules to station inventories over time.
@@ -69,8 +71,9 @@ The first playable target is an **observer sandbox**: the player watches station
 - Advances the simulation, dispatches missions, applies refueling, and exposes read-only snapshots.
 
 ### `bridge`
-- Not fully implemented yet.
-- Will expose body/station/ship/event/time queries and accept a narrow command set from Godot.
+- Runs the C++ simulation as a file-backed bridge for Godot.
+- Emits body, station, ship, event, timing, and active mission trajectory snapshots.
+- Accepts narrow pause/timewarp commands from Godot.
 
 ### `ui_observer`
 - Godot-side presentation layer for camera, map rendering, selection, time controls, and debug overlays.
@@ -94,7 +97,7 @@ The first playable target is an **observer sandbox**: the player watches station
 
 ### `MissionAssignment`
 - Runtime mission contract between the simulation and a ship.
-- Contains origin, destination, cargo, remaining travel time, and fuel cost.
+- Contains origin, destination, cargo, wait/coast timing, remaining travel time, fuel cost, and the sampled path copied from the selected `TrajectoryPlan`.
 
 ---
 
@@ -129,9 +132,9 @@ Simulation.step(dt)
 ```
 Godot UI
     ↓
-SimulationBridge queries snapshot / derived render data
+bridge snapshot / derived render data
     ↓
-map rendering, labels, selection panel, event log, time controls
+map rendering, selected trajectory path, labels, selection panel, event log, time controls
 ```
 
 ---
@@ -139,28 +142,25 @@ map rendering, labels, selection panel, event log, time controls
 ## Planned Evolution
 
 ### Near term
-- Replace the Godot CSV preview shell with a real bridge-backed scene.
-- Add time progression, camera controls, moving ships, selection, and event log.
-- Expand the simulation from station-level mission timing to rendered ship motion.
+- Broaden bridge-backed UI debugging and mission inspection.
+- Expand the simulation from mission timing to richer mission-state handling.
 
 ### Medium term
-- Improve the Kepler planner to use richer orbital state and sampled paths.
+- Improve the Kepler planner with patched-conic handoffs and richer orbital state.
 - Add save/load, deterministic scenario seeding, and stronger debugging surfaces.
 - Introduce rescue and support mission states before combat.
 
 ### Long term
-- Add `VariableISPPlanner` using the `/VariableISP` paper/code/atlas as reference material and verification targets.
-- Potentially rewrite more of the numerical integration layer in C++ while keeping the planner interface stable.
+- Patched-conic SOI handoffs for more realistic Kepler transfers.
+- Per-ship parameter variation (power multiplier, size multiplier).
 - Support custom star systems through data-only content changes.
 
 ---
 
 ## Current Gaps
 
-- No live Godot-to-C++ bridge yet
 - No save/load yet
-- No rendered moving ships in Godot yet
 - No pirates, police, combat, or rescue gameplay yet
-- No runtime VariableISP integration yet
+- No per-ship individual parameter variation yet (power multiplier, size multiplier)
 
 These are expected gaps, not architectural contradictions.

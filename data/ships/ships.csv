@@ -4,3 +4,8 @@ sf_tanker_01,SF Reservoir,sol_fed,tanker,earth_orbit,earth_orbit,16000
 mc_hauler_01,MC Daedalus,mars_corp,light_freighter,mars_transfer,mars_transfer,9000
 ind_courier_01,IN Swift,independent,fast_courier,venus_cloud,venus_cloud,6000
 ind_hauler_02,IN Borealis,independent,light_freighter,ceres_depot,ceres_depot,8500
+sf_ion_01,SF Hermes,sol_fed,ion_courier,earth_l1,earth_l1,7000
+mc_ion_01,MC Ares,mars_corp,ion_freighter,mars_transfer,mars_transfer,10000
+ind_ion_01,IN Celeris,independent,ion_courier,earth_orbit,earth_orbit,7000
+sol_hauler_01,SS Endeavour,sol_fed,deep_space_freighter,earth_l1,earth_l1,40000
+ind_hauler_03,SS Pioneer,independent,deep_space_freighter,earth_l1,earth_l1,40000

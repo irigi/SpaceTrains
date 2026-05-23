@@ -2,14 +2,15 @@
 
 ## Purpose
 
-`bridge` is the planned boundary between the authoritative C++ simulation and the Godot frontend. It will replace the current Godot CSV preview shell with a live query-and-command surface.
+`bridge` is the file-backed boundary between the authoritative C++ simulation and the Godot frontend. Godot launches the bridge executable, reads JSON snapshots, and writes a narrow JSON command file for pause/timewarp controls.
 
 ## Responsibilities
 
 - Own or reference a running `Simulation`.
-- Expose read-only query methods for Godot.
+- Expose read-only snapshot data for Godot.
 - Convert core state into Godot-friendly shapes.
 - Accept a narrow set of player/debug commands and route them into the simulation.
+- Include active mission `trajectory_path` arrays and destination-body-at-arrival data for awaiting/in-transit ships so Godot renders selected trajectories from authoritative simulation samples.
 
 ## Non-responsibilities
 
@@ -17,48 +18,38 @@
 - Loading static scenario files directly in GDScript
 - Presentation layout and widget logic
 
-## Planned Public Interfaces
+## Current Public Surface
 
-```cpp
-class SimulationBridge {
-public:
-    void initialize(const std::string& data_root);
-    void step(double real_dt_s);
+- `spacetrains_bridge --data-root ... --snapshot-file ... --command-file ... --step-seconds ...`
+- Snapshot JSON includes simulation timing, bodies, stations, ships, recent events, and per-ship active mission fields.
+- Awaiting/in-transit ships include `trajectory_path: [{t_s,x,y,z}, ...]` and `destination_body_at_arrival`.
+- Command JSON currently accepts `paused` and `timewarp_factor`.
 
-    SimulationSnapshot get_snapshot() const;
-    std::vector<Vec3d> get_body_positions() const;
-    std::vector<Vec3d> get_station_positions() const;
-    std::vector<Vec3d> get_ship_positions() const;
-
-    void set_timewarp(double factor);
-    void pause(bool paused);
-};
-```
-
-The exact Godot binding surface may change, but the architectural rule should not: Godot reads through the bridge and does not own simulation state directly.
+The exact transport may change later, but the architectural rule should not: Godot reads through the bridge and does not own simulation state directly.
 
 ## Data Flow
 
 ```
 Godot input -> SimulationBridge commands -> Simulation
-Simulation -> SimulationBridge queries -> Godot rendering/UI
+Simulation -> bridge snapshot JSON -> Godot rendering/UI
 ```
 
 ## Invariants
 
 - The bridge mirrors the simulation; it does not duplicate gameplay logic.
-- Queries are safe to call every frame.
+- Snapshot reads are safe to perform every frame.
 - Commands are intentionally narrow during early stages.
+- Selected trajectory display comes from `trajectory_path`, not from Godot-derived station endpoints, and destination ghosts come from bridge arrival-body data.
 
 ## Deferred Work
 
-- GDExtension implementation details
+- Optional GDExtension implementation
 - Selection-detail APIs
 - Orbit sample queries and event streaming
 - Pause/resume and stepping semantics for the editor/debugger
 
 ## Tests
 
-- Godot can initialize and tick a simulation through the bridge.
-- Query calls are stable across frames.
+- Godot can initialize and observe a simulation through the bridge.
+- Snapshot payloads are stable across frames.
 - Timewarp and pause commands affect the simulation as expected.

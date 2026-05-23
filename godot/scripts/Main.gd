@@ -1,16 +1,61 @@
 extends Node3D
 
 const POSITION_SCALE := 1.0 / 8_000_000_000.0
-const SHIP_SCALE := 0.035
-const STATION_SCALE := 0.07
+const BODY_MIN_MODEL_SCALE := 0.00045
+const SHIP_MIN_MODEL_SCALE := 0.00008
+const STATION_MIN_MODEL_SCALE := 0.00012
+const SHIP_MASS_SCALE := 0.00012
+const STATION_POPULATION_SCALE := 0.00016
 const BRIDGE_STEP_SECONDS := 0.1
 const DEFAULT_TIMEWARP := 86400.0
 const TIMEWARP_STEPS := [600.0, 3600.0, 21600.0, 86400.0, 432000.0]
-const SUN_HALO_MODE := "subtle"
+
+const BODY_ICON_SIZE := {
+    "star":         14.0,
+    "planet":       9.0,
+    "dwarf_planet": 7.0,
+    "moon":         7.0,
+}
+const STATION_ICON_SIZE := 8.0
+const SHIP_ICON_SIZE := 8.0
+const ICON_ALPHA := 0.58
+const ICON_PICK_PADDING_PX := 6.0
+const DEBUG_SAMPLE_BODY_IDS := ["sun", "mercury", "earth", "mars", "jupiter", "saturn", "neptune"]
+const DEBUG_LOG_INTERVAL_S := 1.0
+const UI_REFRESH_INTERVAL_S := 0.5
+
+const BODY_TYPE := {
+    "sun": "star",
+    "mercury": "planet", "venus": "planet", "earth": "planet",
+    "mars": "planet", "jupiter": "planet", "saturn": "planet",
+    "uranus": "planet", "neptune": "planet",
+    "ceres": "dwarf_planet",
+    "luna": "moon", "europa": "moon", "ganymede": "moon",
+    "titan": "moon", "triton": "moon",
+}
+
+const BODY_ICON_COLOR := {
+    "sun":      Color(1.00, 0.88, 0.30),
+    "mercury":  Color(0.70, 0.65, 0.60),
+    "venus":    Color(0.95, 0.85, 0.50),
+    "earth":    Color(0.20, 0.50, 1.00),
+    "luna":     Color(0.80, 0.80, 0.80),
+    "mars":     Color(0.90, 0.35, 0.20),
+    "ceres":    Color(0.60, 0.55, 0.50),
+    "jupiter":  Color(0.85, 0.65, 0.45),
+    "europa":   Color(0.75, 0.70, 0.65),
+    "ganymede": Color(0.65, 0.60, 0.55),
+    "saturn":   Color(0.90, 0.80, 0.55),
+    "titan":    Color(0.85, 0.65, 0.40),
+    "uranus":   Color(0.50, 0.85, 0.90),
+    "neptune":  Color(0.30, 0.45, 0.95),
+    "triton":   Color(0.60, 0.70, 0.75),
+}
 
 @onready var world_root: Node3D = $WorldRoot
 @onready var camera_rig: Node3D = $CameraRig
 @onready var camera: Camera3D = $CameraRig/Camera3D
+@onready var canvas_layer: CanvasLayer = $CanvasLayer
 @onready var info_label: Label = $CanvasLayer/Info
 @onready var entity_list: ItemList = $CanvasLayer/EntityList
 @onready var selection_label: Label = $CanvasLayer/Selection
@@ -41,6 +86,9 @@ var entity_details: Dictionary = {}
 var entity_kinds: Dictionary = {}
 var entity_visual_signatures: Dictionary = {}
 var trail_nodes: Dictionary = {}
+var trail_path_signatures: Dictionary = {}
+var selected_ship_overlay: MeshInstance3D
+var destination_body_ghost: MeshInstance3D
 var current_paused := false
 var current_timewarp := DEFAULT_TIMEWARP
 var has_auto_focused := false
@@ -56,20 +104,32 @@ var faction_colors := {
     "independent": Color(0.86, 0.82, 0.72)
 }
 var sun_light: OmniLight3D
+var map_icon_layer: Control
+var _map_icons: Dictionary = {}
+var _icon_textures: Dictionary = {}
+var debug_map_enabled := false
+var debug_log_accum_s := 0.0
+var debug_frame := 0
+var last_render_origin := Vector3.ZERO
+var last_ui_refresh_s := -1000.0
 
 func _ready() -> void:
     repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
     executable_path = repo_root.path_join("build/bin/spacetrains_bridge")
-    snapshot_path = ProjectSettings.globalize_path("user://spacetrains_snapshot.json")
-    command_path = ProjectSettings.globalize_path("user://spacetrains_commands.json")
+    var session_id := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
+    snapshot_path = ProjectSettings.globalize_path("user://spacetrains_snapshot_%s.json" % session_id)
+    command_path = ProjectSettings.globalize_path("user://spacetrains_commands_%s.json" % session_id)
     _write_bridge_commands()
     _start_bridge()
     _create_debug_guides()
     _setup_scene_lighting()
+    _setup_map_icon_layer()
+    if "--debug-map" in OS.get_cmdline_user_args():
+        debug_map_enabled = true
     if bridge_started:
-        info_label.text = "SpaceTrains\nStarting bridge...\n%s" % executable_path
-    selection_label.text = "No selection\nControls: RMB rotate, MMB pan, wheel zoom, left click select, F focus, Space pause, 1/2/3 timewarp"
-    event_log.text = "Events\n"
+        _set_label_text(info_label, "SpaceTrains\nStarting bridge...\n%s" % executable_path)
+    _set_label_text(selection_label, _controls_text("No selection"))
+    _set_label_text(event_log, "Events\n")
     entity_list.item_selected.connect(_on_entity_selected)
 
 func _exit_tree() -> void:
@@ -77,10 +137,13 @@ func _exit_tree() -> void:
         OS.kill(bridge_pid)
 
 func _process(delta: float) -> void:
+    debug_frame += 1
     _read_snapshot()
     snapshot_blend = _current_snapshot_alpha()
     _update_nodes(delta)
     _update_camera_focus()
+    _update_map_icons()
+    _update_map_debug(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo:
@@ -102,6 +165,11 @@ func _unhandled_input(event: InputEvent) -> void:
             _step_timewarp(1)
         elif event.keycode == KEY_F and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
+        elif event.keycode == KEY_F9:
+            debug_map_enabled = not debug_map_enabled
+            _debug_map_state("toggle")
+        elif event.keycode == KEY_F10:
+            _debug_map_state("manual")
     elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
         _pick_entity(event.position)
         if event.double_click and selected_id != "" and entity_targets.has(selected_id):
@@ -109,7 +177,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
-        info_label.text = "Bridge executable not found:\n%s\nBuild the project first." % executable_path
+        _set_label_text(info_label, "Bridge executable not found:\n%s\nBuild the project first." % executable_path)
         return
 
     var args := [
@@ -120,7 +188,7 @@ func _start_bridge() -> void:
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
-        info_label.text = "Failed to start bridge process."
+        _set_label_text(info_label, "Failed to start bridge process.")
         bridge_started = false
     else:
         bridge_started = true
@@ -146,7 +214,13 @@ func _read_snapshot() -> void:
     if parse_status != OK or typeof(json.data) != TYPE_DICTIONARY:
         return
     var new_seq := int(json.data.get("snapshot_seq", -1))
-    if new_seq == current_snapshot_seq:
+    if new_seq <= current_snapshot_seq:
+        return
+    var new_game_time_s := float(json.data.get("game_time_s", 0.0))
+    var current_game_time_s := float(bridge_state.get("game_time_s", -1.0))
+    if current_game_time_s >= 0.0 and new_game_time_s + 0.001 < current_game_time_s:
+        if debug_map_enabled:
+            print("[MapDebugReject] seq=%d current_seq=%d new_game_day=%.3f current_game_day=%.3f" % [new_seq, current_snapshot_seq, new_game_time_s / 86400.0, current_game_time_s / 86400.0])
         return
     var arrival_now_s := _wall_time_s()
     var new_bridge_time_s := float(json.data.get("snapshot_real_time_s", arrival_now_s))
@@ -178,7 +252,7 @@ func _apply_snapshot() -> void:
     for body in bridge_state.get("bodies", []):
         var body_id := String(body["id"])
         body_positions[body_id] = _scaled_position(body)
-        body_display_radii[body_id] = _body_display_scale(body_id)
+        body_display_radii[body_id] = _body_scale_from_radius(float(body.get("radius_m", 0.0)))
 
     for station in bridge_state.get("stations", []):
         var station_id := String(station["id"])
@@ -203,6 +277,13 @@ func _apply_snapshot() -> void:
             entity_details.erase(entity_id)
             entity_kinds.erase(entity_id)
             entity_visual_signatures.erase(entity_id)
+            if trail_nodes.has(entity_id):
+                trail_nodes[entity_id].queue_free()
+                trail_nodes.erase(entity_id)
+                trail_path_signatures.erase(entity_id)
+            if _map_icons.has(entity_id):
+                (_map_icons[entity_id] as Node).queue_free()
+                _map_icons.erase(entity_id)
             ids_changed = true
             if entity_id == focused_id:
                 focused_id = ""
@@ -214,7 +295,7 @@ func _apply_snapshot() -> void:
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
-    _refresh_labels()
+    _refresh_labels(false)
 
 func _upsert_entity(data: Dictionary, kind: String) -> void:
     var entity_id: String = data["id"]
@@ -231,8 +312,7 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_targets[entity_id] = Vector3.ZERO
         entity_visual_signatures[entity_id] = ""
         _attach_entity_label(mesh_instance, kind, data)
-        if kind == "body" and entity_id == "sun":
-            _attach_sun_halo(mesh_instance)
+        _attach_map_icon(entity_id, kind, data)
 
     var visual_signature := _visual_signature(kind, data)
     if entity_visual_signatures.get(entity_id, "") != visual_signature:
@@ -240,7 +320,10 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_nodes[entity_id].scale = _make_scale(kind, data)
         entity_visual_signatures[entity_id] = visual_signature
     var new_target := _display_position(data, kind)
-    entity_previous_targets[entity_id] = entity_targets.get(entity_id, new_target)
+    if entity_nodes.has(entity_id):
+        entity_previous_targets[entity_id] = (entity_nodes[entity_id] as Node3D).position
+    else:
+        entity_previous_targets[entity_id] = entity_targets.get(entity_id, new_target)
     entity_targets[entity_id] = new_target
 
 func _update_nodes(delta: float) -> void:
@@ -253,6 +336,7 @@ func _update_nodes(delta: float) -> void:
         node.position = display_position
         if entity_id == focused_id:
             focus_position = display_position
+    last_render_origin = render_origin
     if focused_id != "" and entity_nodes.has(focused_id):
         render_origin = focus_position
     else:
@@ -260,6 +344,7 @@ func _update_nodes(delta: float) -> void:
     world_root.position = -render_origin
     if sun_light != null and entity_nodes.has("sun"):
         sun_light.global_position = entity_nodes["sun"].global_position
+    _update_selected_overlay_positions()
 
 func _scaled_position(data: Dictionary) -> Vector3:
     return Vector3(
@@ -280,19 +365,16 @@ func _display_position(data: Dictionary, kind: String) -> Vector3:
     var phase := String(data.get("phase", "idle"))
     var index: int = abs(ship_id.hash()) % 7
     var angle := float(index) * 0.8975979
-    var ring_offset := Vector3(cos(angle), 0.02 + float(index % 3) * 0.01, sin(angle)) * 0.12
+    var local_spacing: float = max(_ship_display_scale(data) * 6.0, 0.0006)
+    var ring_offset := Vector3(cos(angle), 0.15 + float(index % 3) * 0.08, sin(angle)).normalized() * local_spacing
 
-    if phase == "idle" or phase == "refueling" or phase == "stranded":
+    if phase == "idle" or phase == "refueling" or phase == "stranded" or phase == "awaiting_departure":
         if station_positions.has(station_id):
             return station_positions[station_id] + ring_offset
         return base + ring_offset
 
     if phase == "in_transit":
-        var remaining := float(data.get("remaining_travel_time_s", 0.0))
-        var total: float = max(float(data.get("total_travel_time_s", 0.0)), 1.0)
-        var progress: float = clamp(1.0 - remaining / total, 0.0, 1.0)
-        var arc_height: float = 0.18 + sin(progress * PI) * 0.75
-        return base + Vector3(0.0, arc_height, 0.0)
+        return base
 
     return base
 
@@ -314,29 +396,34 @@ func _make_mesh(kind: String) -> Mesh:
             box.size = Vector3.ONE
             return box
 
+func _body_scale_from_radius(radius_m: float) -> float:
+    if radius_m <= 0.0:
+        return BODY_MIN_MODEL_SCALE
+    return max(radius_m * POSITION_SCALE, BODY_MIN_MODEL_SCALE)
+
 func _body_display_scale(body_id: String) -> float:
-    match body_id:
-        "sun":
-            return 1.75
-        "mercury":
-            return 0.19
-        "venus":
-            return 0.39
-        "earth":
-            return 0.40
-        "mars":
-            return 0.30
-        "ceres":
-            return 0.11
-        _:
-            return 0.22
+    var detail: Dictionary = entity_details.get(body_id, {})
+    return _body_scale_from_radius(float(detail.get("radius_m", 0.0)))
+
+func _ship_display_scale(data: Dictionary) -> float:
+    var mass_kg: float = max(float(data.get("current_mass_kg", data.get("initial_mass_kg", 10000.0))), 1.0)
+    return max(pow(mass_kg / 10000.0, 1.0 / 3.0) * SHIP_MASS_SCALE, SHIP_MIN_MODEL_SCALE)
+
+func _station_display_scale(data: Dictionary) -> float:
+    var population: float = max(float(data.get("population", 0.0)), 1.0)
+    return max(pow(population / 22000.0, 1.0 / 3.0) * STATION_POPULATION_SCALE, STATION_MIN_MODEL_SCALE)
+
+func _model_display_scale(kind: String, data: Dictionary) -> float:
+    if kind == "body":
+        return _body_display_scale(String(data["id"]))
+    if kind == "ship":
+        return _ship_display_scale(data)
+    if kind == "station":
+        return _station_display_scale(data)
+    return BODY_MIN_MODEL_SCALE
 
 func _make_scale(kind: String, data: Dictionary) -> Vector3:
-    if kind == "body":
-        return Vector3.ONE * _body_display_scale(String(data["id"]))
-    if kind == "ship":
-        return Vector3.ONE * SHIP_SCALE
-    return Vector3.ONE * STATION_SCALE
+    return Vector3.ONE * _model_display_scale(kind, data)
 
 func _body_color(body_id: String) -> Color:
     match body_id:
@@ -352,6 +439,24 @@ func _body_color(body_id: String) -> Color:
             return Color(0.89, 0.42, 0.25)
         "ceres":
             return Color(0.72, 0.72, 0.78)
+        "jupiter":
+            return Color(0.85, 0.65, 0.45)
+        "saturn":
+            return Color(0.90, 0.80, 0.55)
+        "uranus":
+            return Color(0.50, 0.85, 0.90)
+        "neptune":
+            return Color(0.30, 0.45, 0.95)
+        "luna":
+            return Color(0.80, 0.80, 0.80)
+        "europa":
+            return Color(0.75, 0.70, 0.65)
+        "ganymede":
+            return Color(0.65, 0.60, 0.55)
+        "titan":
+            return Color(0.85, 0.65, 0.40)
+        "triton":
+            return Color(0.60, 0.70, 0.75)
         _:
             return Color(0.75, 0.8, 0.88)
 
@@ -378,19 +483,30 @@ func _make_material(kind: String, data: Dictionary) -> Material:
         material.roughness = 0.4
     else:
         var phase := String(data.get("phase", "idle"))
-        var faction_id := String(data.get("faction_id", ""))
-        var ship_color: Color = faction_colors.get(faction_id, Color(0.84, 0.84, 0.9))
+        var ship_color := Color(0.96, 0.97, 1.0)
         material.albedo_color = ship_color
         material.emission_enabled = true
-        material.emission = ship_color * 0.35
-        material.emission_energy_multiplier = 0.35
+        material.emission = Color(1.0, 1.0, 1.0)
+        material.emission_energy_multiplier = 0.85
         material.roughness = 0.35
         if phase == "in_transit":
-            material.emission_energy_multiplier = 0.7
+            material.emission_energy_multiplier = 1.25
         elif phase == "stranded":
             material.albedo_color = Color(1.0, 0.3, 0.3)
             material.emission = Color(0.6, 0.1, 0.1)
             material.emission_energy_multiplier = 0.5
+    return material
+
+func _make_destination_ghost_material(body_id: String) -> Material:
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    var color := _body_color(body_id)
+    color.a = 0.32
+    material.albedo_color = color
+    material.emission_enabled = true
+    material.emission = _body_color(body_id)
+    material.emission_energy_multiplier = 0.45
     return material
 
 func _visual_signature(kind: String, data: Dictionary) -> String:
@@ -398,14 +514,26 @@ func _visual_signature(kind: String, data: Dictionary) -> String:
         return "body:%s" % String(data["id"])
     if kind == "station":
         return "station:%s" % String(data.get("faction_id", ""))
-    return "ship:%s:%s" % [String(data.get("phase", "idle")), String(data.get("faction_id", ""))]
+    return "ship:%s" % String(data.get("phase", "idle"))
 
-func _refresh_labels() -> void:
+func _set_label_text(label: Label, text: String) -> void:
+    if label.text == text:
+        return
+    label.text = text
+
+func _controls_text(prefix: String) -> String:
+    return "%s\nControls: RMB rotate, MMB pan, wheel zoom, left click select, F focus, Space pause, 1/2/3 timewarp, F9 debug log, F10 debug snapshot" % prefix
+
+func _refresh_labels(force := false) -> void:
+    var now_s := _wall_time_s()
+    if not force and now_s - last_ui_refresh_s < UI_REFRESH_INTERVAL_S:
+        return
+    last_ui_refresh_s = now_s
     var sim_day := float(bridge_state.get("game_time_days", 0.0))
     var paused := bool(bridge_state.get("paused", false))
     var warp := float(bridge_state.get("timewarp_factor", current_timewarp))
     var run_state := "paused" if paused else "running"
-    info_label.text = "SpaceTrains\nDay %.2f\nState: %s\nTimewarp: %.0fx real second\nBodies: %d  Stations: %d  Ships: %d\nSeeded content currently contains orbital stations only." % [
+    var info_text := "SpaceTrains\nDay %.2f\nState: %s\nTimewarp: %.0fx real second\nBodies: %d  Stations: %d  Ships: %d\nSeeded content currently contains orbital stations only." % [
         sim_day,
         run_state,
         warp,
@@ -413,39 +541,33 @@ func _refresh_labels() -> void:
         len(bridge_state.get("stations", [])),
         len(bridge_state.get("ships", []))
     ]
-    info_label.text += "\nSnapshots: #%d every %.3fs" % [current_snapshot_seq, snapshot_interval_s]
+    if debug_map_enabled:
+        info_text += "\nSnapshots: #%d every %.3fs" % [current_snapshot_seq, snapshot_interval_s]
+    _set_label_text(info_label, info_text)
 
     var event_lines := ["Recent events"]
     for event in bridge_state.get("recent_events", []):
         event_lines.append("[%.1f] %s" % [float(event["time_s"]) / 86400.0, String(event["text"])])
-    event_log.text = "\n".join(event_lines)
+    _set_label_text(event_log, "\n".join(event_lines))
 
     if selected_id == "" or not entity_details.has(selected_id):
-        selection_label.text = "No selection\nControls: RMB rotate, MMB pan, wheel zoom, left click select, F focus, Space pause, 1/2/3 timewarp\nUse the entity list on the left if picking is awkward."
+        _set_label_text(selection_label, _controls_text("No selection") + "\nUse the entity list on the left if picking is awkward.")
         return
 
     var detail: Dictionary = entity_details[selected_id]
+    var selection_text := ""
     if selected_kind == "station":
-        selection_label.text = "%s\nType: station\nFaction: %s\nPopulation: %s\nFood: %.1f  Fuel: %.1f  Metals: %.1f" % [
+        selection_text = "%s\nType: station\nFaction: %s\nPopulation: %s\nFood: %.1f  Fuel: %.1f  Metals: %.1f" % [
             detail["name"], detail["faction_id"], str(detail["population"]),
             float(detail.get("food", 0.0)), float(detail.get("fuel", 0.0)), float(detail.get("metals", 0.0))
         ]
     elif selected_kind == "ship":
-        var total_days := float(detail.get("total_travel_time_s", 0.0)) / 86400.0
-        var remaining_days := float(detail.get("remaining_travel_time_s", 0.0)) / 86400.0
-        var progress_pct := 0.0
-        if total_days > 0.0:
-            progress_pct = clamp((1.0 - remaining_days / total_days) * 100.0, 0.0, 100.0)
-        selection_label.text = "%s\nType: ship\nPhase: %s\nPropellant: %.0f kg\nOrigin: %s\nDestination: %s\nETA days: %.2f" % [
-            detail["name"], detail["phase"], float(detail.get("propellant_kg", 0.0)),
-            String(detail.get("origin_station_id", "")), String(detail.get("destination_station_id", "")),
-            remaining_days
-        ]
-        selection_label.text += "\nMission progress: %.1f%%" % progress_pct
+        selection_text = _ship_detail_text(detail)
     else:
-        selection_label.text = "%s\nType: body\nDisplay scale: %.2f\nRadius: %.0f km" % [
+        selection_text = "%s\nType: body\nModel scale: %.6f\nRadius: %.0f km" % [
             detail["name"], _body_display_scale(String(detail["id"])), float(detail.get("radius_m", 0.0)) / 1000.0
         ]
+    _set_label_text(selection_label, selection_text)
 
 func _pick_entity(mouse_pos: Vector2) -> void:
     var best_id := ""
@@ -453,18 +575,85 @@ func _pick_entity(mouse_pos: Vector2) -> void:
     var best_kind := ""
     for entity_id in entity_nodes.keys():
         var node: Node3D = entity_nodes[entity_id]
+        if camera.is_position_behind(node.global_position):
+            continue
         var screen_pos := camera.unproject_position(node.global_position)
-        if not camera.is_position_behind(node.global_position):
-            var distance := screen_pos.distance_to(mouse_pos)
-            if distance < best_distance:
-                best_distance = distance
-                best_id = entity_id
-                best_kind = entity_kinds.get(entity_id, "")
+        var kind: String = entity_kinds.get(entity_id, "")
+        var detail: Dictionary = entity_details.get(entity_id, {})
+        var pick_radius: float = max(_icon_pixel_size(kind, detail) + ICON_PICK_PADDING_PX, 20.0)
+        var distance := screen_pos.distance_to(mouse_pos)
+        if distance < pick_radius and distance < best_distance:
+            best_distance = distance
+            best_id = entity_id
+            best_kind = kind
     selected_id = best_id
     selected_kind = best_kind
     if selected_id != "":
         _select_entity_in_list(selected_id)
-    _refresh_labels()
+    _refresh_labels(true)
+
+func _entity_name_or_id(entity_id: String) -> String:
+    if entity_id == "":
+        return "None"
+    if entity_details.has(entity_id):
+        var detail: Dictionary = entity_details[entity_id]
+        return String(detail.get("name", entity_id))
+    return entity_id
+
+func _format_days(seconds: float) -> String:
+    return "%.2f days" % (max(seconds, 0.0) / 86400.0)
+
+func _cargo_summary(detail: Dictionary) -> String:
+    var cargo_units := float(detail.get("cargo_units", 0.0))
+    var commodity_id := String(detail.get("commodity_id", ""))
+    if cargo_units <= 0.0 or commodity_id == "":
+        return "None"
+    return "%.1f units of %s" % [cargo_units, commodity_id]
+
+func _ship_mass_text(detail: Dictionary) -> String:
+    return "Dry mass: %.0f kg\nPropellant: %.0f / %.0f kg\nCurrent mass: %.0f kg\nInitial/full mass: %.0f kg" % [
+        float(detail.get("dry_mass_kg", 0.0)),
+        float(detail.get("propellant_kg", 0.0)),
+        float(detail.get("propellant_capacity_kg", 0.0)),
+        float(detail.get("current_mass_kg", 0.0)),
+        float(detail.get("initial_mass_kg", 0.0))
+    ]
+
+func _ship_detail_text(detail: Dictionary) -> String:
+    var phase := String(detail.get("phase", "idle"))
+    var current_station := _entity_name_or_id(String(detail.get("current_station_id", "")))
+    var origin := _entity_name_or_id(String(detail.get("origin_station_id", "")))
+    var destination := _entity_name_or_id(String(detail.get("destination_station_id", "")))
+    var cargo := _cargo_summary(detail)
+    var game_time_s := float(bridge_state.get("game_time_s", 0.0))
+    var departure_time_s := float(detail.get("departure_time_s", 0.0))
+    var arrival_time_s := float(detail.get("arrival_time_s", 0.0))
+    var text := "%s\nType: ship\nPhase: %s\nCurrent station: %s\n%s" % [
+        String(detail.get("name", detail.get("id", ""))),
+        phase,
+        current_station,
+        _ship_mass_text(detail)
+    ]
+
+    if phase == "awaiting_departure":
+        text += "\nRoute: %s -> %s\nCargo: %s\nDeparture in: %s\nETA: %s" % [
+            origin,
+            destination,
+            cargo,
+            _format_days(departure_time_s - game_time_s),
+            _format_days(arrival_time_s - game_time_s)
+        ]
+    elif phase == "in_transit":
+        var coast_time_s: float = max(arrival_time_s - departure_time_s, 1.0)
+        var progress_pct: float = clamp(((game_time_s - departure_time_s) / coast_time_s) * 100.0, 0.0, 100.0)
+        text += "\nRoute: %s -> %s\nCargo: %s\nETA: %s\nMission progress: %.1f%%" % [
+            origin,
+            destination,
+            cargo,
+            _format_days(arrival_time_s - game_time_s),
+            progress_pct
+        ]
+    return text
 
 func _create_debug_guides() -> void:
     var axes := [
@@ -512,16 +701,18 @@ func _setup_scene_lighting() -> void:
     env.ambient_light_color = Color(0.1, 0.1, 0.15, 1.0)
     env.ambient_light_energy = 0.22
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
-    env.glow_enabled = true
-    env.glow_intensity = 0.75
-    env.glow_bloom = 0.30
-    env.glow_strength = 1.25
-    env.glow_hdr_threshold = 0.70
-    env.glow_hdr_scale = 1.30
-    env.glow_map_strength = 0.85
+    env.glow_enabled = false
     var world_env := WorldEnvironment.new()
     world_env.environment = env
     add_child(world_env)
+
+func _setup_map_icon_layer() -> void:
+    map_icon_layer = Control.new()
+    map_icon_layer.name = "MapIconLayer"
+    map_icon_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    map_icon_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+    canvas_layer.add_child(map_icon_layer)
+    canvas_layer.move_child(map_icon_layer, 0)
 
 func _attach_entity_label(node: MeshInstance3D, kind: String, data: Dictionary) -> void:
     var label := Label3D.new()
@@ -533,60 +724,182 @@ func _attach_entity_label(node: MeshInstance3D, kind: String, data: Dictionary) 
     if kind == "body":
         label.font_size = 22
         label.pixel_size = 0.03
-        label.position = Vector3(0, _body_display_scale(String(data["id"])) + 0.6, 0)
+        label.position = Vector3(0, _model_display_scale(kind, data) + 0.08, 0)
     elif kind == "station":
         label.font_size = 16
-        label.pixel_size = 0.02
-        label.position = Vector3(0, STATION_SCALE + 0.18, 0)
+        label.pixel_size = 0.018
+        label.position = Vector3(0, _model_display_scale(kind, data) + 0.045, 0)
     else:
         label.font_size = 14
-        label.pixel_size = 0.018
-        label.position = Vector3(0, SHIP_SCALE + 0.12, 0)
+        label.pixel_size = 0.016
+        label.position = Vector3(0, _model_display_scale(kind, data) + 0.04, 0)
         label.visible = false
     node.add_child(label)
 
-func _attach_sun_halo(node: MeshInstance3D) -> void:
-    if SUN_HALO_MODE == "off":
-        return
-    var halo := MeshInstance3D.new()
-    halo.name = "SunHalo"
-    var quad := QuadMesh.new()
-    quad.size = Vector2.ONE * 6.0
-    halo.mesh = quad
-    var material := StandardMaterial3D.new()
-    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-    material.no_depth_test = true
-    material.cull_mode = BaseMaterial3D.CULL_DISABLED
-    material.albedo_texture = _make_sun_halo_texture()
-    material.albedo_color = Color(1.0, 0.97, 0.86, 0.92)
-    material.emission_enabled = true
-    material.emission = Color(1.0, 0.96, 0.84)
-    material.emission_energy_multiplier = 1.45
-    halo.material_override = material
-    node.add_child(halo)
+func _icon_shape(kind: String, data: Dictionary) -> String:
+    if kind == "body":
+        return "circle"
+    if kind == "station":
+        return "diamond"
+    return "triangle"
 
-func _make_sun_halo_texture() -> ImageTexture:
-    var size: int = 512
-    var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
-    var center: Vector2 = Vector2(size * 0.5, size * 0.5)
-    var radius: float = size * 0.5
-    for y in range(size):
-        for x in range(size):
-            var distance_to_center: float = Vector2(x, y).distance_to(center) / radius
-            var falloff: float = clamp(1.0 - distance_to_center, 0.0, 1.0)
-            var smooth_falloff: float = falloff * falloff * (3.0 - 2.0 * falloff)
-            var alpha: float = pow(smooth_falloff, 2.1) * 0.72
-            var warmth: float = pow(smooth_falloff, 0.45)
-            var color: Color = Color(
-                1.0,
-                lerp(0.90, 0.98, warmth),
-                lerp(0.62, 0.90, warmth),
-                alpha
-            )
-            image.set_pixel(x, y, color)
-    return ImageTexture.create_from_image(image)
+func _icon_pixel_size(kind: String, data: Dictionary) -> float:
+    if kind == "body":
+        var body_id := String(data.get("id", ""))
+        return float(BODY_ICON_SIZE.get(BODY_TYPE.get(body_id, "planet"), 22.0))
+    if kind == "station":
+        return STATION_ICON_SIZE
+    return SHIP_ICON_SIZE
+
+func _icon_color(kind: String, data: Dictionary) -> Color:
+    if kind == "body":
+        return BODY_ICON_COLOR.get(String(data.get("id", "")), Color(0.7, 0.7, 0.7)) as Color
+    if kind == "station":
+        return faction_colors.get(String(data.get("faction_id", "")), Color(0.95, 0.82, 0.36)) as Color
+    var phase := String(data.get("phase", "idle"))
+    if phase == "stranded":
+        return Color(1.0, 0.25, 0.22)
+    if phase == "in_transit":
+        return Color(0.70, 1.0, 0.95)
+    return faction_colors.get(String(data.get("faction_id", "")), Color(0.96, 0.97, 1.0)) as Color
+
+func _get_icon_texture(shape: String) -> ImageTexture:
+    if _icon_textures.has(shape):
+        return _icon_textures[shape] as ImageTexture
+    var sz := 96
+    var img := Image.create(sz, sz, false, Image.FORMAT_RGBA8)
+    var center := Vector2(sz * 0.5, sz * 0.5)
+    var outer := sz * 0.36
+    for y in range(sz):
+        for x in range(sz):
+            var p: Vector2 = Vector2(x + 0.5, y + 0.5)
+            var inside := false
+            if shape == "circle":
+                inside = p.distance_to(center) <= outer
+            elif shape == "diamond":
+                inside = abs(p.x - center.x) + abs(p.y - center.y) <= outer
+            else:
+                var top: Vector2 = Vector2(center.x, center.y - outer)
+                var left: Vector2 = Vector2(center.x - outer * 0.82, center.y + outer * 0.72)
+                var right: Vector2 = Vector2(center.x + outer * 0.82, center.y + outer * 0.72)
+                var area: float = abs((left.x - top.x) * (right.y - top.y) - (right.x - top.x) * (left.y - top.y))
+                var a: float = abs((top.x - p.x) * (left.y - p.y) - (left.x - p.x) * (top.y - p.y)) / area
+                var b: float = abs((left.x - p.x) * (right.y - p.y) - (right.x - p.x) * (left.y - p.y)) / area
+                var c: float = abs((right.x - p.x) * (top.y - p.y) - (top.x - p.x) * (right.y - p.y)) / area
+                inside = a + b + c <= 1.01
+            img.set_pixel(x, y, Color(1.0, 1.0, 1.0, 1.0 if inside else 0.0))
+    var texture: ImageTexture = ImageTexture.create_from_image(img)
+    _icon_textures[shape] = texture
+    return texture
+
+func _attach_map_icon(entity_id: String, kind: String, data: Dictionary) -> void:
+    if _map_icons.has(entity_id):
+        return
+    var icon_node := Sprite2D.new()
+    icon_node.name = "%s_icon" % entity_id
+    icon_node.texture = _get_icon_texture(_icon_shape(kind, data))
+    icon_node.centered = true
+    var icon_color := _icon_color(kind, data)
+    icon_color.a = ICON_ALPHA
+    icon_node.modulate = icon_color
+    if map_icon_layer != null:
+        map_icon_layer.add_child(icon_node)
+    else:
+        canvas_layer.add_child(icon_node)
+    _map_icons[entity_id] = icon_node
+
+func _projected_model_pixels(node: Node3D) -> float:
+    var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
+    return node.scale.x / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
+
+func _update_map_icons() -> void:
+    var viewport_rect := get_viewport().get_visible_rect()
+    for entity_id in _map_icons.keys():
+        var icon: Sprite2D = _map_icons[entity_id]
+        var model: Node3D = entity_nodes.get(entity_id)
+        if not model or not entity_details.has(entity_id) or camera.is_position_behind(model.global_position):
+            icon.visible = false
+            continue
+
+        var kind: String = entity_kinds.get(entity_id, "")
+        var data: Dictionary = entity_details[entity_id]
+        var pixel_size := _icon_pixel_size(kind, data)
+        var selected_scale := 1.25 if entity_id == selected_id else 1.0
+        var target_size := pixel_size * selected_scale
+        var screen_pos := camera.unproject_position(model.global_position)
+
+        icon.visible = viewport_rect.grow(pixel_size).has_point(screen_pos)
+        if not icon.visible:
+            continue
+        icon.position = screen_pos
+        var texture_size := Vector2(icon.texture.get_width(), icon.texture.get_height())
+        icon.scale = Vector2.ONE * (target_size / max(texture_size.x, texture_size.y))
+        var color := (_icon_color(kind, data).lightened(0.35) if entity_id == selected_id else _icon_color(kind, data))
+        color.a = ICON_ALPHA
+        icon.modulate = color
+
+func _update_map_debug(delta: float) -> void:
+    if not debug_map_enabled:
+        return
+    debug_log_accum_s += delta
+    if debug_log_accum_s < DEBUG_LOG_INTERVAL_S:
+        return
+    debug_log_accum_s = 0.0
+    _debug_map_state("periodic")
+
+func _debug_vec(v: Vector3) -> String:
+    return "(%.6f, %.6f, %.6f)" % [v.x, v.y, v.z]
+
+func _debug_map_state(reason: String) -> void:
+    var origin_delta := render_origin.distance_to(last_render_origin)
+    var camera_distance := float(camera_rig.get("distance")) if camera_rig != null else 0.0
+    print("[MapDebug] reason=%s frame=%d seq=%d blend=%.3f focused=%s/%s selected=%s/%s camera_distance=%.6f render_origin=%s origin_delta=%.6f world_root=%s pivot=%s" % [
+        reason,
+        debug_frame,
+        current_snapshot_seq,
+        snapshot_blend,
+        focused_kind,
+        focused_id,
+        selected_kind,
+        selected_id,
+        camera_distance,
+        _debug_vec(render_origin),
+        origin_delta,
+        _debug_vec(world_root.position),
+        _debug_vec(camera_rig.get("pivot") as Vector3)
+    ])
+    for body_id in DEBUG_SAMPLE_BODY_IDS:
+        if not entity_nodes.has(body_id):
+            continue
+        var node: Node3D = entity_nodes[body_id]
+        var detail: Dictionary = entity_details.get(body_id, {})
+        var icon: Sprite2D = _map_icons.get(body_id)
+        var screen := camera.unproject_position(node.global_position)
+        var icon_pixels := 0.0
+        var icon_visible := false
+        var icon_position := Vector2.ZERO
+        if icon != null:
+            icon_visible = icon.visible
+            icon_pixels = max(icon.texture.get_width(), icon.texture.get_height()) * icon.scale.x
+            icon_position = icon.position
+        print("[MapDebugBody] id=%s local=%s global=%s target=%s screen=(%.1f, %.1f) behind=%s model_scale=%.6f model_px=%.2f icon_px=%.2f icon_target=%.1f icon_pos=(%.1f, %.1f) icon_visible=%s radius_km=%.0f" % [
+            body_id,
+            _debug_vec(node.position),
+            _debug_vec(node.global_position),
+            _debug_vec(entity_targets.get(body_id, Vector3.ZERO)),
+            screen.x,
+            screen.y,
+            str(camera.is_position_behind(node.global_position)),
+            node.scale.x,
+            _projected_model_pixels(node),
+            icon_pixels,
+            _icon_pixel_size("body", detail),
+            icon_position.x,
+            icon_position.y,
+            str(icon_visible),
+            float(detail.get("radius_m", 0.0)) / 1000.0
+        ])
 
 func _wall_time_s() -> float:
     return float(Time.get_ticks_usec()) / 1000000.0
@@ -629,9 +942,9 @@ func _select_entity_in_list(entity_id: String) -> void:
             return
 
 func _auto_focus_initial_entity() -> void:
-    if station_positions.has("earth_l1"):
-        selected_id = "earth_l1"
-        selected_kind = "station"
+    if entity_targets.has("sun"):
+        selected_id = "sun"
+        selected_kind = "body"
     elif bridge_state.get("stations", []).size() > 0:
         var station: Dictionary = bridge_state.get("stations", [])[0]
         selected_id = station["id"]
@@ -654,18 +967,16 @@ func _ensure_trail_node(ship_id: String) -> Node3D:
         return trail_nodes[ship_id]
     var node := Node3D.new()
     node.name = "%s_trail" % ship_id
-    var segment_a := MeshInstance3D.new()
-    segment_a.name = "segment_a"
-    var mesh_a := BoxMesh.new()
-    mesh_a.size = Vector3(0.02, 0.02, 1.0)
-    segment_a.mesh = mesh_a
-    var segment_b := MeshInstance3D.new()
-    segment_b.name = "segment_b"
-    var mesh_b := BoxMesh.new()
-    mesh_b.size = Vector3(0.02, 0.02, 1.0)
-    segment_b.mesh = mesh_b
-    node.add_child(segment_a)
-    node.add_child(segment_b)
+    var path_mesh := MeshInstance3D.new()
+    path_mesh.name = "path"
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.albedo_color = Color(0.3, 1.0, 0.8)
+    material.emission_enabled = true
+    material.emission = Color(0.3, 1.0, 0.8)
+    material.emission_energy_multiplier = 1.2
+    path_mesh.material_override = material
+    node.add_child(path_mesh)
     world_root.add_child(node)
     trail_nodes[ship_id] = node
     return node
@@ -673,6 +984,8 @@ func _ensure_trail_node(ship_id: String) -> Node3D:
 func _update_ship_trails() -> void:
     for ship_id in trail_nodes.keys():
         trail_nodes[ship_id].visible = false
+    if destination_body_ghost != null:
+        destination_body_ghost.visible = false
 
     if selected_kind != "ship" or selected_id == "":
         return
@@ -681,29 +994,102 @@ func _update_ship_trails() -> void:
 
     var ship: Dictionary = entity_details[selected_id]
     var phase := String(ship.get("phase", "idle"))
-    if phase != "in_transit":
+    if phase != "in_transit" and phase != "awaiting_departure":
         return
 
-    var origin_id := String(ship.get("origin_station_id", ""))
-    var destination_id := String(ship.get("destination_station_id", ""))
-    if not station_positions.has(origin_id) or not station_positions.has(destination_id):
+    var trajectory_path: Array = ship.get("trajectory_path", [])
+    if trajectory_path.size() < 2:
         return
-
-    var origin: Vector3 = station_positions[origin_id]
-    var destination: Vector3 = station_positions[destination_id]
-    var midpoint: Vector3 = (origin + destination) * 0.5 + Vector3.UP * max(0.18, origin.distance_to(destination) * 0.10)
 
     var trail_node := _ensure_trail_node(selected_id)
+    var signature := _trajectory_path_signature(trajectory_path)
+    if trail_path_signatures.get(selected_id, "") != signature:
+        _rebuild_trail_mesh(trail_node, trajectory_path)
+        trail_path_signatures[selected_id] = signature
+    trail_node.visible = true
+    _update_destination_body_ghost(ship)
+
+func _trajectory_path_signature(trajectory_path: Array) -> String:
+    var parts: Array[String] = [str(trajectory_path.size())]
+    for point in trajectory_path:
+        parts.append("%.3f,%.3f,%.3f" % [float(point.get("x", 0.0)), float(point.get("y", 0.0)), float(point.get("z", 0.0))])
+    return "|".join(parts)
+
+func _rebuild_trail_mesh(trail_node: Node3D, trajectory_path: Array) -> void:
+    var mesh := ImmediateMesh.new()
+    mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+    for point in trajectory_path:
+        mesh.surface_add_vertex(_scaled_position(point))
+    mesh.surface_end()
+    var path_mesh: MeshInstance3D = trail_node.get_node("path")
+    path_mesh.mesh = mesh
+
+func _ensure_selected_ship_overlay() -> MeshInstance3D:
+    if selected_ship_overlay != null:
+        return selected_ship_overlay
+    selected_ship_overlay = MeshInstance3D.new()
+    selected_ship_overlay.name = "SelectedShipOverlay"
+    var mesh := SphereMesh.new()
+    mesh.radius = 1.0
+    mesh.height = 2.0
+    mesh.radial_segments = 16
+    mesh.rings = 8
+    selected_ship_overlay.mesh = mesh
     var material := StandardMaterial3D.new()
     material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-    material.albedo_color = Color(0.3, 1.0, 0.8)
-    var segment_a: MeshInstance3D = trail_node.get_node("segment_a")
-    var segment_b: MeshInstance3D = trail_node.get_node("segment_b")
-    segment_a.material_override = material
-    segment_b.material_override = material
-    _update_trail_segment(segment_a, origin, midpoint)
-    _update_trail_segment(segment_b, midpoint, destination)
-    trail_node.visible = true
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    material.albedo_color = Color(0.25, 1.0, 0.95, 0.62)
+    material.emission_enabled = true
+    material.emission = Color(0.35, 1.0, 0.95)
+    material.emission_energy_multiplier = 1.8
+    selected_ship_overlay.material_override = material
+    selected_ship_overlay.scale = Vector3.ONE * SHIP_MIN_MODEL_SCALE * 3.0
+    selected_ship_overlay.visible = false
+    world_root.add_child(selected_ship_overlay)
+    return selected_ship_overlay
+
+func _ensure_destination_body_ghost() -> MeshInstance3D:
+    if destination_body_ghost != null:
+        return destination_body_ghost
+    destination_body_ghost = MeshInstance3D.new()
+    destination_body_ghost.name = "DestinationBodyGhost"
+    var mesh := SphereMesh.new()
+    mesh.radius = 1.0
+    mesh.height = 2.0
+    mesh.radial_segments = 32
+    mesh.rings = 16
+    destination_body_ghost.mesh = mesh
+    destination_body_ghost.visible = false
+    world_root.add_child(destination_body_ghost)
+    return destination_body_ghost
+
+func _update_selected_overlay_positions() -> void:
+    var overlay := _ensure_selected_ship_overlay()
+    if selected_kind == "ship" and selected_id != "" and entity_nodes.has(selected_id):
+        var selected_node: Node3D = entity_nodes[selected_id]
+        overlay.position = selected_node.position
+        overlay.scale = selected_node.scale * 3.0
+        overlay.visible = true
+    else:
+        overlay.visible = false
+    if destination_body_ghost != null and destination_body_ghost.visible and selected_kind == "ship" and entity_details.has(selected_id):
+        var ship: Dictionary = entity_details[selected_id]
+        var destination_body: Dictionary = ship.get("destination_body_at_arrival", {})
+        if not destination_body.is_empty():
+            destination_body_ghost.position = _scaled_position(destination_body)
+
+func _update_destination_body_ghost(ship: Dictionary) -> void:
+    var destination_body: Dictionary = ship.get("destination_body_at_arrival", {})
+    if destination_body.is_empty():
+        if destination_body_ghost != null:
+            destination_body_ghost.visible = false
+        return
+    var ghost := _ensure_destination_body_ghost()
+    var body_id := String(destination_body.get("id", ""))
+    ghost.position = _scaled_position(destination_body)
+    ghost.scale = Vector3.ONE * _body_display_scale(body_id)
+    ghost.material_override = _make_destination_ghost_material(body_id)
+    ghost.visible = true
 
 func _on_entity_selected(index: int) -> void:
     var entity_id := String(entity_list.get_item_metadata(index))
@@ -711,7 +1097,7 @@ func _on_entity_selected(index: int) -> void:
     selected_kind = entity_kinds.get(entity_id, "")
     if entity_targets.has(entity_id):
         _focus_entity(entity_id, selected_kind)
-    _refresh_labels()
+    _refresh_labels(true)
 
 func _focus_entity(entity_id: String, entity_kind: String) -> void:
     if not entity_targets.has(entity_id):
@@ -732,16 +1118,6 @@ func _update_camera_focus() -> void:
         return
     camera_rig.focus_point(entity_nodes[focused_id].global_position)
 
-func _update_trail_segment(segment: MeshInstance3D, from_point: Vector3, to_point: Vector3) -> void:
-    var midpoint: Vector3 = (from_point + to_point) * 0.5
-    var direction: Vector3 = to_point - from_point
-    var length: float = max(direction.length(), 0.001)
-    segment.position = midpoint
-    segment.look_at(to_point, Vector3.UP)
-    var mesh := segment.mesh as BoxMesh
-    if mesh != null:
-        mesh.size = Vector3(0.02, 0.02, length)
-
 func _station_display_position(data: Dictionary) -> Vector3:
     var station_id := String(data["id"])
     var body_id := String(data.get("parent_body_id", ""))
@@ -756,7 +1132,8 @@ func _station_display_position(data: Dictionary) -> Vector3:
     else:
         radial = radial.normalized()
 
-    var body_radius := float(body_display_radii.get(body_id, 0.3))
-    var clearance: float = max(STATION_SCALE * 3.0, body_radius * 0.22)
-    var angle_jitter := float(abs(station_id.hash()) % 5) * 0.04
+    var body_radius := float(body_display_radii.get(body_id, BODY_MIN_MODEL_SCALE))
+    var station_scale := _station_display_scale(data)
+    var clearance: float = max(station_scale * 5.0, body_radius * 0.22)
+    var angle_jitter := float(abs(station_id.hash()) % 5) * station_scale * 1.5
     return body_center + radial * (body_radius + clearance + angle_jitter)

@@ -1,7 +1,10 @@
 id,name,faction_id,parent_body_id,altitude_m,theta_rad,population,economy_profile_id,initial_inventory
-earth_l1,Earth L1 Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,food:120;water:90;oxygen:80;metals:25;fuel:180;electronics:15
-earth_orbit,Low Earth Logistics,sol_fed,earth,500000,1.4,18000,industrial_hub,food:40;water:45;oxygen:45;metals:110;fuel:90;electronics:30
-venus_cloud,Venus Aerostat Exchange,independent,venus,900000,2.1,12000,chem_hub,food:50;water:55;oxygen:70;metals:15;fuel:110;electronics:10
-mercury_yard,Mercury Sunward Yard,independent,mercury,600000,2.9,8000,smelter_hub,food:25;water:20;oxygen:25;metals:140;fuel:60;electronics:8
-mars_transfer,Mars Transfer Port,mars_corp,mars,1200000,0.7,17000,frontier_hub,food:35;water:50;oxygen:55;metals:45;fuel:140;electronics:18
-ceres_depot,Ceres Deep Depot,independent,ceres,400000,1.8,9000,extractor_hub,food:20;water:35;oxygen:20;metals:160;fuel:70;electronics:6
+earth_l1,Earth L1 Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,food:120;water:90;oxygen:80;metals:25;fuel:600;electronics:15
+earth_orbit,Low Earth Logistics,sol_fed,earth,500000,1.4,18000,industrial_hub,food:40;water:45;oxygen:45;metals:110;fuel:500;electronics:30
+venus_cloud,Venus Aerostat Exchange,independent,venus,900000,2.1,12000,chem_hub,food:50;water:55;oxygen:70;metals:15;fuel:400;electronics:10
+mercury_yard,Mercury Sunward Yard,independent,mercury,600000,2.9,8000,smelter_hub,food:25;water:20;oxygen:25;metals:140;fuel:400;electronics:8
+mars_transfer,Mars Transfer Port,mars_corp,mars,1200000,0.7,17000,frontier_hub,food:35;water:50;oxygen:55;metals:45;fuel:500;electronics:18
+ceres_depot,Ceres Deep Depot,independent,ceres,400000,1.8,9000,extractor_hub,food:20;water:35;oxygen:20;metals:160;fuel:400;electronics:6
+luna_base,Lunar Gateway,sol_fed,luna,200000,0.3,5000,frontier_hub,food:200;water:150;oxygen:100;metals:30;fuel:300;electronics:10
+ganymede_depot,Ganymede Deep Mine,independent,ganymede,500000,1.1,6000,extractor_hub,food:500;water:400;oxygen:150;metals:300;fuel:400;electronics:8
+titan_works,Titan Atmo Works,independent,titan,800000,2.4,7000,chem_hub,food:800;water:200;oxygen:300;metals:20;fuel:600;electronics:12

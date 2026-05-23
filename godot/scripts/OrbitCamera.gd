@@ -3,7 +3,7 @@ extends Node3D
 @export var rotation_sensitivity := 0.01
 @export var pan_sensitivity := 0.0025
 @export var zoom_sensitivity := 0.12
-@export var min_distance := 0.75
+@export var min_distance := 0.08
 @export var max_distance := 2500.0
 
 @onready var camera: Camera3D = $Camera3D

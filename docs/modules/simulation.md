@@ -11,6 +11,8 @@
 - Advance the simulation in deterministic ticks.
 - Refuel ships when local inventory allows it.
 - Score and assign cargo missions using economy signals and trajectory results.
+- Copy planned timed sample paths into active missions and use them for ship render positions.
+- Keep ships at origin during launch-window waits, then advance them along timed samples after departure.
 - Expose snapshots for presentation and debugging.
 
 ## Non-responsibilities
@@ -33,6 +35,8 @@ public:
     const UniverseDefinition& universe() const;
     SimulationSnapshot snapshot() const;
     std::string build_report() const;
+    std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
+    Vec3d get_ship_render_position(const ShipState& ship) const;
 };
 ```
 
@@ -52,6 +56,7 @@ Simulation.step()
 
 - The simulation is the only owner of mutable ship/station runtime state.
 - Mission assignment consumes cargo and reserves fuel before departure.
+- Active awaiting/in-transit render positions interpolate `MissionAssignment` timed samples; they do not recompute a separate straight-line path.
 - Snapshot queries do not mutate simulation state.
 
 ## Deferred Work
@@ -67,3 +72,4 @@ Simulation.step()
 - Missions can be dispatched when supply, demand, and fuel align.
 - Event history records departures and arrivals.
 - Stranded state appears when refueling fails.
+- Bridge snapshots include `trajectory_path` and `destination_body_at_arrival` for awaiting/in-transit ships.

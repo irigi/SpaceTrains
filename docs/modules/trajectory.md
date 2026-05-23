@@ -8,7 +8,7 @@
 
 - Define the stable planner interface.
 - Provide `KeplerTrajectoryPlanner` as the default implementation.
-- Return feasibility, ETA, propellant cost, and sampled render path.
+- Return feasibility, ETA, wait/coast timing, rocket-equation propellant cost, and timed sampled render path.
 - Preserve the extension point for future planner families.
 
 ## Non-responsibilities
@@ -34,7 +34,7 @@ public:
 };
 ```
 
-`TrajectoryPlan` must remain the common contract across Kepler and later VariableISP implementations.
+`TrajectoryPlan` must remain the common contract across Kepler and later VariableISP implementations. Its timed samples are copied into active missions and are authoritative for bridge ship positions and selected trajectory rendering.
 
 ## Data Flow
 
@@ -46,16 +46,19 @@ simulation -> ITrajectoryPlanner -> TrajectoryPlan -> mission assignment / rende
 
 - Planning is read-only with respect to the simulation state.
 - The planner must not mutate inventory, ships, or stations.
-- A feasible plan includes enough information to reserve fuel and estimate arrival.
+- A feasible plan includes enough information to reserve fuel, estimate launch/arrival, and render the mission path.
+- Same-parent station transfers use a bounded local direct arc instead of a Sun-centered transfer.
+- Interplanetary Kepler planning is currently circular-orbit and coplanar. It uses a launch-window wait, Hohmann half-period coast time, and exact station endpoints.
 
 ## Deferred Work
 
-- Richer Kepler transfers with windows and orbital state samples
-- `VariableISPPlanner`
-- Verification against `/VariableISP` atlas and solver outputs
+- Patched-conic handoffs and richer local orbital transfers
+- Runtime `VariableISPPlanner`
+- Runtime integration of the already verified `/VariableISP` atlas and solver outputs
 
 ## Tests
 
 - Feasible routes return positive travel time and fuel cost.
 - Impossible fuel cases return `feasible == false`.
-- Sampled path generation is deterministic.
+- Sampled path generation is deterministic and matches departure/arrival station geometry.
+- Local-transfer timing, Hohmann coast time, launch waits, and rocket-equation propellant accounting are covered by regression tests.
