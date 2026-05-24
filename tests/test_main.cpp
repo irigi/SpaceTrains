@@ -136,7 +136,11 @@ int main() {
     require(plan.wait_time_s >= 0.0, "Kepler launch wait should be non-negative");
     require(plan.coast_time_s > 0.0, "Kepler coast time should be positive");
     require_near(plan.travel_time_s, plan.wait_time_s + plan.coast_time_s, 1.0e-6, "Kepler travel time should include wait plus coast");
-    require(distance_between(plan.sampled_path.front(), mechanics.get_station_position(origin, plan.departure_time_s)) < 1.0, "sampled path should start at departure station");
+    // With wait-period samples prepended, path.front() is the origin at the first sample time
+    // (current time when wait > 0, or departure time when wait == 0).
+    require(distance_between(plan.sampled_path.front(),
+        mechanics.get_station_position(origin, plan.sampled_times_s.front())) < 1.0,
+        "sampled path should start at origin station at first sample time");
     require(distance_between(plan.sampled_path.back(), mechanics.get_station_position(mars_destination, plan.arrival_time_s)) < 1.0, "sampled path should end at arrival station");
     for (std::size_t i = 1; i < plan.sampled_times_s.size(); ++i) {
         require(plan.sampled_times_s[i] > plan.sampled_times_s[i - 1], "Kepler sample times should be monotonic");
@@ -215,8 +219,8 @@ int main() {
     require(ganymede_plan.coast_time_s > 200.0 * 86400.0,
         "Kepler Earth->Ganymede coast must exceed 200 days (true heliocentric distance, not moon-period)");
     require(distance_between(ganymede_plan.sampled_path.front(),
-            mechanics.get_station_position(origin, ganymede_plan.departure_time_s)) < 1.0,
-        "Kepler Earth->Ganymede path start must match origin station at departure time");
+            mechanics.get_station_position(origin, ganymede_plan.sampled_times_s.front())) < 1.0,
+        "Kepler Earth->Ganymede path start must match origin station at first sample time");
     require(distance_between(ganymede_plan.sampled_path.back(),
             mechanics.get_station_position(ganymede_station, ganymede_plan.arrival_time_s)) < 1.0,
         "Kepler Earth->Ganymede path end must match destination station at arrival time");

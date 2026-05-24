@@ -356,6 +356,9 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     }
     plan.sampled_path.front() = start;
     plan.sampled_path.back() = finish;
+
+    // Compute propellant profile for the transit arc.
+    std::vector<double> arc_propellant(kSamples);
     {
         const double ve = effective_exhaust_velocity_mps(ship_class);
         const double m0 = ship_class.dry_mass_kg + ship.propellant_kg;
@@ -364,11 +367,38 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         const double prop_arr = (ve > 0.0 && m1 > ship_class.dry_mass_kg)
             ? m1 * (1.0 - std::exp(-best_dv_arr / ve)) : 0.0;
         const double propellant_coast = std::max(0.0, ship.propellant_kg - prop_dep);
-        plan.sampled_propellant_kg.resize(kSamples);
-        plan.sampled_propellant_kg.front() = ship.propellant_kg;
+        arc_propellant.front() = ship.propellant_kg;
         for (int i = 1; i < kSamples - 1; ++i)
-            plan.sampled_propellant_kg[i] = propellant_coast;
-        plan.sampled_propellant_kg.back() = std::max(0.0, propellant_coast - prop_arr);
+            arc_propellant[i] = propellant_coast;
+        arc_propellant.back() = std::max(0.0, propellant_coast - prop_arr);
+    }
+
+    // Prepend wait-period samples so the rendered path tracks the origin station during the wait.
+    // Without these, the frontend sees a gap between the ship's current position and path[0]
+    // (the departure position) and draws a straight chord, which looks wrong visually.
+    if (plan.wait_time_s > 60.0) {
+        constexpr int kWaitSamples = 12;
+        std::vector<math::Vec3d> wait_path;
+        std::vector<double> wait_times;
+        std::vector<double> wait_propellant;
+        wait_path.reserve(kWaitSamples - 1);
+        wait_times.reserve(kWaitSamples - 1);
+        wait_propellant.reserve(kWaitSamples - 1);
+        for (int i = 0; i < kWaitSamples - 1; ++i) {
+            const double alpha = static_cast<double>(i) / (kWaitSamples - 1);
+            const double t = current_time_s + alpha * plan.wait_time_s;
+            wait_path.push_back(mechanics_.get_station_position(origin, t));
+            wait_times.push_back(t);
+            wait_propellant.push_back(ship.propellant_kg);
+        }
+        wait_path.insert(wait_path.end(), plan.sampled_path.begin(), plan.sampled_path.end());
+        wait_times.insert(wait_times.end(), plan.sampled_times_s.begin(), plan.sampled_times_s.end());
+        wait_propellant.insert(wait_propellant.end(), arc_propellant.begin(), arc_propellant.end());
+        plan.sampled_path = std::move(wait_path);
+        plan.sampled_times_s = std::move(wait_times);
+        plan.sampled_propellant_kg = std::move(wait_propellant);
+    } else {
+        plan.sampled_propellant_kg = std::move(arc_propellant);
     }
 
     plan.summary = std::format(
