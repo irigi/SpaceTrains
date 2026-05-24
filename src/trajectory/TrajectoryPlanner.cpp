@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <iostream>
 #include <limits>
 
 namespace spacetrains::trajectory {
@@ -165,6 +166,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             }
             plan.sampled_propellant_kg.back() = std::max(0.0, propellant_coast - prop_arr);
         }
+        plan.trajectory_type = "keplerian_local";
         plan.summary = std::format(
             "Local transfer {} -> {} in {:.1f} hours, propellant {:.0f} kg ({})",
             origin.name,
@@ -358,6 +360,43 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     }
     plan.sampled_path.front() = start;
     plan.sampled_path.back() = finish;
+    plan.trajectory_type = best_from_lambert ? "keplerian_lambert" : "keplerian_hohmann";
+
+    // Newton's law verification: for every 6th interior Lambert arc sample, log
+    // implied velocity, gravitational acceleration, and specific orbital energy.
+    // Specific energy E = 0.5*v² − mu/r must be constant on a Keplerian orbit.
+    if (best_from_lambert) {
+        const int n = static_cast<int>(plan.sampled_path.size());
+        std::cerr << std::format("[Lambert dbg] arc {:.0f}d  ecc≈ r1={:.3e}m r2={:.3e}m\n",
+            plan.coast_time_s / 86400.0, best_r1_pos.length(), best_r2_pos.length());
+        for (int i = 1; i < n - 1; ++i) {
+            if ((i % 6) != 0) continue;
+            const double dt_fwd = plan.sampled_times_s[i + 1] - plan.sampled_times_s[i];
+            const double dt_bck = plan.sampled_times_s[i]     - plan.sampled_times_s[i - 1];
+            if (dt_fwd < 1.0 || dt_bck < 1.0) continue;
+            const auto& p0 = plan.sampled_path[i - 1];
+            const auto& p1 = plan.sampled_path[i];
+            const auto& p2 = plan.sampled_path[i + 1];
+            // Central-difference velocity (non-uniform grid)
+            const double dt_tot = dt_fwd + dt_bck;
+            const math::Vec3d v_impl{(p2.x - p0.x) / dt_tot, 0.0, (p2.z - p0.z) / dt_tot};
+            const double speed = std::sqrt(v_impl.x * v_impl.x + v_impl.z * v_impl.z);
+            // Non-uniform second derivative: a ≈ 2*(p2/dt_fwd − p1/dt_bck·dt_fwd*(1/dt_bck+1/dt_fwd) + p0/dt_bck) / dt_tot
+            const math::Vec3d a_impl{
+                2.0 * (p2.x / dt_fwd - p1.x * (dt_tot) / (dt_bck * dt_fwd) + p0.x / dt_bck) / dt_tot,
+                0.0,
+                2.0 * (p2.z / dt_fwd - p1.z * (dt_tot) / (dt_bck * dt_fwd) + p0.z / dt_bck) / dt_tot};
+            const double a_impl_mag = std::sqrt(a_impl.x * a_impl.x + a_impl.z * a_impl.z);
+            const double r = std::max(1.0, std::sqrt(p1.x * p1.x + p1.z * p1.z));
+            const double a_grav_mag = mu / (r * r);
+            const double err_pct = (a_grav_mag > 1e-20)
+                ? 100.0 * std::abs(a_impl_mag - a_grav_mag) / a_grav_mag : 0.0;
+            const double energy = 0.5 * speed * speed - mu / r;
+            std::cerr << std::format(
+                "  i={:2d}  r={:.3e}m  v={:.0f}m/s  |a_num|={:.4e}  |a_grav|={:.4e}  err={:.1f}%  E={:.4e}J/kg\n",
+                i, r, speed, a_impl_mag, a_grav_mag, err_pct, energy);
+        }
+    }
 
     // Compute propellant profile for the transit arc.
     std::vector<double> arc_propellant(kSamples);

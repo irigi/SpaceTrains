@@ -391,6 +391,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         .sampled_path = plan.sampled_path,
         .sampled_times_s = plan.sampled_times_s,
         .sampled_propellant_kg = plan.sampled_propellant_kg,
+        .trajectory_type = plan.trajectory_type,
     };
     if (plan.wait_time_s > 0.0) {
         add_event(std::format(
@@ -630,6 +631,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"name\":\"" << json_escape(ship.name) << "\","
                << "\"faction_id\":\"" << json_escape(ship.faction_id) << "\","
                << "\"propulsion_type\":\"" << json_escape(ship_class.propulsion_type) << "\","
+               << "\"trajectory_type\":\"" << json_escape(ship.active_mission.trajectory_type) << "\","
                << "\"phase\":\"" << json_escape(mission_phase_name(ship.phase)) << "\","
                << "\"current_station_id\":\"" << json_escape(ship.current_station_id) << "\","
                << "\"propellant_kg\":" << ship.propellant_kg << ","

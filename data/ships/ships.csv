@@ -9,3 +9,6 @@ mc_ion_01,MC Ares,mars_corp,ion_freighter,mars_transfer,mars_transfer,10000
 ind_ion_01,IN Celeris,independent,ion_courier,earth_orbit,earth_orbit,7000
 sol_hauler_01,SS Endeavour,sol_fed,deep_space_freighter,earth_l1,earth_l1,106000
 ind_hauler_03,SS Pioneer,independent,deep_space_freighter,earth_l1,earth_l1,106000
+sf_ntr_01,SF Prometheus,sol_fed,ntr_freighter,earth_l1,earth_l1,180000
+mc_ntr_01,MC Minerva,mars_corp,ntr_freighter,mars_transfer,mars_transfer,180000
+ind_ntr_01,IN Meridian,independent,ntr_freighter,ceres_depot,ceres_depot,180000

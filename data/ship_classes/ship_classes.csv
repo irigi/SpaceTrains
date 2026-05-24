@@ -5,3 +5,4 @@ fast_courier,Fast Courier,chemical,5000,45000,15,27104,0.03,0
 ion_freighter,Ion Freighter,electric_ion,10000,10000,20,0,0,300
 ion_courier,Ion Courier,electric_ion,5000,7000,8,0,0,800
 deep_space_freighter,Deep Space Freighter,chemical,12000,132000,20,34126,0.005,0
+ntr_freighter,NTR Freighter,chemical,10000,190000,30,41138,0.01,0

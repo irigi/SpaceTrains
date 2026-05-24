@@ -118,6 +118,7 @@ struct MissionAssignment {
     std::vector<math::Vec3d> sampled_path;
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;
+    std::string trajectory_type;
 };
 
 struct ShipState {
@@ -156,6 +157,7 @@ struct TrajectoryPlan {
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;
     std::string summary;
+    std::string trajectory_type;  // keplerian_local | keplerian_lambert | keplerian_hohmann | variable_isp
 };
 
 }  // namespace spacetrains::domain
