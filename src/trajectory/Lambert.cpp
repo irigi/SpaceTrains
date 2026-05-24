@@ -40,16 +40,19 @@ LambertResult solve_lambert(
     const double r2_m = r2.length();
     if (r1_m < 1.0 || r2_m < 1.0 || dt_s <= 0.0 || mu <= 0.0) return {};
 
-    // Transfer angle in the xz-plane.  Prograde (counterclockwise) if cross_y >= 0.
+    // Transfer angle in the xz-plane.
+    // Orbits are in XZ with CCW motion (angular momentum in -Y).
+    // cross_y = (r1 × r2).y = r1.z*r2.x - r1.x*r2.z < 0 for the short-arc prograde (CCW) case.
+    // In the Lagrange formulation A > 0 selects the prograde arc, so we negate cross_y.
     const double cos_dth = std::clamp((r1.x * r2.x + r1.z * r2.z) / (r1_m * r2_m), -1.0, 1.0);
     const double one_minus_cos = 1.0 - cos_dth;
     if (one_minus_cos < 1e-12) return {};  // degenerate: coincident positions
 
     const double cross_y = r1.z * r2.x - r1.x * r2.z;
     const double sin_dth_abs = std::sqrt(std::max(0.0, 1.0 - cos_dth * cos_dth));
-    const double sin_dth = (cross_y >= 0.0 ? 1.0 : -1.0) * sin_dth_abs;
+    const double sin_dth = (cross_y <= 0.0 ? 1.0 : -1.0) * sin_dth_abs;
 
-    // A is the signed "area" factor; positive for short-arc prograde, negative for long-arc.
+    // A is the signed "area" factor; positive for short-arc prograde (CCW), negative for long-arc.
     const double A = sin_dth * std::sqrt(r1_m * r2_m / one_minus_cos);
 
     // Stumpff-based TOF evaluation at a given universal variable z.
@@ -64,11 +67,12 @@ LambertResult solve_lambert(
     };
 
     // Search for a bracket [z_lo, z_hi] where tof_of crosses dt_s.
-    // For the prograde single-rev elliptic arc, TOF is monotonically decreasing in z
-    // over roughly z ∈ (-50, 4π²).  Scan linearly and bisect the found bracket.
+    // A > 0 (short-arc prograde, CCW planets): TOF decreases with z.
+    // A < 0 (long-arc):                        TOF increases with z.
     const double z_min = -50.0;
     const double z_max = 4.0 * PI * PI * 0.9999;
     constexpr int kScan = 120;
+    const bool tof_decreases = (A >= 0.0);
 
     double z_lo = 0.0, z_hi = 0.0;
     bool found_bracket = false;
@@ -78,11 +82,14 @@ LambertResult solve_lambert(
     for (int i = 1; i <= kScan; ++i) {
         const double z = z_min + (z_max - z_min) * static_cast<double>(i) / kScan;
         const double tof = tof_of(z);
-        if (prev_tof > dt_s && tof > 0.0 && tof <= dt_s) {
-            z_lo = prev_z;
-            z_hi = z;
-            found_bracket = true;
-            break;
+        if (tof_decreases) {
+            if (prev_tof > dt_s && tof > 0.0 && tof <= dt_s) {
+                z_lo = prev_z; z_hi = z; found_bracket = true; break;
+            }
+        } else {
+            if (prev_tof > 0.0 && prev_tof <= dt_s && tof > dt_s) {
+                z_lo = prev_z; z_hi = z; found_bracket = true; break;
+            }
         }
         if (tof > 0.0) {
             prev_z = z;
@@ -96,10 +103,16 @@ LambertResult solve_lambert(
     for (int iter = 0; iter < 64; ++iter) {
         const double z_mid = (z_lo + z_hi) * 0.5;
         const double tof_mid = tof_of(z_mid);
-        if (tof_mid < 0.0) { z_hi = z_mid; continue; }
+        if (tof_mid < 0.0) {
+            if (tof_decreases) z_hi = z_mid; else z_lo = z_mid;
+            continue;
+        }
         if (std::abs(tof_mid - dt_s) < 1.0) break;
-        if (tof_mid > dt_s) z_lo = z_mid;
-        else z_hi = z_mid;
+        if (tof_decreases) {
+            if (tof_mid > dt_s) z_lo = z_mid; else z_hi = z_mid;
+        } else {
+            if (tof_mid > dt_s) z_hi = z_mid; else z_lo = z_mid;
+        }
     }
 
     const double z_sol = (z_lo + z_hi) * 0.5;

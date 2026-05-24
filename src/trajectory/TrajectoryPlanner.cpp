@@ -311,6 +311,22 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         double theta2 = std::atan2(best_r2_pos.z, best_r2_pos.x) - omega;
         while (theta2 <= theta1) theta2 += TAU;
         if (theta2 - theta1 > TAU) theta2 -= TAU;
+
+        // Kepler time-of-flight: compute mean anomaly for each true anomaly sample so
+        // that time stamps respect the actual orbital speed (fast near periapsis).
+        // M(θ) = E(θ) − e·sin(E), where E = atan2(√(1−e²)·sin(θ), e+cos(θ)).
+        const double ecc_sin_coeff = std::sqrt(std::max(0.0, 1.0 - ecc * ecc));
+        const auto mean_anom = [&](double theta) {
+            const double E = std::atan2(
+                ecc_sin_coeff * std::sin(theta),
+                ecc + std::cos(theta));
+            return E - ecc * std::sin(E);
+        };
+        const double M1 = mean_anom(theta1);
+        double dM_total = mean_anom(theta2) - M1;
+        if (dM_total < -1e-10) dM_total += TAU;
+        if (dM_total < 1e-12) dM_total = TAU;  // degenerate guard
+
         for (int i = 0; i < kSamples; ++i) {
             const double alpha = static_cast<double>(i) / (kSamples - 1);
             const double theta = theta1 + (theta2 - theta1) * alpha;
@@ -318,7 +334,9 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
                 ? p_orb / (1.0 + ecc * std::cos(theta))
                 : r1m;
             plan.sampled_path.push_back({std::cos(omega + theta) * r_at, 0.0, std::sin(omega + theta) * r_at});
-            plan.sampled_times_s.push_back(plan.departure_time_s + alpha * plan.coast_time_s);
+            double dM_i = mean_anom(theta) - M1;
+            if (dM_i < -1e-10) dM_i += TAU;
+            plan.sampled_times_s.push_back(plan.departure_time_s + dM_i / dM_total * plan.coast_time_s);
         }
     } else {
         // Hohmann fallback path: angle sweep using reference radii.

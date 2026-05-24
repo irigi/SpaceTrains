@@ -5,8 +5,12 @@
 #include <string>
 #include <vector>
 
+#include "celestial/CelestialMechanics.hpp"
 #include "economy/EconomySystem.hpp"
 #include "simulation/Simulation.hpp"
+#include "trajectory/TrajectoryPlanner.hpp"
+#include "trajectory/VariableIspTrajectoryPlanner.hpp"
+#include "variable_isp/VariableIsp.hpp"
 
 namespace {
 
@@ -29,6 +33,7 @@ void print_celestial_summary(const spacetrains::domain::UniverseDefinition& univ
 }
 
 void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& universe) {
+    constexpr double kG0 = 9.80665;
     constexpr double kMuSun = 1.32712440018e20;
     const double kappa_scale = std::pow(kAU, 2.5) / std::pow(kMuSun, 1.5);
 
@@ -47,12 +52,112 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
                 sc.name, m_dry, sc.propellant_capacity_kg,
                 sc.specific_engine_power_w_per_kg, fuel_frac, kappa);
         } else {
+            const double m_wet = sc.dry_mass_kg + sc.propellant_capacity_kg;
+            const double mass_ratio = (sc.dry_mass_kg > 0.0) ? m_wet / sc.dry_mass_kg : 0.0;
+            const double ve = (mass_ratio > 1.0 && sc.max_delta_v_mps > 0.0)
+                ? sc.max_delta_v_mps / std::log(mass_ratio) : 0.0;
+            const double isp_s = ve / kG0;
+            const double fuel_frac = (m_wet > 0.0) ? sc.propellant_capacity_kg / m_wet : 0.0;
             std::cout << std::format(
-                "  {:20s}  [chemical]      m_dry={:.0f}kg  propellant={:.0f}kg  "
-                "dv={:.0f}m/s  accel={:.4f}m/s^2\n",
+                "  {:20s}  [NTR/chemical]  m_dry={:.0f}kg  propellant={:.0f}kg  "
+                "dv={:.0f}m/s  ISP={:.0f}s  MR={:.2f}  eps={:.2f}\n",
                 sc.name, sc.dry_mass_kg, sc.propellant_capacity_kg,
-                sc.max_delta_v_mps, sc.cruise_accel_mps2);
+                sc.max_delta_v_mps, isp_s, mass_ratio, fuel_frac);
         }
+    }
+}
+
+void print_route_diagnosis(
+    const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::celestial::CelestialMechanics& mechanics) {
+    constexpr double kG0 = 9.80665;
+    constexpr double PI = 3.14159265358979323846;
+
+    // Find sun
+    double mu_sun = 0.0;
+    for (const auto& body : universe.bodies) {
+        if (body.orbit.parent_id.empty()) { mu_sun = body.mu_m3_s2; break; }
+    }
+
+    std::cout << "\n=== Interplanetary Route Diagnosis (t=0) ===\n";
+    std::cout << std::format("  {:8s}  {:8s}  {:>10s}  {:>10s}  {:>10s}  {:>12s}  {:>12s}\n",
+        "From", "To", "Hohm.dv", "Hohm.trn", "Synodic", "Wait(t=0)", "Arr.(t=0)");
+
+    const std::vector<std::pair<std::string,std::string>> routes = {
+        {"earth","mars"}, {"earth","venus"}, {"earth","mercury"}, {"earth","ceres"},
+        {"mars","earth"}, {"venus","earth"}, {"mars","ceres"}
+    };
+
+    for (const auto& [from, to] : routes) {
+        const double r1 = mechanics.get_heliocentric_radius(from, 0.0);
+        const double r2 = mechanics.get_heliocentric_radius(to, 0.0);
+        if (r1 <= 0.0 || r2 <= 0.0 || mu_sun <= 0.0) continue;
+        const double a = (r1 + r2) * 0.5;
+        const double hohm_time_s = PI * std::sqrt(a * a * a / mu_sun);
+        const double v1 = std::sqrt(mu_sun / r1);
+        const double v2 = std::sqrt(mu_sun / r2);
+        const double vt1 = std::sqrt(mu_sun * (2.0 / r1 - 1.0 / a));
+        const double vt2 = std::sqrt(mu_sun * (2.0 / r2 - 1.0 / a));
+        const double dv = std::abs(vt1 - v1) + std::abs(v2 - vt2);
+
+        // Find orbital periods for synodic
+        double T1 = 0.0, T2 = 0.0;
+        for (const auto& body : universe.bodies) {
+            if (body.id == from) T1 = body.orbit.orbital_period_s;
+            if (body.id == to)   T2 = body.orbit.orbital_period_s;
+        }
+        double synodic_days = 0.0;
+        if (T1 > 0.0 && T2 > 0.0 && std::abs(1.0/T1 - 1.0/T2) > 1e-20) {
+            synodic_days = 1.0 / std::abs(1.0/T1 - 1.0/T2) / kDayS;
+        }
+
+        // Compute wait for a light_freighter (any chemical ship will use same Hohmann)
+        double wait_days = 0.0;
+        {
+            const double TAU = 2.0 * PI;
+            const double om1 = (T1 > 0.0) ? TAU / T1 : 0.0;
+            const double om2 = (T2 > 0.0) ? TAU / T2 : 0.0;
+            const double rel = om2 - om1;
+            const double ang1 = std::atan2(mechanics.get_body_position(from, 0.0).z,
+                                           mechanics.get_body_position(from, 0.0).x);
+            const double ang2 = std::atan2(mechanics.get_body_position(to, 0.0).z,
+                                           mechanics.get_body_position(to, 0.0).x);
+            const double cur_phase = std::fmod(ang2 - ang1 + TAU * 10, TAU);
+            const double req_phase = std::fmod(PI - om2 * hohm_time_s + TAU * 10, TAU);
+            if (std::abs(rel) > 1e-12) {
+                const double synodic_s = TAU / std::abs(rel);
+                double w = std::fmod((req_phase - cur_phase) / rel, synodic_s);
+                if (w < 0.0) w += synodic_s;
+                wait_days = w / kDayS;
+            }
+        }
+
+        std::cout << std::format("  {:8s}  {:8s}  {:>10.0f}  {:>10.1f}d  {:>10.1f}d  {:>12.1f}d  {:>12.1f}d\n",
+            from, to, dv,
+            hohm_time_s / kDayS,
+            synodic_days,
+            wait_days,
+            wait_days + hohm_time_s / kDayS);
+    }
+
+    // Per ship class: can it do Earth-Mars? Show propellant fraction needed.
+    std::cout << "\n=== NTR Ship Class Feasibility: Earth→Mars Hohmann (dv≈5591 m/s) ===\n";
+    const double earth_mars_dv = 5591.0;  // m/s (Hohmann, no 250 fudge)
+    for (const auto& sc : universe.ship_classes) {
+        if (sc.propulsion_type == "electric_ion") continue;
+        const double m_wet = sc.dry_mass_kg + sc.propellant_capacity_kg;
+        const double mass_ratio = (sc.dry_mass_kg > 0.0) ? m_wet / sc.dry_mass_kg : 0.0;
+        const double ve = (mass_ratio > 1.0 && sc.max_delta_v_mps > 0.0)
+            ? sc.max_delta_v_mps / std::log(mass_ratio) : 0.0;
+        const double isp_s = ve / kG0;
+        if (ve <= 0.0) continue;
+        const double prop_needed = m_wet * (1.0 - std::exp(-earth_mars_dv / ve));
+        const double frac = prop_needed / sc.propellant_capacity_kg;
+        std::cout << std::format(
+            "  {:20s}  ISP={:.0f}s  MR={:.2f}  prop_needed={:.0f}kg/{:.0f}kg ({:.0f}%)  {}\n",
+            sc.name, isp_s, mass_ratio,
+            prop_needed, sc.propellant_capacity_kg, frac * 100.0,
+            (frac <= 1.0) ? "FEASIBLE" : "INFEASIBLE");
     }
 }
 
@@ -157,11 +262,13 @@ int main(int argc, char** argv) {
     std::cout << std::format("Simulating {} days, report every {} days\n", sim_days, report_interval_days);
 
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
+    spacetrains::celestial::CelestialMechanics mechanics(sim.universe());
 
     // Startup summaries
     print_celestial_summary(sim.universe());
     print_ship_class_summary(sim.universe());
     print_economy_summary(sim.universe(), sim.economy_system());
+    print_route_diagnosis(sim.universe(), mechanics);
 
     std::cout << "\n=== Running Simulation ===\n";
 
