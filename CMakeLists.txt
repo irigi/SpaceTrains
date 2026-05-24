@@ -12,6 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/celestial/CelestialMechanics.cpp
+    src/trajectory/Lambert.cpp
     src/trajectory/TrajectoryPlanner.cpp
     src/trajectory/VariableIspTrajectoryPlanner.cpp
     src/variable_isp/VariableIsp.cpp
