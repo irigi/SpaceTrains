@@ -318,8 +318,8 @@ int main() {
             earth_station, mars_station, ion_ship, ion_class, 0.0);
 
         require(visp_plan.feasible, "fully fueled ion ship should find a feasible Earth-Mars VariableISP plan");
-        require(visp_plan.sampled_path.size() == 48, "VariableISP plan should have 48 sampled path points");
-        require(visp_plan.sampled_times_s.size() == 48, "VariableISP plan should have 48 timed samples");
+        require(visp_plan.sampled_path.size() == 120, "VariableISP plan should have 120 sampled path points");
+        require(visp_plan.sampled_times_s.size() == 120, "VariableISP plan should have 120 timed samples");
         require(visp_plan.coast_time_s > 0.0, "VariableISP transfer time should be positive");
         const double transfer_days = visp_plan.coast_time_s / 86400.0;
         require(transfer_days >= 30.0 && transfer_days <= 600.0,

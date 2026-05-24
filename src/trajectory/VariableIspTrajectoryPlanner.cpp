@@ -72,6 +72,60 @@ std::size_t lower_grid_idx(const std::vector<double>& grid, double value) {
     return (*upper == value) ? std::min(idx, grid.size() - 2) : idx - 1;
 }
 
+// Resample a polar-coordinate trajectory to `target_count` points distributed
+// uniformly by Cartesian arc length. Near-perihelion regions with high curvature
+// receive proportionally more output samples, eliminating sparse-sample artifacts
+// when the ship makes a tight solar pass in a small fraction of transfer time.
+std::vector<variable_isp::TrajectorySample> arc_length_resample(
+    const std::vector<variable_isp::TrajectorySample>& src,
+    std::size_t target_count)
+{
+    if (src.size() <= target_count) {
+        return src;
+    }
+
+    std::vector<double> arc(src.size(), 0.0);
+    for (std::size_t i = 1; i < src.size(); ++i) {
+        const double x0 = src[i - 1].r_m * std::cos(src[i - 1].theta_rad);
+        const double z0 = src[i - 1].r_m * std::sin(src[i - 1].theta_rad);
+        const double x1 = src[i].r_m * std::cos(src[i].theta_rad);
+        const double z1 = src[i].r_m * std::sin(src[i].theta_rad);
+        const double dx = x1 - x0, dz = z1 - z0;
+        arc[i] = arc[i - 1] + std::sqrt(dx * dx + dz * dz);
+    }
+
+    const double total_arc = arc.back();
+    if (total_arc == 0.0) {
+        return src;
+    }
+    const double step = total_arc / static_cast<double>(target_count - 1);
+
+    std::vector<variable_isp::TrajectorySample> out;
+    out.reserve(target_count);
+    out.push_back(src.front());
+
+    std::size_t j = 0;
+    for (std::size_t i = 1; i + 1 < target_count; ++i) {
+        const double target_s = step * static_cast<double>(i);
+        while (j + 1 < src.size() - 1 && arc[j + 1] < target_s) {
+            ++j;
+        }
+        const double span = arc[j + 1] - arc[j];
+        const double t = (span > 0.0) ? (target_s - arc[j]) / span : 0.0;
+        variable_isp::TrajectorySample s;
+        s.time_s      = src[j].time_s      + t * (src[j + 1].time_s      - src[j].time_s);
+        s.r_m         = src[j].r_m         + t * (src[j + 1].r_m         - src[j].r_m);
+        s.theta_rad   = src[j].theta_rad   + t * (src[j + 1].theta_rad   - src[j].theta_rad);
+        s.vr_mps      = src[j].vr_mps      + t * (src[j + 1].vr_mps      - src[j].vr_mps);
+        s.vtheta_mps  = src[j].vtheta_mps  + t * (src[j + 1].vtheta_mps  - src[j].vtheta_mps);
+        s.mass_kg     = src[j].mass_kg     + t * (src[j + 1].mass_kg     - src[j].mass_kg);
+        out.push_back(s);
+    }
+
+    out.push_back(src.back());
+    return out;
+}
+
 }  // namespace
 
 VariableIspTrajectoryPlanner::VariableIspTrajectoryPlanner(
@@ -214,15 +268,23 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // Re-query the atlas with proper interpolation for the final integration seed.
     const variable_isp::AtlasSeed best_seed = atlas_.query(rho, kappa, best_theta_f);
 
-    // Integrate the winning canonical trajectory (48 samples).
+    // Integrate the winning canonical trajectory. We use many internal samples so
+    // that arc-length resampling (below) has enough source points to represent tight
+    // solar passes accurately — near perihelion the ship moves fast and sweeps a
+    // large arc in a small fraction of transfer time, so uniform-time sampling alone
+    // would leave only 1–2 points there.
     const variable_isp::CanonicalMissionConfig config =
         variable_isp::VariableIspIntegrator::canonical_config(rho, kappa);
     const variable_isp::IntegrationSummary result =
-        integrator_.integrate_fixed_time(best_seed, config, 48);
+        integrator_.integrate_fixed_time(best_seed, config, 1000);
 
     if (result.samples.empty()) {
         return plan;
     }
+
+    // Resample uniformly by arc length so curved perihelion regions receive
+    // proportionally more output points regardless of how little time is spent there.
+    const auto samples = arc_length_resample(result.samples, 120);
 
     // The hot loop used approximate transfer times from neighborhood seeds.
     // Now that we have the actual integrated trajectory, recompute the phase condition
@@ -236,7 +298,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // Fix: recompute wait_s so the planet is at phi_origin_at_depart + actual_theta
     // exactly at departure + T_interp.  This replaces both T_neighbor and theta_f
     // with the values the integrator actually produced.
-    const double actual_theta = result.samples.back().theta_rad;
+    const double actual_theta = samples.back().theta_rad;
     const double T_interp_s = best_seed.transfer_time_days
         * variable_isp::VariableIspIntegrator::kDayS * t_scale;
 
@@ -251,9 +313,9 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const double phi_origin_at_depart = phi_origin + omega_origin * corrected_wait_s;
     const double departure_time_s = current_time_s + corrected_wait_s;
 
-    plan.sampled_path.reserve(result.samples.size());
-    plan.sampled_times_s.reserve(result.samples.size());
-    for (const auto& sample : result.samples) {
+    plan.sampled_path.reserve(samples.size());
+    plan.sampled_times_s.reserve(samples.size());
+    for (const auto& sample : samples) {
         const double r_real = sample.r_m * r_scale;
         const double angle_real = sample.theta_rad + phi_origin_at_depart;
         const double t_real = departure_time_s + sample.time_s * t_scale;
@@ -272,7 +334,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // a mass floor, so trajectories at maximum burn can underflow by ~0.1-0.2%.
     const double m0_canonical = variable_isp::VariableIspIntegrator::kCanonicalM0Kg;
     const double m_dry_canonical = variable_isp::VariableIspIntegrator::kCanonicalDryMassKg;
-    const double m_final_canonical = std::max(result.samples.back().mass_kg, m_dry_canonical);
+    const double m_final_canonical = std::max(samples.back().mass_kg, m_dry_canonical);
     const double delta_inv_canonical = 1.0 / m_dry_canonical - 1.0 / m0_canonical;
     const double delta_inv_real = 1.0 / m_dry - 1.0 / m0;
     const double I_canonical = 1.0 / m_final_canonical - 1.0 / m0_canonical;
@@ -283,8 +345,8 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
 
     // Per-sample propellant via same I-invariant scaling — used for continuous
     // propellant display during transit.
-    plan.sampled_propellant_kg.reserve(result.samples.size());
-    for (const auto& sample : result.samples) {
+    plan.sampled_propellant_kg.reserve(samples.size());
+    for (const auto& sample : samples) {
         const double m_s_can = std::max(sample.mass_kg, m_dry_canonical);
         const double I_s = 1.0 / m_s_can - 1.0 / m0_canonical;
         const double I_s_real = I_s * (delta_inv_real / delta_inv_canonical);
