@@ -301,10 +301,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     if (best_from_lambert && best_r1_pos.length() > 1.0) {
         // Derive orbital elements from Lambert departure state and sweep true anomaly.
         const double r1m = std::max(1.0, best_r1_pos.length());
+        // h = (r × v).y  for XZ-plane orbit; L_vec = (0, −h, 0)
+        // e = (v × L)/mu − r̂ = (v.z·h/mu − r.x/|r|, 0, −v.x·h/mu − r.z/|r|)
         const double h = best_r1_pos.x * best_v1_lambert.z - best_r1_pos.z * best_v1_lambert.x;
         const double p_orb = h * h / mu;
-        const double ex = -best_v1_lambert.z * h / mu - best_r1_pos.x / r1m;
-        const double ez =  best_v1_lambert.x * h / mu - best_r1_pos.z / r1m;
+        const double ex =  best_v1_lambert.z * h / mu - best_r1_pos.x / r1m;
+        const double ez = -best_v1_lambert.x * h / mu - best_r1_pos.z / r1m;
         const double ecc = std::sqrt(ex * ex + ez * ez);
         const double omega = std::atan2(ez, ex);
         double theta1 = std::atan2(best_r1_pos.z, best_r1_pos.x) - omega;
