@@ -619,6 +619,15 @@ func _ship_mass_text(detail: Dictionary) -> String:
         float(detail.get("initial_mass_kg", 0.0))
     ]
 
+func _trajectory_type_label(detail: Dictionary) -> String:
+    var ttype := String(detail.get("trajectory_type", ""))
+    match ttype:
+        "keplerian_local":    return "Keplerian — local (same body)"
+        "keplerian_lambert":  return "Keplerian — Lambert arc"
+        "keplerian_hohmann":  return "Keplerian — Hohmann transfer"
+        "variable_isp":       return "Variable-ISP (electric ion)"
+        _:                    return ""
+
 func _ship_detail_text(detail: Dictionary) -> String:
     var phase := String(detail.get("phase", "idle"))
     var current_station := _entity_name_or_id(String(detail.get("current_station_id", "")))
@@ -628,17 +637,21 @@ func _ship_detail_text(detail: Dictionary) -> String:
     var game_time_s := float(bridge_state.get("game_time_s", 0.0))
     var departure_time_s := float(detail.get("departure_time_s", 0.0))
     var arrival_time_s := float(detail.get("arrival_time_s", 0.0))
-    var text := "%s\nType: ship\nPhase: %s\nCurrent station: %s\n%s" % [
+    var propulsion := String(detail.get("propulsion_type", ""))
+    var text := "%s\nType: ship (%s)\nPhase: %s\nCurrent station: %s\n%s" % [
         String(detail.get("name", detail.get("id", ""))),
+        propulsion,
         phase,
         current_station,
         _ship_mass_text(detail)
     ]
 
     if phase == "awaiting_departure":
-        text += "\nRoute: %s -> %s\nCargo: %s\nDeparture in: %s\nETA: %s" % [
+        var traj_label := _trajectory_type_label(detail)
+        text += "\nRoute: %s -> %s\nTrajectory: %s\nCargo: %s\nDeparture in: %s\nETA: %s" % [
             origin,
             destination,
+            traj_label if traj_label != "" else "—",
             cargo,
             _format_days(departure_time_s - game_time_s),
             _format_days(arrival_time_s - game_time_s)
@@ -646,9 +659,11 @@ func _ship_detail_text(detail: Dictionary) -> String:
     elif phase == "in_transit":
         var coast_time_s: float = max(arrival_time_s - departure_time_s, 1.0)
         var progress_pct: float = clamp(((game_time_s - departure_time_s) / coast_time_s) * 100.0, 0.0, 100.0)
-        text += "\nRoute: %s -> %s\nCargo: %s\nETA: %s\nMission progress: %.1f%%" % [
+        var traj_label := _trajectory_type_label(detail)
+        text += "\nRoute: %s -> %s\nTrajectory: %s\nCargo: %s\nETA: %s\nMission progress: %.1f%%" % [
             origin,
             destination,
+            traj_label if traj_label != "" else "—",
             cargo,
             _format_days(arrival_time_s - game_time_s),
             progress_pct
