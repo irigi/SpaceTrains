@@ -1,0 +1,7 @@
+id,name,propulsion_type,dry_mass_kg,propellant_capacity_kg,cargo_capacity_units,max_delta_v_mps,cruise_accel_mps2,specific_engine_power_w_per_kg
+light_freighter,Light Freighter,chemical,8000,12000,40,8500,0.02,0
+tanker,Orbital Tanker,chemical,12000,18000,60,7000,0.015,0
+fast_courier,Fast Courier,chemical,5000,7000,15,10500,0.03,0
+ion_freighter,Ion Freighter,electric_ion,10000,10000,20,0,0,300
+ion_courier,Ion Courier,electric_ion,5000,7000,8,0,0,800
+deep_space_freighter,Deep Space Freighter,chemical,12000,40000,20,25000,0.005,0

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmake -B build -G Ninja
+cmake --build build
+
+find_godot() {
+    if [[ -n "${GODOT4_BINARY:-}" ]]; then
+        printf '%s\n' "$GODOT4_BINARY"
+        return 0
+    fi
+
+    if [[ -x "$HOME/.local/bin/godot4" ]]; then
+        printf '%s\n' "$HOME/.local/bin/godot4"
+        return 0
+    fi
+
+    local candidate
+    for candidate in godot4 godot-4 godot; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+if ! godot_bin="$(find_godot)"; then
+    cat <<'EOF'
+No Godot 4 executable was found.
+
+Set GODOT4_BINARY to your custom build, or install a Godot 4 command available as one of:
+  godot4
+  godot-4
+  godot
+
+Example:
+  GODOT4_BINARY=/path/to/your/godot4 ./run
+EOF
+    exit 1
+fi
+
+"$godot_bin" --path godot

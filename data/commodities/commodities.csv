@@ -1,0 +1,7 @@
+id,name,mass_per_unit_kg
+food,Food,100
+water,Water,100
+oxygen,Oxygen,50
+metals,Metals,200
+fuel,Fuel,100
+electronics,Electronics,20
