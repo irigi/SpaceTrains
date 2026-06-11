@@ -1,10 +1,10 @@
-id,name,mass_per_unit_kg,decay_fraction_per_day
-food,Food,100,0.001
-water,Water,100,0.0
-oxygen,Oxygen,50,0.0
-metals,Metals,200,0.0
-fuel,Fuel,100,0.0002
-electronics,Electronics,20,0.0
-machinery,Machinery,300,0.0
-medicine,Medicine,50,0.001
-reactor_fuel,Reactor Fuel,500,0.0
+id,name,mass_per_unit_kg,decay_fraction_per_day,base_price
+food,Food,100,0.001,10
+water,Water,100,0.0,4
+oxygen,Oxygen,50,0.0,6
+metals,Metals,200,0.0,15
+fuel,Fuel,100,0.0002,8
+electronics,Electronics,20,0.0,40
+machinery,Machinery,300,0.0,60
+medicine,Medicine,50,0.001,50
+reactor_fuel,Reactor Fuel,500,0.0,80

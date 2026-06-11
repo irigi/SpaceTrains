@@ -15,6 +15,11 @@ constexpr double MACHINERY_WEAR_PER_DAY = 0.0005;
 // Produced commodities are capped at this many days of production to prevent
 // infinite accumulation when ships can't keep up with distribution.
 constexpr double PRODUCTION_CAP_DAYS = 90.0;
+
+// Price elasticity: how sharply prices respond to stock deviating from target.
+constexpr double PRICE_ELASTICITY = 1.3;
+constexpr double PRICE_MIN_MULTIPLIER = 0.25;
+constexpr double PRICE_MAX_MULTIPLIER = 4.0;
 }  // namespace
 
 EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : universe_(universe) {
@@ -55,9 +60,20 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             }
         }
 
+        // Storage cap: a full station halts production of new units (consumption continues),
+        // so gluts back up the supply chain instead of accumulating without consequence.
+        const double capacity = station_it->storage_capacity_units;
+        double total_stored = 0.0;
+        if (capacity > 0.0) {
+            for (const auto& [commodity_id, units] : station.inventory) {
+                total_stored += std::max(0.0, units);
+            }
+        }
+        const bool storage_full = capacity > 0.0 && total_stored >= capacity;
+
         for (const auto* recipe : recipe_it->second) {
             const double rate = (recipe->units_per_day > 0.0)
-                ? recipe->units_per_day * efficiency  // production scales with input availability
+                ? (storage_full ? 0.0 : recipe->units_per_day * efficiency)  // production scales with input availability
                 : recipe->units_per_day;              // consumption is unaffected by efficiency
             double& stock = station.inventory[recipe->commodity_id];
             stock += rate * dt_days;
@@ -89,6 +105,36 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             machinery_stock *= std::max(0.0, 1.0 - MACHINERY_WEAR_PER_DAY * dt_days);
         }
     }
+}
+
+double EconomySystem::get_target_stock(const std::string& profile_id, const std::string& commodity_id) const {
+    const auto it = recipes_by_profile_.find(profile_id);
+    double net_rate = 0.0;
+    if (it != recipes_by_profile_.end()) {
+        for (const auto* recipe : it->second) {
+            if (recipe->commodity_id == commodity_id) {
+                net_rate += recipe->units_per_day;
+            }
+        }
+    }
+    if (net_rate < 0.0) {
+        return std::abs(net_rate) * 21.0;
+    }
+    if (net_rate > 0.0) {
+        return net_rate * 14.0;
+    }
+    return 20.0;
+}
+
+double EconomySystem::get_price(
+    const std::string& profile_id,
+    const std::string& commodity_id,
+    double stock,
+    double base_price) const {
+    const double target = get_target_stock(profile_id, commodity_id);
+    const double ratio = target / std::max(stock, 0.5);
+    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
+    return base_price * multiplier;
 }
 
 std::unordered_map<std::string, double> EconomySystem::get_profile_net_rates(const std::string& profile_id) const {

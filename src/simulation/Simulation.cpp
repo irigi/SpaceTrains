@@ -14,6 +14,7 @@ namespace spacetrains::simulation {
 namespace {
 constexpr double FUEL_UNITS_TO_KG = 100.0;
 constexpr std::size_t MAX_EVENT_HISTORY = 24;
+constexpr std::size_t MAX_TRADE_HISTORY = 24;
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -115,7 +116,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     kepler_planner_ = std::make_unique<trajectory::KeplerTrajectoryPlanner>(universe_, mechanics_);
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
-        stations_.push_back({.station_id = station.id, .inventory = station.initial_inventory});
+        stations_.push_back({.station_id = station.id, .inventory = station.initial_inventory, .credits = station.initial_credits});
     }
     for (const auto& ship_class : universe_.ship_classes) {
         ship_classes_by_id_[ship_class.id] = &ship_class;
@@ -130,6 +131,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .current_station_id = seed.start_station_id,
             .phase = domain::ShipMissionPhase::Idle,
             .propellant_kg = seed.initial_propellant_kg,
+            .credits = seed.initial_credits,
             .active_mission = {},
         });
     }
@@ -226,11 +228,36 @@ const domain::StationState& Simulation::get_station_state(const std::string& sta
     return *it;
 }
 
-void Simulation::add_event(std::string text) {
-    recent_events_.push_back({.time_s = game_time_s_, .text = std::move(text)});
+void Simulation::add_event(std::string text, std::string category) {
+    recent_events_.push_back({.time_s = game_time_s_, .text = std::move(text), .category = std::move(category)});
     if (recent_events_.size() > MAX_EVENT_HISTORY) {
         recent_events_.erase(recent_events_.begin(), recent_events_.begin() + static_cast<long>(recent_events_.size() - MAX_EVENT_HISTORY));
     }
+}
+
+void Simulation::record_trade(domain::TradeEntry trade) {
+    recent_trades_.push_back(std::move(trade));
+    if (recent_trades_.size() > MAX_TRADE_HISTORY) {
+        recent_trades_.erase(recent_trades_.begin(), recent_trades_.begin() + static_cast<long>(recent_trades_.size() - MAX_TRADE_HISTORY));
+    }
+}
+
+const domain::CommodityDefinition& Simulation::get_commodity(const std::string& commodity_id) const {
+    const auto it = std::find_if(
+        universe_.commodities.begin(),
+        universe_.commodities.end(),
+        [&](const domain::CommodityDefinition& commodity) { return commodity.id == commodity_id; });
+    if (it == universe_.commodities.end()) {
+        throw std::runtime_error("Unknown commodity: " + commodity_id);
+    }
+    return *it;
+}
+
+double Simulation::station_price(const domain::StationState& state, const std::string& commodity_id) const {
+    const auto& definition = get_station_definition(state.station_id);
+    const auto stock_it = state.inventory.find(commodity_id);
+    const double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;
+    return economy_.get_price(definition.economy_profile_id, commodity_id, stock, get_commodity(commodity_id).base_price);
 }
 
 bool Simulation::try_refuel(domain::ShipState& ship) {
@@ -243,11 +270,32 @@ bool Simulation::try_refuel(domain::ShipState& ship) {
 
     const double available_fuel_units = station.inventory["fuel"];
     const double transferable_kg = std::min(missing_kg, available_fuel_units * FUEL_UNITS_TO_KG);
-    station.inventory["fuel"] -= transferable_kg / FUEL_UNITS_TO_KG;
+    const double transferred_units = transferable_kg / FUEL_UNITS_TO_KG;
+    // Price the fuel on the stock before the transfer. Ships may go into debt for fuel
+    // (but not for cargo) so an empty wallet never permanently strands a ship.
+    const double fuel_unit_price = station_price(station, "fuel");
+    const double fuel_bill = transferred_units * fuel_unit_price;
+    station.inventory["fuel"] -= transferred_units;
     ship.propellant_kg += transferable_kg;
+    ship.credits -= fuel_bill;
+    ship.lifetime_profit -= fuel_bill;
+    station.credits += fuel_bill;
 
     if (transferable_kg > 0.0) {
-        add_event(std::format("{} refueled {:.0f} kg at {}", ship.name, transferable_kg, get_station_definition(ship.current_station_id).name));
+        record_trade({
+            .time_s = game_time_s_,
+            .ship_id = ship.id,
+            .station_id = station.station_id,
+            .commodity_id = "fuel",
+            .kind = "fuel",
+            .units = transferred_units,
+            .unit_price = fuel_unit_price,
+            .total = fuel_bill,
+        });
+        add_event(std::format(
+            "{} refueled {:.0f} kg at {} for {:.0f} cr",
+            ship.name, transferable_kg, get_station_definition(ship.current_station_id).name, fuel_bill),
+            "fuel");
     }
     return ship.propellant_kg >= ship_class.propellant_capacity_kg * 0.4;
 }
@@ -264,6 +312,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     std::string best_commodity;
     double best_cargo_units = 0.0;
 
+    const double origin_fuel_price = station_price(origin_state, "fuel");
     const auto origin_rates = economy_.get_profile_net_rates(origin_def.economy_profile_id);
     for (const auto& [commodity_id, stock] : origin_state.inventory) {
         const double origin_rate = origin_rates.contains(commodity_id) ? origin_rates.at(commodity_id) : 0.0;
@@ -276,6 +325,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             continue;
         }
 
+        const double origin_price = station_price(origin_state, commodity_id);
+        const double decay_per_day = get_commodity(commodity_id).decay_fraction_per_day;
+
         for (const auto& destination : universe_.stations) {
             if (destination.id == origin_def.id) {
                 continue;
@@ -286,16 +338,20 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 continue;
             }
             const auto& destination_state = get_station_state(destination.id);
-            const auto destination_stock_it = destination_state.inventory.find(commodity_id);
-            const double destination_stock = destination_stock_it == destination_state.inventory.end() ? 0.0 : destination_stock_it->second;
-            const double target_stock = 8.0 + std::abs(destination_rate) * 14.0;
-            const double need = std::max(0.0, target_stock - destination_stock);
-            if (need <= 1.0) {
-                continue;
-            }
 
-            const double cargo_units = std::min({ship_class.cargo_capacity_units, surplus, need});
-            if (cargo_units <= 0.0) {
+            // Cap cargo by hold size, available surplus, what the ship can afford,
+            // and the destination's free storage.
+            double free_capacity = ship_class.cargo_capacity_units;
+            if (destination.storage_capacity_units > 0.0) {
+                double stored = 0.0;
+                for (const auto& [_, units] : destination_state.inventory) {
+                    stored += std::max(0.0, units);
+                }
+                free_capacity = std::max(0.0, destination.storage_capacity_units - stored);
+            }
+            const double affordable = origin_price > 0.0 ? std::max(0.0, ship.credits) / origin_price : surplus;
+            const double cargo_units = std::min({ship_class.cargo_capacity_units, surplus, affordable, free_capacity});
+            if (cargo_units <= 1.0) {
                 continue;
             }
 
@@ -307,12 +363,14 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 continue;
             }
 
-            // Urgency: boost score when destination is close to running out.
-            // days_remaining = current stock / consumption rate.  At 0 days left → 30x boost; at 30+ days → 1x.
-            const double days_remaining = (destination_stock > 0.0 && std::abs(destination_rate) > 0.0)
-                ? destination_stock / std::abs(destination_rate) : 0.0;
-            const double urgency = std::max(1.0, 30.0 / std::max(1.0, days_remaining));
-            const double score = cargo_units * urgency / std::max(1.0, plan.travel_time_s / 86400.0);
+            // Expected profit per day. A starving destination prices the commodity at the
+            // 4x scarcity clamp, so urgency is embedded in the price spread.
+            const double travel_days = plan.travel_time_s / 86400.0;
+            const double surviving = cargo_units * std::pow(1.0 - decay_per_day, travel_days);
+            const double revenue = surviving * station_price(destination_state, commodity_id);
+            const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price;
+            const double cost = cargo_units * origin_price + fuel_cost;
+            const double score = (revenue - cost) / std::max(1.0, travel_days);
             if (score > best_score) {
                 best_score = score;
                 best_destination = &destination;
@@ -392,7 +450,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     if (best_destination == nullptr) {
         if (!has_refuel_reserve && ship.propellant_kg <= 0.0) {
             ship.phase = domain::ShipMissionPhase::Stranded;
-            add_event(std::format("{} is stranded at {} due to fuel shortage", ship.name, origin_def.name));
+            add_event(std::format("{} is stranded at {} due to fuel shortage", ship.name, origin_def.name), "alert");
         }
         return;
     }
@@ -405,8 +463,28 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         return;
     }
 
+    double purchase_cost = 0.0;
+    double expected_revenue = 0.0;
     if (best_cargo_units > 0.0 && !best_commodity.empty()) {
+        // Buy at origin: price on the stock before the cargo is reserved.
+        const double unit_price = station_price(origin_state, best_commodity);
+        purchase_cost = best_cargo_units * unit_price;
         origin_state.inventory[best_commodity] -= best_cargo_units;
+        ship.credits -= purchase_cost;
+        ship.lifetime_profit -= purchase_cost;
+        origin_state.credits += purchase_cost;
+        record_trade({
+            .time_s = game_time_s_,
+            .ship_id = ship.id,
+            .station_id = origin_state.station_id,
+            .commodity_id = best_commodity,
+            .kind = "buy",
+            .units = best_cargo_units,
+            .unit_price = unit_price,
+            .total = purchase_cost,
+        });
+        const auto& destination_state = get_station_state(best_destination->id);
+        expected_revenue = best_cargo_units * station_price(destination_state, best_commodity);
     }
     // Chemical ships: deduct propellant at mission start (instantaneous burns).
     // Electric ion ships: propellant is consumed continuously during transit and
@@ -428,6 +506,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         .total_travel_time_s = plan.travel_time_s,
         .remaining_travel_time_s = plan.travel_time_s,
         .propellant_cost_kg = plan.propellant_required_kg,
+        .purchase_cost = purchase_cost,
+        .fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * station_price(origin_state, "fuel"),
+        .expected_revenue = expected_revenue,
         .sampled_path = plan.sampled_path,
         .sampled_times_s = plan.sampled_times_s,
         .sampled_propellant_kg = plan.sampled_propellant_kg,
@@ -436,36 +517,39 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     if (plan.wait_time_s > 0.0) {
         if (best_cargo_units > 0.0) {
             add_event(std::format(
-                "{} scheduled {}->{} ({}) in {:.1f}d  score={:.2f} ({:.1f}u/{:.1f}d travel)",
+                "{} scheduled {}->{} ({}) in {:.1f}d  est. profit {:.0f} cr ({:.1f}u/{:.1f}d travel)",
                 ship.name,
                 origin_def.name,
                 best_destination->name,
                 best_commodity,
                 plan.wait_time_s / 86400.0,
-                best_score,
+                expected_revenue - purchase_cost,
                 best_cargo_units,
-                plan.travel_time_s / 86400.0));
+                plan.travel_time_s / 86400.0),
+                "mission");
         } else {
             add_event(std::format(
                 "{} repositioning {}->{} in {:.1f}d",
                 ship.name,
                 origin_def.name,
                 best_destination->name,
-                plan.wait_time_s / 86400.0));
+                plan.wait_time_s / 86400.0),
+                "mission");
         }
     } else if (best_cargo_units > 0.0) {
         add_event(std::format(
-            "{} departed {}->{} ({}) {:.1f}u  score={:.2f} ({:.1f}d transit, prop={:.0f}kg)",
+            "{} departed {}->{} ({}) {:.1f}u  est. profit {:.0f} cr ({:.1f}d transit, prop={:.0f}kg)",
             ship.name,
             origin_def.name,
             best_destination->name,
             best_commodity,
             best_cargo_units,
-            best_score,
+            expected_revenue - purchase_cost,
             plan.travel_time_s / 86400.0,
-            plan.propellant_required_kg));
+            plan.propellant_required_kg),
+            "mission");
     } else {
-        add_event(std::format("{} repositioned from {} to {}", ship.name, origin_def.name, best_destination->name));
+        add_event(std::format("{} repositioned from {} to {}", ship.name, origin_def.name, best_destination->name), "mission");
     }
 }
 
@@ -484,9 +568,10 @@ void Simulation::step_awaiting_departure_ship(domain::ShipState& ship) {
             origin.name,
             destination.name,
             ship.active_mission.cargo_units,
-            ship.active_mission.commodity_id));
+            ship.active_mission.commodity_id),
+            "mission");
     } else {
-        add_event(std::format("{} departed {} for {}", ship.name, origin.name, destination.name));
+        add_event(std::format("{} departed {} for {}", ship.name, origin.name, destination.name), "mission");
     }
 }
 
@@ -525,30 +610,69 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         const double surviving = (decay_per_day > 0.0)
             ? std::max(0.0, std::pow(1.0 - decay_per_day, transit_days))
             : 1.0;
-        const double arrived = ship.active_mission.cargo_units * surviving;
+        double arrived = ship.active_mission.cargo_units * surviving;
         const double spoiled = ship.active_mission.cargo_units - arrived;
 
+        // Clamp delivery to the destination's free storage; the overflow is jettisoned.
+        const auto& destination_def = get_station_definition(ship.current_station_id);
+        if (destination_def.storage_capacity_units > 0.0) {
+            double stored = 0.0;
+            for (const auto& [_, units] : destination.inventory) {
+                stored += std::max(0.0, units);
+            }
+            const double free_capacity = std::max(0.0, destination_def.storage_capacity_units - stored);
+            if (arrived > free_capacity) {
+                add_event(std::format(
+                    "{} jettisoned {:.1f}u {} at {} — storage full",
+                    ship.name, arrived - free_capacity, ship.active_mission.commodity_id, destination_def.name),
+                    "alert");
+                arrived = free_capacity;
+            }
+        }
+
+        // Sell at arrival: price on the stock before the delivery lands.
+        const double unit_price = station_price(destination, ship.active_mission.commodity_id);
+        const double revenue = arrived * unit_price;
         destination.inventory[ship.active_mission.commodity_id] += arrived;
+        destination.credits -= revenue;
+        ship.credits += revenue;
+        ship.lifetime_profit += revenue;
+        if (arrived > 0.0) {
+            record_trade({
+                .time_s = game_time_s_,
+                .ship_id = ship.id,
+                .station_id = destination.station_id,
+                .commodity_id = ship.active_mission.commodity_id,
+                .kind = "sell",
+                .units = arrived,
+                .unit_price = unit_price,
+                .total = revenue,
+            });
+        }
 
         if (spoiled > 0.1) {
             add_event(std::format(
-                "{} arrived at {} with {:.1f}u {} ({:.1f}u spoiled in {:.0f}d transit)",
+                "{} arrived at {} with {:.1f}u {} for {:.0f} cr ({:.1f}u spoiled in {:.0f}d transit)",
                 ship.name,
                 get_station_definition(ship.current_station_id).name,
                 arrived,
                 ship.active_mission.commodity_id,
+                revenue,
                 spoiled,
-                transit_days));
+                transit_days),
+                "arrival");
         } else {
             add_event(std::format(
-                "{} arrived at {} and unloaded {:.1f} units of {}",
+                "{} arrived at {} and sold {:.1f}u {} for {:.0f} cr",
                 ship.name,
                 get_station_definition(ship.current_station_id).name,
                 arrived,
-                ship.active_mission.commodity_id));
+                ship.active_mission.commodity_id,
+                revenue),
+                "arrival");
         }
     } else {
-        add_event(std::format("{} arrived at {}", ship.name, get_station_definition(ship.current_station_id).name));
+        add_event(std::format("{} arrived at {}", ship.name, get_station_definition(ship.current_station_id).name), "arrival");
     }
     ship.active_mission = {};
 }
@@ -575,7 +699,7 @@ void Simulation::step(double real_dt_s) {
             case domain::ShipMissionPhase::Stranded:
                 if (try_refuel(ship)) {
                     ship.phase = domain::ShipMissionPhase::Idle;
-                    add_event(std::format("{} recovered from stranded state at {}", ship.name, get_station_definition(ship.current_station_id).name));
+                    add_event(std::format("{} recovered from stranded state at {}", ship.name, get_station_definition(ship.current_station_id).name), "alert");
                 }
                 break;
         }
@@ -659,6 +783,62 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "\"timewarp_factor\":" << timewarp_factor_ << ",";
     output << "\"paused\":" << (paused ? "true" : "false") << ",";
 
+    output << "\"factions\":[";
+    for (std::size_t i = 0; i < universe_.factions.size(); ++i) {
+        const auto& faction = universe_.factions[i];
+        if (i > 0) {
+            output << ",";
+        }
+        output << "{"
+               << "\"id\":\"" << json_escape(faction.id) << "\","
+               << "\"name\":\"" << json_escape(faction.name) << "\","
+               << "\"color\":\"" << json_escape(faction.color_hex) << "\""
+               << "}";
+    }
+    output << "],";
+
+    output << "\"commodities\":[";
+    for (std::size_t i = 0; i < universe_.commodities.size(); ++i) {
+        const auto& commodity = universe_.commodities[i];
+        if (i > 0) {
+            output << ",";
+        }
+        output << "{"
+               << "\"id\":\"" << json_escape(commodity.id) << "\","
+               << "\"name\":\"" << json_escape(commodity.name) << "\","
+               << "\"base_price\":" << commodity.base_price
+               << "}";
+    }
+    output << "],";
+
+    double total_credits = 0.0;
+    for (const auto& station : stations_) {
+        total_credits += station.credits;
+    }
+    for (const auto& ship : ships_) {
+        total_credits += ship.credits;
+    }
+    output << "\"total_credits\":" << total_credits << ",";
+
+    output << "\"recent_trades\":[";
+    for (std::size_t i = 0; i < recent_trades_.size(); ++i) {
+        const auto& trade = recent_trades_[i];
+        if (i > 0) {
+            output << ",";
+        }
+        output << "{"
+               << "\"time_s\":" << trade.time_s << ","
+               << "\"ship_id\":\"" << json_escape(trade.ship_id) << "\","
+               << "\"station_id\":\"" << json_escape(trade.station_id) << "\","
+               << "\"commodity_id\":\"" << json_escape(trade.commodity_id) << "\","
+               << "\"kind\":\"" << json_escape(trade.kind) << "\","
+               << "\"units\":" << trade.units << ","
+               << "\"unit_price\":" << trade.unit_price << ","
+               << "\"total\":" << trade.total
+               << "}";
+    }
+    output << "],";
+
     output << "\"bodies\":[";
     for (std::size_t i = 0; i < universe_.bodies.size(); ++i) {
         const auto& body = universe_.bodies[i];
@@ -705,6 +885,35 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
             output << "\"" << json_escape(universe_.commodities[ci].id) << "\":"
                    << inventory_value(inventory, universe_.commodities[ci].id);
         }
+        output << "},";
+
+        const auto& station_state = get_station_state(station.id);
+        double storage_used = 0.0;
+        for (const auto& [_, units] : inventory) {
+            storage_used += std::max(0.0, units);
+        }
+        output << "\"credits\":" << station_state.credits << ","
+               << "\"storage_capacity\":" << station.storage_capacity_units << ","
+               << "\"storage_used\":" << storage_used << ","
+               << "\"prices\":{";
+        for (std::size_t ci = 0; ci < universe_.commodities.size(); ++ci) {
+            if (ci > 0) output << ",";
+            output << "\"" << json_escape(universe_.commodities[ci].id) << "\":"
+                   << station_price(station_state, universe_.commodities[ci].id);
+        }
+        output << "},"
+               << "\"net_rates\":{";
+        const auto net_rates = economy_.get_profile_net_rates(station.economy_profile_id);
+        bool first_rate = true;
+        for (const auto& commodity : universe_.commodities) {
+            const auto rate_it = net_rates.find(commodity.id);
+            if (rate_it == net_rates.end()) {
+                continue;
+            }
+            if (!first_rate) output << ",";
+            first_rate = false;
+            output << "\"" << json_escape(commodity.id) << "\":" << rate_it->second;
+        }
         output << "}"
                << "}";
     }
@@ -722,6 +931,11 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"id\":\"" << json_escape(ship.id) << "\","
                << "\"name\":\"" << json_escape(ship.name) << "\","
                << "\"faction_id\":\"" << json_escape(ship.faction_id) << "\","
+               << "\"class_id\":\"" << json_escape(ship.class_id) << "\","
+               << "\"cargo_capacity_units\":" << ship_class.cargo_capacity_units << ","
+               << "\"credits\":" << ship.credits << ","
+               << "\"lifetime_profit\":" << ship.lifetime_profit << ","
+               << "\"mission_value\":" << (ship.active_mission.expected_revenue - ship.active_mission.purchase_cost - ship.active_mission.fuel_cost) << ","
                << "\"propulsion_type\":\"" << json_escape(ship_class.propulsion_type) << "\","
                << "\"trajectory_type\":\"" << json_escape(ship.active_mission.trajectory_type) << "\","
                << "\"phase\":\"" << json_escape(mission_phase_name(ship.phase)) << "\","
@@ -785,6 +999,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         }
         output << "{"
                << "\"time_s\":" << event.time_s << ","
+               << "\"category\":\"" << json_escape(event.category) << "\","
                << "\"text\":\"" << json_escape(event.text) << "\""
                << "}";
     }

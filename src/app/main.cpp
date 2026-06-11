@@ -1,8 +1,10 @@
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <format>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "celestial/CelestialMechanics.hpp"
@@ -305,6 +307,60 @@ void print_economy_audit(
             std::cout << std::format("{}={:.0f}u  ", c, units);
         }
         std::cout << "\n";
+    }
+
+    // Money: per-entity balances and total supply. Total must equal the seeded
+    // amount exactly — every trade is a transfer, never a source or sink.
+    double initial_supply = 0.0;
+    for (const auto& sd : universe.stations) {
+        initial_supply += sd.initial_credits;
+    }
+    for (const auto& seed : universe.ship_seeds) {
+        initial_supply += seed.initial_credits;
+    }
+    double station_credits = 0.0;
+    double ship_credits = 0.0;
+    std::cout << "\n  [ECON AUDIT] Money:\n";
+    for (const auto& ss : snap.stations) {
+        station_credits += ss.credits;
+        for (const auto& sd : universe.stations) {
+            if (sd.id != ss.station_id) continue;
+            std::cout << std::format("    {:30s}  {:>12.0f} cr\n", sd.name, ss.credits);
+            break;
+        }
+    }
+    for (const auto& ship : snap.ships) {
+        ship_credits += ship.credits;
+        std::cout << std::format("    {:30s}  {:>12.0f} cr  (lifetime profit {:+.0f})\n",
+            ship.name, ship.credits, ship.lifetime_profit);
+    }
+    const double total_supply = station_credits + ship_credits;
+    std::cout << std::format("    Total supply: {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
+        total_supply, initial_supply, total_supply - initial_supply);
+
+    // Per-commodity price spread across stations.
+    std::cout << "\n  [ECON AUDIT] Prices (min/avg/max across stations):\n";
+    for (const auto& commodity : universe.commodities) {
+        double min_price = 1.0e18;
+        double max_price = 0.0;
+        double sum_price = 0.0;
+        int count = 0;
+        for (const auto& ss : snap.stations) {
+            for (const auto& sd : universe.stations) {
+                if (sd.id != ss.station_id) continue;
+                const double stock = ss.inventory.count(commodity.id) ? ss.inventory.at(commodity.id) : 0.0;
+                const double price = economy.get_price(sd.economy_profile_id, commodity.id, stock, commodity.base_price);
+                min_price = std::min(min_price, price);
+                max_price = std::max(max_price, price);
+                sum_price += price;
+                ++count;
+                break;
+            }
+        }
+        if (count > 0) {
+            std::cout << std::format("    {:15s}  base={:>6.1f}  min={:>7.1f}  avg={:>7.1f}  max={:>7.1f}\n",
+                commodity.id, commodity.base_price, min_price, sum_price / count, max_price);
+        }
     }
 }
 

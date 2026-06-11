@@ -30,6 +30,7 @@ public:
     [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
+    [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return recent_trades_; }
 
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
@@ -38,11 +39,14 @@ private:
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
     [[nodiscard]] const domain::StationState& get_station_state(const std::string& station_id) const;
     [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
+    [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
+    [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     [[nodiscard]] bool try_refuel(domain::ShipState& ship);
     void step_idle_ship(domain::ShipState& ship);
     void step_awaiting_departure_ship(domain::ShipState& ship);
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
-    void add_event(std::string text);
+    void add_event(std::string text, std::string category = "general");
+    void record_trade(domain::TradeEntry trade);
 
     domain::UniverseDefinition universe_;
     celestial::CelestialMechanics mechanics_;
@@ -56,6 +60,7 @@ private:
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;
     std::vector<domain::EventEntry> recent_events_;
+    std::vector<domain::TradeEntry> recent_trades_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
 };

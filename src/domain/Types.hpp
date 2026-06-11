@@ -30,6 +30,7 @@ struct CelestialBodyDefinition {
 struct FactionDefinition {
     std::string id;
     std::string name;
+    std::string color_hex;  // RRGGBB, no leading '#'
 };
 
 struct CommodityDefinition {
@@ -37,6 +38,7 @@ struct CommodityDefinition {
     std::string name;
     double mass_per_unit_kg {1.0};
     double decay_fraction_per_day {0.0};  // fraction of cargo lost per day in transit
+    double base_price {10.0};             // credits per unit at target stock level
 };
 
 struct ShipClassDefinition {
@@ -62,6 +64,8 @@ struct StationDefinition {
     double theta_rad {0.0};
     std::int64_t population {0};
     std::string economy_profile_id;
+    double storage_capacity_units {0.0};  // total units across all commodities; 0 = unlimited
+    double initial_credits {0.0};
     Inventory initial_inventory;
 };
 
@@ -79,6 +83,7 @@ struct ShipSeedDefinition {
     std::string home_station_id;
     std::string start_station_id;
     double initial_propellant_kg {0.0};
+    double initial_credits {0.0};
 };
 
 struct UniverseDefinition {
@@ -102,6 +107,18 @@ enum class ShipMissionPhase {
 struct EventEntry {
     double time_s {0.0};
     std::string text;
+    std::string category {"general"};  // mission | arrival | trade | fuel | alert | general
+};
+
+struct TradeEntry {
+    double time_s {0.0};
+    std::string ship_id;
+    std::string station_id;
+    std::string commodity_id;
+    std::string kind;  // "buy" | "sell" | "fuel"
+    double units {0.0};
+    double unit_price {0.0};
+    double total {0.0};
 };
 
 struct MissionAssignment {
@@ -116,6 +133,9 @@ struct MissionAssignment {
     double total_travel_time_s {0.0};
     double remaining_travel_time_s {0.0};
     double propellant_cost_kg {0.0};
+    double purchase_cost {0.0};      // credits paid for cargo at origin
+    double fuel_cost {0.0};          // credits paid for propellant attributed to this mission
+    double expected_revenue {0.0};   // estimated sale value at destination when planned
     std::vector<math::Vec3d> sampled_path;
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;
@@ -131,12 +151,15 @@ struct ShipState {
     std::string current_station_id;
     ShipMissionPhase phase {ShipMissionPhase::Idle};
     double propellant_kg {0.0};
+    double credits {0.0};
+    double lifetime_profit {0.0};
     MissionAssignment active_mission;
 };
 
 struct StationState {
     std::string station_id;
     Inventory inventory;
+    double credits {0.0};
 };
 
 struct SimulationSnapshot {
