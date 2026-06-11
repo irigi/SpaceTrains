@@ -56,10 +56,6 @@ const BODY_ICON_COLOR := {
 @onready var camera_rig: Node3D = $CameraRig
 @onready var camera: Camera3D = $CameraRig/Camera3D
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
-@onready var info_label: Label = $CanvasLayer/Info
-@onready var entity_list: ItemList = $CanvasLayer/EntityList
-@onready var selection_label: Label = $CanvasLayer/Selection
-@onready var event_log: Label = $CanvasLayer/EventLog
 @onready var scene_light: DirectionalLight3D = $DirectionalLight3D
 
 var bridge_pid := -1
@@ -113,6 +109,27 @@ var debug_frame := 0
 var last_render_origin := Vector3.ZERO
 var last_ui_refresh_s := -1000.0
 
+const UiTheme := preload("res://scripts/ui/UiTheme.gd")
+const TopBarPanel := preload("res://scripts/ui/TopBar.gd")
+const EntityBrowserPanel := preload("res://scripts/ui/EntityBrowser.gd")
+const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
+const EventTickerPanel := preload("res://scripts/ui/EventTicker.gd")
+const MarketPanelScript := preload("res://scripts/ui/MarketPanel.gd")
+
+var ui_root: Control
+var top_bar: PanelContainer
+var entity_browser: PanelContainer
+var inspector_panel: PanelContainer
+var event_ticker: PanelContainer
+var market_panel: PanelContainer
+var status_label: Label
+# Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
+var price_history: Array[Dictionary] = []
+const PRICE_HISTORY_MAX_SAMPLES := 600
+const PRICE_HISTORY_MIN_DAY_STEP := 0.5
+const PRICE_TREND_LOOKBACK_DAYS := 10.0
+const PRICE_TREND_THRESHOLD := 0.03
+
 func _ready() -> void:
     repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
     executable_path = repo_root.path_join("build/bin/spacetrains_bridge")
@@ -124,13 +141,98 @@ func _ready() -> void:
     _create_debug_guides()
     _setup_scene_lighting()
     _setup_map_icon_layer()
+    _setup_ui()
     if "--debug-map" in OS.get_cmdline_user_args():
         debug_map_enabled = true
     if bridge_started:
-        _set_label_text(info_label, "SpaceTrains\nStarting bridge...\n%s" % executable_path)
-    _set_label_text(selection_label, _controls_text("No selection"))
-    _set_label_text(event_log, "Events\n")
-    entity_list.item_selected.connect(_on_entity_selected)
+        _set_status("Starting bridge…\n%s" % executable_path)
+
+func _setup_ui() -> void:
+    ui_root = Control.new()
+    ui_root.name = "UiRoot"
+    ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    ui_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+    ui_root.theme = UiTheme.build()
+    canvas_layer.add_child(ui_root)
+
+    top_bar = TopBarPanel.new()
+    top_bar.name = "TopBar"
+    top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+    top_bar.offset_left = 8.0
+    top_bar.offset_top = 8.0
+    top_bar.offset_right = -8.0
+    top_bar.pause_toggled.connect(_on_pause_toggled)
+    top_bar.timewarp_changed.connect(_on_timewarp_changed)
+    ui_root.add_child(top_bar)
+
+    entity_browser = EntityBrowserPanel.new()
+    entity_browser.name = "EntityBrowser"
+    entity_browser.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+    entity_browser.offset_left = 8.0
+    entity_browser.offset_top = 56.0
+    entity_browser.offset_bottom = -8.0
+    entity_browser.grow_vertical = Control.GROW_DIRECTION_BOTH
+    entity_browser.entity_selected.connect(_on_browser_entity_selected)
+    ui_root.add_child(entity_browser)
+
+    inspector_panel = InspectorPanelScript.new()
+    inspector_panel.name = "Inspector"
+    inspector_panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+    inspector_panel.offset_top = 56.0
+    inspector_panel.offset_right = -8.0
+    inspector_panel.offset_bottom = -212.0
+    inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+    ui_root.add_child(inspector_panel)
+
+    event_ticker = EventTickerPanel.new()
+    event_ticker.name = "EventTicker"
+    event_ticker.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+    event_ticker.offset_left = -478.0
+    event_ticker.offset_top = -198.0
+    event_ticker.offset_right = -8.0
+    event_ticker.offset_bottom = -8.0
+    ui_root.add_child(event_ticker)
+
+    var market_center := CenterContainer.new()
+    market_center.name = "MarketCenter"
+    market_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    market_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+    ui_root.add_child(market_center)
+    market_panel = MarketPanelScript.new()
+    market_panel.name = "MarketPanel"
+    market_center.add_child(market_panel)
+
+    status_label = Label.new()
+    status_label.name = "Status"
+    status_label.set_anchors_preset(Control.PRESET_CENTER)
+    status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    status_label.add_theme_color_override("font_color", UiTheme.WARN)
+    ui_root.add_child(status_label)
+
+func _set_status(text: String) -> void:
+    if status_label != null:
+        status_label.text = text
+        status_label.visible = text != ""
+
+func _on_pause_toggled() -> void:
+    current_paused = not current_paused
+    _write_bridge_commands()
+
+func _on_timewarp_changed(factor: float) -> void:
+    current_timewarp = factor
+    _write_bridge_commands()
+
+func _on_browser_entity_selected(entity_id: String, kind: String) -> void:
+    select_entity(entity_id, kind, true)
+
+func select_entity(entity_id: String, kind: String, focus := false) -> void:
+    selected_id = entity_id
+    selected_kind = kind
+    if entity_browser != null:
+        entity_browser.set_selected(entity_id)
+    if focus and entity_targets.has(entity_id):
+        _focus_entity(entity_id, kind)
+    _refresh_ui(true)
 
 func _exit_tree() -> void:
     if bridge_pid > 0:
@@ -165,6 +267,10 @@ func _unhandled_input(event: InputEvent) -> void:
             _step_timewarp(1)
         elif event.keycode == KEY_F and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
+        elif event.keycode == KEY_M:
+            market_panel.toggle()
+            if market_panel.visible:
+                market_panel.update_market(bridge_state)
         elif event.keycode == KEY_F9:
             debug_map_enabled = not debug_map_enabled
             _debug_map_state("toggle")
@@ -177,7 +283,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
-        _set_label_text(info_label, "Bridge executable not found:\n%s\nBuild the project first." % executable_path)
+        _set_status("Bridge executable not found:\n%s\nBuild the project first." % executable_path)
         return
 
     var args := [
@@ -188,7 +294,7 @@ func _start_bridge() -> void:
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
-        _set_label_text(info_label, "Failed to start bridge process.")
+        _set_status("Failed to start bridge process.")
         bridge_started = false
     else:
         bridge_started = true
@@ -289,13 +395,23 @@ func _apply_snapshot() -> void:
                 focused_id = ""
                 focused_kind = ""
 
-    if ids_changed or entity_list.item_count != seen_ids.size():
-        _rebuild_entity_list()
+    if ids_changed and selected_id != "" and not entity_details.has(selected_id):
+        selected_id = ""
+        selected_kind = ""
+    _update_faction_colors()
     _update_ship_trails()
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
-    _refresh_labels(false)
+    if status_label != null and status_label.visible:
+        _set_status("")
+    _refresh_ui(false)
+
+func _update_faction_colors() -> void:
+    for faction in bridge_state.get("factions", []):
+        var hex := String(faction.get("color", ""))
+        if hex.length() >= 6:
+            faction_colors[String(faction.get("id", ""))] = Color.from_string("#" + hex, Color(0.7, 0.7, 0.7))
 
 func _upsert_entity(data: Dictionary, kind: String) -> void:
     var entity_id: String = data["id"]
@@ -516,68 +632,74 @@ func _visual_signature(kind: String, data: Dictionary) -> String:
         return "station:%s" % String(data.get("faction_id", ""))
     return "ship:%s" % String(data.get("phase", "idle"))
 
-func _set_label_text(label: Label, text: String) -> void:
-    if label.text == text:
+func _refresh_ui(force := false) -> void:
+    if top_bar == null:
         return
-    label.text = text
-
-func _controls_text(prefix: String) -> String:
-    return "%s\nControls: RMB rotate, MMB pan, wheel zoom, left click select, F focus, Space pause, 1/2/3 timewarp, F9 debug log, F10 debug snapshot" % prefix
-
-func _refresh_labels(force := false) -> void:
     var now_s := _wall_time_s()
     if not force and now_s - last_ui_refresh_s < UI_REFRESH_INTERVAL_S:
         return
     last_ui_refresh_s = now_s
-    var sim_day := float(bridge_state.get("game_time_days", 0.0))
-    var paused := bool(bridge_state.get("paused", false))
-    var warp := float(bridge_state.get("timewarp_factor", current_timewarp))
-    var run_state := "paused" if paused else "running"
-    var info_text := "SpaceTrains\nDay %.2f\nState: %s\nTimewarp: %.0fx real second\nBodies: %d  Stations: %d  Ships: %d\nSeeded content currently contains orbital stations only." % [
-        sim_day,
-        run_state,
-        warp,
-        len(bridge_state.get("bodies", [])),
-        len(bridge_state.get("stations", [])),
-        len(bridge_state.get("ships", []))
-    ]
-    if debug_map_enabled:
-        info_text += "\nSnapshots: #%d every %.3fs" % [current_snapshot_seq, snapshot_interval_s]
-    _set_label_text(info_label, info_text)
 
-    var event_lines := ["Recent events"]
-    for event in bridge_state.get("recent_events", []):
-        event_lines.append("[%.1f] %s" % [float(event["time_s"]) / 86400.0, String(event["text"])])
-    _set_label_text(event_log, "\n".join(event_lines))
+    _record_price_history()
+    top_bar.update_state(bridge_state, bool(bridge_state.get("paused", current_paused)), current_timewarp)
+    entity_browser.update_entities(entity_details, entity_kinds, selected_id)
+    event_ticker.update_events(bridge_state.get("recent_events", []))
+    market_panel.update_market(bridge_state)
 
-    if selected_id == "" or not entity_details.has(selected_id):
-        _set_label_text(selection_label, _controls_text("No selection") + "\nUse the entity list on the left if picking is awkward.")
+    var detail: Dictionary = entity_details.get(selected_id, {})
+    inspector_panel.update_selection(detail, selected_kind, {
+        "game_time_s": float(bridge_state.get("game_time_s", 0.0)),
+        "faction_colors": faction_colors,
+        "names": _entity_name_map(),
+        "price_trends": _price_trends_for(selected_id) if selected_kind == "station" else {},
+    })
+
+func _entity_name_map() -> Dictionary:
+    var names := {}
+    for entity_id in entity_details.keys():
+        names[entity_id] = String((entity_details[entity_id] as Dictionary).get("name", entity_id))
+    return names
+
+func _record_price_history() -> void:
+    var day := float(bridge_state.get("game_time_days", 0.0))
+    if not price_history.is_empty() and day - float(price_history.back()["day"]) < PRICE_HISTORY_MIN_DAY_STEP:
         return
+    var sample := {}
+    for station in bridge_state.get("stations", []):
+        var prices: Dictionary = station.get("prices", {})
+        if not prices.is_empty():
+            sample[String(station["id"])] = prices.duplicate()
+    if sample.is_empty():
+        return
+    price_history.append({"day": day, "prices": sample})
+    if price_history.size() > PRICE_HISTORY_MAX_SAMPLES:
+        price_history.pop_front()
 
-    var detail: Dictionary = entity_details[selected_id]
-    var selection_text := ""
-    if selected_kind == "station":
-        var inv_text := ""
-        if detail.has("inventory") and detail["inventory"] is Dictionary:
-            var inv: Dictionary = detail["inventory"]
-            for key in inv.keys():
-                var val: float = float(inv[key])
-                if val > 0.1:
-                    inv_text += "  %s: %.1f\n" % [key, val]
+func _price_trends_for(station_id: String) -> Dictionary:
+    var trends := {}
+    if price_history.size() < 2:
+        return trends
+    var current: Dictionary = price_history.back()
+    var current_day := float(current["day"])
+    var reference: Dictionary = price_history.front()
+    for i in range(price_history.size() - 2, -1, -1):
+        if current_day - float(price_history[i]["day"]) >= PRICE_TREND_LOOKBACK_DAYS:
+            reference = price_history[i]
+            break
+    var now_prices: Dictionary = (current["prices"] as Dictionary).get(station_id, {})
+    var then_prices: Dictionary = (reference["prices"] as Dictionary).get(station_id, {})
+    for commodity_id in now_prices.keys():
+        var then := float(then_prices.get(commodity_id, 0.0))
+        if then <= 0.0:
+            continue
+        var ratio := float(now_prices[commodity_id]) / then
+        if ratio > 1.0 + PRICE_TREND_THRESHOLD:
+            trends[commodity_id] = 1
+        elif ratio < 1.0 - PRICE_TREND_THRESHOLD:
+            trends[commodity_id] = -1
         else:
-            inv_text = "  Food: %.1f  Fuel: %.1f  Metals: %.1f\n" % [
-                float(detail.get("food", 0.0)), float(detail.get("fuel", 0.0)), float(detail.get("metals", 0.0))
-            ]
-        selection_text = "%s\nFaction: %s  Pop: %s\nInventory:\n%s" % [
-            detail["name"], detail["faction_id"], str(detail["population"]), inv_text
-        ]
-    elif selected_kind == "ship":
-        selection_text = _ship_detail_text(detail)
-    else:
-        selection_text = "%s\nType: body\nModel scale: %.6f\nRadius: %.0f km" % [
-            detail["name"], _body_display_scale(String(detail["id"])), float(detail.get("radius_m", 0.0)) / 1000.0
-        ]
-    _set_label_text(selection_label, selection_text)
+            trends[commodity_id] = 0
+    return trends
 
 func _pick_entity(mouse_pos: Vector2) -> void:
     var best_id := ""
@@ -596,89 +718,13 @@ func _pick_entity(mouse_pos: Vector2) -> void:
             best_distance = distance
             best_id = entity_id
             best_kind = kind
-    selected_id = best_id
-    selected_kind = best_kind
-    if selected_id != "":
-        _select_entity_in_list(selected_id)
-    _refresh_labels(true)
-
-func _entity_name_or_id(entity_id: String) -> String:
-    if entity_id == "":
-        return "None"
-    if entity_details.has(entity_id):
-        var detail: Dictionary = entity_details[entity_id]
-        return String(detail.get("name", entity_id))
-    return entity_id
-
-func _format_days(seconds: float) -> String:
-    return "%.2f days" % (max(seconds, 0.0) / 86400.0)
-
-func _cargo_summary(detail: Dictionary) -> String:
-    var cargo_units := float(detail.get("cargo_units", 0.0))
-    var commodity_id := String(detail.get("commodity_id", ""))
-    if cargo_units <= 0.0 or commodity_id == "":
-        return "None"
-    return "%.1f units of %s" % [cargo_units, commodity_id]
-
-func _ship_mass_text(detail: Dictionary) -> String:
-    return "Dry mass: %.0f kg\nPropellant: %.0f / %.0f kg\nCurrent mass: %.0f kg\nInitial/full mass: %.0f kg" % [
-        float(detail.get("dry_mass_kg", 0.0)),
-        float(detail.get("propellant_kg", 0.0)),
-        float(detail.get("propellant_capacity_kg", 0.0)),
-        float(detail.get("current_mass_kg", 0.0)),
-        float(detail.get("initial_mass_kg", 0.0))
-    ]
-
-func _trajectory_type_label(detail: Dictionary) -> String:
-    var ttype := String(detail.get("trajectory_type", ""))
-    match ttype:
-        "keplerian_local":    return "Keplerian — local (same body)"
-        "keplerian_lambert":  return "Keplerian — Lambert arc"
-        "keplerian_hohmann":  return "Keplerian — Hohmann transfer"
-        "variable_isp":       return "Variable-ISP (electric ion)"
-        _:                    return ""
-
-func _ship_detail_text(detail: Dictionary) -> String:
-    var phase := String(detail.get("phase", "idle"))
-    var current_station := _entity_name_or_id(String(detail.get("current_station_id", "")))
-    var origin := _entity_name_or_id(String(detail.get("origin_station_id", "")))
-    var destination := _entity_name_or_id(String(detail.get("destination_station_id", "")))
-    var cargo := _cargo_summary(detail)
-    var game_time_s := float(bridge_state.get("game_time_s", 0.0))
-    var departure_time_s := float(detail.get("departure_time_s", 0.0))
-    var arrival_time_s := float(detail.get("arrival_time_s", 0.0))
-    var propulsion := String(detail.get("propulsion_type", ""))
-    var text := "%s\nType: ship (%s)\nPhase: %s\nCurrent station: %s\n%s" % [
-        String(detail.get("name", detail.get("id", ""))),
-        propulsion,
-        phase,
-        current_station,
-        _ship_mass_text(detail)
-    ]
-
-    if phase == "awaiting_departure":
-        var traj_label := _trajectory_type_label(detail)
-        text += "\nRoute: %s -> %s\nTrajectory: %s\nCargo: %s\nDeparture in: %s\nETA: %s" % [
-            origin,
-            destination,
-            traj_label if traj_label != "" else "—",
-            cargo,
-            _format_days(departure_time_s - game_time_s),
-            _format_days(arrival_time_s - game_time_s)
-        ]
-    elif phase == "in_transit":
-        var coast_time_s: float = max(arrival_time_s - departure_time_s, 1.0)
-        var progress_pct: float = clamp(((game_time_s - departure_time_s) / coast_time_s) * 100.0, 0.0, 100.0)
-        var traj_label := _trajectory_type_label(detail)
-        text += "\nRoute: %s -> %s\nTrajectory: %s\nCargo: %s\nETA: %s\nMission progress: %.1f%%" % [
-            origin,
-            destination,
-            traj_label if traj_label != "" else "—",
-            cargo,
-            _format_days(arrival_time_s - game_time_s),
-            progress_pct
-        ]
-    return text
+    if best_id != "":
+        select_entity(best_id, best_kind)
+    else:
+        selected_id = ""
+        selected_kind = ""
+        entity_browser.set_selected("")
+        _refresh_ui(true)
 
 func _create_debug_guides() -> void:
     var axes := [
@@ -947,25 +993,6 @@ func _step_timewarp(direction: int) -> void:
     current_timewarp = TIMEWARP_STEPS[best_index]
     _write_bridge_commands()
 
-func _rebuild_entity_list() -> void:
-    var previous_selected := selected_id
-    entity_list.clear()
-    var ids: Array = entity_details.keys()
-    ids.sort()
-    for entity_id in ids:
-        var detail: Dictionary = entity_details[entity_id]
-        var kind: String = entity_kinds.get(entity_id, "entity")
-        entity_list.add_item("[%s] %s" % [kind, detail.get("name", entity_id)])
-        entity_list.set_item_metadata(entity_list.item_count - 1, entity_id)
-    if previous_selected != "":
-        _select_entity_in_list(previous_selected)
-
-func _select_entity_in_list(entity_id: String) -> void:
-    for i in range(entity_list.item_count):
-        if String(entity_list.get_item_metadata(i)) == entity_id:
-            entity_list.select(i)
-            return
-
 func _auto_focus_initial_entity() -> void:
     if entity_targets.has("sun"):
         selected_id = "sun"
@@ -984,7 +1011,8 @@ func _auto_focus_initial_entity() -> void:
     camera_rig.focus_point(entity_targets.get(selected_id, Vector3.ZERO))
     focused_id = selected_id
     focused_kind = selected_kind
-    _select_entity_in_list(selected_id)
+    if entity_browser != null:
+        entity_browser.set_selected(selected_id)
     has_auto_focused = true
 
 func _ensure_trail_node(ship_id: String) -> Node3D:
@@ -1115,14 +1143,6 @@ func _update_destination_body_ghost(ship: Dictionary) -> void:
     ghost.scale = Vector3.ONE * _body_display_scale(body_id)
     ghost.material_override = _make_destination_ghost_material(body_id)
     ghost.visible = true
-
-func _on_entity_selected(index: int) -> void:
-    var entity_id := String(entity_list.get_item_metadata(index))
-    selected_id = entity_id
-    selected_kind = entity_kinds.get(entity_id, "")
-    if entity_targets.has(entity_id):
-        _focus_entity(entity_id, selected_kind)
-    _refresh_labels(true)
 
 func _focus_entity(entity_id: String, entity_kind: String) -> void:
     if not entity_targets.has(entity_id):
