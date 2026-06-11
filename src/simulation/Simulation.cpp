@@ -849,6 +849,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         output << "{"
                << "\"id\":\"" << json_escape(body.id) << "\","
                << "\"name\":\"" << json_escape(body.name) << "\","
+               << "\"parent_id\":\"" << json_escape(body.orbit.parent_id) << "\","
                << "\"radius_m\":" << body.radius_m << ","
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","

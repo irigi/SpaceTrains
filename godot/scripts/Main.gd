@@ -100,6 +100,7 @@ var faction_colors := {
     "independent": Color(0.86, 0.82, 0.72)
 }
 var sun_light: OmniLight3D
+var space_env: Node3D
 var map_icon_layer: Control
 var _map_icons: Dictionary = {}
 var _icon_textures: Dictionary = {}
@@ -110,6 +111,7 @@ var last_render_origin := Vector3.ZERO
 var last_ui_refresh_s := -1000.0
 
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
+const SpaceEnvironmentScript := preload("res://scripts/SpaceEnvironment.gd")
 const TopBarPanel := preload("res://scripts/ui/TopBar.gd")
 const EntityBrowserPanel := preload("res://scripts/ui/EntityBrowser.gd")
 const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
@@ -399,6 +401,8 @@ func _apply_snapshot() -> void:
         selected_id = ""
         selected_kind = ""
     _update_faction_colors()
+    if space_env != null:
+        space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
     _update_ship_trails()
     if not has_auto_focused:
         _hide_debug_guides()
@@ -429,6 +433,8 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_visual_signatures[entity_id] = ""
         _attach_entity_label(mesh_instance, kind, data)
         _attach_map_icon(entity_id, kind, data)
+        if entity_id == "saturn":
+            mesh_instance.add_child(SpaceEnvironmentScript.make_planet_ring())
 
     var visual_signature := _visual_signature(kind, data)
     if entity_visual_signatures.get(entity_id, "") != visual_signature:
@@ -459,7 +465,12 @@ func _update_nodes(delta: float) -> void:
         render_origin = Vector3.ZERO
     world_root.position = -render_origin
     if sun_light != null and entity_nodes.has("sun"):
-        sun_light.global_position = entity_nodes["sun"].global_position
+        var sun_node: Node3D = entity_nodes["sun"]
+        sun_light.global_position = sun_node.global_position
+        if space_env != null:
+            space_env.update_sun(sun_node.global_position, sun_node.scale.x)
+    if space_env != null:
+        space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
 
 func _scaled_position(data: Dictionary) -> Vector3:
@@ -587,7 +598,8 @@ func _make_material(kind: String, data: Dictionary) -> Material:
             material.albedo_color = Color(1.0, 0.96, 0.31)
             material.emission_enabled = true
             material.emission = Color(1.0, 0.96, 0.31)
-            material.emission_energy_multiplier = 3.8
+            # Bright enough to cross the HDR glow threshold and bloom.
+            material.emission_energy_multiplier = 8.0
             material.roughness = 0.6
     elif kind == "station":
         var faction_id := String(data.get("faction_id", ""))
@@ -763,19 +775,27 @@ func _setup_scene_lighting() -> void:
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
-    RenderingServer.set_default_clear_color(Color(0.02, 0.02, 0.05, 1.0))
+    RenderingServer.set_default_clear_color(Color(0.01, 0.012, 0.025, 1.0))
 
     var env := Environment.new()
     env.background_mode = Environment.BG_COLOR
-    env.background_color = Color(0.02, 0.02, 0.05, 1.0)
+    env.background_color = Color(0.01, 0.012, 0.025, 1.0)
     env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
     env.ambient_light_color = Color(0.1, 0.1, 0.15, 1.0)
     env.ambient_light_energy = 0.22
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
-    env.glow_enabled = false
+    env.glow_enabled = true
+    env.glow_intensity = 0.6
+    env.glow_bloom = 0.15
+    env.glow_hdr_threshold = 1.1
+    env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
     var world_env := WorldEnvironment.new()
     world_env.environment = env
     add_child(world_env)
+
+    space_env = SpaceEnvironmentScript.new()
+    space_env.name = "SpaceEnvironment"
+    add_child(space_env)
 
 func _setup_map_icon_layer() -> void:
     map_icon_layer = Control.new()
