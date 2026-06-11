@@ -307,7 +307,12 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 continue;
             }
 
-            const double score = cargo_units / std::max(1.0, plan.travel_time_s / 86400.0);
+            // Urgency: boost score when destination is close to running out.
+            // days_remaining = current stock / consumption rate.  At 0 days left → 30x boost; at 30+ days → 1x.
+            const double days_remaining = (destination_stock > 0.0 && std::abs(destination_rate) > 0.0)
+                ? destination_stock / std::abs(destination_rate) : 0.0;
+            const double urgency = std::max(1.0, 30.0 / std::max(1.0, days_remaining));
+            const double score = cargo_units * urgency / std::max(1.0, plan.travel_time_s / 86400.0);
             if (score > best_score) {
                 best_score = score;
                 best_destination = &destination;
@@ -323,12 +328,47 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 continue;
             }
             const auto destination_rates = economy_.get_profile_net_rates(destination.economy_profile_id);
-            double destination_score = 0.0;
+            const auto& dest_state = get_station_state(destination.id);
+
+            // Receiving score: how urgently does this destination need deliveries?
+            double receiving_score = 0.0;
             for (const auto& [commodity_id, rate] : destination_rates) {
-                if (rate <= 0.0) {
-                    destination_score += std::abs(rate);
-                }
+                if (rate >= 0.0) continue;
+                const double dest_stock = dest_state.inventory.count(commodity_id)
+                    ? dest_state.inventory.at(commodity_id) : 0.0;
+                const double days_rem = dest_stock > 0.0 ? dest_stock / std::abs(rate) : 0.0;
+                const double urgency = std::max(1.0, 30.0 / std::max(1.0, days_rem));
+                receiving_score += std::abs(rate) * urgency;
             }
+
+            // Sourcing score: does this destination have surplus goods urgently needed elsewhere?
+            // Encourages ships to position at producers (e.g. Venus for fuel) rather than
+            // only visiting consuming stations.
+            double sourcing_score = 0.0;
+            for (const auto& [commodity_id, rate] : destination_rates) {
+                if (rate <= 0.0) continue;
+                const double dest_stock = dest_state.inventory.count(commodity_id)
+                    ? dest_state.inventory.at(commodity_id) : 0.0;
+                const double reserve = 8.0 + rate * 7.0;
+                const double surplus = std::max(0.0, dest_stock - reserve);
+                if (surplus <= 1.0) continue;
+                // Sum up how urgently this commodity is needed across the whole system.
+                double system_urgency = 0.0;
+                for (const auto& other : universe_.stations) {
+                    if (other.id == destination.id) continue;
+                    const auto other_rates = economy_.get_profile_net_rates(other.economy_profile_id);
+                    const double other_rate = other_rates.count(commodity_id) ? other_rates.at(commodity_id) : 0.0;
+                    if (other_rate >= 0.0) continue;
+                    const auto& other_state = get_station_state(other.id);
+                    const double other_stock = other_state.inventory.count(commodity_id)
+                        ? other_state.inventory.at(commodity_id) : 0.0;
+                    const double days_rem = other_stock > 0.0 ? other_stock / std::abs(other_rate) : 0.0;
+                    system_urgency += std::max(1.0, 30.0 / std::max(1.0, days_rem)) * std::abs(other_rate);
+                }
+                sourcing_score += std::min(surplus, ship_class.cargo_capacity_units) * system_urgency / 100.0;
+            }
+
+            const double destination_score = receiving_score + sourcing_score;
             if (destination_score <= 0.0) {
                 continue;
             }
@@ -394,20 +434,36 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         .trajectory_type = plan.trajectory_type,
     };
     if (plan.wait_time_s > 0.0) {
-        add_event(std::format(
-            "{} scheduled {} for {} in {:.1f} days",
-            ship.name,
-            origin_def.name,
-            best_destination->name,
-            plan.wait_time_s / 86400.0));
+        if (best_cargo_units > 0.0) {
+            add_event(std::format(
+                "{} scheduled {}->{} ({}) in {:.1f}d  score={:.2f} ({:.1f}u/{:.1f}d travel)",
+                ship.name,
+                origin_def.name,
+                best_destination->name,
+                best_commodity,
+                plan.wait_time_s / 86400.0,
+                best_score,
+                best_cargo_units,
+                plan.travel_time_s / 86400.0));
+        } else {
+            add_event(std::format(
+                "{} repositioning {}->{} in {:.1f}d",
+                ship.name,
+                origin_def.name,
+                best_destination->name,
+                plan.wait_time_s / 86400.0));
+        }
     } else if (best_cargo_units > 0.0) {
         add_event(std::format(
-            "{} departed {} for {} carrying {:.1f} units of {}",
+            "{} departed {}->{} ({}) {:.1f}u  score={:.2f} ({:.1f}d transit, prop={:.0f}kg)",
             ship.name,
             origin_def.name,
             best_destination->name,
+            best_commodity,
             best_cargo_units,
-            best_commodity));
+            best_score,
+            plan.travel_time_s / 86400.0,
+            plan.propellant_required_kg));
     } else {
         add_event(std::format("{} repositioned from {} to {}", ship.name, origin_def.name, best_destination->name));
     }
@@ -457,13 +513,40 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
     ship.phase = domain::ShipMissionPhase::Idle;
     auto& destination = get_station_state(ship.current_station_id);
     if (ship.active_mission.cargo_units > 0.0 && !ship.active_mission.commodity_id.empty()) {
-        destination.inventory[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
-        add_event(std::format(
-            "{} arrived at {} and unloaded {:.1f} units of {}",
-            ship.name,
-            get_station_definition(ship.current_station_id).name,
-            ship.active_mission.cargo_units,
-            ship.active_mission.commodity_id));
+        // Apply cargo decay: some goods (food, medicine) spoil in transit.
+        double decay_per_day = 0.0;
+        for (const auto& c : universe_.commodities) {
+            if (c.id == ship.active_mission.commodity_id) {
+                decay_per_day = c.decay_fraction_per_day;
+                break;
+            }
+        }
+        const double transit_days = ship.active_mission.total_travel_time_s / 86400.0;
+        const double surviving = (decay_per_day > 0.0)
+            ? std::max(0.0, std::pow(1.0 - decay_per_day, transit_days))
+            : 1.0;
+        const double arrived = ship.active_mission.cargo_units * surviving;
+        const double spoiled = ship.active_mission.cargo_units - arrived;
+
+        destination.inventory[ship.active_mission.commodity_id] += arrived;
+
+        if (spoiled > 0.1) {
+            add_event(std::format(
+                "{} arrived at {} with {:.1f}u {} ({:.1f}u spoiled in {:.0f}d transit)",
+                ship.name,
+                get_station_definition(ship.current_station_id).name,
+                arrived,
+                ship.active_mission.commodity_id,
+                spoiled,
+                transit_days));
+        } else {
+            add_event(std::format(
+                "{} arrived at {} and unloaded {:.1f} units of {}",
+                ship.name,
+                get_station_definition(ship.current_station_id).name,
+                arrived,
+                ship.active_mission.commodity_id));
+        }
     } else {
         add_event(std::format("{} arrived at {}", ship.name, get_station_definition(ship.current_station_id).name));
     }
@@ -611,9 +694,18 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","
                << "\"z\":" << position.z << ","
+               // Legacy fields kept for Godot frontend compatibility
                << "\"food\":" << inventory_value(inventory, "food") << ","
                << "\"fuel\":" << inventory_value(inventory, "fuel") << ","
-               << "\"metals\":" << inventory_value(inventory, "metals")
+               << "\"metals\":" << inventory_value(inventory, "metals") << ","
+               // Full inventory dict for all commodities
+               << "\"inventory\":{";
+        for (std::size_t ci = 0; ci < universe_.commodities.size(); ++ci) {
+            if (ci > 0) output << ",";
+            output << "\"" << json_escape(universe_.commodities[ci].id) << "\":"
+                   << inventory_value(inventory, universe_.commodities[ci].id);
+        }
+        output << "}"
                << "}";
     }
     output << "],";
@@ -711,11 +803,14 @@ std::string Simulation::build_report() const {
     output << "SpaceTrains snapshot at day " << (game_time_s_ / 86400.0) << "\n";
     output << "Stations:\n";
     for (const auto& station : stations_) {
-        output << "  - " << get_station_definition(station.station_id).name
-               << " food=" << inventory_value(station.inventory, "food")
-               << " fuel=" << inventory_value(station.inventory, "fuel")
-               << " metals=" << inventory_value(station.inventory, "metals")
-               << "\n";
+        output << "  - " << get_station_definition(station.station_id).name;
+        for (const auto& commodity : universe_.commodities) {
+            const double val = inventory_value(station.inventory, commodity.id);
+            if (val > 0.1) {
+                output << " " << commodity.id << "=" << static_cast<int>(val);
+            }
+        }
+        output << "\n";
     }
     output << "Ships:\n";
     for (const auto& ship : ships_) {

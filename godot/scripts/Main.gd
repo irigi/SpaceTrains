@@ -557,9 +557,19 @@ func _refresh_labels(force := false) -> void:
     var detail: Dictionary = entity_details[selected_id]
     var selection_text := ""
     if selected_kind == "station":
-        selection_text = "%s\nType: station\nFaction: %s\nPopulation: %s\nFood: %.1f  Fuel: %.1f  Metals: %.1f" % [
-            detail["name"], detail["faction_id"], str(detail["population"]),
-            float(detail.get("food", 0.0)), float(detail.get("fuel", 0.0)), float(detail.get("metals", 0.0))
+        var inv_text := ""
+        if detail.has("inventory") and detail["inventory"] is Dictionary:
+            var inv: Dictionary = detail["inventory"]
+            for key in inv.keys():
+                var val: float = float(inv[key])
+                if val > 0.1:
+                    inv_text += "  %s: %.1f\n" % [key, val]
+        else:
+            inv_text = "  Food: %.1f  Fuel: %.1f  Metals: %.1f\n" % [
+                float(detail.get("food", 0.0)), float(detail.get("fuel", 0.0)), float(detail.get("metals", 0.0))
+            ]
+        selection_text = "%s\nFaction: %s  Pop: %s\nInventory:\n%s" % [
+            detail["name"], detail["faction_id"], str(detail["population"]), inv_text
         ]
     elif selected_kind == "ship":
         selection_text = _ship_detail_text(detail)

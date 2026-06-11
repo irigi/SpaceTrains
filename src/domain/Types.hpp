@@ -36,6 +36,7 @@ struct CommodityDefinition {
     std::string id;
     std::string name;
     double mass_per_unit_kg {1.0};
+    double decay_fraction_per_day {0.0};  // fraction of cargo lost per day in transit
 };
 
 struct ShipClassDefinition {

@@ -181,7 +181,6 @@ void print_station_inventories(
     const spacetrains::domain::UniverseDefinition& universe) {
     std::cout << "  Stations:\n";
     for (const auto& ss : snap.stations) {
-        // Find station name
         std::string name = ss.station_id;
         for (const auto& sd : universe.stations) {
             if (sd.id == ss.station_id) { name = sd.name; break; }
@@ -191,6 +190,119 @@ void print_station_inventories(
             if (amount > 0.1) {
                 std::cout << std::format("  {}={:.1f}", commodity, amount);
             }
+        }
+        std::cout << "\n";
+    }
+}
+
+void print_economy_audit(
+    const spacetrains::domain::SimulationSnapshot& snap,
+    const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::economy::EconomySystem& economy) {
+
+    // Collect all commodity IDs
+    std::vector<std::string> commodity_ids;
+    for (const auto& c : universe.commodities) {
+        commodity_ids.push_back(c.id);
+    }
+
+    // Per-commodity system totals
+    std::unordered_map<std::string, double> sys_stock;
+    std::unordered_map<std::string, double> sys_prod_rate;
+    std::unordered_map<std::string, double> sys_cons_rate;
+    std::unordered_map<std::string, double> in_transit;
+
+    for (const auto& c : commodity_ids) {
+        sys_stock[c] = 0.0;
+        sys_prod_rate[c] = 0.0;
+        sys_cons_rate[c] = 0.0;
+        in_transit[c] = 0.0;
+    }
+
+    for (const auto& ss : snap.stations) {
+        for (const auto& sd : universe.stations) {
+            if (sd.id != ss.station_id) continue;
+            const auto rates = economy.get_profile_net_rates(sd.economy_profile_id);
+            for (const auto& [c, amount] : ss.inventory) {
+                sys_stock[c] += amount;
+            }
+            for (const auto& [c, rate] : rates) {
+                if (rate > 0.0) sys_prod_rate[c] += rate;
+                else sys_cons_rate[c] += std::abs(rate);
+            }
+            break;
+        }
+    }
+    for (const auto& ship : snap.ships) {
+        if (!ship.active_mission.commodity_id.empty() && ship.active_mission.cargo_units > 0.0) {
+            in_transit[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
+        }
+    }
+
+    std::cout << "\n  [ECON AUDIT] Commodity System Balance:\n";
+    std::cout << std::format("  {:15s}  {:>10s}  {:>10s}  {:>10s}  {:>10s}  {:>10s}\n",
+        "Commodity", "Stock", "In-Transit", "Prod/day", "Cons/day", "Balance/day");
+    for (const auto& c : commodity_ids) {
+        const double balance = sys_prod_rate[c] - sys_cons_rate[c];
+        const char sign = balance >= 0 ? '+' : ' ';
+        std::cout << std::format("  {:15s}  {:10.1f}  {:10.1f}  {:10.2f}  {:10.2f}  {}{:.2f}\n",
+            c, sys_stock[c], in_transit[c], sys_prod_rate[c], sys_cons_rate[c], sign, balance);
+    }
+
+    // Station stress: highlight stations short on a consumed commodity
+    std::cout << "\n  [ECON AUDIT] Station Stress (low stock on consumed goods):\n";
+    for (const auto& ss : snap.stations) {
+        for (const auto& sd : universe.stations) {
+            if (sd.id != ss.station_id) continue;
+            const auto rates = economy.get_profile_net_rates(sd.economy_profile_id);
+            for (const auto& [c, rate] : rates) {
+                if (rate >= 0.0) continue;
+                const double stock = ss.inventory.count(c) ? ss.inventory.at(c) : 0.0;
+                const double days_remaining = (std::abs(rate) > 0.0) ? stock / std::abs(rate) : 999.0;
+                if (days_remaining < 30.0) {
+                    std::cout << std::format("    {:30s}  {:15s}  stock={:.1f}  rate={:.2f}/day  {:5.1f} days left  {}\n",
+                        sd.name, c, stock, rate, days_remaining,
+                        days_remaining < 7.0 ? "*** CRITICAL ***" : (days_remaining < 14.0 ? "** LOW **" : "* marginal *"));
+                }
+            }
+            break;
+        }
+    }
+
+    // Ship utilization
+    int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0;
+    std::unordered_map<std::string, double> cargo_by_commodity;
+    for (const auto& ship : snap.ships) {
+        switch (ship.phase) {
+            case spacetrains::domain::ShipMissionPhase::InTransit:
+                if (ship.active_mission.cargo_units > 0.0) {
+                    ++ships_with_cargo;
+                    cargo_by_commodity[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
+                } else {
+                    ++ships_repositioning;
+                }
+                break;
+            case spacetrains::domain::ShipMissionPhase::AwaitingDeparture:
+                ++ships_waiting;
+                break;
+            case spacetrains::domain::ShipMissionPhase::Idle:
+                ++ships_idle;
+                break;
+            case spacetrains::domain::ShipMissionPhase::Stranded:
+                ++ships_stranded;
+                break;
+            case spacetrains::domain::ShipMissionPhase::Refueling:
+                ++ships_idle;
+                break;
+        }
+    }
+    const int total = static_cast<int>(snap.ships.size());
+    std::cout << std::format("\n  [ECON AUDIT] Fleet: {}/{} hauling cargo  {}/{} repositioning  {}/{} waiting  {}/{} idle  {}/{} stranded\n",
+        ships_with_cargo, total, ships_repositioning, total, ships_waiting, total, ships_idle, total, ships_stranded, total);
+    if (!cargo_by_commodity.empty()) {
+        std::cout << "             Active cargo: ";
+        for (const auto& [c, units] : cargo_by_commodity) {
+            std::cout << std::format("{}={:.0f}u  ", c, units);
         }
         std::cout << "\n";
     }
@@ -237,6 +349,7 @@ int main(int argc, char** argv) {
     std::string data_root_str;
     int sim_days = 365;
     bool verbose = false;
+    bool econ_audit = false;
     int report_interval_days = 30;
 
     // Parse arguments
@@ -248,6 +361,8 @@ int main(int argc, char** argv) {
             report_interval_days = std::stoi(args[++i]);
         } else if (args[i] == "--verbose" || args[i] == "-v") {
             verbose = true;
+        } else if (args[i] == "--econ-audit") {
+            econ_audit = true;
         } else if (args[i][0] != '-') {
             data_root_str = args[i];
         }
@@ -300,6 +415,9 @@ int main(int argc, char** argv) {
             std::cout << std::format("\n--- Day {:.1f} ---\n", game_day);
             print_station_inventories(snap, sim.universe());
             print_ship_phases(snap, sim.universe());
+            if (econ_audit) {
+                print_economy_audit(snap, sim.universe(), sim.economy_system());
+            }
             if (!verbose) {
                 std::cout << "  Recent events:\n";
                 for (const auto& event : snap.recent_events) {
