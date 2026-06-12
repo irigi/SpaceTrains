@@ -30,9 +30,13 @@ int main() {
 
     {
         // --- Price formula properties ---
-        // agri_hub consumes water at 1/day → target = 21 units.
+        // Consumed commodities target a 21-day buffer of the data-defined rate.
+        const auto agri_rates = economy.get_profile_net_rates("agri_hub");
+        const double water_rate = agri_rates.at("water");
+        require(water_rate < 0.0, "agri_hub must consume water");
         const double target = economy.get_target_stock("agri_hub", "water");
-        require_near(target, 21.0, 1.0e-9, "agri_hub water target must be 21-day consumption buffer");
+        require_near(target, std::abs(water_rate) * 21.0, 1.0e-9,
+            "agri_hub water target must be 21-day consumption buffer");
 
         const double base = 4.0;
         require_near(economy.get_price("agri_hub", "water", target, base), base, 1.0e-9,

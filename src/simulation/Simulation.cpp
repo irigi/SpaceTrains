@@ -15,6 +15,11 @@ namespace {
 constexpr double FUEL_UNITS_TO_KG = 100.0;
 constexpr std::size_t MAX_EVENT_HISTORY = 24;
 constexpr std::size_t MAX_TRADE_HISTORY = 24;
+// A cargo run must clear this profit rate or the ship repositions toward demand
+// instead. Without a floor, ships accept months-long near-zero-profit hauls that
+// tie up the fleet (observed: 1u water, 14 cr, 183 d transit). Long interplanetary
+// runs legitimately score ~15-25 cr/day, so the floor must sit well below that.
+constexpr double MIN_MISSION_SCORE_PER_DAY = 2.0;
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -263,12 +268,23 @@ double Simulation::station_price(const domain::StationState& state, const std::s
 bool Simulation::try_refuel(domain::ShipState& ship) {
     auto& station = get_station_state(ship.current_station_id);
     const auto& ship_class = get_ship_class(ship.class_id);
-    const double missing_kg = std::max(0.0, ship_class.propellant_capacity_kg - ship.propellant_kg);
-    if (missing_kg <= 0.0) {
-        return true;
+    // Refuel discipline: top up to 80% and only when below half tank. A fleet
+    // that chases 100% every idle tick drinks entire stations dry and locks the
+    // system's fuel supply inside ship tanks instead of the market.
+    if (ship.propellant_kg >= ship_class.propellant_capacity_kg * 0.5) {
+        return ship.propellant_kg >= ship_class.propellant_capacity_kg * 0.4;
     }
+    const double missing_kg = std::max(0.0, ship_class.propellant_capacity_kg * 0.8 - ship.propellant_kg);
 
-    const double available_fuel_units = station.inventory["fuel"];
+    // Leave the station its own working reserve (it may consume fuel too) —
+    // except for a nearly-dry ship, which may tap the reserve to get unstuck.
+    const bool emergency = ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.05;
+    const auto station_rates = economy_.get_profile_net_rates(
+        get_station_definition(ship.current_station_id).economy_profile_id);
+    const double station_fuel_rate = station_rates.contains("fuel") ? station_rates.at("fuel") : 0.0;
+    const double station_reserve = (station_fuel_rate < 0.0 && !emergency)
+        ? std::abs(station_fuel_rate) * 14.0 : 0.0;
+    const double available_fuel_units = std::max(0.0, station.inventory["fuel"] - station_reserve);
     const double transferable_kg = std::min(missing_kg, available_fuel_units * FUEL_UNITS_TO_KG);
     const double transferred_units = transferable_kg / FUEL_UNITS_TO_KG;
     // Price the fuel on the stock before the transfer. Ships may go into debt for fuel
@@ -307,7 +323,16 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     const auto& origin_def = get_station_definition(ship.current_station_id);
     const auto& ship_class = get_ship_class(ship.class_id);
 
-    double best_score = 0.0;
+    // Ion ships fly max-burn trajectories that consume the whole planning budget,
+    // so plan with a 15% captain's reserve held back — they then always arrive
+    // with enough margin to leave again instead of gambling on destination stock.
+    domain::ShipState planning_ship = ship;
+    if (ship_class.propulsion_type == "electric_ion") {
+        planning_ship.propellant_kg = std::max(
+            0.0, ship.propellant_kg - ship_class.propellant_capacity_kg * 0.15);
+    }
+
+    double best_score = MIN_MISSION_SCORE_PER_DAY;
     const domain::StationDefinition* best_destination = nullptr;
     std::string best_commodity;
     double best_cargo_units = 0.0;
@@ -358,7 +383,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             const auto& planner = (ship_class.propulsion_type == "electric_ion" && variable_isp_planner_)
                 ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
                 : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
-            const auto plan = planner.plan_transfer(origin_def, destination, ship, ship_class, game_time_s_);
+            const auto plan = planner.plan_transfer(origin_def, destination, planning_ship, ship_class, game_time_s_);
             if (!plan.feasible) {
                 continue;
             }
@@ -370,7 +395,26 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             const double revenue = surviving * station_price(destination_state, commodity_id);
             const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price;
             const double cost = cargo_units * origin_price + fuel_cost;
-            const double score = (revenue - cost) / std::max(1.0, travel_days);
+            // Ion ships burn nearly their whole budget per leg, so don't send one
+            // where it cannot refuel afterwards (unless the cargo itself is fuel).
+            // Chemical ships keep large margins and are not restricted.
+            if (ship_class.propulsion_type == "electric_ion" && commodity_id != "fuel") {
+                const double after_arrival_kg = ship.propellant_kg - plan.propellant_required_kg;
+                const double dest_fuel_kg = (destination_state.inventory.count("fuel")
+                    ? destination_state.inventory.at("fuel") : 0.0) * FUEL_UNITS_TO_KG;
+                if (after_arrival_kg + dest_fuel_kg < ship_class.propellant_capacity_kg * 0.25) {
+                    continue;
+                }
+            }
+
+            // The 4x price clamp saturates, so a starving station cannot bid any
+            // higher; weight the score by how few days of stock the destination
+            // has left (this is what gets fuel hauled to fuel-dry stations).
+            const double dest_stock = destination_state.inventory.count(commodity_id)
+                ? destination_state.inventory.at(commodity_id) : 0.0;
+            const double dest_days_left = dest_stock / std::abs(destination_rate);
+            const double urgency = std::clamp(14.0 / std::max(dest_days_left, 0.5), 1.0, 5.0);
+            const double score = urgency * (revenue - cost) / std::max(1.0, travel_days);
             if (score > best_score) {
                 best_score = score;
                 best_destination = &destination;
@@ -381,39 +425,27 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     }
 
     if (best_destination == nullptr) {
-        for (const auto& destination : universe_.stations) {
-            if (destination.id == origin_def.id) {
-                continue;
-            }
-            const auto destination_rates = economy_.get_profile_net_rates(destination.economy_profile_id);
-            const auto& dest_state = get_station_state(destination.id);
+        best_score = 0.0;  // repositioning scores are in urgency units, not credits/day
 
-            // Receiving score: how urgently does this destination need deliveries?
-            double receiving_score = 0.0;
-            for (const auto& [commodity_id, rate] : destination_rates) {
-                if (rate >= 0.0) continue;
-                const double dest_stock = dest_state.inventory.count(commodity_id)
-                    ? dest_state.inventory.at(commodity_id) : 0.0;
-                const double days_rem = dest_stock > 0.0 ? dest_stock / std::abs(rate) : 0.0;
-                const double urgency = std::max(1.0, 30.0 / std::max(1.0, days_rem));
-                receiving_score += std::abs(rate) * urgency;
-            }
-
-            // Sourcing score: does this destination have surplus goods urgently needed elsewhere?
-            // Encourages ships to position at producers (e.g. Venus for fuel) rather than
-            // only visiting consuming stations.
+        // Sourcing score: does this station have surplus goods urgently needed
+        // elsewhere? An empty ship is only useful where there is something to
+        // pick up, so repositioning targets producers; starving stations are
+        // served by the cargo loop's urgency weighting once a ship is loaded.
+        const auto sourcing_score_for = [&](const domain::StationDefinition& station_def,
+                                            const domain::StationState& station_state) {
+            const auto rates = economy_.get_profile_net_rates(station_def.economy_profile_id);
             double sourcing_score = 0.0;
-            for (const auto& [commodity_id, rate] : destination_rates) {
+            for (const auto& [commodity_id, rate] : rates) {
                 if (rate <= 0.0) continue;
-                const double dest_stock = dest_state.inventory.count(commodity_id)
-                    ? dest_state.inventory.at(commodity_id) : 0.0;
+                const double stock = station_state.inventory.count(commodity_id)
+                    ? station_state.inventory.at(commodity_id) : 0.0;
                 const double reserve = 8.0 + rate * 7.0;
-                const double surplus = std::max(0.0, dest_stock - reserve);
+                const double surplus = std::max(0.0, stock - reserve);
                 if (surplus <= 1.0) continue;
                 // Sum up how urgently this commodity is needed across the whole system.
                 double system_urgency = 0.0;
                 for (const auto& other : universe_.stations) {
-                    if (other.id == destination.id) continue;
+                    if (other.id == station_def.id) continue;
                     const auto other_rates = economy_.get_profile_net_rates(other.economy_profile_id);
                     const double other_rate = other_rates.count(commodity_id) ? other_rates.at(commodity_id) : 0.0;
                     if (other_rate >= 0.0) continue;
@@ -425,19 +457,57 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 }
                 sourcing_score += std::min(surplus, ship_class.cargo_capacity_units) * system_urgency / 100.0;
             }
+            return sourcing_score;
+        };
+        const double origin_sourcing_score = sourcing_score_for(origin_def, origin_state);
 
-            const double destination_score = receiving_score + sourcing_score;
-            if (destination_score <= 0.0) {
+        for (const auto& destination : universe_.stations) {
+            if (destination.id == origin_def.id) {
+                continue;
+            }
+            const auto& dest_state = get_station_state(destination.id);
+
+            const double destination_score = sourcing_score_for(destination, dest_state);
+            // Only burn propellant relocating if the destination is a clearly
+            // better pickup spot than where the ship already sits — otherwise
+            // the fleet thrashes between comparable producers, hauling nothing.
+            if (destination_score <= 0.0 || destination_score < origin_sourcing_score * 1.5) {
                 continue;
             }
             const auto& planner = (ship_class.propulsion_type == "electric_ion" && variable_isp_planner_)
                 ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
                 : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
-            const auto plan = planner.plan_transfer(origin_def, destination, ship, ship_class, game_time_s_);
+            const auto plan = planner.plan_transfer(origin_def, destination, planning_ship, ship_class, game_time_s_);
             if (!plan.feasible) {
                 continue;
             }
-            const double score = destination_score / std::max(1.0, plan.travel_time_s / 86400.0);
+            // Never reposition an ion ship into a fuel-dry trap it cannot leave from.
+            if (ship_class.propulsion_type == "electric_ion") {
+                const double after_arrival_kg = ship.propellant_kg - plan.propellant_required_kg;
+                const double dest_fuel_kg = (dest_state.inventory.count("fuel")
+                    ? dest_state.inventory.at("fuel") : 0.0) * FUEL_UNITS_TO_KG;
+                if (after_arrival_kg + dest_fuel_kg < ship_class.propellant_capacity_kg * 0.25) {
+                    continue;
+                }
+            }
+            // Crowd penalty: don't send the whole fleet to the same "best" station.
+            int congestion = 0;
+            for (const auto& other : ships_) {
+                if (other.id == ship.id) {
+                    continue;
+                }
+                const bool docked_there = other.current_station_id == destination.id
+                    && other.phase != domain::ShipMissionPhase::InTransit;
+                const bool inbound = (other.phase == domain::ShipMissionPhase::InTransit
+                    || other.phase == domain::ShipMissionPhase::AwaitingDeparture)
+                    && other.active_mission.destination_station_id == destination.id;
+                if (docked_there || inbound) {
+                    ++congestion;
+                }
+            }
+            const double score = destination_score
+                / std::max(1.0, plan.travel_time_s / 86400.0)
+                / (1.0 + static_cast<double>(congestion));
             if (score > best_score) {
                 best_score = score;
                 best_destination = &destination;
@@ -458,7 +528,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     const auto& final_planner = (ship_class.propulsion_type == "electric_ion" && variable_isp_planner_)
         ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
         : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
-    auto plan = final_planner.plan_transfer(origin_def, *best_destination, ship, ship_class, game_time_s_);
+    auto plan = final_planner.plan_transfer(origin_def, *best_destination, planning_ship, ship_class, game_time_s_);
     if (!plan.feasible) {
         return;
     }
@@ -493,6 +563,16 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     if (ship_class.propulsion_type != "electric_ion") {
         ship.propellant_kg -= plan.propellant_required_kg;
     }
+    // The plan was built from the reserve-reduced budget; shift the per-sample
+    // propellant up by the held-back reserve so it stays in the tank instead of
+    // being erased by the first in-transit interpolation.
+    auto sampled_propellant = plan.sampled_propellant_kg;
+    const double reserve_kg = ship.propellant_kg - planning_ship.propellant_kg;
+    if (reserve_kg > 0.0) {
+        for (double& sample_kg : sampled_propellant) {
+            sample_kg += reserve_kg;
+        }
+    }
     ship.phase = plan.wait_time_s > 0.0 ? domain::ShipMissionPhase::AwaitingDeparture : domain::ShipMissionPhase::InTransit;
     ship.active_mission = {
         .origin_station_id = origin_def.id,
@@ -511,7 +591,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         .expected_revenue = expected_revenue,
         .sampled_path = plan.sampled_path,
         .sampled_times_s = plan.sampled_times_s,
-        .sampled_propellant_kg = plan.sampled_propellant_kg,
+        .sampled_propellant_kg = std::move(sampled_propellant),
         .trajectory_type = plan.trajectory_type,
     };
     if (plan.wait_time_s > 0.0) {
@@ -697,7 +777,11 @@ void Simulation::step(double real_dt_s) {
                 ship.phase = domain::ShipMissionPhase::Idle;
                 break;
             case domain::ShipMissionPhase::Stranded:
-                if (try_refuel(ship)) {
+                // A partial fuel delivery is enough to get moving again; the 40%
+                // bar inside try_refuel is the comfortable mission reserve, not
+                // the recovery threshold.
+                (void)try_refuel(ship);
+                if (ship.propellant_kg >= get_ship_class(ship.class_id).propellant_capacity_kg * 0.15) {
                     ship.phase = domain::ShipMissionPhase::Idle;
                     add_event(std::format("{} recovered from stranded state at {}", ship.name, get_station_definition(ship.current_station_id).name), "alert");
                 }

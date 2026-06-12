@@ -62,6 +62,8 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
 
         // Storage cap: a full station halts production of new units (consumption continues),
         // so gluts back up the supply chain instead of accumulating without consequence.
+        // Production stops at 85% so the station keeps headroom to receive imports —
+        // a producer that fills itself to the brim can no longer be resupplied at all.
         const double capacity = station_it->storage_capacity_units;
         double total_stored = 0.0;
         if (capacity > 0.0) {
@@ -69,7 +71,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
                 total_stored += std::max(0.0, units);
             }
         }
-        const bool storage_full = capacity > 0.0 && total_stored >= capacity;
+        const bool storage_full = capacity > 0.0 && total_stored >= capacity * 0.85;
 
         for (const auto* recipe : recipe_it->second) {
             const double rate = (recipe->units_per_day > 0.0)
