@@ -2,7 +2,7 @@
 # Saturn's ring. Everything is generated at runtime — no texture assets.
 extends Node3D
 
-const STAR_COUNT := 5200
+const STAR_COUNT := 3800
 const STARFIELD_RADIUS := 3000.0
 const MILKY_WAY_BAND_DEG := 14.0
 const ORBIT_RING_SEGMENTS := 160
@@ -22,12 +22,14 @@ func update_camera(camera_position: Vector3) -> void:
     if starfield != null:
         starfield.global_position = camera_position
 
-func update_sun(sun_position: Vector3, sun_display_radius: float) -> void:
+# min_world_scale keeps the halo from vanishing at system-wide zooms — the sun
+# should read as a glowing beacon at any distance.
+func update_sun(sun_position: Vector3, sun_display_radius: float, min_world_scale := 0.0) -> void:
     if sun_halo == null:
         sun_halo = _build_sun_halo()
         add_child(sun_halo)
     sun_halo.global_position = sun_position
-    sun_halo.scale = Vector3.ONE * sun_display_radius * 7.0
+    sun_halo.scale = Vector3.ONE * maxf(sun_display_radius * 10.0, min_world_scale)
 
 # --- Starfield ---------------------------------------------------------------
 
@@ -39,10 +41,11 @@ func _build_starfield() -> Node3D:
 
     # Three brightness tiers as separate point meshes (StandardMaterial3D point
     # size is per-material, which avoids custom shader compatibility issues).
+    # Kept deliberately faint: the stars are backdrop, the planets are the show.
     var tiers := [
-        {"size": 1.6, "count": int(STAR_COUNT * 0.62), "brightness": 0.55},
-        {"size": 2.6, "count": int(STAR_COUNT * 0.30), "brightness": 0.8},
-        {"size": 4.0, "count": int(STAR_COUNT * 0.08), "brightness": 1.0},
+        {"size": 1.2, "count": int(STAR_COUNT * 0.62), "brightness": 0.32},
+        {"size": 2.0, "count": int(STAR_COUNT * 0.30), "brightness": 0.5},
+        {"size": 3.0, "count": int(STAR_COUNT * 0.08), "brightness": 0.72},
     ]
     var band_basis := Basis(Vector3(1.0, 0.3, 0.2).normalized(), deg_to_rad(63.0))
     for tier in tiers:
@@ -132,6 +135,8 @@ func _build_sun_halo() -> MeshInstance3D:
     material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
     material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
     material.albedo_texture = _radial_falloff_texture()
+    # HDR push so the halo core crosses the glow threshold and blooms.
+    material.albedo_color = Color(1.6, 1.45, 1.15)
     material.no_depth_test = true
     material.disable_receive_shadows = true
     instance.material_override = material

@@ -189,9 +189,15 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
         var body_id := String(data.get("id", ""))
         if body_id == "sun":
             # Bright enough to cross the HDR glow threshold and bloom.
-            materials["hull"] = _standard(Color(1.0, 0.96, 0.31), 0.6, Color(1.0, 0.96, 0.31), 8.0)
+            materials["hull"] = _standard(Color(1.0, 0.96, 0.31), 0.6, Color(1.0, 0.96, 0.31), 12.0)
         else:
-            materials["hull"] = _standard(body_color(body_id), 0.82)
+            var texture_path := "res://assets/planets/%s.jpg" % body_id
+            if ResourceLoader.exists(texture_path):
+                var material := _standard(Color.WHITE, 0.9)
+                material.albedo_texture = load(texture_path)
+                materials["hull"] = material
+            else:
+                materials["hull"] = _standard(body_color(body_id), 0.82)
     elif kind == "station":
         materials["hull"] = _standard(Color(0.62, 0.66, 0.72), 0.45, Color.BLACK, 0.0, 0.4)
         materials["accent"] = _standard(faction_color, 0.4, faction_color * 0.5, 0.6)
@@ -251,8 +257,10 @@ static func _make_engine_glow() -> MeshInstance3D:
 const BURN_WINDOW_S := 6.0 * 3600.0
 
 # Chemical/NTR ships flare near their impulsive burns; ion drives glow softly
-# for the whole transit.
-static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s: float) -> void:
+# for the whole transit. max_glow_scale caps the billboard in world units so a
+# nearby burn never projects larger on screen than the cap the caller computed
+# from camera distance (a flare bigger than Earth ruins close-up views).
+static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s: float, max_glow_scale: float = 1.0e9) -> void:
     var glow := container.get_node_or_null("engine_glow")
     if glow == null:
         return
@@ -260,10 +268,12 @@ static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s:
     if phase != "in_transit":
         glow.visible = false
         return
+    # Container scale converts local glow scale to world units.
+    var world_per_local: float = maxf(container.scale.x, 1.0e-12)
     var propulsion := String(data.get("propulsion_type", "chemical"))
     if propulsion == "electric_ion":
         glow.visible = true
-        glow.scale = Vector3.ONE * 0.9
+        glow.scale = Vector3.ONE * minf(0.9, max_glow_scale / world_per_local)
         (glow.material_override as StandardMaterial3D).albedo_color = Color(0.45, 0.7, 1.0, 0.8)
         return
     var departure_s := float(data.get("departure_time_s", 0.0))
@@ -271,5 +281,5 @@ static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s:
     var near_burn: bool = absf(game_time_s - departure_s) < BURN_WINDOW_S or absf(game_time_s - arrival_s) < BURN_WINDOW_S
     glow.visible = near_burn
     if near_burn:
-        glow.scale = Vector3.ONE * 2.4
+        glow.scale = Vector3.ONE * minf(2.4, max_glow_scale / world_per_local)
         (glow.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.8, 0.45, 0.95)

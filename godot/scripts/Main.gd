@@ -457,7 +457,9 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_nodes[entity_id].scale = _make_scale(kind, data)
         entity_visual_signatures[entity_id] = visual_signature
     if kind == "ship":
-        EntityVisualsScript.update_engine_glow(entity_nodes[entity_id], data, float(bridge_state.get("game_time_s", 0.0)))
+        EntityVisualsScript.update_engine_glow(
+            entity_nodes[entity_id], data, float(bridge_state.get("game_time_s", 0.0)),
+            _world_size_for_pixels(entity_nodes[entity_id], 28.0))
     var new_target := _display_position(data, kind)
     if entity_nodes.has(entity_id):
         entity_previous_targets[entity_id] = (entity_nodes[entity_id] as Node3D).position
@@ -488,7 +490,8 @@ func _update_nodes(delta: float) -> void:
         var sun_node: Node3D = entity_nodes["sun"]
         sun_light.global_position = sun_node.global_position
         if space_env != null:
-            space_env.update_sun(sun_node.global_position, sun_node.scale.x)
+            space_env.update_sun(sun_node.global_position, sun_node.scale.x,
+                _world_size_for_pixels(sun_node, 64.0))
     if space_env != null:
         space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
@@ -765,7 +768,8 @@ func _setup_scene_lighting() -> void:
     sun_light = OmniLight3D.new()
     sun_light.name = "SunLight"
     sun_light.light_energy = 10.0
-    sun_light.omni_range = 420.0
+    sun_light.omni_range = 700.0  # past Neptune (~562 units) so outer planets get sunlight
+    sun_light.omni_attenuation = 0.35  # gentler than physical falloff for readability
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
@@ -775,8 +779,10 @@ func _setup_scene_lighting() -> void:
     env.background_mode = Environment.BG_COLOR
     env.background_color = Color(0.01, 0.012, 0.025, 1.0)
     env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-    env.ambient_light_color = Color(0.1, 0.1, 0.15, 1.0)
-    env.ambient_light_energy = 0.22
+    env.ambient_light_color = Color(0.16, 0.17, 0.22, 1.0)
+    # High enough that textured night sides stay readable, low enough that the
+    # sunward terminator still shows.
+    env.ambient_light_energy = 0.45
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
     env.glow_enabled = true
     env.glow_intensity = 0.6
@@ -897,6 +903,13 @@ func _projected_model_pixels(node: Node3D) -> float:
     var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
     var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
     return node.scale.x / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
+
+# Inverse of the above: the world size that projects to target_pixels at the
+# node's current camera distance.
+func _world_size_for_pixels(node: Node3D, target_pixels: float) -> float:
+    var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
+    return target_pixels / viewport_height * 2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)
 
 func _update_map_icons() -> void:
     var viewport_rect := get_viewport().get_visible_rect()
