@@ -3,7 +3,7 @@ extends Node3D
 @export var rotation_sensitivity := 0.01
 @export var pan_sensitivity := 0.0025
 @export var zoom_sensitivity := 0.12
-@export var min_distance := 0.08
+@export var min_distance := 0.0008
 @export var max_distance := 2500.0
 
 @onready var camera: Camera3D = $Camera3D
@@ -54,3 +54,6 @@ func _update_transform() -> void:
     rotation = Vector3.ZERO
     camera.position = offset
     camera.look_at(pivot, Vector3.UP)
+    # Ship/station meshes are ~1e-4 world units; shrink the near plane as we
+    # zoom in so they stay renderable (reverse-Z keeps depth precision fine).
+    camera.near = clampf(distance * 0.03, 0.0002, 0.1)
