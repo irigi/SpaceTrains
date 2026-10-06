@@ -50,8 +50,11 @@ Next fixes:
   transfer times are not minimal for the ship's kappa. Consider enforcing m_end = m_dry in the shooting.
 - Planning cost: cache refined plans (path depends on (ρ, θ, T) only, not κ) if the live bridge stutters.
 - Tighten the noisy `sun_dive` flag.
-- Minor: Kepler Hohmann fallback misses moon stations by up to 0.046 AU (17 small end dents in the sweep); 3 long
-  Sun-diving Lambert arcs show a ~30° kink from 48 evenly spaced true-anomaly samples.
+- **Hohmann fallback dents — FIXED.** The half-ellipse is now drawn through the actual stations with Kepler timing,
+  and elliptic arcs (Hohmann and Lambert) are sampled evenly in eccentric anomaly so the sharply curved far end of
+  eccentric ellipses has no kinks. Sweep: Hohmann flagged 1,647 -> 0; Lambert end dents 3 -> 0.
+- **Perihelion limit (open).** No planner bounds perihelion: 8 Lambert and 4 ion plans pass *through the Sun*
+  (r < 0.0047 AU); 236 Lambert and 6,044 ion plans (16%) dive below 0.2 AU. Needs a minimum-perihelion rule.
 - Regression tests for each fixed case.
 
 ## Economy Follow-ups

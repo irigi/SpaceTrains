@@ -34,6 +34,57 @@ double positive_mod(double value, double modulus) {
     return value;
 }
 
+// One sample of an elliptic arc: true anomaly, radius, and fraction of the arc's
+// flight time elapsed.
+struct EllipseSample {
+    double theta;
+    double radius;
+    double time_fraction;
+};
+
+// Samples the elliptic arc from true anomaly theta1 to theta2 (theta2 > theta1, both
+// unwrapped, at most one revolution) evenly in eccentric anomaly E. Even true-anomaly
+// steps leave the sharply curved far end of an eccentric ellipse (radius of curvature
+// b²/a) with long chords and visible kinks; even E steps are dense at both vertices,
+// and Kepler timing follows directly from M = E − e·sin E.
+std::vector<EllipseSample> sample_elliptic_arc(
+    double semi_latus_rectum, double ecc, double theta1, double theta2, int samples) {
+    const double root = std::sqrt((1.0 - ecc) / (1.0 + ecc));
+    // Unwrapped E and theta share their revolution count (E = theta at multiples of π).
+    const auto eccentric_from_true = [&](double theta) {
+        const double turns = std::round((theta - std::remainder(theta, TAU)) / TAU);
+        return 2.0 * std::atan(root * std::tan(0.5 * std::remainder(theta, TAU))) + TAU * turns;
+    };
+    const auto true_from_eccentric = [&](double E) {
+        const double turns = std::round((E - std::remainder(E, TAU)) / TAU);
+        return 2.0 * std::atan(std::tan(0.5 * std::remainder(E, TAU)) / root) + TAU * turns;
+    };
+    // tan(x/2) is singular at x = ±π (apoapsis); those points map to themselves.
+    const auto e_of = [&](double theta) {
+        return std::abs(std::abs(std::remainder(theta, TAU)) - PI) < 1e-12 ? theta : eccentric_from_true(theta);
+    };
+    const auto theta_of = [&](double E) {
+        return std::abs(std::abs(std::remainder(E, TAU)) - PI) < 1e-12 ? E : true_from_eccentric(E);
+    };
+    const double semi_major = semi_latus_rectum / (1.0 - ecc * ecc);
+    const double E1 = e_of(theta1);
+    const double E2 = e_of(theta2);
+    const double M1 = E1 - ecc * std::sin(E1);
+    const double dM_total = std::max(1e-12, (E2 - ecc * std::sin(E2)) - M1);
+    std::vector<EllipseSample> out;
+    out.reserve(static_cast<std::size_t>(samples));
+    for (int i = 0; i < samples; ++i) {
+        const double alpha = static_cast<double>(i) / (samples - 1);
+        const double E = E1 + (E2 - E1) * alpha;
+        out.push_back({
+            .theta = i == 0 ? theta1 : (i == samples - 1 ? theta2 : theta_of(E)),
+            .radius = semi_major * (1.0 - ecc * std::cos(E)),
+            .time_fraction = ((E - ecc * std::sin(E)) - M1) / dM_total,
+        });
+    }
+    return out;
+}
+
 double effective_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class) {
     const double full_mass_kg = ship_class.dry_mass_kg + ship_class.propellant_capacity_kg;
     if (ship_class.max_delta_v_mps <= 0.0 || ship_class.dry_mass_kg <= 0.0 || full_mass_kg <= ship_class.dry_mass_kg) {
@@ -327,12 +378,9 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         constexpr double kParabolicBand = 1e-6;
         const bool elliptic = ecc < 1.0 - kParabolicBand;
         const bool hyperbolic = ecc > 1.0 + kParabolicBand;
+        // Open orbits (mean_anom is only used for them; ellipses go through
+        // sample_elliptic_arc) never pass apoapsis, so the arc lies within (−π, π).
         const auto mean_anom = [&](double theta) {
-            if (elliptic) {
-                const double E = std::atan2(std::sqrt(1.0 - ecc * ecc) * std::sin(theta), ecc + std::cos(theta));
-                return E - ecc * std::sin(E);
-            }
-            // Open orbits never pass apoapsis, so the arc lies within (−π, π).
             const double half = 0.5 * std::remainder(theta, TAU);
             if (hyperbolic) {
                 const double H = 2.0 * std::atanh(std::sqrt((ecc - 1.0) / (ecc + 1.0)) * std::tan(half));
@@ -341,35 +389,51 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             const double D = std::tan(half);
             return D + D * D * D / 3.0;
         };
-        const double M1 = mean_anom(theta1);
-        double dM_total = mean_anom(theta2) - M1;
-        if (elliptic && dM_total < -1e-10) dM_total += TAU;
-        if (dM_total < 1e-12) dM_total = TAU;  // degenerate guard
-
-        for (int i = 0; i < kSamples; ++i) {
-            const double alpha = static_cast<double>(i) / (kSamples - 1);
-            const double theta = theta1 + (theta2 - theta1) * alpha;
-            const double denominator = 1.0 + ecc * std::cos(theta);
-            const double r_at = (p_orb > 1.0 && denominator > 1e-9) ? p_orb / denominator : r1m;
-            plan.sampled_path.push_back({std::cos(omega + theta) * r_at, 0.0, std::sin(omega + theta) * r_at});
-            double dM_i = mean_anom(theta) - M1;
-            if (elliptic && dM_i < -1e-10) dM_i += TAU;
-            plan.sampled_times_s.push_back(plan.departure_time_s + dM_i / dM_total * plan.coast_time_s);
+        if (elliptic && p_orb > 1.0) {
+            for (const auto& sample : sample_elliptic_arc(p_orb, ecc, theta1, theta2, kSamples)) {
+                plan.sampled_path.push_back({
+                    std::cos(omega + sample.theta) * sample.radius, 0.0, std::sin(omega + sample.theta) * sample.radius});
+                plan.sampled_times_s.push_back(plan.departure_time_s + sample.time_fraction * plan.coast_time_s);
+            }
+        } else {
+            const double M1 = mean_anom(theta1);
+            double dM_total = mean_anom(theta2) - M1;
+            if (dM_total < 1e-12) dM_total = TAU;  // degenerate guard
+            for (int i = 0; i < kSamples; ++i) {
+                const double alpha = static_cast<double>(i) / (kSamples - 1);
+                const double theta = theta1 + (theta2 - theta1) * alpha;
+                const double denominator = 1.0 + ecc * std::cos(theta);
+                const double r_at = (p_orb > 1.0 && denominator > 1e-9) ? p_orb / denominator : r1m;
+                plan.sampled_path.push_back({std::cos(omega + theta) * r_at, 0.0, std::sin(omega + theta) * r_at});
+                plan.sampled_times_s.push_back(plan.departure_time_s + (mean_anom(theta) - M1) / dM_total * plan.coast_time_s);
+            }
         }
     } else {
-        // Hohmann fallback path: angle sweep using reference radii.
-        const double eccentricity = std::abs(r2 - r1) / std::max(r1 + r2, 1.0);
-        const double parameter = transfer_axis * (1.0 - eccentricity * eccentricity);
-        const bool outward = r2 >= r1;
+        // Hohmann fallback path: a half transfer ellipse drawn through the actual start
+        // and finish stations. The planning radii (parent bodies at planning time) and an
+        // exact 180° sweep missed moon stations by up to ~0.05 AU, which the endpoint snap
+        // turned into a dent; the small angular mismatch is spread over the arc instead.
+        const double r_start = std::max(1.0, std::hypot(start.x, start.z));
+        const double r_finish = std::max(1.0, std::hypot(finish.x, finish.z));
+        const double sweep = normalize_positive_angle(std::atan2(finish.z, finish.x) - start_angle);
+        const double semi_major = 0.5 * (r_start + r_finish);
+        const double eccentricity = std::abs(r_finish - r_start) / (r_start + r_finish);
+        const double parameter = semi_major * (1.0 - eccentricity * eccentricity);
+        const bool outward = r_finish >= r_start;
+        // Outward runs periapsis -> apoapsis (theta 0 -> π); inward apoapsis -> periapsis
+        // (π -> 2π). The sweep is mapped onto the actual angle between the stations.
+        const double theta_begin = outward ? 0.0 : PI;
+        const auto arc = eccentricity > 1.0e-9
+            ? sample_elliptic_arc(parameter, eccentricity, theta_begin, theta_begin + PI, kSamples)
+            : std::vector<EllipseSample> {};
         for (int i = 0; i < kSamples; ++i) {
             const double alpha = static_cast<double>(i) / (kSamples - 1);
-            const double anomaly = outward ? alpha * PI : PI - alpha * PI;
-            const double radius = eccentricity > 1.0e-9
-                ? parameter / (1.0 + eccentricity * std::cos(anomaly))
-                : r1;
-            const double angle = start_angle + PI * alpha;
-            plan.sampled_path.push_back({std::cos(angle) * radius, start.y * (1.0 - alpha) + finish.y * alpha, std::sin(angle) * radius});
-            plan.sampled_times_s.push_back(plan.departure_time_s + alpha * plan.coast_time_s);
+            const double radius = arc.empty() ? r_start : arc[static_cast<std::size_t>(i)].radius;
+            const double progress = arc.empty() ? alpha : (arc[static_cast<std::size_t>(i)].theta - theta_begin) / PI;
+            const double time_fraction = arc.empty() ? alpha : arc[static_cast<std::size_t>(i)].time_fraction;
+            const double angle = start_angle + sweep * progress;
+            plan.sampled_path.push_back({std::cos(angle) * radius, start.y * (1.0 - progress) + finish.y * progress, std::sin(angle) * radius});
+            plan.sampled_times_s.push_back(plan.departure_time_s + time_fraction * plan.coast_time_s);
         }
     }
     plan.diagnostics.start_miss_m = (plan.sampled_path.front() - start).length();
