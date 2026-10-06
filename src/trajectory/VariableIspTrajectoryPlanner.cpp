@@ -359,6 +359,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     plan.wait_time_s = corrected_wait_s;
     plan.coast_time_s = T_interp_s;
     plan.travel_time_s = corrected_wait_s + T_interp_s;
+    plan.trajectory_type = "variable_isp";
     plan.summary = std::format(
         "VariableISP {} -> {} rho={:.3f} kappa={:.2f} theta_f={:.3f} wait={:.1f}d transfer={:.1f}d propellant={:.0f}kg ({})",
         origin.name,

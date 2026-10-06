@@ -12,6 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/celestial/CelestialMechanics.cpp
+    src/trajectory/Lambert.cpp
     src/trajectory/TrajectoryPlanner.cpp
     src/trajectory/VariableIspTrajectoryPlanner.cpp
     src/variable_isp/VariableIsp.cpp
@@ -38,3 +39,8 @@ add_executable(spacetrains_variable_isp_tests tests/variable_isp_test.cpp)
 target_link_libraries(spacetrains_variable_isp_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_variable_isp_tests COMMAND spacetrains_variable_isp_tests)
 set_tests_properties(spacetrains_variable_isp_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(spacetrains_economy_tests tests/economy_test.cpp)
+target_link_libraries(spacetrains_economy_tests PRIVATE spacetrains_core)
+add_test(NAME spacetrains_economy_tests COMMAND spacetrains_economy_tests)
+set_tests_properties(spacetrains_economy_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

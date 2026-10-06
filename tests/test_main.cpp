@@ -136,10 +136,26 @@ int main() {
     require(plan.wait_time_s >= 0.0, "Kepler launch wait should be non-negative");
     require(plan.coast_time_s > 0.0, "Kepler coast time should be positive");
     require_near(plan.travel_time_s, plan.wait_time_s + plan.coast_time_s, 1.0e-6, "Kepler travel time should include wait plus coast");
-    require(distance_between(plan.sampled_path.front(), mechanics.get_station_position(origin, plan.departure_time_s)) < 1.0, "sampled path should start at departure station");
+    // With wait-period samples prepended, path.front() is the origin at the first sample time
+    // (current time when wait > 0, or departure time when wait == 0).
+    require(distance_between(plan.sampled_path.front(),
+        mechanics.get_station_position(origin, plan.sampled_times_s.front())) < 1.0,
+        "sampled path should start at origin station at first sample time");
     require(distance_between(plan.sampled_path.back(), mechanics.get_station_position(mars_destination, plan.arrival_time_s)) < 1.0, "sampled path should end at arrival station");
     for (std::size_t i = 1; i < plan.sampled_times_s.size(); ++i) {
         require(plan.sampled_times_s[i] > plan.sampled_times_s[i - 1], "Kepler sample times should be monotonic");
+    }
+    require(plan.sampled_propellant_kg.size() == plan.sampled_path.size(),
+        "Keplerian plan must have one propellant sample per path point");
+    require_near(plan.sampled_propellant_kg.front(),
+        ship.propellant_kg, 1.0,
+        "Keplerian first propellant sample must equal initial propellant");
+    require_near(plan.sampled_propellant_kg.back(),
+        ship.propellant_kg - plan.propellant_required_kg, 1.0,
+        "Keplerian last propellant sample must match remaining propellant after burns");
+    for (std::size_t i = 1; i < plan.sampled_propellant_kg.size(); ++i) {
+        require(plan.sampled_propellant_kg[i] <= plan.sampled_propellant_kg[i - 1] + 1.0,
+            "Keplerian propellant samples must be monotonically non-increasing");
     }
 
     const auto& sun = body_by_id(universe, mechanics.get_root_body_id());
@@ -147,16 +163,13 @@ int main() {
     const double r2 = std::max(1.0, mechanics.get_heliocentric_radius(mars_destination.parent_body_id, 0.0));
     const double transfer_axis = (r1 + r2) * 0.5;
     const double expected_hohmann_time_s = PI * std::sqrt((transfer_axis * transfer_axis * transfer_axis) / sun.mu_m3_s2);
-    require_near(plan.coast_time_s, expected_hohmann_time_s, expected_hohmann_time_s * 1.0e-9, "Hohmann coast time should match half-period");
-
-    const double v1 = std::sqrt(sun.mu_m3_s2 / r1);
-    const double v2 = std::sqrt(sun.mu_m3_s2 / r2);
-    const double transfer_v1 = std::sqrt(sun.mu_m3_s2 * ((2.0 / r1) - (1.0 / transfer_axis)));
-    const double transfer_v2 = std::sqrt(sun.mu_m3_s2 * ((2.0 / r2) - (1.0 / transfer_axis)));
-    const double delta_v = std::abs(transfer_v1 - v1) + std::abs(v2 - transfer_v2) + 250.0;
-    const double exhaust_velocity = ship_class.max_delta_v_mps / std::log((ship_class.dry_mass_kg + ship_class.propellant_capacity_kg) / ship_class.dry_mass_kg);
-    const double expected_propellant_kg = (ship_class.dry_mass_kg + ship.propellant_kg) * (1.0 - std::exp(-delta_v / exhaust_velocity));
-    require_near(plan.propellant_required_kg, expected_propellant_kg, expected_propellant_kg * 1.0e-9, "propellant should use rocket equation");
+    // Lambert grid search picks the best transit from 0.3× to 1.5× Hohmann; allow the full range.
+    require(plan.coast_time_s >= expected_hohmann_time_s * 0.28,
+        "Kepler coast time must be at least 28% of Hohmann (Lambert lower bound)");
+    require(plan.coast_time_s <= expected_hohmann_time_s * 1.52,
+        "Kepler coast time must be at most 152% of Hohmann (Lambert upper bound)");
+    require(plan.feasible, "fully fueled ship should find a feasible Earth-Mars Kepler plan");
+    require(plan.propellant_required_kg > 0.0, "non-trivial Earth-Mars transfer must burn some propellant");
 
     ship.propellant_kg = 1.0;
     const auto impossible_plan = planner.plan_transfer(origin, mars_destination, ship, ship_class, 0.0);
@@ -203,11 +216,11 @@ int main() {
         "Kepler Earth->Ganymede wait must be within the Jupiter-Earth synodic period (~399 days)");
     // Hohmann coast for Earth→Jupiter distance ≈ 997 days — far larger than the buggy
     // ~7-day Ganymede synodic, so coast_time being large is indirect evidence of the fix.
-    require(ganymede_plan.coast_time_s > 300.0 * 86400.0,
-        "Kepler Earth->Ganymede Hohmann coast must exceed 300 days (true heliocentric distance)");
+    require(ganymede_plan.coast_time_s > 200.0 * 86400.0,
+        "Kepler Earth->Ganymede coast must exceed 200 days (true heliocentric distance, not moon-period)");
     require(distance_between(ganymede_plan.sampled_path.front(),
-            mechanics.get_station_position(origin, ganymede_plan.departure_time_s)) < 1.0,
-        "Kepler Earth->Ganymede path start must match origin station at departure time");
+            mechanics.get_station_position(origin, ganymede_plan.sampled_times_s.front())) < 1.0,
+        "Kepler Earth->Ganymede path start must match origin station at first sample time");
     require(distance_between(ganymede_plan.sampled_path.back(),
             mechanics.get_station_position(ganymede_station, ganymede_plan.arrival_time_s)) < 1.0,
         "Kepler Earth->Ganymede path end must match destination station at arrival time");

@@ -1,4 +1,4 @@
-id,name
-sol_fed,Sol Federation
-mars_corp,Mars Corporation
-independent,Independent Consortium
+id,name,color
+sol_fed,Sol Federation,7AB8FF
+mars_corp,Mars Corporation,FF7347
+independent,Independent Consortium,DBD1B8

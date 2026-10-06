@@ -56,10 +56,6 @@ const BODY_ICON_COLOR := {
 @onready var camera_rig: Node3D = $CameraRig
 @onready var camera: Camera3D = $CameraRig/Camera3D
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
-@onready var info_label: Label = $CanvasLayer/Info
-@onready var entity_list: ItemList = $CanvasLayer/EntityList
-@onready var selection_label: Label = $CanvasLayer/Selection
-@onready var event_log: Label = $CanvasLayer/EventLog
 @onready var scene_light: DirectionalLight3D = $DirectionalLight3D
 
 var bridge_pid := -1
@@ -87,6 +83,17 @@ var entity_kinds: Dictionary = {}
 var entity_visual_signatures: Dictionary = {}
 var trail_nodes: Dictionary = {}
 var trail_path_signatures: Dictionary = {}
+var ship_trail_history: Dictionary = {}   # ship_id -> Array of Vector3 (world_root local)
+var history_trail_nodes: Dictionary = {}  # ship_id -> MeshInstance3D
+var trail_sample_accum_s := 0.0
+const TRAIL_MAX_POINTS := 40
+const TRAIL_SAMPLE_INTERVAL_S := 0.15
+const TRAJECTORY_COLORS := {
+    "keplerian_hohmann": Color(1.0, 0.62, 0.2),
+    "keplerian_lambert": Color(0.3, 1.0, 0.8),
+    "keplerian_local": Color(0.4, 1.0, 0.45),
+    "variable_isp": Color(0.75, 0.45, 1.0),
+}
 var selected_ship_overlay: MeshInstance3D
 var destination_body_ghost: MeshInstance3D
 var current_paused := false
@@ -104,6 +111,7 @@ var faction_colors := {
     "independent": Color(0.86, 0.82, 0.72)
 }
 var sun_light: OmniLight3D
+var space_env: Node3D
 var map_icon_layer: Control
 var _map_icons: Dictionary = {}
 var _icon_textures: Dictionary = {}
@@ -112,6 +120,29 @@ var debug_log_accum_s := 0.0
 var debug_frame := 0
 var last_render_origin := Vector3.ZERO
 var last_ui_refresh_s := -1000.0
+
+const UiTheme := preload("res://scripts/ui/UiTheme.gd")
+const SpaceEnvironmentScript := preload("res://scripts/SpaceEnvironment.gd")
+const EntityVisualsScript := preload("res://scripts/EntityVisuals.gd")
+const TopBarPanel := preload("res://scripts/ui/TopBar.gd")
+const EntityBrowserPanel := preload("res://scripts/ui/EntityBrowser.gd")
+const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
+const EventTickerPanel := preload("res://scripts/ui/EventTicker.gd")
+const MarketPanelScript := preload("res://scripts/ui/MarketPanel.gd")
+
+var ui_root: Control
+var top_bar: PanelContainer
+var entity_browser: PanelContainer
+var inspector_panel: PanelContainer
+var event_ticker: PanelContainer
+var market_panel: PanelContainer
+var status_label: Label
+# Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
+var price_history: Array[Dictionary] = []
+const PRICE_HISTORY_MAX_SAMPLES := 600
+const PRICE_HISTORY_MIN_DAY_STEP := 0.5
+const PRICE_TREND_LOOKBACK_DAYS := 10.0
+const PRICE_TREND_THRESHOLD := 0.03
 
 func _ready() -> void:
     repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
@@ -124,13 +155,98 @@ func _ready() -> void:
     _create_debug_guides()
     _setup_scene_lighting()
     _setup_map_icon_layer()
+    _setup_ui()
     if "--debug-map" in OS.get_cmdline_user_args():
         debug_map_enabled = true
     if bridge_started:
-        _set_label_text(info_label, "SpaceTrains\nStarting bridge...\n%s" % executable_path)
-    _set_label_text(selection_label, _controls_text("No selection"))
-    _set_label_text(event_log, "Events\n")
-    entity_list.item_selected.connect(_on_entity_selected)
+        _set_status("Starting bridge…\n%s" % executable_path)
+
+func _setup_ui() -> void:
+    ui_root = Control.new()
+    ui_root.name = "UiRoot"
+    ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    ui_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+    ui_root.theme = UiTheme.build()
+    canvas_layer.add_child(ui_root)
+
+    top_bar = TopBarPanel.new()
+    top_bar.name = "TopBar"
+    top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+    top_bar.offset_left = 8.0
+    top_bar.offset_top = 8.0
+    top_bar.offset_right = -8.0
+    top_bar.pause_toggled.connect(_on_pause_toggled)
+    top_bar.timewarp_changed.connect(_on_timewarp_changed)
+    ui_root.add_child(top_bar)
+
+    entity_browser = EntityBrowserPanel.new()
+    entity_browser.name = "EntityBrowser"
+    entity_browser.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+    entity_browser.offset_left = 8.0
+    entity_browser.offset_top = 56.0
+    entity_browser.offset_bottom = -8.0
+    entity_browser.grow_vertical = Control.GROW_DIRECTION_BOTH
+    entity_browser.entity_selected.connect(_on_browser_entity_selected)
+    ui_root.add_child(entity_browser)
+
+    inspector_panel = InspectorPanelScript.new()
+    inspector_panel.name = "Inspector"
+    inspector_panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+    inspector_panel.offset_top = 56.0
+    inspector_panel.offset_right = -8.0
+    inspector_panel.offset_bottom = -212.0
+    inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+    ui_root.add_child(inspector_panel)
+
+    event_ticker = EventTickerPanel.new()
+    event_ticker.name = "EventTicker"
+    event_ticker.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+    event_ticker.offset_left = -478.0
+    event_ticker.offset_top = -198.0
+    event_ticker.offset_right = -8.0
+    event_ticker.offset_bottom = -8.0
+    ui_root.add_child(event_ticker)
+
+    var market_center := CenterContainer.new()
+    market_center.name = "MarketCenter"
+    market_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    market_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+    ui_root.add_child(market_center)
+    market_panel = MarketPanelScript.new()
+    market_panel.name = "MarketPanel"
+    market_center.add_child(market_panel)
+
+    status_label = Label.new()
+    status_label.name = "Status"
+    status_label.set_anchors_preset(Control.PRESET_CENTER)
+    status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    status_label.add_theme_color_override("font_color", UiTheme.WARN)
+    ui_root.add_child(status_label)
+
+func _set_status(text: String) -> void:
+    if status_label != null:
+        status_label.text = text
+        status_label.visible = text != ""
+
+func _on_pause_toggled() -> void:
+    current_paused = not current_paused
+    _write_bridge_commands()
+
+func _on_timewarp_changed(factor: float) -> void:
+    current_timewarp = factor
+    _write_bridge_commands()
+
+func _on_browser_entity_selected(entity_id: String, kind: String) -> void:
+    select_entity(entity_id, kind, true)
+
+func select_entity(entity_id: String, kind: String, focus := false) -> void:
+    selected_id = entity_id
+    selected_kind = kind
+    if entity_browser != null:
+        entity_browser.set_selected(entity_id)
+    if focus and entity_targets.has(entity_id):
+        _focus_entity(entity_id, kind)
+    _refresh_ui(true)
 
 func _exit_tree() -> void:
     if bridge_pid > 0:
@@ -165,6 +281,10 @@ func _unhandled_input(event: InputEvent) -> void:
             _step_timewarp(1)
         elif event.keycode == KEY_F and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
+        elif event.keycode == KEY_M:
+            market_panel.toggle()
+            if market_panel.visible:
+                market_panel.update_market(bridge_state)
         elif event.keycode == KEY_F9:
             debug_map_enabled = not debug_map_enabled
             _debug_map_state("toggle")
@@ -177,7 +297,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
-        _set_label_text(info_label, "Bridge executable not found:\n%s\nBuild the project first." % executable_path)
+        _set_status("Bridge executable not found:\n%s\nBuild the project first." % executable_path)
         return
 
     var args := [
@@ -188,7 +308,7 @@ func _start_bridge() -> void:
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
-        _set_label_text(info_label, "Failed to start bridge process.")
+        _set_status("Failed to start bridge process.")
         bridge_started = false
     else:
         bridge_started = true
@@ -281,6 +401,10 @@ func _apply_snapshot() -> void:
                 trail_nodes[entity_id].queue_free()
                 trail_nodes.erase(entity_id)
                 trail_path_signatures.erase(entity_id)
+            if history_trail_nodes.has(entity_id):
+                (history_trail_nodes[entity_id] as Node).queue_free()
+                history_trail_nodes.erase(entity_id)
+                ship_trail_history.erase(entity_id)
             if _map_icons.has(entity_id):
                 (_map_icons[entity_id] as Node).queue_free()
                 _map_icons.erase(entity_id)
@@ -289,13 +413,25 @@ func _apply_snapshot() -> void:
                 focused_id = ""
                 focused_kind = ""
 
-    if ids_changed or entity_list.item_count != seen_ids.size():
-        _rebuild_entity_list()
+    if ids_changed and selected_id != "" and not entity_details.has(selected_id):
+        selected_id = ""
+        selected_kind = ""
+    _update_faction_colors()
+    if space_env != null:
+        space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
     _update_ship_trails()
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
-    _refresh_labels(false)
+    if status_label != null and status_label.visible:
+        _set_status("")
+    _refresh_ui(false)
+
+func _update_faction_colors() -> void:
+    for faction in bridge_state.get("factions", []):
+        var hex := String(faction.get("color", ""))
+        if hex.length() >= 6:
+            faction_colors[String(faction.get("id", ""))] = Color.from_string("#" + hex, Color(0.7, 0.7, 0.7))
 
 func _upsert_entity(data: Dictionary, kind: String) -> void:
     var entity_id: String = data["id"]
@@ -303,22 +439,27 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
     entity_kinds[entity_id] = kind
 
     if not entity_nodes.has(entity_id):
-        var mesh_instance := MeshInstance3D.new()
-        mesh_instance.name = entity_id
-        mesh_instance.mesh = _make_mesh(kind)
-        world_root.add_child(mesh_instance)
-        entity_nodes[entity_id] = mesh_instance
+        var container: Node3D = EntityVisualsScript.make_entity(kind, data)
+        container.name = entity_id
+        world_root.add_child(container)
+        entity_nodes[entity_id] = container
         entity_previous_targets[entity_id] = Vector3.ZERO
         entity_targets[entity_id] = Vector3.ZERO
         entity_visual_signatures[entity_id] = ""
-        _attach_entity_label(mesh_instance, kind, data)
+        _attach_entity_label(container, kind, data)
         _attach_map_icon(entity_id, kind, data)
+        if entity_id == "saturn":
+            container.add_child(SpaceEnvironmentScript.make_planet_ring())
 
     var visual_signature := _visual_signature(kind, data)
     if entity_visual_signatures.get(entity_id, "") != visual_signature:
-        entity_nodes[entity_id].material_override = _make_material(kind, data)
+        EntityVisualsScript.apply_visuals(entity_nodes[entity_id], kind, data, faction_colors)
         entity_nodes[entity_id].scale = _make_scale(kind, data)
         entity_visual_signatures[entity_id] = visual_signature
+    if kind == "ship":
+        EntityVisualsScript.update_engine_glow(
+            entity_nodes[entity_id], data, float(bridge_state.get("game_time_s", 0.0)),
+            _world_size_for_pixels(entity_nodes[entity_id], 28.0))
     var new_target := _display_position(data, kind)
     if entity_nodes.has(entity_id):
         entity_previous_targets[entity_id] = (entity_nodes[entity_id] as Node3D).position
@@ -334,8 +475,11 @@ func _update_nodes(delta: float) -> void:
         var target: Vector3 = entity_targets[entity_id]
         var display_position: Vector3 = previous_target.lerp(target, snapshot_blend)
         node.position = display_position
+        if entity_kinds.get(entity_id, "") == "ship":
+            _orient_ship(node, entity_id, target - previous_target)
         if entity_id == focused_id:
             focus_position = display_position
+    _update_history_trails(delta)
     last_render_origin = render_origin
     if focused_id != "" and entity_nodes.has(focused_id):
         render_origin = focus_position
@@ -343,8 +487,76 @@ func _update_nodes(delta: float) -> void:
         render_origin = Vector3.ZERO
     world_root.position = -render_origin
     if sun_light != null and entity_nodes.has("sun"):
-        sun_light.global_position = entity_nodes["sun"].global_position
+        var sun_node: Node3D = entity_nodes["sun"]
+        sun_light.global_position = sun_node.global_position
+        if space_env != null:
+            space_env.update_sun(sun_node.global_position, sun_node.scale.x,
+                _world_size_for_pixels(sun_node, 64.0))
+    if space_env != null:
+        space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
+
+func _orient_ship(node: Node3D, ship_id: String, motion: Vector3) -> void:
+    var detail: Dictionary = entity_details.get(ship_id, {})
+    if String(detail.get("phase", "idle")) != "in_transit":
+        return
+    if motion.length_squared() < 1.0e-16:
+        return
+    var direction := motion.normalized()
+    if absf(direction.dot(Vector3.UP)) > 0.999:
+        return
+    node.look_at(node.global_position + direction, Vector3.UP)
+
+func _update_history_trails(delta: float) -> void:
+    trail_sample_accum_s += delta
+    if trail_sample_accum_s < TRAIL_SAMPLE_INTERVAL_S:
+        return
+    trail_sample_accum_s = 0.0
+    for entity_id in entity_nodes.keys():
+        if entity_kinds.get(entity_id, "") != "ship":
+            continue
+        var detail: Dictionary = entity_details.get(entity_id, {})
+        var in_transit: bool = String(detail.get("phase", "idle")) == "in_transit"
+        if not in_transit:
+            if ship_trail_history.has(entity_id):
+                ship_trail_history.erase(entity_id)
+                if history_trail_nodes.has(entity_id):
+                    (history_trail_nodes[entity_id] as MeshInstance3D).visible = false
+            continue
+        var history: Array = ship_trail_history.get(entity_id, [])
+        history.append((entity_nodes[entity_id] as Node3D).position)
+        if history.size() > TRAIL_MAX_POINTS:
+            history.pop_front()
+        ship_trail_history[entity_id] = history
+        if history.size() >= 2:
+            _rebuild_history_trail(entity_id, history)
+
+func _ensure_history_trail_node(ship_id: String) -> MeshInstance3D:
+    if history_trail_nodes.has(ship_id):
+        return history_trail_nodes[ship_id]
+    var instance := MeshInstance3D.new()
+    instance.name = "%s_history" % ship_id
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    material.vertex_color_use_as_albedo = true
+    instance.material_override = material
+    world_root.add_child(instance)
+    history_trail_nodes[ship_id] = instance
+    return instance
+
+func _rebuild_history_trail(ship_id: String, history: Array) -> void:
+    var instance := _ensure_history_trail_node(ship_id)
+    var mesh := ImmediateMesh.new()
+    mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+    var count := history.size()
+    for i in range(count):
+        var alpha := 0.7 * float(i) / float(count - 1)
+        mesh.surface_set_color(Color(0.85, 0.92, 1.0, alpha))
+        mesh.surface_add_vertex(history[i])
+    mesh.surface_end()
+    instance.mesh = mesh
+    instance.visible = true
 
 func _scaled_position(data: Dictionary) -> Vector3:
     return Vector3(
@@ -378,24 +590,6 @@ func _display_position(data: Dictionary, kind: String) -> Vector3:
 
     return base
 
-func _make_mesh(kind: String) -> Mesh:
-    match kind:
-        "body":
-            var sphere := SphereMesh.new()
-            sphere.radius = 1.0
-            sphere.height = 2.0
-            sphere.radial_segments = 24
-            sphere.rings = 12
-            return sphere
-        "ship":
-            var prism := PrismMesh.new()
-            prism.size = Vector3(0.7, 0.7, 1.4)
-            return prism
-        _:
-            var box := BoxMesh.new()
-            box.size = Vector3.ONE
-            return box
-
 func _body_scale_from_radius(radius_m: float) -> float:
     if radius_m <= 0.0:
         return BODY_MIN_MODEL_SCALE
@@ -426,76 +620,7 @@ func _make_scale(kind: String, data: Dictionary) -> Vector3:
     return Vector3.ONE * _model_display_scale(kind, data)
 
 func _body_color(body_id: String) -> Color:
-    match body_id:
-        "sun":
-            return Color(1.0, 0.76, 0.28)
-        "mercury":
-            return Color(0.7, 0.66, 0.62)
-        "venus":
-            return Color(0.88, 0.72, 0.38)
-        "earth":
-            return Color(0.36, 0.58, 1.0)
-        "mars":
-            return Color(0.89, 0.42, 0.25)
-        "ceres":
-            return Color(0.72, 0.72, 0.78)
-        "jupiter":
-            return Color(0.85, 0.65, 0.45)
-        "saturn":
-            return Color(0.90, 0.80, 0.55)
-        "uranus":
-            return Color(0.50, 0.85, 0.90)
-        "neptune":
-            return Color(0.30, 0.45, 0.95)
-        "luna":
-            return Color(0.80, 0.80, 0.80)
-        "europa":
-            return Color(0.75, 0.70, 0.65)
-        "ganymede":
-            return Color(0.65, 0.60, 0.55)
-        "titan":
-            return Color(0.85, 0.65, 0.40)
-        "triton":
-            return Color(0.60, 0.70, 0.75)
-        _:
-            return Color(0.75, 0.8, 0.88)
-
-func _make_material(kind: String, data: Dictionary) -> Material:
-    var material := StandardMaterial3D.new()
-    if kind == "body":
-        var body_id := String(data["id"])
-        material.albedo_color = _body_color(body_id)
-        material.roughness = 0.82
-        material.metallic = 0.0
-        if body_id == "sun":
-            material.albedo_color = Color(1.0, 0.96, 0.31)
-            material.emission_enabled = true
-            material.emission = Color(1.0, 0.96, 0.31)
-            material.emission_energy_multiplier = 3.8
-            material.roughness = 0.6
-    elif kind == "station":
-        var faction_id := String(data.get("faction_id", ""))
-        var color: Color = faction_colors.get(faction_id, Color(0.95, 0.82, 0.36))
-        material.albedo_color = color
-        material.emission_enabled = true
-        material.emission = color * 0.5
-        material.emission_energy_multiplier = 0.6
-        material.roughness = 0.4
-    else:
-        var phase := String(data.get("phase", "idle"))
-        var ship_color := Color(0.96, 0.97, 1.0)
-        material.albedo_color = ship_color
-        material.emission_enabled = true
-        material.emission = Color(1.0, 1.0, 1.0)
-        material.emission_energy_multiplier = 0.85
-        material.roughness = 0.35
-        if phase == "in_transit":
-            material.emission_energy_multiplier = 1.25
-        elif phase == "stranded":
-            material.albedo_color = Color(1.0, 0.3, 0.3)
-            material.emission = Color(0.6, 0.1, 0.1)
-            material.emission_energy_multiplier = 0.5
-    return material
+    return EntityVisualsScript.body_color(body_id)
 
 func _make_destination_ghost_material(body_id: String) -> Material:
     var material := StandardMaterial3D.new()
@@ -516,58 +641,74 @@ func _visual_signature(kind: String, data: Dictionary) -> String:
         return "station:%s" % String(data.get("faction_id", ""))
     return "ship:%s" % String(data.get("phase", "idle"))
 
-func _set_label_text(label: Label, text: String) -> void:
-    if label.text == text:
+func _refresh_ui(force := false) -> void:
+    if top_bar == null:
         return
-    label.text = text
-
-func _controls_text(prefix: String) -> String:
-    return "%s\nControls: RMB rotate, MMB pan, wheel zoom, left click select, F focus, Space pause, 1/2/3 timewarp, F9 debug log, F10 debug snapshot" % prefix
-
-func _refresh_labels(force := false) -> void:
     var now_s := _wall_time_s()
     if not force and now_s - last_ui_refresh_s < UI_REFRESH_INTERVAL_S:
         return
     last_ui_refresh_s = now_s
-    var sim_day := float(bridge_state.get("game_time_days", 0.0))
-    var paused := bool(bridge_state.get("paused", false))
-    var warp := float(bridge_state.get("timewarp_factor", current_timewarp))
-    var run_state := "paused" if paused else "running"
-    var info_text := "SpaceTrains\nDay %.2f\nState: %s\nTimewarp: %.0fx real second\nBodies: %d  Stations: %d  Ships: %d\nSeeded content currently contains orbital stations only." % [
-        sim_day,
-        run_state,
-        warp,
-        len(bridge_state.get("bodies", [])),
-        len(bridge_state.get("stations", [])),
-        len(bridge_state.get("ships", []))
-    ]
-    if debug_map_enabled:
-        info_text += "\nSnapshots: #%d every %.3fs" % [current_snapshot_seq, snapshot_interval_s]
-    _set_label_text(info_label, info_text)
 
-    var event_lines := ["Recent events"]
-    for event in bridge_state.get("recent_events", []):
-        event_lines.append("[%.1f] %s" % [float(event["time_s"]) / 86400.0, String(event["text"])])
-    _set_label_text(event_log, "\n".join(event_lines))
+    _record_price_history()
+    top_bar.update_state(bridge_state, bool(bridge_state.get("paused", current_paused)), current_timewarp)
+    entity_browser.update_entities(entity_details, entity_kinds, selected_id)
+    event_ticker.update_events(bridge_state.get("recent_events", []))
+    market_panel.update_market(bridge_state)
 
-    if selected_id == "" or not entity_details.has(selected_id):
-        _set_label_text(selection_label, _controls_text("No selection") + "\nUse the entity list on the left if picking is awkward.")
+    var detail: Dictionary = entity_details.get(selected_id, {})
+    inspector_panel.update_selection(detail, selected_kind, {
+        "game_time_s": float(bridge_state.get("game_time_s", 0.0)),
+        "faction_colors": faction_colors,
+        "names": _entity_name_map(),
+        "price_trends": _price_trends_for(selected_id) if selected_kind == "station" else {},
+    })
+
+func _entity_name_map() -> Dictionary:
+    var names := {}
+    for entity_id in entity_details.keys():
+        names[entity_id] = String((entity_details[entity_id] as Dictionary).get("name", entity_id))
+    return names
+
+func _record_price_history() -> void:
+    var day := float(bridge_state.get("game_time_days", 0.0))
+    if not price_history.is_empty() and day - float(price_history.back()["day"]) < PRICE_HISTORY_MIN_DAY_STEP:
         return
+    var sample := {}
+    for station in bridge_state.get("stations", []):
+        var prices: Dictionary = station.get("prices", {})
+        if not prices.is_empty():
+            sample[String(station["id"])] = prices.duplicate()
+    if sample.is_empty():
+        return
+    price_history.append({"day": day, "prices": sample})
+    if price_history.size() > PRICE_HISTORY_MAX_SAMPLES:
+        price_history.pop_front()
 
-    var detail: Dictionary = entity_details[selected_id]
-    var selection_text := ""
-    if selected_kind == "station":
-        selection_text = "%s\nType: station\nFaction: %s\nPopulation: %s\nFood: %.1f  Fuel: %.1f  Metals: %.1f" % [
-            detail["name"], detail["faction_id"], str(detail["population"]),
-            float(detail.get("food", 0.0)), float(detail.get("fuel", 0.0)), float(detail.get("metals", 0.0))
-        ]
-    elif selected_kind == "ship":
-        selection_text = _ship_detail_text(detail)
-    else:
-        selection_text = "%s\nType: body\nModel scale: %.6f\nRadius: %.0f km" % [
-            detail["name"], _body_display_scale(String(detail["id"])), float(detail.get("radius_m", 0.0)) / 1000.0
-        ]
-    _set_label_text(selection_label, selection_text)
+func _price_trends_for(station_id: String) -> Dictionary:
+    var trends := {}
+    if price_history.size() < 2:
+        return trends
+    var current: Dictionary = price_history.back()
+    var current_day := float(current["day"])
+    var reference: Dictionary = price_history.front()
+    for i in range(price_history.size() - 2, -1, -1):
+        if current_day - float(price_history[i]["day"]) >= PRICE_TREND_LOOKBACK_DAYS:
+            reference = price_history[i]
+            break
+    var now_prices: Dictionary = (current["prices"] as Dictionary).get(station_id, {})
+    var then_prices: Dictionary = (reference["prices"] as Dictionary).get(station_id, {})
+    for commodity_id in now_prices.keys():
+        var then := float(then_prices.get(commodity_id, 0.0))
+        if then <= 0.0:
+            continue
+        var ratio := float(now_prices[commodity_id]) / then
+        if ratio > 1.0 + PRICE_TREND_THRESHOLD:
+            trends[commodity_id] = 1
+        elif ratio < 1.0 - PRICE_TREND_THRESHOLD:
+            trends[commodity_id] = -1
+        else:
+            trends[commodity_id] = 0
+    return trends
 
 func _pick_entity(mouse_pos: Vector2) -> void:
     var best_id := ""
@@ -586,74 +727,13 @@ func _pick_entity(mouse_pos: Vector2) -> void:
             best_distance = distance
             best_id = entity_id
             best_kind = kind
-    selected_id = best_id
-    selected_kind = best_kind
-    if selected_id != "":
-        _select_entity_in_list(selected_id)
-    _refresh_labels(true)
-
-func _entity_name_or_id(entity_id: String) -> String:
-    if entity_id == "":
-        return "None"
-    if entity_details.has(entity_id):
-        var detail: Dictionary = entity_details[entity_id]
-        return String(detail.get("name", entity_id))
-    return entity_id
-
-func _format_days(seconds: float) -> String:
-    return "%.2f days" % (max(seconds, 0.0) / 86400.0)
-
-func _cargo_summary(detail: Dictionary) -> String:
-    var cargo_units := float(detail.get("cargo_units", 0.0))
-    var commodity_id := String(detail.get("commodity_id", ""))
-    if cargo_units <= 0.0 or commodity_id == "":
-        return "None"
-    return "%.1f units of %s" % [cargo_units, commodity_id]
-
-func _ship_mass_text(detail: Dictionary) -> String:
-    return "Dry mass: %.0f kg\nPropellant: %.0f / %.0f kg\nCurrent mass: %.0f kg\nInitial/full mass: %.0f kg" % [
-        float(detail.get("dry_mass_kg", 0.0)),
-        float(detail.get("propellant_kg", 0.0)),
-        float(detail.get("propellant_capacity_kg", 0.0)),
-        float(detail.get("current_mass_kg", 0.0)),
-        float(detail.get("initial_mass_kg", 0.0))
-    ]
-
-func _ship_detail_text(detail: Dictionary) -> String:
-    var phase := String(detail.get("phase", "idle"))
-    var current_station := _entity_name_or_id(String(detail.get("current_station_id", "")))
-    var origin := _entity_name_or_id(String(detail.get("origin_station_id", "")))
-    var destination := _entity_name_or_id(String(detail.get("destination_station_id", "")))
-    var cargo := _cargo_summary(detail)
-    var game_time_s := float(bridge_state.get("game_time_s", 0.0))
-    var departure_time_s := float(detail.get("departure_time_s", 0.0))
-    var arrival_time_s := float(detail.get("arrival_time_s", 0.0))
-    var text := "%s\nType: ship\nPhase: %s\nCurrent station: %s\n%s" % [
-        String(detail.get("name", detail.get("id", ""))),
-        phase,
-        current_station,
-        _ship_mass_text(detail)
-    ]
-
-    if phase == "awaiting_departure":
-        text += "\nRoute: %s -> %s\nCargo: %s\nDeparture in: %s\nETA: %s" % [
-            origin,
-            destination,
-            cargo,
-            _format_days(departure_time_s - game_time_s),
-            _format_days(arrival_time_s - game_time_s)
-        ]
-    elif phase == "in_transit":
-        var coast_time_s: float = max(arrival_time_s - departure_time_s, 1.0)
-        var progress_pct: float = clamp(((game_time_s - departure_time_s) / coast_time_s) * 100.0, 0.0, 100.0)
-        text += "\nRoute: %s -> %s\nCargo: %s\nETA: %s\nMission progress: %.1f%%" % [
-            origin,
-            destination,
-            cargo,
-            _format_days(arrival_time_s - game_time_s),
-            progress_pct
-        ]
-    return text
+    if best_id != "":
+        select_entity(best_id, best_kind)
+    else:
+        selected_id = ""
+        selected_kind = ""
+        entity_browser.set_selected("")
+        _refresh_ui(true)
 
 func _create_debug_guides() -> void:
     var axes := [
@@ -688,23 +768,34 @@ func _setup_scene_lighting() -> void:
     sun_light = OmniLight3D.new()
     sun_light.name = "SunLight"
     sun_light.light_energy = 10.0
-    sun_light.omni_range = 420.0
+    sun_light.omni_range = 700.0  # past Neptune (~562 units) so outer planets get sunlight
+    sun_light.omni_attenuation = 0.35  # gentler than physical falloff for readability
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
-    RenderingServer.set_default_clear_color(Color(0.02, 0.02, 0.05, 1.0))
+    RenderingServer.set_default_clear_color(Color(0.01, 0.012, 0.025, 1.0))
 
     var env := Environment.new()
     env.background_mode = Environment.BG_COLOR
-    env.background_color = Color(0.02, 0.02, 0.05, 1.0)
+    env.background_color = Color(0.01, 0.012, 0.025, 1.0)
     env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-    env.ambient_light_color = Color(0.1, 0.1, 0.15, 1.0)
-    env.ambient_light_energy = 0.22
+    env.ambient_light_color = Color(0.16, 0.17, 0.22, 1.0)
+    # High enough that textured night sides stay readable, low enough that the
+    # sunward terminator still shows.
+    env.ambient_light_energy = 0.45
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
-    env.glow_enabled = false
+    env.glow_enabled = true
+    env.glow_intensity = 0.6
+    env.glow_bloom = 0.15
+    env.glow_hdr_threshold = 1.1
+    env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
     var world_env := WorldEnvironment.new()
     world_env.environment = env
     add_child(world_env)
+
+    space_env = SpaceEnvironmentScript.new()
+    space_env.name = "SpaceEnvironment"
+    add_child(space_env)
 
 func _setup_map_icon_layer() -> void:
     map_icon_layer = Control.new()
@@ -714,7 +805,7 @@ func _setup_map_icon_layer() -> void:
     canvas_layer.add_child(map_icon_layer)
     canvas_layer.move_child(map_icon_layer, 0)
 
-func _attach_entity_label(node: MeshInstance3D, kind: String, data: Dictionary) -> void:
+func _attach_entity_label(node: Node3D, kind: String, data: Dictionary) -> void:
     var label := Label3D.new()
     label.text = String(data.get("name", data.get("id", "")))
     label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -813,6 +904,13 @@ func _projected_model_pixels(node: Node3D) -> float:
     var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
     return node.scale.x / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
 
+# Inverse of the above: the world size that projects to target_pixels at the
+# node's current camera distance.
+func _world_size_for_pixels(node: Node3D, target_pixels: float) -> float:
+    var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
+    return target_pixels / viewport_height * 2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)
+
 func _update_map_icons() -> void:
     var viewport_rect := get_viewport().get_visible_rect()
     for entity_id in _map_icons.keys():
@@ -829,6 +927,10 @@ func _update_map_icons() -> void:
         var target_size := pixel_size * selected_scale
         var screen_pos := camera.unproject_position(model.global_position)
 
+        # Hand off from map icon to the actual mesh once it is large on screen.
+        if _projected_model_pixels(model) > target_size * 1.5:
+            icon.visible = false
+            continue
         icon.visible = viewport_rect.grow(pixel_size).has_point(screen_pos)
         if not icon.visible:
             continue
@@ -922,25 +1024,6 @@ func _step_timewarp(direction: int) -> void:
     current_timewarp = TIMEWARP_STEPS[best_index]
     _write_bridge_commands()
 
-func _rebuild_entity_list() -> void:
-    var previous_selected := selected_id
-    entity_list.clear()
-    var ids: Array = entity_details.keys()
-    ids.sort()
-    for entity_id in ids:
-        var detail: Dictionary = entity_details[entity_id]
-        var kind: String = entity_kinds.get(entity_id, "entity")
-        entity_list.add_item("[%s] %s" % [kind, detail.get("name", entity_id)])
-        entity_list.set_item_metadata(entity_list.item_count - 1, entity_id)
-    if previous_selected != "":
-        _select_entity_in_list(previous_selected)
-
-func _select_entity_in_list(entity_id: String) -> void:
-    for i in range(entity_list.item_count):
-        if String(entity_list.get_item_metadata(i)) == entity_id:
-            entity_list.select(i)
-            return
-
 func _auto_focus_initial_entity() -> void:
     if entity_targets.has("sun"):
         selected_id = "sun"
@@ -959,7 +1042,8 @@ func _auto_focus_initial_entity() -> void:
     camera_rig.focus_point(entity_targets.get(selected_id, Vector3.ZERO))
     focused_id = selected_id
     focused_kind = selected_kind
-    _select_entity_in_list(selected_id)
+    if entity_browser != null:
+        entity_browser.set_selected(selected_id)
     has_auto_focused = true
 
 func _ensure_trail_node(ship_id: String) -> Node3D:
@@ -971,43 +1055,50 @@ func _ensure_trail_node(ship_id: String) -> Node3D:
     path_mesh.name = "path"
     var material := StandardMaterial3D.new()
     material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-    material.albedo_color = Color(0.3, 1.0, 0.8)
-    material.emission_enabled = true
-    material.emission = Color(0.3, 1.0, 0.8)
-    material.emission_energy_multiplier = 1.2
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    material.vertex_color_use_as_albedo = true
     path_mesh.material_override = material
     node.add_child(path_mesh)
     world_root.add_child(node)
     trail_nodes[ship_id] = node
     return node
 
+# Draw planned trajectories for every moving ship: the selected one bright with
+# burn markers, the rest as faint context lines. The flown-past portion of the
+# path dims to gray; the remaining arc keeps the per-planner color.
 func _update_ship_trails() -> void:
+    var game_time_s := float(bridge_state.get("game_time_s", 0.0))
+    var active := {}
+    for ship_id in entity_details.keys():
+        if entity_kinds.get(ship_id, "") != "ship":
+            continue
+        var ship: Dictionary = entity_details[ship_id]
+        var phase := String(ship.get("phase", "idle"))
+        if phase != "in_transit" and phase != "awaiting_departure":
+            continue
+        var trajectory_path: Array = ship.get("trajectory_path", [])
+        if trajectory_path.size() < 2:
+            continue
+        active[ship_id] = true
+        var trail_node := _ensure_trail_node(ship_id)
+        var is_selected: bool = ship_id == selected_id
+        var departure_s := float(ship.get("departure_time_s", 0.0))
+        var arrival_s := float(ship.get("arrival_time_s", 0.0))
+        var progress_bucket := int(clamp((game_time_s - departure_s) / max(arrival_s - departure_s, 1.0), 0.0, 1.0) * 50.0)
+        var signature := "%s|%d|%s" % [_trajectory_path_signature(trajectory_path), progress_bucket, is_selected]
+        if trail_path_signatures.get(ship_id, "") != signature:
+            _rebuild_trail_mesh(trail_node, trajectory_path, ship, is_selected, game_time_s)
+            trail_path_signatures[ship_id] = signature
+        trail_node.visible = true
+
     for ship_id in trail_nodes.keys():
-        trail_nodes[ship_id].visible = false
-    if destination_body_ghost != null:
+        if not active.has(ship_id):
+            trail_nodes[ship_id].visible = false
+
+    if selected_kind == "ship" and active.has(selected_id):
+        _update_destination_body_ghost(entity_details[selected_id])
+    elif destination_body_ghost != null:
         destination_body_ghost.visible = false
-
-    if selected_kind != "ship" or selected_id == "":
-        return
-    if not entity_details.has(selected_id):
-        return
-
-    var ship: Dictionary = entity_details[selected_id]
-    var phase := String(ship.get("phase", "idle"))
-    if phase != "in_transit" and phase != "awaiting_departure":
-        return
-
-    var trajectory_path: Array = ship.get("trajectory_path", [])
-    if trajectory_path.size() < 2:
-        return
-
-    var trail_node := _ensure_trail_node(selected_id)
-    var signature := _trajectory_path_signature(trajectory_path)
-    if trail_path_signatures.get(selected_id, "") != signature:
-        _rebuild_trail_mesh(trail_node, trajectory_path)
-        trail_path_signatures[selected_id] = signature
-    trail_node.visible = true
-    _update_destination_body_ghost(ship)
 
 func _trajectory_path_signature(trajectory_path: Array) -> String:
     var parts: Array[String] = [str(trajectory_path.size())]
@@ -1015,14 +1106,58 @@ func _trajectory_path_signature(trajectory_path: Array) -> String:
         parts.append("%.3f,%.3f,%.3f" % [float(point.get("x", 0.0)), float(point.get("y", 0.0)), float(point.get("z", 0.0))])
     return "|".join(parts)
 
-func _rebuild_trail_mesh(trail_node: Node3D, trajectory_path: Array) -> void:
+func _trajectory_color(trajectory_type: String) -> Color:
+    return TRAJECTORY_COLORS.get(trajectory_type, Color(0.3, 1.0, 0.8)) as Color
+
+func _rebuild_trail_mesh(trail_node: Node3D, trajectory_path: Array, ship: Dictionary, is_selected: bool, game_time_s: float) -> void:
+    var line_color := _trajectory_color(String(ship.get("trajectory_type", "")))
+    var base_alpha := 0.95 if is_selected else 0.2
+    var elapsed_color := Color(0.5, 0.52, 0.55, base_alpha * 0.45)
     var mesh := ImmediateMesh.new()
     mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
     for point in trajectory_path:
+        var point_time_s := float(point.get("t_s", 0.0))
+        var color := elapsed_color if point_time_s < game_time_s else Color(line_color.r, line_color.g, line_color.b, base_alpha)
+        mesh.surface_set_color(color)
         mesh.surface_add_vertex(_scaled_position(point))
     mesh.surface_end()
     var path_mesh: MeshInstance3D = trail_node.get_node("path")
     path_mesh.mesh = mesh
+    _update_burn_markers(trail_node, trajectory_path, ship, is_selected, line_color)
+
+# Impulsive-burn planners get small emissive markers at the departure and
+# arrival burns; continuous-thrust (variable ISP) paths have no discrete burns.
+func _update_burn_markers(trail_node: Node3D, trajectory_path: Array, ship: Dictionary, is_selected: bool, line_color: Color) -> void:
+    var wants_markers: bool = is_selected and String(ship.get("trajectory_type", "")) != "variable_isp"
+    for marker_index in range(2):
+        var marker_name := "burn%d" % marker_index
+        var marker: MeshInstance3D = trail_node.get_node_or_null(marker_name)
+        if not wants_markers:
+            if marker != null:
+                marker.visible = false
+            continue
+        if marker == null:
+            marker = MeshInstance3D.new()
+            marker.name = marker_name
+            var sphere := SphereMesh.new()
+            sphere.radius = 1.0
+            sphere.height = 2.0
+            sphere.radial_segments = 10
+            sphere.rings = 5
+            marker.mesh = sphere
+            var material := StandardMaterial3D.new()
+            material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+            material.albedo_color = line_color
+            material.emission_enabled = true
+            material.emission = line_color
+            material.emission_energy_multiplier = 1.6
+            marker.material_override = material
+            marker.scale = Vector3.ONE * 0.012
+            trail_node.add_child(marker)
+        (marker.material_override as StandardMaterial3D).albedo_color = line_color
+        (marker.material_override as StandardMaterial3D).emission = line_color
+        marker.position = _scaled_position(trajectory_path.front() if marker_index == 0 else trajectory_path.back())
+        marker.visible = true
 
 func _ensure_selected_ship_overlay() -> MeshInstance3D:
     if selected_ship_overlay != null:
@@ -1069,7 +1204,8 @@ func _update_selected_overlay_positions() -> void:
         var selected_node: Node3D = entity_nodes[selected_id]
         overlay.position = selected_node.position
         overlay.scale = selected_node.scale * 3.0
-        overlay.visible = true
+        # Locator beacon for sub-pixel ships; the mesh itself takes over up close.
+        overlay.visible = _projected_model_pixels(selected_node) < 24.0
     else:
         overlay.visible = false
     if destination_body_ghost != null and destination_body_ghost.visible and selected_kind == "ship" and entity_details.has(selected_id):
@@ -1090,14 +1226,6 @@ func _update_destination_body_ghost(ship: Dictionary) -> void:
     ghost.scale = Vector3.ONE * _body_display_scale(body_id)
     ghost.material_override = _make_destination_ghost_material(body_id)
     ghost.visible = true
-
-func _on_entity_selected(index: int) -> void:
-    var entity_id := String(entity_list.get_item_metadata(index))
-    selected_id = entity_id
-    selected_kind = entity_kinds.get(entity_id, "")
-    if entity_targets.has(entity_id):
-        _focus_entity(entity_id, selected_kind)
-    _refresh_labels(true)
 
 func _focus_entity(entity_id: String, entity_kind: String) -> void:
     if not entity_targets.has(entity_id):
