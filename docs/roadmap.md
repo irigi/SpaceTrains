@@ -35,7 +35,7 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
 - **Technology era:** variable-Isp ships stay at the level of the user's `~/VariableISPRocketTrajectories/linopt/`
   studies (exhaust 50-250 km/s, about 540 W/kg at ship level, radiators, 15% waste heat). No torchships;
   keep radiators and efficiency limits, but do not cut ship efficiency much.
-- **Naming (proposed, not yet confirmed by the user):** variable-Isp classes are advanced plasma or fusion
+- **Naming (confirmed by the user 2026-10-06):** variable-Isp classes are advanced plasma or fusion
   drives with radiators, not "ion"; the "chemical" Kepler classes are nuclear-thermal (solid core about
   900-1000 s, liquid/gas core up to about 1400 s). Rename in data and UI during the tech review.
 - **Money:** keep exact accounting. Prefer an open economy with an explicit external account (Earth's
@@ -47,7 +47,7 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
 
 1. **Tech plausibility review** (`docs/plans/tech_plausibility_review.md`): fix reference numbers for the
    era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
-   price ships from the breakdown. Confirm the naming with the user first.
+   price ships from the breakdown (naming already confirmed).
 2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): tank size as a refit
    option at a base, with refit cost and time; depends on the tank masses from step 1.
 3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
