@@ -103,6 +103,54 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         return plan;
     }
 
+    // Different bodies of one planetary system (Earth <-> Moon): a low-thrust spiral
+    // around the planet instead of a heliocentric arc. Constant acceleration over T with
+    // Edelbaum's Δv between the two circular orbits; T is 1.5x the shortest time the
+    // fuel load allows (I = 1/m_f - 1/m0 = Δv²/(2PT) must not exceed 1/m_dry - 1/m0).
+    if (const auto primary_id = planet_system_primary(mechanics_, origin.parent_body_id);
+        primary_id == planet_system_primary(mechanics_, destination.parent_body_id)) {
+        const double mu_p = mechanics_.get_body(primary_id).mu_m3_s2;
+        const auto radius_around_primary = [&](const domain::StationDefinition& station) {
+            const auto v = mechanics_.get_station_position(station, current_time_s)
+                - mechanics_.get_body_position(primary_id, current_time_s);
+            return std::max(1.0, std::hypot(v.x, v.z));
+        };
+        const double delta_v = std::abs(std::sqrt(mu_p / radius_around_primary(origin))
+            - std::sqrt(mu_p / radius_around_primary(destination)));
+        const double m_dry = ship_class.dry_mass_kg;
+        const double m0 = m_dry + std::max(0.0, ship.propellant_kg);
+        const double power_w = ship_class.specific_engine_power_w_per_kg * m_dry;
+        if (power_w <= 0.0 || m0 <= m_dry) {
+            return plan;
+        }
+        const double min_transfer_s = delta_v * delta_v / (2.0 * power_w * (1.0 / m_dry - 1.0 / m0));
+        const double transfer_s = std::max(86400.0, 1.5 * min_transfer_s);
+        const double integral = delta_v * delta_v / (2.0 * power_w * transfer_s);
+        const double m_final = 1.0 / (integral + 1.0 / m0);
+
+        plan.departure_time_s = current_time_s;
+        plan.wait_time_s = 0.0;
+        plan.coast_time_s = transfer_s;
+        plan.arrival_time_s = current_time_s + transfer_s;
+        plan.travel_time_s = transfer_s;
+        plan.propellant_required_kg = m0 - m_final;
+        plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+        plan.trajectory_type = "variable_isp_planet_system";
+        auto timed = planet_system_path(mechanics_, primary_id, origin, destination, current_time_s, transfer_s, false);
+        plan.sampled_path = std::move(timed.path);
+        plan.sampled_times_s = std::move(timed.times_s);
+        for (const double t : plan.sampled_times_s) {
+            const double fraction = (t - current_time_s) / transfer_s;
+            // Constant acceleration: 1/m grows linearly with time.
+            const double m = 1.0 / (1.0 / m0 + integral * fraction);
+            plan.sampled_propellant_kg.push_back(std::max(0.0, m - m_dry));
+        }
+        plan.summary = std::format(
+            "VariableISP planet-system spiral {} -> {} in {:.1f} days, delta-v {:.0f} m/s, propellant {:.0f} kg",
+            origin.name, destination.name, transfer_s / 86400.0, delta_v, plan.propellant_required_kg);
+        return plan;
+    }
+
     const auto* origin_body_ptr = bodies_by_id_.at(origin.parent_body_id);
     const auto* dest_body_ptr = bodies_by_id_.at(destination.parent_body_id);
 

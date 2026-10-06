@@ -184,18 +184,22 @@ int main() {
     //   - Ganymede: old synodic period ≈ 7.3 days, fixed synodic period ≈ 399 days
     ship.propellant_kg = ship_class.propellant_capacity_kg;
 
-    // Earth L1 → Lunar Gateway: Moon co-moves heliocentrically with Earth.
-    // Both bodies walk up to Earth's heliocentric rate → relative_rate == 0 → wait == 0.
+    // Earth L1 → Lunar Gateway: stations of one planetary system transfer around Earth.
+    // Before, this was planned as a heliocentric Hohmann at r ≈ 1 AU: a 183-day half orbit
+    // of the Sun for a 400,000 km hop. Now: an Earth-centred Hohmann (~5 days) after a
+    // phasing wait of at most one lunar month.
     const auto& luna_station = station_by_id(universe, "luna_base");
     const auto luna_plan = planner.plan_transfer(origin, luna_station, ship, ship_class, 0.0);
+    require(luna_plan.trajectory_type == "keplerian_planet_system", "Kepler Earth->Luna must transfer around Earth");
+    require(luna_plan.coast_time_s > 2.0 * 86400.0 && luna_plan.coast_time_s < 10.0 * 86400.0,
+        "Kepler Earth->Luna transfer should take a few days");
+    require(luna_plan.wait_time_s >= 0.0 && luna_plan.wait_time_s <= 28.0 * 86400.0,
+        "Kepler Earth->Luna phasing wait must be within one lunar period");
     require(luna_plan.sampled_path.size() >= 2, "Kepler Earth->Luna should produce a sampled path");
     require(luna_plan.sampled_times_s.size() == luna_plan.sampled_path.size(),
         "Kepler Earth->Luna times and path sizes must match");
-    require(luna_plan.wait_time_s == 0.0,
-        "Kepler Earth->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
-    require(distance_between(luna_plan.sampled_path.front(),
-            mechanics.get_station_position(origin, luna_plan.departure_time_s)) < 1.0,
-        "Kepler Earth->Luna path start must match origin station at departure time");
+    require(distance_between(luna_plan.sampled_path.front(), mechanics.get_station_position(origin, 0.0)) < 1.0,
+        "Kepler Earth->Luna path must start at the origin station now (wait prefix)");
     require(distance_between(luna_plan.sampled_path.back(),
             mechanics.get_station_position(luna_station, luna_plan.arrival_time_s)) < 1.0,
         "Kepler Earth->Luna path end must match destination station at arrival time");
@@ -392,11 +396,8 @@ int main() {
             visp_plan.propellant_required_kg);
 
         // --- VariableISP heliocentric rate regression (moon-station origin/destination) ---
-        // Before the fix, omega for moon stations used the moon's local orbital period instead
-        // of the parent planet's heliocentric period, producing wrong phase offsets.
-        // Earth Orbit → Luna Base: both stations walk up to Earth's heliocentric rate,
-        // so relative_rate == 0 and wait_s must be 0.0.  Old code gave wait ≈ 0-29 days
-        // (Moon's synodic period) because it used Luna's 27.3-day local period for omega_dest.
+        // Earth Orbit → Luna Base: same planetary system, so a low-thrust spiral around
+        // Earth (no launch window), not a heliocentric atlas transfer at rho ≈ 1.
         const auto& ion_courier_class = ship_class_by_id(universe, "ion_courier");
         const auto& earth_orbit_station = station_by_id(universe, "earth_orbit");
         const auto& luna_station_visp = station_by_id(universe, "luna_base");
@@ -413,18 +414,18 @@ int main() {
         };
         const auto visp_luna_plan = visp_planner.plan_transfer(
             earth_orbit_station, luna_station_visp, ion_courier_ship, ion_courier_class, 0.0);
-        // rho ≈ 1.0 for Earth-Moon; plan may or may not be feasible (heliocentric model
-        // doesn't apply well this close), but if a path is returned the checks below must hold.
-        if (visp_luna_plan.sampled_path.size() >= 2 && visp_luna_plan.sampled_times_s.size() >= 2) {
+        require(visp_luna_plan.feasible && visp_luna_plan.trajectory_type == "variable_isp_planet_system",
+            "VariableISP Earth Orbit->Luna must be a feasible spiral around Earth");
+        require(visp_luna_plan.propellant_required_kg < 0.8 * ion_courier_class.propellant_capacity_kg,
+            "VariableISP Earth Orbit->Luna spiral must leave fuel to spare");
+        {
             require(distance_between(visp_luna_plan.sampled_path.front(),
                     mechanics.get_station_position(earth_orbit_station, visp_luna_plan.departure_time_s)) < 1.0,
                 "VariableISP Earth Orbit->Luna departure must match origin station (moon heliocentric rate fix)");
             require(distance_between(visp_luna_plan.sampled_path.back(),
                     mechanics.get_station_position(luna_station_visp, visp_luna_plan.arrival_time_s)) < 1.0,
                 "VariableISP Earth Orbit->Luna arrival must match destination station (moon heliocentric rate fix)");
-            // Moon co-moves with Earth heliocentrically → relative_rate == 0 → wait_s == 0.
-            require(visp_luna_plan.wait_time_s == 0.0,
-                "VariableISP Earth Orbit->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
+            require(visp_luna_plan.wait_time_s == 0.0, "VariableISP Earth Orbit->Luna spiral needs no launch window");
         }
     }
 

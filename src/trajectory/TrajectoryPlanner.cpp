@@ -86,6 +86,51 @@ std::vector<EllipseSample> sample_elliptic_arc(
     return out;
 }
 
+// Prepend wait-period samples so the rendered path tracks the origin station during the
+// wait. Without these, the frontend sees a gap between the ship's current position and
+// path[0] (the departure position) and draws a straight chord, which looks wrong visually.
+// Waits can last several origin orbits (up to ~2 years), so sample by the origin's
+// heliocentric sweep rather than a fixed count; a fixed 11 samples drew long waits as
+// star polygons around the Sun.
+void prepend_wait_samples(
+    domain::TrajectoryPlan& plan,
+    std::vector<double> arc_propellant,
+    const celestial::CelestialMechanics& mechanics,
+    const domain::StationDefinition& origin,
+    double current_time_s,
+    double origin_rate,
+    double propellant_kg) {
+    if (plan.wait_time_s <= 60.0) {
+        plan.sampled_propellant_kg = std::move(arc_propellant);
+        return;
+    }
+    constexpr double kWaitStepRad = 5.0 * PI / 180.0;
+    constexpr int kMinWaitSegments = 11;
+    constexpr int kMaxWaitSegments = 360;
+    const double wait_sweep_rad = std::abs(origin_rate) * plan.wait_time_s;
+    const int wait_segments = std::clamp(
+        static_cast<int>(std::ceil(wait_sweep_rad / kWaitStepRad)), kMinWaitSegments, kMaxWaitSegments);
+    std::vector<math::Vec3d> wait_path;
+    std::vector<double> wait_times;
+    std::vector<double> wait_propellant;
+    wait_path.reserve(wait_segments + plan.sampled_path.size());
+    wait_times.reserve(wait_segments + plan.sampled_times_s.size());
+    wait_propellant.reserve(wait_segments + arc_propellant.size());
+    for (int i = 0; i < wait_segments; ++i) {
+        const double alpha = static_cast<double>(i) / wait_segments;
+        const double t = current_time_s + alpha * plan.wait_time_s;
+        wait_path.push_back(mechanics.get_station_position(origin, t));
+        wait_times.push_back(t);
+        wait_propellant.push_back(propellant_kg);
+    }
+    wait_path.insert(wait_path.end(), plan.sampled_path.begin(), plan.sampled_path.end());
+    wait_times.insert(wait_times.end(), plan.sampled_times_s.begin(), plan.sampled_times_s.end());
+    wait_propellant.insert(wait_propellant.end(), arc_propellant.begin(), arc_propellant.end());
+    plan.sampled_path = std::move(wait_path);
+    plan.sampled_times_s = std::move(wait_times);
+    plan.sampled_propellant_kg = std::move(wait_propellant);
+}
+
 double effective_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class) {
     const double full_mass_kg = ship_class.dry_mass_kg + ship_class.propellant_capacity_kg;
     if (ship_class.max_delta_v_mps <= 0.0 || ship_class.dry_mass_kg <= 0.0 || full_mass_kg <= ship_class.dry_mass_kg) {
@@ -130,6 +175,65 @@ double heliocentric_orbital_rate_rad_s(
     }
     return orbital_rate_rad_s(*current);
 }
+}
+
+std::string planet_system_primary(const celestial::CelestialMechanics& mechanics, const std::string& body_id) {
+    const std::string root = mechanics.get_root_body_id();
+    const domain::CelestialBodyDefinition* body = &mechanics.get_body(body_id);
+    while (!body->orbit.parent_id.empty() && body->orbit.parent_id != root) {
+        body = &mechanics.get_body(body->orbit.parent_id);
+    }
+    return body->id;
+}
+
+TimedPath planet_system_path(
+    const celestial::CelestialMechanics& mechanics,
+    const std::string& primary_id,
+    const domain::StationDefinition& origin,
+    const domain::StationDefinition& destination,
+    double departure_time_s,
+    double transfer_time_s,
+    bool kepler_timing) {
+    const double arrival_time_s = departure_time_s + transfer_time_s;
+    const auto start = mechanics.get_station_position(origin, departure_time_s);
+    const auto finish = mechanics.get_station_position(destination, arrival_time_s);
+    const auto start_rel = start - mechanics.get_body_position(primary_id, departure_time_s);
+    const auto finish_rel = finish - mechanics.get_body_position(primary_id, arrival_time_s);
+    const double r_start = std::max(1.0, std::hypot(start_rel.x, start_rel.z));
+    const double r_finish = std::max(1.0, std::hypot(finish_rel.x, finish_rel.z));
+    const double start_angle = std::atan2(start_rel.z, start_rel.x);
+    const double sweep = normalize_positive_angle(std::atan2(finish_rel.z, finish_rel.x) - start_angle);
+    const double eccentricity = std::abs(r_finish - r_start) / (r_start + r_finish);
+    const double parameter = 0.5 * (r_start + r_finish) * (1.0 - eccentricity * eccentricity);
+    const double theta_begin = r_finish >= r_start ? 0.0 : PI;
+
+    constexpr int kDense = 721;
+    const auto arc = eccentricity > 1.0e-9
+        ? sample_elliptic_arc(parameter, eccentricity, theta_begin, theta_begin + PI, kDense)
+        : std::vector<EllipseSample> {};
+    TimedPath dense;
+    dense.path.reserve(kDense);
+    dense.times_s.reserve(kDense);
+    for (int i = 0; i < kDense; ++i) {
+        const double alpha = static_cast<double>(i) / (kDense - 1);
+        const double radius = arc.empty() ? r_start : arc[static_cast<std::size_t>(i)].radius;
+        const double progress = arc.empty() ? alpha : (arc[static_cast<std::size_t>(i)].theta - theta_begin) / PI;
+        const double time_fraction = (kepler_timing && !arc.empty()) ? arc[static_cast<std::size_t>(i)].time_fraction : alpha;
+        const double t = departure_time_s + time_fraction * transfer_time_s;
+        const double angle = start_angle + sweep * progress;
+        dense.path.push_back(mechanics.get_body_position(primary_id, t)
+            + math::Vec3d {std::cos(angle) * radius, 0.0, std::sin(angle) * radius});
+        dense.times_s.push_back(t);
+    }
+    dense.path.front() = start;
+    dense.path.back() = finish;
+
+    TimedPath out;
+    for (const auto index : select_for_rendering(dense.path)) {
+        out.path.push_back(dense.path[index]);
+        out.times_s.push_back(dense.times_s[index]);
+    }
+    return out;
 }
 
 KeplerTrajectoryPlanner::KeplerTrajectoryPlanner(
@@ -230,6 +334,74 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     }
 
     const auto& root_body = *bodies_by_id_.at(mechanics_.get_root_body_id());
+    // Different bodies of one planetary system (Earth <-> Moon): Hohmann transfer around
+    // the planet, timed for the moving body's phase. Treating these as heliocentric
+    // transfers planned a 183-day half orbit of the Sun for a 400,000 km hop.
+    if (const auto primary_id = planet_system_primary(mechanics_, origin.parent_body_id);
+        primary_id == planet_system_primary(mechanics_, destination.parent_body_id)) {
+        const auto& primary = mechanics_.get_body(primary_id);
+        const double mu_p = primary.mu_m3_s2;
+        const auto relative = [&](const domain::StationDefinition& station, double t) {
+            return mechanics_.get_station_position(station, t) - mechanics_.get_body_position(primary_id, t);
+        };
+        const auto r_of = [](const math::Vec3d& v) { return std::max(1.0, std::hypot(v.x, v.z)); };
+        const double r1 = r_of(relative(origin, current_time_s));
+        const double r2 = r_of(relative(destination, current_time_s));
+        const double axis = 0.5 * (r1 + r2);
+        const double transfer_s = PI * std::sqrt(axis * axis * axis / mu_p);
+        // Phase: arrive where the destination is, half a revolution from departure.
+        // Scan one month (the Moon's period) for the best departure.
+        double best_wait_s = 0.0;
+        double best_mismatch = std::numeric_limits<double>::max();
+        for (double wait = 0.0; wait <= 30.0 * 86400.0; wait += 0.05 * 86400.0) {
+            const auto o = relative(origin, current_time_s + wait);
+            const auto d = relative(destination, current_time_s + wait + transfer_s);
+            const double mismatch = std::abs(std::remainder(
+                std::atan2(d.z, d.x) - std::atan2(o.z, o.x) - PI, TAU));
+            if (mismatch < best_mismatch - 1e-9) {
+                best_mismatch = mismatch;
+                best_wait_s = wait;
+            }
+        }
+        const double v_c1 = std::sqrt(mu_p / r1);
+        const double v_c2 = std::sqrt(mu_p / r2);
+        const double v_t1 = std::sqrt(mu_p * (2.0 / r1 - 1.0 / axis));
+        const double v_t2 = std::sqrt(mu_p * (2.0 / r2 - 1.0 / axis));
+        const double dv_departure = std::abs(v_t1 - v_c1);
+        const double dv_arrival = std::abs(v_c2 - v_t2);
+
+        plan.wait_time_s = best_wait_s;
+        plan.departure_time_s = current_time_s + best_wait_s;
+        plan.coast_time_s = transfer_s;
+        plan.arrival_time_s = plan.departure_time_s + transfer_s;
+        plan.travel_time_s = best_wait_s + transfer_s;
+        plan.propellant_required_kg = propellant_required_kg(ship, ship_class, dv_departure + dv_arrival);
+        plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+        plan.trajectory_type = "keplerian_planet_system";
+
+        auto timed = planet_system_path(
+            mechanics_, primary_id, origin, destination, plan.departure_time_s, transfer_s, true);
+        plan.sampled_path = std::move(timed.path);
+        plan.sampled_times_s = std::move(timed.times_s);
+        std::vector<double> arc_propellant(plan.sampled_path.size());
+        {
+            const double ve = effective_exhaust_velocity_mps(ship_class);
+            const double m0 = ship_class.dry_mass_kg + ship.propellant_kg;
+            const double prop_dep = ve > 0.0 ? m0 * (1.0 - std::exp(-dv_departure / ve)) : 0.0;
+            const double coast = std::max(0.0, ship.propellant_kg - prop_dep);
+            std::fill(arc_propellant.begin(), arc_propellant.end(), coast);
+            arc_propellant.front() = ship.propellant_kg;
+            arc_propellant.back() = std::max(0.0, ship.propellant_kg - plan.propellant_required_kg);
+        }
+        prepend_wait_samples(plan, std::move(arc_propellant), mechanics_, origin, current_time_s,
+            heliocentric_orbital_rate_rad_s(primary, mechanics_.get_root_body_id(), bodies_by_id_), ship.propellant_kg);
+        plan.summary = std::format(
+            "Kepler planet-system transfer {} -> {} in {:.1f} days plus {:.1f} days wait, propellant {:.0f} kg ({})",
+            origin.name, destination.name, transfer_s / 86400.0, best_wait_s / 86400.0,
+            plan.propellant_required_kg, plan.feasible ? "feasible" : "insufficient fuel");
+        return plan;
+    }
+
     const auto& origin_body = *bodies_by_id_.at(origin.parent_body_id);
     const auto& destination_body = *bodies_by_id_.at(destination.parent_body_id);
     const double mu = root_body.mu_m3_s2;
@@ -511,41 +683,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         arc_propellant.back() = std::max(0.0, propellant_coast - prop_arr);
     }
 
-    // Prepend wait-period samples so the rendered path tracks the origin station during the wait.
-    // Without these, the frontend sees a gap between the ship's current position and path[0]
-    // (the departure position) and draws a straight chord, which looks wrong visually.
-    // Waits can last several origin orbits (up to ~2 years), so sample by the origin's
-    // heliocentric sweep rather than a fixed count; a fixed 11 samples drew long waits as
-    // star polygons around the Sun.
-    if (plan.wait_time_s > 60.0) {
-        constexpr double kWaitStepRad = 5.0 * PI / 180.0;
-        constexpr int kMinWaitSegments = 11;
-        constexpr int kMaxWaitSegments = 360;
-        const double wait_sweep_rad = std::abs(origin_rate) * plan.wait_time_s;
-        const int wait_segments = std::clamp(
-            static_cast<int>(std::ceil(wait_sweep_rad / kWaitStepRad)), kMinWaitSegments, kMaxWaitSegments);
-        std::vector<math::Vec3d> wait_path;
-        std::vector<double> wait_times;
-        std::vector<double> wait_propellant;
-        wait_path.reserve(wait_segments + plan.sampled_path.size());
-        wait_times.reserve(wait_segments + plan.sampled_times_s.size());
-        wait_propellant.reserve(wait_segments + arc_propellant.size());
-        for (int i = 0; i < wait_segments; ++i) {
-            const double alpha = static_cast<double>(i) / wait_segments;
-            const double t = current_time_s + alpha * plan.wait_time_s;
-            wait_path.push_back(mechanics_.get_station_position(origin, t));
-            wait_times.push_back(t);
-            wait_propellant.push_back(ship.propellant_kg);
-        }
-        wait_path.insert(wait_path.end(), plan.sampled_path.begin(), plan.sampled_path.end());
-        wait_times.insert(wait_times.end(), plan.sampled_times_s.begin(), plan.sampled_times_s.end());
-        wait_propellant.insert(wait_propellant.end(), arc_propellant.begin(), arc_propellant.end());
-        plan.sampled_path = std::move(wait_path);
-        plan.sampled_times_s = std::move(wait_times);
-        plan.sampled_propellant_kg = std::move(wait_propellant);
-    } else {
-        plan.sampled_propellant_kg = std::move(arc_propellant);
-    }
+    prepend_wait_samples(plan, std::move(arc_propellant), mechanics_, origin, current_time_s, origin_rate, ship.propellant_kg);
 
     plan.summary = std::format(
         "Kepler transfer {} -> {} in {:.1f} days plus {:.1f} days wait, propellant {:.0f} kg ({})",
