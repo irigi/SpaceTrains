@@ -53,6 +53,18 @@ struct ShipClassDefinition {
     double cruise_accel_mps2 {0.0};
     // Electric ion propulsion fields:
     double specific_engine_power_w_per_kg {0.0};  // alpha [W/kg_dry]
+    // Operating economics:
+    double ship_value_cr {0.0};   // capital tied up in the ship (amortised + interest)
+    double crew_size {0.0};
+};
+
+// Fleet-wide operating parameters (data/economy/ship_operations.csv).
+struct ShipOperationsDefinition {
+    double wage_cr_per_crew_day {0.0};
+    double interest_rate_per_year {0.0};
+    double lifetime_years {30.0};
+    // Life support per crew-day, in commodity units, bought as real goods.
+    std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
 
 struct StationDefinition {
@@ -94,6 +106,7 @@ struct UniverseDefinition {
     std::vector<StationDefinition> stations;
     std::vector<RecipeDefinition> recipes;
     std::vector<ShipSeedDefinition> ship_seeds;
+    ShipOperationsDefinition ship_operations;
 };
 
 enum class ShipMissionPhase {
@@ -101,7 +114,8 @@ enum class ShipMissionPhase {
     AwaitingDeparture,
     InTransit,
     Refueling,
-    Stranded
+    Stranded,
+    LaidUp  // out of money: crew discharged, docked until a mission pays
 };
 
 struct EventEntry {
@@ -136,10 +150,21 @@ struct MissionAssignment {
     double purchase_cost {0.0};      // credits paid for cargo at origin
     double fuel_cost {0.0};          // credits paid for propellant attributed to this mission
     double expected_revenue {0.0};   // estimated sale value at destination when planned
+    double operating_cost {0.0};     // expected capital + crew + provisions over wait + transit
     std::vector<math::Vec3d> sampled_path;
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;
     std::string trajectory_type;
+};
+
+// Where a ship's money went over its lifetime (all amounts positive, in credits).
+struct ShipLedger {
+    double cargo_revenue {0.0};
+    double cargo_purchases {0.0};
+    double fuel {0.0};
+    double wages {0.0};
+    double capital {0.0};
+    double provisions {0.0};
 };
 
 struct ShipState {
@@ -154,6 +179,10 @@ struct ShipState {
     double credits {0.0};
     double lifetime_profit {0.0};
     MissionAssignment active_mission;
+    Inventory provisions;              // life-support stock carried for the crew
+    ShipLedger ledger;
+    double next_layup_review_s {0.0};  // laid-up ships re-check for missions daily
+    double idle_since_s {0.0};         // when the ship last became idle (crewed, docked)
 };
 
 struct StationState {

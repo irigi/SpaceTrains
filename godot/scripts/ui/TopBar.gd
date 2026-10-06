@@ -82,6 +82,7 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
     var hauling := 0
     var idle := 0
     var stranded := 0
+    var laid_up := 0
     var in_transit := 0
     for ship in state.get("ships", []):
         var phase := String(ship.get("phase", "idle"))
@@ -91,9 +92,13 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
                 hauling += 1
         elif phase == "stranded":
             stranded += 1
+        elif phase == "laid_up":
+            laid_up += 1
         else:
             idle += 1
     var fleet_text := "Fleet: %d hauling / %d moving / %d docked" % [hauling, in_transit, idle]
+    if laid_up > 0:
+        fleet_text += " / %d laid up" % laid_up
     if stranded > 0:
         fleet_text += " / %d STRANDED" % stranded
     _fleet_label.text = fleet_text

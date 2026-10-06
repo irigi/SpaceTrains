@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -197,6 +198,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto stations_path = root / "stations" / "stations.csv";
     const auto recipes_path = root / "recipes" / "recipes.csv";
     const auto ships_path = root / "ships" / "ships.csv";
+    const auto ship_operations_path = root / "economy" / "ship_operations.csv";
 
     {
         const auto rows = read_csv_rows(bodies_path);
@@ -258,12 +260,12 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const auto rows = read_csv_rows(ship_classes_path);
         require_header(rows.front(),
             {"id", "name", "propulsion_type", "dry_mass_kg", "propellant_capacity_kg", "cargo_capacity_units",
-             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg"},
+             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size"},
             ship_classes_path);
         std::unordered_set<std::string> seen_ids;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 9, ship_classes_path, i + 1);
+            require_field_count(row, 11, ship_classes_path, i + 1);
             require_unique_id(row[0], seen_ids, ship_classes_path, i + 1);
             universe.ship_classes.push_back({
                 .id = row[0],
@@ -275,6 +277,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .max_delta_v_mps = parse_double(row[6], ship_classes_path, i + 1, "max_delta_v_mps"),
                 .cruise_accel_mps2 = parse_double(row[7], ship_classes_path, i + 1, "cruise_accel_mps2"),
                 .specific_engine_power_w_per_kg = parse_double(row[8], ship_classes_path, i + 1, "specific_engine_power_w_per_kg"),
+                .ship_value_cr = parse_double(row[9], ship_classes_path, i + 1, "ship_value_cr"),
+                .crew_size = parse_double(row[10], ship_classes_path, i + 1, "crew_size"),
             });
         }
     }
@@ -340,6 +344,45 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .initial_propellant_kg = parse_double(row[6], ships_path, i + 1, "initial_propellant_kg"),
                 .initial_credits = parse_double(row[7], ships_path, i + 1, "initial_credits"),
             });
+        }
+    }
+
+    {
+        // key,value rows; life support entries are "life_support.<commodity_id>".
+        const auto rows = read_csv_rows(ship_operations_path);
+        require_header(rows.front(), {"key", "value"}, ship_operations_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& operations = universe.ship_operations;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, ship_operations_path, i + 1);
+            require_unique_id(row[0], seen_keys, ship_operations_path, i + 1);
+            const double value = parse_double(row[1], ship_operations_path, i + 1, row[0].c_str());
+            constexpr std::string_view life_support_prefix = "life_support.";
+            if (row[0] == "wage_cr_per_crew_day") {
+                operations.wage_cr_per_crew_day = value;
+            } else if (row[0] == "interest_rate_per_year") {
+                operations.interest_rate_per_year = value;
+            } else if (row[0] == "lifetime_years") {
+                operations.lifetime_years = value;
+            } else if (row[0].starts_with(life_support_prefix)) {
+                operations.life_support_units_per_crew_day[row[0].substr(life_support_prefix.size())] = value;
+            } else {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + ship_operations_path.string());
+            }
+        }
+        for (const char* required : {"wage_cr_per_crew_day", "interest_rate_per_year", "lifetime_years"}) {
+            if (!seen_keys.contains(required)) {
+                throw std::runtime_error(std::string("Missing key '") + required + "' in " + ship_operations_path.string());
+            }
+        }
+        if (operations.lifetime_years <= 0.0) {
+            throw std::runtime_error("lifetime_years must be positive in " + ship_operations_path.string());
+        }
+        for (const auto& [commodity_id, _] : operations.life_support_units_per_crew_day) {
+            if (!contains_id(universe.commodities, commodity_id)) {
+                throw std::runtime_error("Ship operations reference unknown life-support commodity '" + commodity_id + "'");
+            }
         }
     }
 

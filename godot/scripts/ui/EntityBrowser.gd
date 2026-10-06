@@ -88,6 +88,8 @@ func _ship_status(detail: Dictionary) -> Array:
             return ["◆", UiTheme.WARN]
         "stranded":
             return ["✖", UiTheme.ALERT]
+        "laid_up":
+            return ["◌", UiTheme.TEXT_DIM]
         _:
             return ["●", UiTheme.GOOD]
 

@@ -19,7 +19,9 @@ constexpr double PRODUCTION_CAP_DAYS = 90.0;
 // Price elasticity: how sharply prices respond to stock deviating from target.
 constexpr double PRICE_ELASTICITY = 1.3;
 constexpr double PRICE_MIN_MULTIPLIER = 0.25;
-constexpr double PRICE_MAX_MULTIPLIER = 4.0;
+// A starving station must be able to bid up to the delivered cost of the goods
+// (fuel plus ship time); 4x made outer-system supply runs impossible to pay for.
+constexpr double PRICE_MAX_MULTIPLIER = 16.0;
 }  // namespace
 
 EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : universe_(universe) {

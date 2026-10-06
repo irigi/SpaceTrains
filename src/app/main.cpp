@@ -278,7 +278,7 @@ void print_economy_audit(
     }
 
     // Ship utilization
-    int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0;
+    int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0, ships_laid_up = 0;
     std::unordered_map<std::string, double> cargo_by_commodity;
     for (const auto& ship : snap.ships) {
         switch (ship.phase) {
@@ -302,11 +302,15 @@ void print_economy_audit(
             case spacetrains::domain::ShipMissionPhase::Refueling:
                 ++ships_idle;
                 break;
+            case spacetrains::domain::ShipMissionPhase::LaidUp:
+                ++ships_laid_up;
+                break;
         }
     }
     const int total = static_cast<int>(snap.ships.size());
-    std::cout << std::format("\n  [ECON AUDIT] Fleet: {}/{} hauling cargo  {}/{} repositioning  {}/{} waiting  {}/{} idle  {}/{} stranded\n",
-        ships_with_cargo, total, ships_repositioning, total, ships_waiting, total, ships_idle, total, ships_stranded, total);
+    std::cout << std::format("\n  [ECON AUDIT] Fleet: {}/{} hauling cargo  {}/{} repositioning  {}/{} waiting  {}/{} idle  {}/{} stranded  {}/{} laid up\n",
+        ships_with_cargo, total, ships_repositioning, total, ships_waiting, total, ships_idle, total, ships_stranded, total,
+        ships_laid_up, total);
     if (!cargo_by_commodity.empty()) {
         std::cout << "             Active cargo: ";
         for (const auto& [c, units] : cargo_by_commodity) {
@@ -335,11 +339,29 @@ void print_economy_audit(
             break;
         }
     }
+    spacetrains::domain::ShipLedger fleet;
+    int profitable = 0;
+    std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s}\n",
+        "", "", "profit", "margin", "fuel", "wages", "capital", "prov");
     for (const auto& ship : snap.ships) {
         ship_credits += ship.credits;
-        std::cout << std::format("    {:30s}  {:>12.0f} cr  (lifetime profit {:+.0f})\n",
-            ship.name, ship.credits, ship.lifetime_profit);
+        const auto& l = ship.ledger;
+        std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f}\n",
+            ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
+            l.fuel, l.wages, l.capital, l.provisions);
+        fleet.cargo_revenue += l.cargo_revenue;
+        fleet.cargo_purchases += l.cargo_purchases;
+        fleet.fuel += l.fuel;
+        fleet.wages += l.wages;
+        fleet.capital += l.capital;
+        fleet.provisions += l.provisions;
+        profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
     }
+    std::cout << std::format(
+        "    Fleet: cargo margin {:.0f} (sold {:.0f}, bought {:.0f})  fuel {:.0f}  wages {:.0f}  capital {:.0f}"
+        "  provisions {:.0f}  -> {}/{} ships profitable\n",
+        fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
+        fleet.wages, fleet.capital, fleet.provisions, profitable, snap.ships.size());
     const double total_supply = station_credits + ship_credits;
     std::cout << std::format("    Total supply: {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
         total_supply, initial_supply, total_supply - initial_supply);
@@ -373,7 +395,7 @@ void print_economy_audit(
 void print_ship_phases(
     const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe) {
-    int idle = 0, awaiting = 0, transit = 0, stranded = 0;
+    int idle = 0, awaiting = 0, transit = 0, stranded = 0, laid_up = 0;
     std::cout << "  Ships:\n";
     for (const auto& ship : snap.ships) {
         std::string class_name = ship.class_id;
@@ -387,6 +409,7 @@ void print_ship_phases(
             case spacetrains::domain::ShipMissionPhase::AwaitingDeparture: phase_str = "awaiting"; ++awaiting; break;
             case spacetrains::domain::ShipMissionPhase::InTransit:       phase_str = "in_transit"; ++transit; break;
             case spacetrains::domain::ShipMissionPhase::Stranded:        phase_str = "stranded"; ++stranded; break;
+            case spacetrains::domain::ShipMissionPhase::LaidUp:          phase_str = "laid_up"; ++laid_up; break;
             case spacetrains::domain::ShipMissionPhase::Refueling:       phase_str = "refueling"; break;
         }
         std::cout << std::format(
@@ -401,8 +424,8 @@ void print_ship_phases(
         std::cout << "\n";
     }
     std::cout << std::format(
-        "  Phase summary: idle={} awaiting={} in_transit={} stranded={}\n",
-        idle, awaiting, transit, stranded);
+        "  Phase summary: idle={} awaiting={} in_transit={} stranded={} laid_up={}\n",
+        idle, awaiting, transit, stranded, laid_up);
 }
 
 constexpr double kAuM = 1.495978707e11;

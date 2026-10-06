@@ -41,8 +41,8 @@ int main() {
         const double base = 4.0;
         require_near(economy.get_price("agri_hub", "water", target, base), base, 1.0e-9,
             "price at target stock must equal base price");
-        require_near(economy.get_price("agri_hub", "water", 0.0, base), base * 4.0, 1.0e-9,
-            "price at zero stock must clamp at 4x base");
+        require_near(economy.get_price("agri_hub", "water", 0.0, base), base * 16.0, 1.0e-9,
+            "price at zero stock must clamp at 16x base");
         require_near(economy.get_price("agri_hub", "water", 1.0e9, base), base * 0.25, 1.0e-9,
             "price at huge stock must clamp at 0.25x base");
 
@@ -121,8 +121,8 @@ int main() {
         // Trades must have happened and be internally consistent.
         require(!sim.recent_trades().empty(), "180 days of simulation must produce trades");
         for (const auto& trade : sim.recent_trades()) {
-            require(trade.kind == "buy" || trade.kind == "sell" || trade.kind == "fuel",
-                "trade kind must be buy/sell/fuel");
+            require(trade.kind == "buy" || trade.kind == "sell" || trade.kind == "fuel" || trade.kind == "provisions",
+                "trade kind must be buy/sell/fuel/provisions");
             require(trade.units > 0.0, "trade units must be positive");
             require_near(trade.total, trade.units * trade.unit_price, 1.0e-6,
                 "trade total must equal units * unit_price");

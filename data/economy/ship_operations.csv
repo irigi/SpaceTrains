@@ -1,0 +1,7 @@
+key,value
+wage_cr_per_crew_day,2
+interest_rate_per_year,0.05
+lifetime_years,30
+life_support.food,0.006
+life_support.water,0.001
+life_support.oxygen,0.001

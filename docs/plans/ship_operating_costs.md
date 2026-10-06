@@ -81,3 +81,34 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 3. Provisions purchase on departure and daily docked consumption.
 4. Mission and repositioning scoring with time cost.
 5. Calibration loop against the targets above; record final parameters and audit numbers here.
+
+## Calibration Log (2026-10-06)
+
+730-day `--econ-audit` runs. Costs: wage 2 cr/crew-day, interest 5%, lifetime 30 y, ship values 35k-120k.
+
+| Run | Change | Cargo margin | Fuel | Wages | Capital | Profitable | Laid up at end | CRITICAL |
+|---|---|---|---|---|---|---|---|---|
+| baseline | no costs (old prices) | ~1k net | 30k | - | - | 1/22 | - | 14 |
+| v1 | costs, old prices | 0.2k | 0 | 130k | 274k | 0/22 | 5 | 14 |
+| v2 | goods x5 base, price cap 4x -> 16x | 120k | 3k | 133k | 274k | 2/22 | 3 | 15 |
+| v4 | consumer stocks 45 days, idle 30 d -> lay up | 200k | 2k | 17k | 274k | 4/22 | 22 | 41 |
+| v6 | Earth-Moon transfers around Earth (was 183 d) | 390k | 35k | 31k | 274k | 7/22 | 21 | 44 |
+| v9 | demand follows price signals, not just recipes | 695k | 45k | 40k | 274k | 7/22 | 20 | 41 |
+| v12 | water/O2 recycled, tank fuel at base price, return-fuel check | 459k | 47k | 51k | 274k | 5/22 | 14 | 39 |
+
+Mechanisms found on the way (each fixed in the code):
+- Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).
+- Provisions as real goods deadlocked crews at starving ports: departing crews may buy from the whole stock,
+  docked crews do not eat the 120-day return reserve (they lay up instead), ships start with 180 days aboard,
+  water and oxygen are mostly recycled (0.1 / 0.05 kg per crew-day make-up).
+- Ships flew into fuel-dry consumers and stayed: every mission now checks the ship can refuel to leave again.
+- Stations short of goods they do not consume themselves (water drunk by crews) were invisible to traders;
+  destinations now follow price (price above base), not only recipes.
+- Fuel already in the tank was valued at the origin's scarcity price (16x), so loaded ships never left
+  fuel-starved ports; it is now valued at base price.
+
+**Status vs targets:** money conserved, no strandings, the fleet as a whole earns more than it costs (v12: 459k
+margin vs ~377k costs). Not met: profits concentrate in 5-7 ships, most ships end laid up, and stations starve
+more than in the baseline (39 vs 14 CRITICAL lines). The fleet moves only ~1.9 units/day against ~11 units/day of
+demand: long launch windows (Mars synodic ~780 days), provisioning range, and refuel constraints make many
+individual trips unprofitable or infeasible even when the destination pays the 16x cap.

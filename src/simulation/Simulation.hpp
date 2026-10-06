@@ -50,6 +50,18 @@ private:
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     [[nodiscard]] bool try_refuel(domain::ShipState& ship);
+    // Operating economics (docs/plans/ship_operating_costs.md).
+    [[nodiscard]] double daily_capital_cost(const domain::ShipClassDefinition& ship_class) const;
+    [[nodiscard]] double daily_crew_cost(
+        const domain::ShipClassDefinition& ship_class, const domain::StationState& market) const;
+    [[nodiscard]] double credit_line(const domain::ShipClassDefinition& ship_class) const;
+    // Days of life support the ship could carry from `market` (its own stock plus what the
+    // station sells). Departing crews may buy from the whole stock (crew-scale amounts are
+    // tiny); routine docked top-ups leave the station its own reserve.
+    [[nodiscard]] double provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const;
+    void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
+    void accrue_operating_costs(domain::ShipState& ship, double dt_s);
+    void pay_home_station(domain::ShipState& ship, double amount);
     void step_idle_ship(domain::ShipState& ship);
     void step_awaiting_departure_ship(domain::ShipState& ship);
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
