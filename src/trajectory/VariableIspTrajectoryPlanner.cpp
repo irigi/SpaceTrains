@@ -94,9 +94,21 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const domain::ShipState& ship,
     const domain::ShipClassDefinition& ship_class,
     double current_time_s,
-    const PlanningCosts& /*costs*/) const {
+    const PlanningOptions& options) const {
 
     domain::TrajectoryPlan plan;
+
+    // Mass model. The engine's power comes with the hull (alpha * hull dry mass); cargo and
+    // provisions only add mass. A transfer may burn a budget B and departs with
+    // L = max(aboard, (1 + reserve) B), up to what the ship can load.
+    const double reserve = std::max(0.0, options.reserve_fraction);
+    const double aboard_kg = std::max(0.0, ship.propellant_kg);
+    const double max_load_kg = std::max(aboard_kg, std::min(ship_class.propellant_capacity_kg,
+        aboard_kg + std::max(0.0, options.purchasable_propellant_kg)));
+    const double laden_dry_kg = ship_class.dry_mass_kg + std::max(0.0, options.payload_kg);
+    const double power_w = ship_class.specific_engine_power_w_per_kg * ship_class.dry_mass_kg;
+    const double max_budget_kg = max_load_kg / (1.0 + reserve);
+    const auto load_for_budget = [&](double budget_kg) { return std::max(aboard_kg, (1.0 + reserve) * budget_kg); };
 
     // Same-parent transfers are not handled by VariableISP planner (ion ships
     // currently cannot fly them; there is no fallback in the simulation).
@@ -118,15 +130,23 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         };
         const double delta_v = std::abs(std::sqrt(mu_p / radius_around_primary(origin))
             - std::sqrt(mu_p / radius_around_primary(destination)));
-        const double m_dry = ship_class.dry_mass_kg;
-        const double m0 = m_dry + std::max(0.0, ship.propellant_kg);
-        const double power_w = ship_class.specific_engine_power_w_per_kg * m_dry;
-        if (power_w <= 0.0 || m0 <= m_dry) {
+        if (power_w <= 0.0 || max_budget_kg <= 0.0) {
             return plan;
         }
-        const double min_transfer_s = delta_v * delta_v / (2.0 * power_w * (1.0 / m_dry - 1.0 / m0));
+        const double max_m0 = laden_dry_kg + load_for_budget(max_budget_kg);
+        const double min_transfer_s = delta_v * delta_v
+            / (2.0 * power_w * (1.0 / (max_m0 - max_budget_kg) - 1.0 / max_m0));
         const double transfer_s = std::max(86400.0, 1.5 * min_transfer_s);
         const double integral = delta_v * delta_v / (2.0 * power_w * transfer_s);
+        // Load only what this spiral burns plus the reserve (one refinement pass: the
+        // lighter ship burns less, so the reserve still holds).
+        const auto burn_from = [&](double load_kg) {
+            const double start = laden_dry_kg + load_kg;
+            return start - 1.0 / (integral + 1.0 / start);
+        };
+        const double load_kg = std::min(max_load_kg, load_for_budget(burn_from(max_load_kg)));
+        const double m_dry = laden_dry_kg;
+        const double m0 = laden_dry_kg + load_kg;
         const double m_final = 1.0 / (integral + 1.0 / m0);
 
         plan.departure_time_s = current_time_s;
@@ -135,7 +155,8 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         plan.arrival_time_s = current_time_s + transfer_s;
         plan.travel_time_s = transfer_s;
         plan.propellant_required_kg = m0 - m_final;
-        plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+        plan.propellant_load_kg = load_kg;
+        plan.feasible = plan.propellant_required_kg * (1.0 + reserve) <= load_kg * (1.0 + 1e-9);
         plan.trajectory_type = "variable_isp_planet_system";
         auto timed = planet_system_path(mechanics_, primary_id, origin, destination, current_time_s, transfer_s, false);
         plan.sampled_path = std::move(timed.path);
@@ -170,15 +191,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
 
     const double rho = std::clamp(rho_raw, rho_grid.front(), rho_grid.back());
 
-    // Canonical kappa — always uses r0 = 1 AU as reference.
-    const double m_dry = ship_class.dry_mass_kg;
-    const double m0 = m_dry + std::max(0.0, ship.propellant_kg);
-    const double power_w = ship_class.specific_engine_power_w_per_kg * m_dry;
-    if (power_w <= 0.0 || m0 <= m_dry) {
-        return plan;
-    }
-    const double kappa = 2.0 * power_w * (1.0 / m_dry - 1.0 / m0) * kappa_scale_factor();
-    if (kappa < kappa_grid.front() || kappa > kappa_grid.back()) {
+    if (power_w <= 0.0 || max_budget_kg <= 0.0) {
         return plan;
     }
 
@@ -202,17 +215,17 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const double r_scale = r_origin_m / variable_isp::VariableIspIntegrator::kAstronomicalUnitM;
     const double t_scale = std::pow(r_scale, 1.5);
 
-    // Grid indices for (rho, kappa) — used for direct cell access in the hot loop.
+    // Grid indices for rho — used for direct cell access in the hot loop.
     // We look at the 2×2 rho×kappa neighborhood so we stay near the right solution family.
     const std::size_t i0 = lower_grid_idx(rho_grid, rho);
     const std::size_t i1 = std::min(i0 + 1, rho_grid.size() - 1);
-    const std::size_t j0 = lower_grid_idx(kappa_grid, kappa);
-    const std::size_t j1 = std::min(j0 + 1, kappa_grid.size() - 1);
 
     // Solved cells of the 2×2 rho×kappa neighborhood at theta index k, closest first.
     // Closeness in rho matters most: the path depends on the costates only, and
     // kappa merely decides whether the fuel suffices.
-    const auto neighborhood_cells = [&](std::size_t k) {
+    const auto neighborhood_cells = [&](double kappa, std::size_t k) {
+        const std::size_t j0 = lower_grid_idx(kappa_grid, kappa);
+        const std::size_t j1 = std::min(j0 + 1, kappa_grid.size() - 1);
         std::vector<std::pair<std::size_t, std::size_t>> cells;
         for (auto ii : {i0, i1}) {
             for (auto jj : {j0, j1}) {
@@ -236,37 +249,74 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         double total_s;
         std::size_t k;
     };
-    std::vector<Window> windows;
-    for (std::size_t k = 0; k < theta_grid.size(); ++k) {
-        const auto cells = neighborhood_cells(k);
-        if (cells.empty()) {
-            continue;
-        }
-        const auto seed = atlas_.seed_at(cells.front().first, cells.front().second, k);
-        if (seed.transfer_time_days <= 0.0) {
-            continue;
-        }
-
-        const double theta_f = theta_grid[k];
-        const double T_transfer_s = seed.transfer_time_days
-            * variable_isp::VariableIspIntegrator::kDayS * t_scale;
-
-        // Phase condition: dest must be at (phi_origin_at_depart + theta_f) at arrival.
-        // phi_origin(t_depart) + theta_f = phi_dest(t_arrive)
-        const double required_delta_phi = theta_f - omega_dest * T_transfer_s;
-        double wait_s = 0.0;
-        if (std::abs(relative_rate) > 1.0e-15) {
-            wait_s = positive_mod(
-                (required_delta_phi - current_delta_phi) / relative_rate,
-                synodic_period_s);
-        } else {
-            if (std::abs(normalize_angle(required_delta_phi - current_delta_phi)) > 0.05) {
+    const auto rank_windows = [&](double kappa) {
+        std::vector<Window> ranked;
+        for (std::size_t k = 0; k < theta_grid.size(); ++k) {
+            const auto cells = neighborhood_cells(kappa, k);
+            if (cells.empty()) {
                 continue;
             }
+            const auto seed = atlas_.seed_at(cells.front().first, cells.front().second, k);
+            if (seed.transfer_time_days <= 0.0) {
+                continue;
+            }
+
+            const double theta_f = theta_grid[k];
+            const double T_transfer_s = seed.transfer_time_days
+                * variable_isp::VariableIspIntegrator::kDayS * t_scale;
+
+            // Phase condition: dest must be at (phi_origin_at_depart + theta_f) at arrival.
+            // phi_origin(t_depart) + theta_f = phi_dest(t_arrive)
+            const double required_delta_phi = theta_f - omega_dest * T_transfer_s;
+            double wait_s = 0.0;
+            if (std::abs(relative_rate) > 1.0e-15) {
+                wait_s = positive_mod(
+                    (required_delta_phi - current_delta_phi) / relative_rate,
+                    synodic_period_s);
+            } else {
+                if (std::abs(normalize_angle(required_delta_phi - current_delta_phi)) > 0.05) {
+                    continue;
+                }
+            }
+            ranked.push_back({wait_s + T_transfer_s, k});
         }
-        windows.push_back({wait_s + T_transfer_s, k});
+        std::sort(ranked.begin(), ranked.end(), [](const Window& a, const Window& b) { return a.total_s < b.total_s; });
+        return ranked;
+    };
+
+    // Fuel budget. A larger budget (higher kappa, canonical r0 = 1 AU) flies faster; with
+    // the owner's costs known, try a few budgets and refine the cheapest by the atlas
+    // estimate first: fuel cost plus time cost of its best window.
+    struct Budget {
+        double burn_kg;
+        double load_kg;
+        double m0;
+        double m_floor;  // laden dry mass plus the unburned reserve
+        double kappa;
+        std::vector<Window> windows;
+        double estimated_cost;
+    };
+    const bool by_cost = options.propellant_cr_per_kg > 0.0 || options.time_cr_per_day > 0.0;
+    std::vector<Budget> budgets;
+    for (const double fraction : by_cost ? std::vector<double>{1.0, 0.75, 0.55, 0.4} : std::vector<double>{1.0}) {
+        const double burn_kg = max_budget_kg * fraction;
+        const double load_kg = load_for_budget(burn_kg);
+        const double m0 = laden_dry_kg + load_kg;
+        const double m_floor = m0 - burn_kg;
+        const double kappa = 2.0 * power_w * (1.0 / m_floor - 1.0 / m0) * kappa_scale_factor();
+        if (kappa < kappa_grid.front() || kappa > kappa_grid.back()) {
+            continue;
+        }
+        auto ranked = rank_windows(kappa);
+        if (ranked.empty()) {
+            continue;
+        }
+        const double estimated_cost = burn_kg * options.propellant_cr_per_kg
+            + ranked.front().total_s / 86400.0 * options.time_cr_per_day;
+        budgets.push_back({burn_kg, load_kg, m0, m_floor, kappa, std::move(ranked), estimated_cost});
     }
-    std::sort(windows.begin(), windows.end(), [](const Window& a, const Window& b) { return a.total_s < b.total_s; });
+    std::stable_sort(budgets.begin(), budgets.end(),
+        [](const Budget& a, const Budget& b) { return a.estimated_cost < b.estimated_cost; });
 
     // Atlas cells are solved for their own grid (rho, theta), not for this request,
     // so an unrefined seed misses the destination (by up to ~0.3 AU) and blending
@@ -278,8 +328,6 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // ODE mass can undershoot dry mass by ~0.1-0.2% on max-burn arcs.
     constexpr double kDryMassSlack = 0.998;
     const double r_target_canonical = rho * variable_isp::VariableIspIntegrator::kCanonicalR0SI;
-    const variable_isp::CanonicalMissionConfig config =
-        variable_isp::VariableIspIntegrator::canonical_config(rho, kappa);
 
     variable_isp::AtlasSeed best_seed;
     variable_isp::IntegrationSummary result;
@@ -292,84 +340,96 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     std::size_t windows_tried = 0;
     bool found = false;
     bool fuel_limited = false;
-    for (const auto& window : windows) {
-        if (found || windows_tried >= kMaxWindows) {
-            break;
-        }
-        ++windows_tried;
-        const auto cells = neighborhood_cells(window.k);
-        for (std::size_t c = 0; c < std::min(cells.size(), kMaxSeedsPerWindow) && !found; ++c) {
-            const auto seed = atlas_.seed_at(cells[c].first, cells[c].second, window.k);
-            try {
-                // Keep the branch the seed already flies; its grid label is only valid mod 2π.
-                const auto start = integrator_.integrate_fixed_time(seed, config, 2);
-                const double theta_seed = start.samples.back().theta_rad;
-                const double theta_goal = theta_seed + std::remainder(theta_grid[window.k] - theta_seed, TAU);
-                auto refined = integrator_.refine_seed(seed, config, r_target_canonical, theta_goal);
-                if (!refined.converged) {
-                    continue;
-                }
-                // Choose the launch wait from the refined angle and transfer time (circular
-                // phase model). Co-orbiting bodies (e.g. Earth and the Moon) have no wait to
-                // absorb a phase mismatch; the targeting passes below fix it instead.
-                double wait_s = 0.0;
-                if (std::abs(relative_rate) > 1.0e-15) {
-                    const double T_s = refined.seed.transfer_time_days
-                        * variable_isp::VariableIspIntegrator::kDayS * t_scale;
-                    wait_s = positive_mod(
-                        (theta_goal - omega_dest * T_s - current_delta_phi) / relative_rate, synodic_period_s);
-                }
-                // With departure fixed, aim the shooting at the destination *station's* actual
-                // position at departure + T (moon offsets, phase slack). The target moves with T,
-                // and the ship arrives co-moving with it, so it must sit inside the residual —
-                // an outer fixed-point loop over T does not contract.
-                // Likewise start from the origin station's actual position at departure:
-                // it sets the similarity scale and the frame rotation.
-                const auto origin_at_departure = mechanics_.get_station_position(origin, current_time_s + wait_s);
-                const double depart_r_scale = std::hypot(origin_at_departure.x, origin_at_departure.z)
-                    / variable_isp::VariableIspIntegrator::kAstronomicalUnitM;
-                const double depart_t_scale = std::pow(depart_r_scale, 1.5);
-                const double phi_depart = std::atan2(origin_at_departure.z, origin_at_departure.x);
-                const double theta_branch = theta_goal;
-                const auto station_target = [&](double transfer_time_days) {
-                    const double arrival_s = current_time_s + wait_s
-                        + transfer_time_days * variable_isp::VariableIspIntegrator::kDayS * depart_t_scale;
-                    const auto station = mechanics_.get_station_position(destination, arrival_s);
-                    return std::pair {
-                        std::hypot(station.x, station.z) / depart_r_scale,
-                        theta_branch + std::remainder(std::atan2(station.z, station.x) - phi_depart - theta_branch, TAU),
+    const Budget* chosen = nullptr;
+    // Refining is the expensive part: try the two cheapest budgets at most.
+    constexpr std::size_t kMaxBudgets = 2;
+    for (std::size_t b = 0; b < std::min(budgets.size(), kMaxBudgets) && !found; ++b) {
+        const auto& budget = budgets[b];
+        const double kappa = budget.kappa;
+        const variable_isp::CanonicalMissionConfig config =
+            variable_isp::VariableIspIntegrator::canonical_config(rho, kappa);
+        std::size_t budget_windows_tried = 0;
+        for (const auto& window : budget.windows) {
+            if (found || budget_windows_tried >= kMaxWindows) {
+                break;
+            }
+            ++budget_windows_tried;
+            ++windows_tried;
+            const auto cells = neighborhood_cells(kappa, window.k);
+            for (std::size_t c = 0; c < std::min(cells.size(), kMaxSeedsPerWindow) && !found; ++c) {
+                const auto seed = atlas_.seed_at(cells[c].first, cells[c].second, window.k);
+                try {
+                    // Keep the branch the seed already flies; its grid label is only valid mod 2π.
+                    const auto start = integrator_.integrate_fixed_time(seed, config, 2);
+                    const double theta_seed = start.samples.back().theta_rad;
+                    const double theta_goal = theta_seed + std::remainder(theta_grid[window.k] - theta_seed, TAU);
+                    auto refined = integrator_.refine_seed(seed, config, r_target_canonical, theta_goal);
+                    if (!refined.converged) {
+                        continue;
+                    }
+                    // Choose the launch wait from the refined angle and transfer time (circular
+                    // phase model). Co-orbiting bodies (e.g. Earth and the Moon) have no wait to
+                    // absorb a phase mismatch; the targeting passes below fix it instead.
+                    double wait_s = 0.0;
+                    if (std::abs(relative_rate) > 1.0e-15) {
+                        const double T_s = refined.seed.transfer_time_days
+                            * variable_isp::VariableIspIntegrator::kDayS * t_scale;
+                        wait_s = positive_mod(
+                            (theta_goal - omega_dest * T_s - current_delta_phi) / relative_rate, synodic_period_s);
+                    }
+                    // With departure fixed, aim the shooting at the destination *station's* actual
+                    // position at departure + T (moon offsets, phase slack). The target moves with T,
+                    // and the ship arrives co-moving with it, so it must sit inside the residual —
+                    // an outer fixed-point loop over T does not contract.
+                    // Likewise start from the origin station's actual position at departure:
+                    // it sets the similarity scale and the frame rotation.
+                    const auto origin_at_departure = mechanics_.get_station_position(origin, current_time_s + wait_s);
+                    const double depart_r_scale = std::hypot(origin_at_departure.x, origin_at_departure.z)
+                        / variable_isp::VariableIspIntegrator::kAstronomicalUnitM;
+                    const double depart_t_scale = std::pow(depart_r_scale, 1.5);
+                    const double phi_depart = std::atan2(origin_at_departure.z, origin_at_departure.x);
+                    const double theta_branch = theta_goal;
+                    const auto station_target = [&](double transfer_time_days) {
+                        const double arrival_s = current_time_s + wait_s
+                            + transfer_time_days * variable_isp::VariableIspIntegrator::kDayS * depart_t_scale;
+                        const auto station = mechanics_.get_station_position(destination, arrival_s);
+                        return std::pair {
+                            std::hypot(station.x, station.z) / depart_r_scale,
+                            theta_branch + std::remainder(std::atan2(station.z, station.x) - phi_depart - theta_branch, TAU),
+                        };
                     };
-                };
-                refined = integrator_.refine_seed(refined.seed, config, station_target);
-                if (!refined.converged) {
-                    continue;
+                    refined = integrator_.refine_seed(refined.seed, config, station_target);
+                    if (!refined.converged) {
+                        continue;
+                    }
+                    best_wait_s = wait_s;
+                    best_r_scale = depart_r_scale;
+                    best_t_scale = depart_t_scale;
+                    best_phi_depart = phi_depart;
+                    // Integrate the winning canonical trajectory. We use many internal samples so
+                    // that arc-length resampling (below) has enough source points to represent tight
+                    // solar passes accurately.
+                    // Dense enough that even a 0.1 AU perihelion on a multi-year transfer turns
+                    // only a few degrees per sample before thinning.
+                    auto full = integrator_.integrate_fixed_time(refined.seed, config, 4000);
+                    if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
+                        fuel_limited = true;
+                        continue;
+                    }
+                    const auto closest = std::min_element(full.samples.begin(), full.samples.end(),
+                        [](const auto& a, const auto& b) { return a.r_m < b.r_m; });
+                    if (closest->r_m * depart_r_scale < kMinPerihelionM) {
+                        continue;  // time-optimal ion arcs like to dive sunward; keep them survivable
+                    }
+                    best_seed = refined.seed;
+                    result = std::move(full);
+                    best_theta_f = theta_grid[window.k];
+                    refine_iterations = refined.iterations;
+                    chosen = &budget;
+                    found = true;
+                } catch (const std::runtime_error&) {
+                    // Seed dives into the Sun or similar: try the next seed/window.
                 }
-                best_wait_s = wait_s;
-                best_r_scale = depart_r_scale;
-                best_t_scale = depart_t_scale;
-                best_phi_depart = phi_depart;
-                // Integrate the winning canonical trajectory. We use many internal samples so
-                // that arc-length resampling (below) has enough source points to represent tight
-                // solar passes accurately.
-                // Dense enough that even a 0.1 AU perihelion on a multi-year transfer turns
-                // only a few degrees per sample before thinning.
-                auto full = integrator_.integrate_fixed_time(refined.seed, config, 4000);
-                if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
-                    fuel_limited = true;
-                    continue;
-                }
-                const auto closest = std::min_element(full.samples.begin(), full.samples.end(),
-                    [](const auto& a, const auto& b) { return a.r_m < b.r_m; });
-                if (closest->r_m * depart_r_scale < kMinPerihelionM) {
-                    continue;  // time-optimal ion arcs like to dive sunward; keep them survivable
-                }
-                best_seed = refined.seed;
-                result = std::move(full);
-                best_theta_f = theta_grid[window.k];
-                refine_iterations = refined.iterations;
-                found = true;
-            } catch (const std::runtime_error&) {
-                // Seed dives into the Sun or similar: try the next seed/window.
             }
         }
     }
@@ -427,12 +487,16 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const double m_dry_canonical = variable_isp::VariableIspIntegrator::kCanonicalDryMassKg;
     const double m_final_canonical = std::max(samples.back().mass_kg, m_dry_canonical);
     const double delta_inv_canonical = 1.0 / m_dry_canonical - 1.0 / m0_canonical;
-    const double delta_inv_real = 1.0 / m_dry - 1.0 / m0;
+    const double m0 = chosen->m0;
+    const double m_floor = chosen->m_floor;
+    const double kappa = chosen->kappa;
+    const double delta_inv_real = 1.0 / m_floor - 1.0 / m0;
     const double I_canonical = 1.0 / m_final_canonical - 1.0 / m0_canonical;
     const double I_real = I_canonical * (delta_inv_real / delta_inv_canonical);
     const double m_f_real = 1.0 / (I_real + 1.0 / m0);
     plan.propellant_required_kg = m0 - m_f_real;
-    plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+    plan.propellant_load_kg = chosen->load_kg;
+    plan.feasible = plan.propellant_required_kg <= chosen->load_kg;
 
     // Per-sample propellant via same I-invariant scaling — used for continuous
     // propellant display during transit.
@@ -442,7 +506,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         const double I_s = 1.0 / m_s_can - 1.0 / m0_canonical;
         const double I_s_real = I_s * (delta_inv_real / delta_inv_canonical);
         const double m_s_real = 1.0 / (I_s_real + 1.0 / m0);
-        plan.sampled_propellant_kg.push_back(std::max(0.0, m_s_real - m_dry));
+        plan.sampled_propellant_kg.push_back(std::max(0.0, m_s_real - laden_dry_kg));
     }
 
     plan.departure_time_s = departure_time_s;

@@ -181,7 +181,7 @@ struct ShipState {
     MissionAssignment active_mission;
     Inventory provisions;              // life-support stock carried for the crew
     ShipLedger ledger;
-    double next_layup_review_s {0.0};  // laid-up ships re-check for missions daily
+    double next_review_s {0.0};  // when a docked ship next looks for a mission
     double idle_since_s {0.0};         // when the ship last became idle (crewed, docked)
 };
 
@@ -221,7 +221,8 @@ struct TrajectoryPlan {
     double wait_time_s {0.0};
     double coast_time_s {0.0};
     double travel_time_s {0.0};
-    double propellant_required_kg {0.0};
+    double propellant_required_kg {0.0};  // burned on the transfer
+    double propellant_load_kg {0.0};      // aboard at departure (what was aboard plus any purchase)
     std::vector<math::Vec3d> sampled_path;
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;

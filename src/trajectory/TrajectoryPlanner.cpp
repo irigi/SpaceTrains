@@ -139,17 +139,72 @@ double effective_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_cl
     return ship_class.max_delta_v_mps / std::log(full_mass_kg / ship_class.dry_mass_kg);
 }
 
-double propellant_required_kg(
-    const domain::ShipState& ship,
-    const domain::ShipClassDefinition& ship_class,
-    double delta_v_mps) {
-    const double exhaust_velocity_mps = effective_exhaust_velocity_mps(ship_class);
-    const double current_wet_mass_kg = ship_class.dry_mass_kg + std::max(0.0, ship.propellant_kg);
-    if (exhaust_velocity_mps <= 0.0 || current_wet_mass_kg <= ship_class.dry_mass_kg) {
-        return ship_class.propellant_capacity_kg + 1.0;
+// Propellant a chemical ship loads for a burn of Δv: what the burn needs plus the
+// reserve, never less than it already carries (tanks are not drained). The payload
+// rides on the hull, so the laden class keeps the engine's exhaust velocity but has
+// a heavier dry mass.
+class ChemicalLoading {
+public:
+    ChemicalLoading(const domain::ShipClassDefinition& bare_class,
+                    const domain::ShipState& ship,
+                    const PlanningOptions& options)
+        : exhaust_velocity_mps_(effective_exhaust_velocity_mps(bare_class)),
+          laden_class_(bare_class),
+          onboard_kg_(std::max(0.0, ship.propellant_kg)),
+          reserve_(std::max(0.0, options.reserve_fraction)) {
+        max_load_kg_ = std::max(onboard_kg_,
+            std::min(bare_class.propellant_capacity_kg, onboard_kg_ + std::max(0.0, options.purchasable_propellant_kg)));
+        laden_class_.dry_mass_kg += std::max(0.0, options.payload_kg);
+        if (exhaust_velocity_mps_ > 0.0) {
+            laden_class_.max_delta_v_mps = exhaust_velocity_mps_
+                * std::log((laden_class_.dry_mass_kg + laden_class_.propellant_capacity_kg) / laden_class_.dry_mass_kg);
+        }
     }
-    return current_wet_mass_kg * (1.0 - std::exp(-delta_v_mps / exhaust_velocity_mps));
-}
+
+    [[nodiscard]] const domain::ShipClassDefinition& laden_class() const { return laden_class_; }
+
+    // Smallest load that flies `delta_v` and keeps the reserve (infinite if none can).
+    // With load L and burn B = (m_dry + L)(1 - e^{-Δv/ve}), L = (1 + r) B solves to
+    // L = (1 + r) m_dry f / (1 - (1 + r) f), f = 1 - e^{-Δv/ve}.
+    [[nodiscard]] double load_kg(double delta_v_mps) const {
+        if (exhaust_velocity_mps_ <= 0.0) {
+            return std::numeric_limits<double>::infinity();
+        }
+        const double f = 1.0 - std::exp(-delta_v_mps / exhaust_velocity_mps_);
+        if ((laden_class_.dry_mass_kg + onboard_kg_) * f * (1.0 + reserve_) <= onboard_kg_) {
+            return onboard_kg_;
+        }
+        const double denominator = 1.0 - (1.0 + reserve_) * f;
+        if (denominator <= 0.0) {
+            return std::numeric_limits<double>::infinity();
+        }
+        return (1.0 + reserve_) * laden_class_.dry_mass_kg * f / denominator;
+    }
+    [[nodiscard]] bool feasible(double delta_v_mps) const {
+        return load_kg(delta_v_mps) <= max_load_kg_ * (1.0 + 1e-12);
+    }
+    // Burned for `delta_v` from the (capped) load.
+    [[nodiscard]] double burn_kg(double delta_v_mps) const {
+        if (exhaust_velocity_mps_ <= 0.0) {
+            return laden_class_.propellant_capacity_kg + 1.0;
+        }
+        const double load = std::min(load_kg(delta_v_mps), max_load_kg_);
+        return (laden_class_.dry_mass_kg + load) * (1.0 - std::exp(-delta_v_mps / exhaust_velocity_mps_));
+    }
+    // The ship as it departs for `delta_v`: loaded, propellant-wise.
+    [[nodiscard]] domain::ShipState loaded(const domain::ShipState& ship, double delta_v_mps) const {
+        auto loaded_ship = ship;
+        loaded_ship.propellant_kg = std::min(load_kg(delta_v_mps), max_load_kg_);
+        return loaded_ship;
+    }
+
+private:
+    double exhaust_velocity_mps_;
+    domain::ShipClassDefinition laden_class_;
+    double onboard_kg_;
+    double reserve_;
+    double max_load_kg_ {0.0};
+};
 
 double orbital_rate_rad_s(const domain::CelestialBodyDefinition& body) {
     if (body.orbit.orbital_period_s <= 0.0) {
@@ -248,11 +303,16 @@ KeplerTrajectoryPlanner::KeplerTrajectoryPlanner(
 domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const domain::StationDefinition& origin,
     const domain::StationDefinition& destination,
-    const domain::ShipState& ship,
-    const domain::ShipClassDefinition& ship_class,
+    const domain::ShipState& ship_aboard,
+    const domain::ShipClassDefinition& bare_class,
     double current_time_s,
-    const PlanningCosts& costs) const {
+    const PlanningOptions& options) const {
     domain::TrajectoryPlan plan;
+    // Below, `ship_class` is laden with the payload and each branch flies `ship`, the
+    // ship loaded with the propellant its chosen Δv needs.
+    const ChemicalLoading loading(bare_class, ship_aboard, options);
+    const auto& ship_class = loading.laden_class();
+    const auto& costs = options;
 
     if (origin.parent_body_id == destination.parent_body_id) {
         const auto start = mechanics_.get_station_position(origin, current_time_s);
@@ -282,8 +342,10 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.wait_time_s = 0.0;
         plan.coast_time_s = coast_time_s;
         plan.travel_time_s = coast_time_s;
-        plan.propellant_required_kg = propellant_required_kg(ship, ship_class, delta_v);
-        plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+        const auto ship = loading.loaded(ship_aboard, delta_v);
+        plan.propellant_load_kg = ship.propellant_kg;
+        plan.propellant_required_kg = loading.burn_kg(delta_v);
+        plan.feasible = loading.feasible(delta_v);
 
         const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);
         const auto start_radial = (start - parent_position).normalized();
@@ -376,8 +438,10 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.coast_time_s = transfer_s;
         plan.arrival_time_s = plan.departure_time_s + transfer_s;
         plan.travel_time_s = best_wait_s + transfer_s;
-        plan.propellant_required_kg = propellant_required_kg(ship, ship_class, dv_departure + dv_arrival);
-        plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+        const auto ship = loading.loaded(ship_aboard, dv_departure + dv_arrival);
+        plan.propellant_load_kg = ship.propellant_kg;
+        plan.propellant_required_kg = loading.burn_kg(dv_departure + dv_arrival);
+        plan.feasible = loading.feasible(dv_departure + dv_arrival);
         plan.trajectory_type = "keplerian_planet_system";
 
         auto timed = planet_system_path(
@@ -446,12 +510,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     double best_dv_dep = hohmann_dv_dep;
     double best_dv_arr = hohmann_dv_arr;
     double best_dv = hohmann_dv_dep + hohmann_dv_arr;
-    bool found_feasible = ship.propellant_kg >= propellant_required_kg(ship, ship_class, best_dv);
+    bool found_feasible = loading.feasible(best_dv);
     // Cheapest feasible transfer when the owner's costs are known, else the fastest.
     const bool by_cost = costs.propellant_cr_per_kg > 0.0 || costs.time_cr_per_day > 0.0;
     const auto objective = [&](double total_s, double dv) {
         return by_cost
-            ? propellant_required_kg(ship, ship_class, dv) * costs.propellant_cr_per_kg
+            ? loading.burn_kg(dv) * costs.propellant_cr_per_kg
                 + total_s / 86400.0 * costs.time_cr_per_day
             : total_s;
     };
@@ -489,7 +553,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             const double dv_arr_k = (lam.v2 - v_circ2).length();
             const double dv_k = dv_dep_k + dv_arr_k;
             const double total_k = wait_k + transit_k;
-            const bool feas_k = ship.propellant_kg >= propellant_required_kg(ship, ship_class, dv_k);
+            const bool feas_k = loading.feasible(dv_k);
 
             const double objective_k = objective(total_k, dv_k);
             if (feas_k && (!found_feasible || objective_k < best_objective)) {
@@ -524,8 +588,10 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     plan.wait_time_s = best_dep_time - current_time_s;
     plan.travel_time_s = plan.wait_time_s + plan.coast_time_s;
     plan.arrival_time_s = current_time_s + plan.travel_time_s;
-    plan.propellant_required_kg = propellant_required_kg(ship, ship_class, delta_v);
-    plan.feasible = ship.propellant_kg >= plan.propellant_required_kg;
+    const auto ship = loading.loaded(ship_aboard, delta_v);
+    plan.propellant_load_kg = ship.propellant_kg;
+    plan.propellant_required_kg = loading.burn_kg(delta_v);
+    plan.feasible = loading.feasible(delta_v);
 
     const auto start = mechanics_.get_station_position(origin, plan.departure_time_s);
     const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);

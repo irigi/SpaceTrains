@@ -22,7 +22,7 @@ public:
         const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class,
         double current_time_s,
-        const PlanningCosts& costs = {}) const override;
+        const PlanningOptions& costs = {}) const override;
 
 private:
     const domain::UniverseDefinition& universe_;

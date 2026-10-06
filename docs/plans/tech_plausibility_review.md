@@ -29,17 +29,49 @@ Issues to check:
    insulation and boil-off control alone would weigh well over the 10 t the NTR freighter has in total,
    before the reactor (NERVA-class: about 10 t), shielding, crew habitat and cargo hold. Mass ratios of 12-20
    are not credible for crewed cargo ships.
-3. **Ion power density is about an order of magnitude ahead.** Today's solar-electric systems reach about
-   10-20 W/kg; aggressive nuclear-electric studies target 30-100 W/kg. 300-800 W/kg is far-future.
+3. **Ion power density is about an order of magnitude ahead of electric propulsion.** Today's solar-electric
+   systems reach about 10-20 W/kg; aggressive nuclear-electric studies target 30-100 W/kg. 300-800 W/kg is
+   intended, though: it matches the user's reference range below, which is a fusion/plasma-drive level.
+   Cargo mass now counts in the planners (part B), so the class names should say what the engine is.
 4. **Cargo is tiny next to the ship.** Holds of 8-60 units (1-12 t) on ships of 12-200 t wet mass. Cargo mass
-   is not in the rocket equation yet (part B of the operating-cost plan), which hides this.
+   is in the rocket equation since part B, so larger holds now cost propellant honestly.
 5. **Crew habitats and life support** are not in the dry mass at all.
+
+## Reference Range for Variable-Isp Ships (user's `~/VariableISPRocketTrajectories/linopt/`)
+
+The user's design studies (`passenger_ticket_optimizer.py`, `time_optimal_transfer_solver.py`) set the intended
+range for the variable-specific-impulse classes:
+
+| Parameter | linopt default | Meaning |
+|---|---|---|
+| Max exhaust speed | 50-250 km/s | Isp about 5,100-25,500 s |
+| Engine core | 20 kW/kg | jet power per kg of engine |
+| Radiators | 10 kW/kg | waste heat rejected per kg of radiator |
+| Waste heat | 15% of total power | 85% of the power ends up in the jet |
+| Aggregate propulsion hardware | 0.25 kg/kW (4 kW/kg) | budget model (engine + radiators) |
+| Tank mass | 5% of propellant | |
+| Reference ship | 500 t payload, ~240 t hardware, ~1 GW | whole-ship power/dry mass about 540 W/kg |
+
+Assessment:
+- The game's ion classes (alpha 300 and 800 W/kg of dry mass) sit inside this range: a linopt reference
+  ship has about 540 W/kg at the whole-ship level. So the VariableISP classes already match the intended era.
+- 15% waste heat is beyond any nuclear-electric chain (reactor to electricity at 25-40%, thruster at 60-80%:
+  70-85% of reactor power is waste heat, and radiators dominate the mass at 10s of kg/kW). It fits a
+  non-torch fusion drive that exhausts plasma directly through a magnetic nozzle, with radiators for the
+  remaining losses. Accelerations stay around 0.01-0.02 m/s², so it is not a torchship.
+- Decision (user, 2026-10-06): no torchships; radiators and efficiency limits must stay in the model, but
+  do not cut ship efficiency much. So the review keeps the variable-Isp classes at this level and labels
+  them honestly (advanced fusion or plasma drive, with radiators), rather than downgrading them to
+  present-day ion engines.
+- Consequence for the Kepler classes: in the same era, liquid- or gas-core thermal rockets at 1000-1400 s
+  are a consistent pairing; the real problems are the "chemical" label, dry masses and tankage, and the
+  tiny holds (issues 1, 2 and 4 above).
 
 ## Method
 
-1. Choose a target era (proposal: about 2080-2100, i.e. mature solid-core NTR, megawatt-class nuclear-electric
-   propulsion, no fusion) and write the reference numbers for it with sources: Isp, thrust-to-weight,
-   engine and reactor specific mass, tank fraction per propellant, habitat mass per crew member.
+1. Fix the era from the linopt range above (advanced non-torch fusion or plasma drives; liquid- or gas-core
+   thermal rockets) and write the reference numbers for it with sources: Isp, thrust-to-weight, engine and
+   reactor specific mass, radiator specific mass, tank fraction per propellant, habitat mass per crew member.
 2. Rebuild each class bottom-up from those numbers: engine + reactor + tankage + habitat + structure + hold.
    Derive dry mass, Δv with and without cargo, and acceleration; ion α from the power plant.
 3. Price ships from the same breakdown, so `ship_value_cr` follows the hardware.

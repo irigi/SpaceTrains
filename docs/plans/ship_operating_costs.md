@@ -98,6 +98,7 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v12 | water/O2 recycled, tank fuel at base price, return-fuel check | 459k | 47k | 51k | 274k | 5/22 | 14 | 39 |
 | v13 | two-leg mission scoring (alone) | 355k | 25k | 61k | 270k | 4/22 | 14 | 37 |
 | v14 | + 2-year provisioning endurance, cost-optimal Lambert, rocket-equation return check | 809k | 53k | 98k | 274k | 11/22 | 13 | 35 |
+| v16 | part B: mission-sized fuelling, cargo + provisions in the rocket equation | 690k | 10k | 108k | 274k | 10/22 | 9 | 34 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).
@@ -138,6 +139,25 @@ lines are 35 vs a baseline of 14, now concentrated in the outer system (Ceres, G
 The outer system is uneconomic because holds are tiny next to tanks: an NTR freighter carries 30 units
 (3-6 t) on 190 t of propellant. Raising cargo capacities only makes sense once cargo mass enters the rocket
 equation, which belongs with part B (mission-sized fuelling).
+
+## Part B: Mission-Sized Fuelling (v16)
+
+- `PlanningOptions` (was `PlanningCosts`) also carries the payload (cargo + provisions), the propellant the
+  ship could still buy at the origin, and the reserve (10%). Plans report `propellant_load_kg`: what is
+  aboard at departure.
+- Chemical/NTR (`ChemicalLoading`): the load for a Δv is the smallest L with L = 1.1 x burn, burn =
+  (m_dry + payload + L)(1 - e^{-Δv/ve}), but never less than what is already aboard. The Lambert search
+  costs each candidate with that load, so payload and tank mass both enter the time-versus-fuel choice.
+- VariableISP: engine power stays alpha x hull mass; payload only adds mass. The ship tries fuel budgets of
+  100/75/55/40% of what it could load, ranks them by atlas estimate (fuel cost + time cost of the best
+  window), and refines the two cheapest. Departs with 1.1 x the budget, so it arrives with the reserve.
+- Ships no longer top up to 80% whenever idle; they buy the plan's load when a mission is assigned (the
+  removed rules: refuel below 50%, ion 15% planning reserve, ion 25% arrival rule). Stranded = no
+  mission, under 1% fuel and none for sale.
+- Plans are cached per (destination, cargo tonne); docked ships look for work every 6 hours, laid-up ships
+  every 5 days. 730-day run 2m44 (v14: 2m51).
+- Result: fuel bought 53k -> 10k cr; trajectory audit 0 flagged of 102 accepted plans (max ion revolutions
+  1.07). Profitable ships 11 -> 10 and the margin concentrates (one ion freighter earns 260k).
 
 **Status vs targets (v12):** money conserved, no strandings, the fleet as a whole earns more than it costs (v12: 459k
 margin vs ~377k costs). Not met: profits concentrate in 5-7 ships, most ships end laid up, and stations starve

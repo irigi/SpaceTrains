@@ -50,7 +50,11 @@ private:
     [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
-    [[nodiscard]] bool try_refuel(domain::ShipState& ship);
+    // Propellant the ship's current port will sell it (capped by free tank space).
+    [[nodiscard]] double purchasable_propellant_kg(const domain::ShipState& ship) const;
+    [[nodiscard]] double provisions_mass_kg(const domain::ShipState& ship) const;
+    // Buys up to `kg` of propellant at the current port (missions fuel on departure).
+    void buy_propellant(domain::ShipState& ship, double kg);
     // Operating economics (docs/plans/ship_operating_costs.md).
     [[nodiscard]] double daily_capital_cost(const domain::ShipClassDefinition& ship_class) const;
     [[nodiscard]] double daily_crew_cost(
@@ -75,7 +79,8 @@ private:
         const domain::StationDefinition& origin,
         const domain::StationDefinition& destination,
         double departure_time_s,
-        double propellant_kg);
+        double available_propellant_kg,
+        double payload_kg);
     void step_awaiting_departure_ship(domain::ShipState& ship);
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
     void add_event(std::string text, std::string category = "general");

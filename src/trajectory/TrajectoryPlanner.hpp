@@ -37,12 +37,21 @@ struct TimedPath {
     double transfer_time_s,
     bool kepler_timing);
 
-// What the ship's owner pays for propellant and for each day of wait and transit.
-// Planners that can trade time against propellant pick the cheapest transfer; with
-// both zero they pick the fastest one the tank allows.
-struct PlanningCosts {
+// How a ship is to be planned for. All defaults reproduce the plain physics: the
+// fastest transfer the propellant already aboard allows, with no payload.
+struct PlanningOptions {
+    // What the owner pays for propellant and for each day of wait and transit.
+    // Planners that can trade time against propellant then pick the cheapest transfer.
     double propellant_cr_per_kg {0.0};
     double time_cr_per_day {0.0};
+    // Cargo and provisions aboard; they ride on the rocket equation like the hull.
+    double payload_kg {0.0};
+    // Propellant the ship could still buy at the origin before departure (the tank
+    // capacity caps it). The planner loads what the transfer needs plus the reserve,
+    // never less than is already aboard.
+    double purchasable_propellant_kg {0.0};
+    // Propellant kept unburned on arrival, as a fraction of the burn.
+    double reserve_fraction {0.0};
 };
 
 // Effective exhaust velocity of a chemical/NTR class, from its rated full-tank Δv
@@ -59,7 +68,7 @@ public:
         const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class,
         double current_time_s,
-        const PlanningCosts& costs = {}) const = 0;
+        const PlanningOptions& costs = {}) const = 0;
 };
 
 class KeplerTrajectoryPlanner final : public ITrajectoryPlanner {
@@ -74,7 +83,7 @@ public:
         const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class,
         double current_time_s,
-        const PlanningCosts& costs = {}) const override;
+        const PlanningOptions& costs = {}) const override;
 
 private:
     const domain::UniverseDefinition& universe_;

@@ -552,6 +552,68 @@ int main() {
         }
     }
 
+    // --- Mission-sized fuelling (operating costs part B) ---
+    // Ships load what the transfer burns plus a reserve, not a full tank, and cargo rides
+    // on the rocket equation. Default PlanningOptions keep the old full-tank behaviour.
+    {
+        const auto& freighter = ship_class_by_id(universe, "light_freighter");
+        const auto& earth_l1 = station_by_id(universe, "earth_l1");
+        const auto& leo = station_by_id(universe, "earth_orbit");
+        const auto& mars = station_by_id(universe, "mars_transfer");
+        spacetrains::domain::ShipState empty_tank;
+        empty_tank.class_id = freighter.id;
+        const spacetrains::trajectory::PlanningOptions buy_fuel {
+            .propellant_cr_per_kg = 0.08,
+            .time_cr_per_day = 20.0,
+            .purchasable_propellant_kg = freighter.propellant_capacity_kg,
+            .reserve_fraction = 0.1,
+        };
+        const auto sized = planner.plan_transfer(earth_l1, mars, empty_tank, freighter, 0.0, buy_fuel);
+        require(sized.feasible, "an empty-tank freighter that may buy fuel should reach Mars");
+        require(sized.propellant_load_kg >= 1.1 * sized.propellant_required_kg * (1.0 - 1e-9),
+            "the load must cover the burn plus the 10% reserve");
+        require(sized.propellant_load_kg < freighter.propellant_capacity_kg,
+            "a mission-sized load should not fill the tank for Earth L1 -> Mars");
+        require_near(sized.sampled_propellant_kg.front(), sized.propellant_load_kg, 1e-6,
+            "the path's propellant must start at the departure load");
+
+        // Same Δv (fixed local transfer), minimal loads: the burn scales with the laden dry mass.
+        auto laden = buy_fuel;
+        laden.payload_kg = freighter.dry_mass_kg;
+        const auto light = planner.plan_transfer(earth_l1, leo, empty_tank, freighter, 0.0, buy_fuel);
+        const auto heavy = planner.plan_transfer(earth_l1, leo, empty_tank, freighter, 0.0, laden);
+        require(light.feasible && heavy.feasible, "local transfers should be feasible with fuel for sale");
+        require_near(heavy.propellant_required_kg / light.propellant_required_kg, 2.0, 1e-6,
+            "doubling the dry mass with cargo must double the burn");
+
+        // A ship never drains what it already carries.
+        spacetrains::domain::ShipState full_tank = empty_tank;
+        full_tank.propellant_kg = freighter.propellant_capacity_kg;
+        const auto full = planner.plan_transfer(earth_l1, leo, full_tank, freighter, 0.0, buy_fuel);
+        require_near(full.propellant_load_kg, freighter.propellant_capacity_kg, 1e-6,
+            "a full tank departs full");
+        require(full.propellant_required_kg > light.propellant_required_kg,
+            "carrying a full tank costs more propellant than a sized load");
+
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        const auto& ion_class = ship_class_by_id(universe, "ion_freighter");
+        spacetrains::domain::ShipState ion_empty;
+        ion_empty.class_id = ion_class.id;
+        auto ion_options = buy_fuel;
+        ion_options.purchasable_propellant_kg = ion_class.propellant_capacity_kg;
+        const auto ion_sized = visp_planner.plan_transfer(earth_l1, mars, ion_empty, ion_class, 0.0, ion_options);
+        require(ion_sized.feasible, "an empty-tank ion freighter that may buy fuel should reach Mars");
+        require(ion_sized.propellant_load_kg <= ion_class.propellant_capacity_kg * (1.0 + 1e-9),
+            "an ion load must fit the tank");
+        require(ion_sized.propellant_load_kg >= 1.09 * ion_sized.propellant_required_kg,
+            "an ion load must keep the reserve unburned");
+        require(ion_sized.sampled_propellant_kg.back() >= 0.09 * ion_sized.propellant_required_kg,
+            "an ion ship must arrive with its reserve");
+    }
+
     // --- VariableISP endpoint regression (bug: trajectory ends in a sharp "dent") ---
     // Atlas seeds were used unrefined: blended corners mixed solution branches and
     // nearest-cell seeds were solved for a different rho, so paths missed the destination
