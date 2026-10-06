@@ -63,6 +63,25 @@ Next fixes:
 
 - Re-run the 730-day audit; check whether goods still pile up at producers while consumers starve.
 - Check whether short-hop clustering around Earth L1 survived the profit-based dispatch.
+- **Ship operating costs**, parts A (done, calibrating) -> B mission-sized fuelling with cargo mass in the
+  rocket equation -> C modular tanks and refits. See `docs/plans/ship_operating_costs.md`.
+- **Technology plausibility review** of all ship classes (one consistent near-future tech level). See
+  `docs/plans/tech_plausibility_review.md`. Do it with or before part B.
+- **Fleet investment.** The starting fleet is not final, and some classes may simply be uneconomic on some
+  routes. Owners should respond: sell or scrap ships laid up for long periods (salvage value), and commission
+  new ships of the class with the best observed return on capital for the routes that need serving. Needs
+  per-class, per-route earnings (the ship ledgers already hold most of it).
+- **Open economy with exact accounting.** Stations produce for free and consumers only spend, so consumer
+  stations bleed money (Lunar Gateway ended a 730-day run at -87k cr) while producers and home ports pile it up.
+  Add an explicit external account (Earth's economy and faction treasuries): population income, subsidies to
+  stations below a floor, taxes or stashing above a ceiling, and a slow controller that keeps the money supply
+  roughly constant. The audit keeps checking that every credit moves between named accounts (internal money +
+  external account = constant), so it still catches economy bugs.
+- **Outer-system exports.** Give outer stations something worth shipping inward, not exotic matter.
+  Candidates: platinum-group metals and other high-value metals from the Ceres belt; deuterium (heavy water)
+  from Ganymede and Titan ice for fusion research and reactors; nitrogen and ammonia from Titan for the
+  nitrogen-poor Moon and Mars; physical science samples (low mass, high value, limited demand). Earth's
+  economy (the external account) buys them through the Earth stations at stable prices.
 
 ## Phase 3 — Persistence and Scenario Control
 

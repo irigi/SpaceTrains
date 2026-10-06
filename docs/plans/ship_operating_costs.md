@@ -64,8 +64,9 @@ Targets, measured with the 730-day `--econ-audit` and the trajectory sweep:
 
 1. A representative good interplanetary cargo run (Earth L1 <-> Mars / Venus, light freighter) earns a net
    margin of about 1.5-3x its fuel plus time cost.
-2. At least half of the fleet ends the 730 days with positive lifetime profit; no ship stays laid up for the
-   whole run.
+2. At least half of the fleet ends the 730 days with positive lifetime profit. (A ship laid up for the whole
+   run is acceptable when its class is uneconomic where it sits: the starting fleet is not final, and fleet
+   investment, on the roadmap, will retire or move such ships.)
 3. Waiting at least 200 days for a launch window should only win when the cargo margin justifies it, and
    multi-revolution ion trajectories should almost never be accepted, with no explicit rule against them.
 4. Total money is conserved; no strandings; CRITICAL starvation does not get worse than the baseline (14).
