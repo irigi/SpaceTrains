@@ -14,9 +14,54 @@
 - Bridge snapshots carry `trajectory_path`, destination ghost, and snapshot timing for smooth interpolation.
 - Procedural sci-fi HUD (top bar, entity browser, inspector, market panel, event ticker).
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
-- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch, fleet growth; fleet-collapse fix (730-day audit: 0 stranded).
+- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). (No ship purchasing exists in the code as of 2026-10; see fleet investment.)
 
-## Next — Trajectory Correctness Over Long Runs (current)
+## Current Plan (updated 2026-10-06) — start here
+
+Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
+Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
+
+### Decisions so far
+
+- **Economy target:** physical and economic feasibility. Uneconomic trajectories (multi-revolution, long
+  waits) must lose on cost (capital, wages, provisions, fuel), not on heuristics.
+- **Operating costs (part A, done):** wages and capital paid to the home station; provisions are real
+  food/water/oxygen; ships with no money or no work lay up. Two-leg mission scoring.
+- **Fuelling (part B, done):** missions load burn + 10% reserve; cargo and provisions are in the rocket
+  equation; ion ships choose their fuel load by fuel + time cost.
+- **Perihelion limit** 0.1 AU for every planner.
+- **Unviable ships are acceptable:** the starting fleet is not final. A class that cannot earn on a route
+  should simply not be used there; the economy should deploy other ships (fleet investment, below).
+- **Technology era:** variable-Isp ships stay at the level of the user's `~/VariableISPRocketTrajectories/linopt/`
+  studies (exhaust 50-250 km/s, about 540 W/kg at ship level, radiators, 15% waste heat). No torchships;
+  keep radiators and efficiency limits, but do not cut ship efficiency much.
+- **Naming (proposed, not yet confirmed by the user):** variable-Isp classes are advanced plasma or fusion
+  drives with radiators, not "ion"; the "chemical" Kepler classes are nuclear-thermal (solid core about
+  900-1000 s, liquid/gas core up to about 1400 s). Rename in data and UI during the tech review.
+- **Money:** keep exact accounting. Prefer an open economy with an explicit external account (Earth's
+  economy, faction treasuries) over a strictly closed one; the audit must still reconcile to zero drift.
+- **Outer-system exports:** no exotic matter. Candidates: platinum-group metals (Ceres belt), deuterium
+  (Ganymede, Titan), nitrogen/ammonia (Titan), science samples.
+
+### Next steps, in order
+
+1. **Tech plausibility review** (`docs/plans/tech_plausibility_review.md`): fix reference numbers for the
+   era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
+   price ships from the breakdown. Confirm the naming with the user first.
+2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): tank size as a refit
+   option at a base, with refit cost and time; depends on the tank masses from step 1.
+3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
+   return for the routes that need serving.
+4. **Open economy** with an external account, subsidies/stashing and a slow money-supply controller.
+5. **Outer-system exports** bought by Earth's economy.
+6. Leftover trajectory items: theta branches, atlas time-optimality (see below).
+
+Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
+--econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
+(v16: 10/22 profitable, fuel 10k cr, 9 laid up, 34 CRITICAL lines, run 2m44). Debug idle ships with
+`SPACETRAINS_TRACE_SHIP="<ship name>"`.
+
+## Trajectory Correctness Over Long Runs (mostly done)
 
 Unphysical trajectories appear after months of self-play:
 
