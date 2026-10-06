@@ -95,6 +95,8 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v6 | Earth-Moon transfers around Earth (was 183 d) | 390k | 35k | 31k | 274k | 7/22 | 21 | 44 |
 | v9 | demand follows price signals, not just recipes | 695k | 45k | 40k | 274k | 7/22 | 20 | 41 |
 | v12 | water/O2 recycled, tank fuel at base price, return-fuel check | 459k | 47k | 51k | 274k | 5/22 | 14 | 39 |
+| v13 | two-leg mission scoring (alone) | 355k | 25k | 61k | 270k | 4/22 | 14 | 37 |
+| v14 | + 2-year provisioning endurance, cost-optimal Lambert, rocket-equation return check | 809k | 53k | 98k | 274k | 11/22 | 13 | 35 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).
@@ -107,7 +109,36 @@ Mechanisms found on the way (each fixed in the code):
 - Fuel already in the tank was valued at the origin's scarcity price (16x), so loaded ships never left
   fuel-starved ports; it is now valued at base price.
 
-**Status vs targets:** money conserved, no strandings, the fleet as a whole earns more than it costs (v12: 459k
+### Two-leg scoring (v13-v14)
+
+- Every candidate leg (cargo, or empty toward a pickup) is scored with the best follow-up leg from its
+  destination: `(urgency * leg profit + follow-up profit) / (leg days + follow-up days)`. Follow-ups are
+  estimated from today's stocks and prices, minus the holds of ships already docked at or inbound to that
+  port; with no profitable follow-up the ship is charged an empty trip back (or 30 idle days if even that is
+  impossible). Follow-up plans are cached per class, 5-day departure bucket and 10%-of-tank fuel bucket
+  (`Simulation::estimate_leg`). The old sourcing-score repositioning remains as a fallback.
+- On its own (v13) this changed nothing: the trace (`SPACETRAINS_TRACE_SHIP`) showed the idle ships had no
+  feasible legs to choose between. Three physical blockers, each fixed:
+  1. Crews carried 180 days of food but outer legs take 400-1100 days and outer ports import food. Ships now
+     keep 730 days aboard (start with it; top up where ports can spare it; on departure the mission's own
+     need may come out of the whole stock).
+  2. The Lambert search picked the fastest transfer the tank allowed, burning 70-100% of an NTR's fuel per
+     leg. It now minimises fuel cost plus time cost (`PlanningCosts`).
+  3. The return-fuel check demanded the outbound leg's full-tank propellant again. A ship arriving nearly
+     empty needs far less for the same delta-v: `dry * (mass_ratio - 1)`.
+- v14 trajectory audit (730 days, 108 accepted plans): 0 flagged; the most revolutions on an accepted ion
+  path is 1.18.
+
+**Status vs targets after v14:** money conserved (drift 0), no strandings, 11/22 ships profitable (target
+met), no accepted multi-revolution trajectories (met). Not met: three ships never leave their port (two ion
+freighters at Titan have no converged atlas window to any destination; an NTR at Ganymede has only
+600-800-day legs whose cargo, 30 units worth about 900 cr, cannot pay about 25k of time cost), and CRITICAL
+lines are 35 vs a baseline of 14, now concentrated in the outer system (Ceres, Ganymede, Titan) and Mercury.
+The outer system is uneconomic because holds are tiny next to tanks: an NTR freighter carries 30 units
+(3-6 t) on 190 t of propellant. Raising cargo capacities only makes sense once cargo mass enters the rocket
+equation, which belongs with part B (mission-sized fuelling).
+
+**Status vs targets (v12):** money conserved, no strandings, the fleet as a whole earns more than it costs (v12: 459k
 margin vs ~377k costs). Not met: profits concentrate in 5-7 ships, most ships end laid up, and stations starve
 more than in the baseline (39 vs 14 CRITICAL lines). The fleet moves only ~1.9 units/day against ~11 units/day of
 demand: long launch windows (Mars synodic ~780 days), provisioning range, and refuel constraints make many

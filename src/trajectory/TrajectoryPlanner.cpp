@@ -250,7 +250,8 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const domain::StationDefinition& destination,
     const domain::ShipState& ship,
     const domain::ShipClassDefinition& ship_class,
-    double current_time_s) const {
+    double current_time_s,
+    const PlanningCosts& costs) const {
     domain::TrajectoryPlan plan;
 
     if (origin.parent_body_id == destination.parent_body_id) {
@@ -444,14 +445,22 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     double best_transit_time = hohmann_time_s;
     double best_dv_dep = hohmann_dv_dep;
     double best_dv_arr = hohmann_dv_arr;
-    double best_total_time = hohmann_wait_s + hohmann_time_s;
     double best_dv = hohmann_dv_dep + hohmann_dv_arr;
     bool found_feasible = ship.propellant_kg >= propellant_required_kg(ship, ship_class, best_dv);
+    // Cheapest feasible transfer when the owner's costs are known, else the fastest.
+    const bool by_cost = costs.propellant_cr_per_kg > 0.0 || costs.time_cr_per_day > 0.0;
+    const auto objective = [&](double total_s, double dv) {
+        return by_cost
+            ? propellant_required_kg(ship, ship_class, dv) * costs.propellant_cr_per_kg
+                + total_s / 86400.0 * costs.time_cr_per_day
+            : total_s;
+    };
+    double best_objective = objective(hohmann_wait_s + hohmann_time_s, best_dv);
     bool best_from_lambert = false;
     math::Vec3d best_r1_pos{}, best_r2_pos{}, best_v1_lambert{};
 
     // Lambert grid search: N_DEP departure offsets × N_TRANSIT transit fractions.
-    // Minimise total_time = wait + transit, subject to propellant feasibility.
+    // Minimise the objective above (cost, or wait + transit), subject to propellant feasibility.
     constexpr int N_DEP = 30;
     constexpr int N_TRANSIT = 10;
     const double search_window_s = std::min(synodic_period_s, 730.0 * 86400.0);
@@ -482,8 +491,9 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             const double total_k = wait_k + transit_k;
             const bool feas_k = ship.propellant_kg >= propellant_required_kg(ship, ship_class, dv_k);
 
-            if (feas_k && total_k < best_total_time) {
-                best_total_time = total_k;
+            const double objective_k = objective(total_k, dv_k);
+            if (feas_k && (!found_feasible || objective_k < best_objective)) {
+                best_objective = objective_k;
                 best_dv = dv_k;
                 found_feasible = true;
                 best_dep_time = dep_time_k;
@@ -694,6 +704,10 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.propellant_required_kg,
         plan.feasible ? "feasible" : "insufficient fuel");
     return plan;
+}
+
+double chemical_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class) {
+    return effective_exhaust_velocity_mps(ship_class);
 }
 
 }  // namespace spacetrains::trajectory

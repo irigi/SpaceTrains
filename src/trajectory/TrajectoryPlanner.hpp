@@ -37,6 +37,18 @@ struct TimedPath {
     double transfer_time_s,
     bool kepler_timing);
 
+// What the ship's owner pays for propellant and for each day of wait and transit.
+// Planners that can trade time against propellant pick the cheapest transfer; with
+// both zero they pick the fastest one the tank allows.
+struct PlanningCosts {
+    double propellant_cr_per_kg {0.0};
+    double time_cr_per_day {0.0};
+};
+
+// Effective exhaust velocity of a chemical/NTR class, from its rated full-tank Δv
+// (0 for classes without one, e.g. ion ships).
+[[nodiscard]] double chemical_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class);
+
 class ITrajectoryPlanner {
 public:
     virtual ~ITrajectoryPlanner() = default;
@@ -46,7 +58,8 @@ public:
         const domain::StationDefinition& destination,
         const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class,
-        double current_time_s) const = 0;
+        double current_time_s,
+        const PlanningCosts& costs = {}) const = 0;
 };
 
 class KeplerTrajectoryPlanner final : public ITrajectoryPlanner {
@@ -60,7 +73,8 @@ public:
         const domain::StationDefinition& destination,
         const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class,
-        double current_time_s) const override;
+        double current_time_s,
+        const PlanningCosts& costs = {}) const override;
 
 private:
     const domain::UniverseDefinition& universe_;

@@ -21,7 +21,8 @@ public:
         const domain::StationDefinition& destination,
         const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class,
-        double current_time_s) const override;
+        double current_time_s,
+        const PlanningCosts& costs = {}) const override;
 
 private:
     const domain::UniverseDefinition& universe_;

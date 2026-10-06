@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -63,6 +64,18 @@ private:
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
     void pay_home_station(domain::ShipState& ship, double amount);
     void step_idle_ship(domain::ShipState& ship);
+    // Two-leg mission scoring: a cheap, cached estimate of a follow-up leg.
+    struct LegEstimate {
+        bool feasible {false};
+        double travel_days {0.0};
+        double propellant_kg {0.0};
+    };
+    [[nodiscard]] LegEstimate estimate_leg(
+        const domain::ShipClassDefinition& ship_class,
+        const domain::StationDefinition& origin,
+        const domain::StationDefinition& destination,
+        double departure_time_s,
+        double propellant_kg);
     void step_awaiting_departure_ship(domain::ShipState& ship);
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
     void add_event(std::string text, std::string category = "general");
@@ -89,6 +102,8 @@ private:
     std::vector<domain::TradeEntry> recent_trades_;
     bool trajectory_audit_enabled_ {false};
     std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
+    // estimate_leg() cache: departure bucket -> "class|from|to|fuel bucket" -> estimate.
+    std::map<std::int64_t, std::unordered_map<std::string, LegEstimate>> leg_estimates_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
 };

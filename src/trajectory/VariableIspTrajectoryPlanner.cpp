@@ -93,7 +93,8 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const domain::StationDefinition& destination,
     const domain::ShipState& ship,
     const domain::ShipClassDefinition& ship_class,
-    double current_time_s) const {
+    double current_time_s,
+    const PlanningCosts& /*costs*/) const {
 
     domain::TrajectoryPlan plan;
 

@@ -30,9 +30,15 @@ public:
         const StationDefinition& destination,
         const ShipState& ship,
         const ShipClassDefinition& ship_class,
-        double current_time_s) const = 0;
+        double current_time_s,
+        const PlanningCosts& costs = {}) const = 0;
 };
 ```
+
+`PlanningCosts` carries what the owner pays per kg of propellant and per day of wait plus transit. The
+Kepler Lambert search then minimises `propellant * cr_per_kg + days * cr_per_day` over feasible candidates,
+so ships trade speed for fuel; with both costs zero (tests, sweeps) it picks the fastest feasible transfer.
+The VariableISP planner ignores the costs for now (it flies the atlas window its fuel allows).
 
 `TrajectoryPlan` must remain the common contract across Kepler and later VariableISP implementations. Its timed samples are copied into active missions and are authoritative for bridge ship positions and selected trajectory rendering.
 
