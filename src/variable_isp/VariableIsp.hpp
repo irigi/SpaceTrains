@@ -3,6 +3,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -62,13 +64,6 @@ struct Index3 {
     std::size_t k {0};
 };
 
-// How query() produced its seed: trilinear blend of a fully solved cube, or the
-// nearest solved cell (whose rho/kappa/theta may differ from the request).
-struct AtlasQueryInfo {
-    bool interpolated {false};
-    Index3 nearest {};
-};
-
 class VariableIspAtlas {
 public:
     static constexpr std::uint64_t kRecordWidth = 6;
@@ -87,12 +82,7 @@ public:
         double kappa,
         double theta_rad,
         std::size_t search_radius = 1) const;
-    [[nodiscard]] AtlasSeed query(
-        double rho,
-        double kappa,
-        double theta_rad,
-        std::size_t search_radius = 1,
-        AtlasQueryInfo* info = nullptr) const;
+    [[nodiscard]] AtlasSeed query(double rho, double kappa, double theta_rad, std::size_t search_radius = 1) const;
 
 private:
     [[nodiscard]] std::size_t cell_index(std::size_t i, std::size_t j, std::size_t k) const;
@@ -103,6 +93,24 @@ private:
     std::vector<double> theta_grid_;
     std::vector<std::uint8_t> solved_mask_;
     std::vector<double> records_;
+};
+
+// Endpoint correction of an atlas seed (indirect shooting). The thrust law has a
+// fixed gain, so the path depends only on the costates and T, never on kappa:
+// kappa only decides whether the fuel suffices, which the caller checks.
+struct ShootingSettings {
+    std::size_t max_iterations {12};
+    double r_tolerance_rel {1e-4};       // |r_end / r_target - 1|
+    double theta_tolerance_rad {1e-4};
+    double velocity_tolerance_rel {1e-3};  // radial / circular-mismatch speed over v_circ(target)
+    double finite_difference_step {1e-6};  // in scaled unknowns
+};
+
+struct ShootingResult {
+    bool converged {false};
+    AtlasSeed seed;                 // corrected costates and transfer time
+    std::size_t iterations {0};
+    double residual_norm {0.0};     // scaled; < ~1e-3 when converged
 };
 
 class VariableIspIntegrator {
@@ -116,6 +124,26 @@ public:
 
     [[nodiscard]] static CanonicalMissionConfig canonical_config(double rho, double kappa);
     [[nodiscard]] static double normalize_angle(double angle_rad);
+
+    // Newton-correct `seed` so the canonical trajectory ends at r_target_m on a
+    // circular orbit (v_r = 0, v_theta = v_circ) at swept angle theta_target_rad.
+    // Pass theta_target on the branch the seed already flies (unwrapped).
+    [[nodiscard]] ShootingResult refine_seed(
+        const AtlasSeed& seed,
+        const CanonicalMissionConfig& config,
+        double r_target_m,
+        double theta_target_rad,
+        const ShootingSettings& settings = {}) const;
+
+    // Same, for a target that moves with the transfer time (e.g. the destination
+    // station's position at departure + T). `target(T_days)` returns the canonical
+    // {r_m, theta_rad}; theta must be on the branch the seed flies.
+    using MovingTarget = std::function<std::pair<double, double>(double transfer_time_days)>;
+    [[nodiscard]] ShootingResult refine_seed(
+        const AtlasSeed& seed,
+        const CanonicalMissionConfig& config,
+        const MovingTarget& target,
+        const ShootingSettings& settings = {}) const;
 
     [[nodiscard]] IntegrationSummary integrate_fixed_time(
         const AtlasSeed& seed,

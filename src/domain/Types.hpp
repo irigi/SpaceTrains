@@ -180,7 +180,9 @@ struct TrajectoryDiagnostics {
     double theta_target_rad {0.0};  // launch-window theta from the atlas grid
     double theta_actual_rad {0.0};  // theta reached by the integrated trajectory
     double r_end_canonical_ratio {0.0};  // integrated final radius / canonical rho
-    std::string seed_source;        // interpolated | nearest
+    std::string seed_source;        // refined (atlas cell seed after endpoint shooting)
+    std::size_t refine_iterations {0};
+    std::size_t windows_tried {0};  // launch windows attempted before one converged
 };
 
 struct TrajectoryPlan {

@@ -504,7 +504,8 @@ int main() {
     // --- VariableISP integration hang regression ---
     // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth L1 -> Titan at
     // day 210 got an atlas seed that dives into the Sun, and RK45 shrank its step forever.
-    // The integrator now has a step budget and the planner treats the failure as no window.
+    // The integrator now has a step budget, and the planner refines a real atlas cell instead
+    // of using the diverging seed, falling through to the next window when one fails.
     {
         const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
         spacetrains::variable_isp::VariableIspAtlas visp_atlas;
@@ -517,7 +518,63 @@ int main() {
         const auto plan = visp_planner.plan_transfer(
             station_by_id(universe, "earth_l1"), station_by_id(universe, "titan_works"),
             low_fuel_ship, ion_class, 210.0 * 86400.0);
-        require(!plan.feasible, "Earth L1 -> Titan with a diverging seed must come back infeasible, not hang");
+        if (plan.feasible) {
+            require(plan.diagnostics.endpoint_miss_m < 1.5e9,
+                "Earth L1 -> Titan low-fuel plan, if feasible, must end at Titan before the snap");
+        }
+    }
+
+    // --- VariableISP endpoint regression (bug: trajectory ends in a sharp "dent") ---
+    // Atlas seeds were used unrefined: blended corners mixed solution branches and
+    // nearest-cell seeds were solved for a different rho, so paths missed the destination
+    // (up to 13 AU) and the final snap drew a dent. Seeds are now shooting-refined onto the
+    // stations' actual positions. Cases are from --trajectory-sweep; plus a small grid.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        constexpr double kMaxMissM = 7.5e8;  // 0.005 AU
+        const auto check = [&](const char* class_id, const char* from, const char* to, double fuel_fraction, double day) {
+            const auto& ship_class = ship_class_by_id(universe, class_id);
+            spacetrains::domain::ShipState ship;
+            ship.class_id = ship_class.id;
+            ship.propellant_kg = fuel_fraction * ship_class.propellant_capacity_kg;
+            const auto& origin = station_by_id(universe, from);
+            const auto& destination = station_by_id(universe, to);
+            const auto plan = visp_planner.plan_transfer(origin, destination, ship, ship_class, day * 86400.0);
+            if (!plan.feasible) {
+                return false;
+            }
+            const auto audit = spacetrains::trajectory::audit_trajectory(
+                plan,
+                mechanics.get_heliocentric_radius(origin.parent_body_id, plan.departure_time_s),
+                mechanics.get_heliocentric_radius(destination.parent_body_id, plan.arrival_time_s));
+            const auto message = std::format("VariableISP {} {}->{} fuel={:.0f}% day={:.0f}: miss={:.4f}AU start={:.4f}AU flags={}",
+                class_id, from, to, fuel_fraction * 100.0, day,
+                plan.diagnostics.endpoint_miss_m / 1.495978707e11, plan.diagnostics.start_miss_m / 1.495978707e11,
+                audit.flags.size());
+            require(plan.diagnostics.endpoint_miss_m < kMaxMissM, message.c_str());
+            require(plan.diagnostics.start_miss_m < kMaxMissM, message.c_str());
+            require(std::find(audit.flags.begin(), audit.flags.end(), "end_dent") == audit.flags.end(), message.c_str());
+            return true;
+        };
+        // Worst cases before the fix: 0.088 AU dent, 13.3 AU overshoot, 0.07 AU dent.
+        require(check("ion_courier", "venus_cloud", "earth_l1", 0.65, 185.0), "Venus->Earth L1 ion courier should be feasible");
+        check("ion_freighter", "mars_transfer", "titan_works", 0.75, 540.0);
+        check("ion_freighter", "earth_l1", "ceres_depot", 0.65, 384.0);
+        // Moon stations at both ends (offset from the parent planet) and co-orbiting Earth/Moon.
+        check("ion_courier", "ganymede_depot", "titan_works", 0.35, 480.0);
+        check("ion_courier", "luna_base", "earth_orbit", 0.35, 15.0);
+        int feasible = 0;
+        for (const char* to : {"venus_cloud", "mars_transfer", "ceres_depot", "mercury_yard"}) {
+            for (const double fuel : {0.2, 0.6, 1.0}) {
+                for (const double day : {0.0, 200.0, 400.0}) {
+                    feasible += check("ion_freighter", "earth_l1", to, fuel, day) ? 1 : 0;
+                }
+            }
+        }
+        require(feasible >= 20, "most Earth L1 ion freighter plans in the grid should be feasible");
     }
 
     std::cout << "All SpaceTrains tests passed.\n";

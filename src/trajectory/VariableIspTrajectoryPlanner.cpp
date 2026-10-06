@@ -4,6 +4,8 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <utility>
+#include <vector>
 #include <stdexcept>
 
 namespace spacetrains::trajectory {
@@ -148,9 +150,10 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
 
     domain::TrajectoryPlan plan;
 
-    // Same-parent transfers are not handled by VariableISP planner.
+    // Same-parent transfers are not handled by VariableISP planner (ion ships
+    // currently cannot fly them; there is no fallback in the simulation).
     if (origin.parent_body_id == destination.parent_body_id) {
-        return plan;  // infeasible — caller falls back to Kepler local transfer
+        return plan;
     }
 
     const auto* origin_body_ptr = bodies_by_id_.at(origin.parent_body_id);
@@ -210,29 +213,41 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const std::size_t j0 = lower_grid_idx(kappa_grid, kappa);
     const std::size_t j1 = std::min(j0 + 1, kappa_grid.size() - 1);
 
-    // Search the theta grid for the launch window minimising total trip time.
-    // We use direct is_solved + seed_at access (O(1) per cell) to avoid the O(n)
-    // global fallback inside atlas_.query(). We accept the nearest-grid-point
-    // approximation for timing and use the proper atlas_.query() only for the final seed.
-    double best_total_s = std::numeric_limits<double>::max();
-    double best_theta_f = 0.0;
-    bool found_window = false;
-
-    for (std::size_t k = 0; k < theta_grid.size(); ++k) {
-        // Find any solved cell in the 2×2×1 rho×kappa neighborhood at this theta.
-        variable_isp::AtlasSeed seed;
-        bool have_seed = false;
+    // Solved cells of the 2×2 rho×kappa neighborhood at theta index k, closest first.
+    // Closeness in rho matters most: the path depends on the costates only, and
+    // kappa merely decides whether the fuel suffices.
+    const auto neighborhood_cells = [&](std::size_t k) {
+        std::vector<std::pair<std::size_t, std::size_t>> cells;
         for (auto ii : {i0, i1}) {
             for (auto jj : {j0, j1}) {
-                if (atlas_.is_solved(ii, jj, k)) {
-                    seed = atlas_.seed_at(ii, jj, k);
-                    have_seed = true;
-                    break;
+                if (atlas_.is_solved(ii, jj, k)
+                    && std::find(cells.begin(), cells.end(), std::pair{ii, jj}) == cells.end()) {
+                    cells.emplace_back(ii, jj);
                 }
             }
-            if (have_seed) break;
         }
-        if (!have_seed || seed.transfer_time_days <= 0.0) {
+        const auto distance = [&](const std::pair<std::size_t, std::size_t>& cell) {
+            return 10.0 * std::abs(std::log(rho_grid[cell.first] / rho))
+                + std::abs(std::log(kappa_grid[cell.second] / kappa));
+        };
+        std::sort(cells.begin(), cells.end(), [&](const auto& a, const auto& b) { return distance(a) < distance(b); });
+        return cells;
+    };
+
+    // Rank launch windows by total trip time (wait + transfer) over the theta grid,
+    // using the nearest solved cell's transfer time as the estimate. O(1) per cell.
+    struct Window {
+        double total_s;
+        std::size_t k;
+    };
+    std::vector<Window> windows;
+    for (std::size_t k = 0; k < theta_grid.size(); ++k) {
+        const auto cells = neighborhood_cells(k);
+        if (cells.empty()) {
+            continue;
+        }
+        const auto seed = atlas_.seed_at(cells.front().first, cells.front().second, k);
+        if (seed.transfer_time_days <= 0.0) {
             continue;
         }
 
@@ -253,40 +268,113 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                 continue;
             }
         }
+        windows.push_back({wait_s + T_transfer_s, k});
+    }
+    std::sort(windows.begin(), windows.end(), [](const Window& a, const Window& b) { return a.total_s < b.total_s; });
 
-        const double total_s = wait_s + T_transfer_s;
-        if (total_s < best_total_s) {
-            best_total_s = total_s;
-            best_theta_f = theta_f;
-            found_window = true;
+    // Atlas cells are solved for their own grid (rho, theta), not for this request,
+    // so an unrefined seed misses the destination (by up to ~0.3 AU) and blending
+    // corners can mix solution branches. Refine a real cell's seed onto the exact
+    // target, and fall through to the next window if it does not converge or the
+    // corrected path needs more fuel than the ship carries.
+    constexpr std::size_t kMaxWindows = 4;
+    constexpr std::size_t kMaxSeedsPerWindow = 2;
+    // ODE mass can undershoot dry mass by ~0.1-0.2% on max-burn arcs.
+    constexpr double kDryMassSlack = 0.998;
+    const double r_target_canonical = rho * variable_isp::VariableIspIntegrator::kCanonicalR0SI;
+    const variable_isp::CanonicalMissionConfig config =
+        variable_isp::VariableIspIntegrator::canonical_config(rho, kappa);
+
+    variable_isp::AtlasSeed best_seed;
+    variable_isp::IntegrationSummary result;
+    double best_theta_f = 0.0;
+    double best_wait_s = 0.0;
+    double best_r_scale = r_scale;
+    double best_t_scale = t_scale;
+    double best_phi_depart = 0.0;
+    std::size_t refine_iterations = 0;
+    std::size_t windows_tried = 0;
+    bool found = false;
+    bool fuel_limited = false;
+    for (const auto& window : windows) {
+        if (found || windows_tried >= kMaxWindows) {
+            break;
+        }
+        ++windows_tried;
+        const auto cells = neighborhood_cells(window.k);
+        for (std::size_t c = 0; c < std::min(cells.size(), kMaxSeedsPerWindow) && !found; ++c) {
+            const auto seed = atlas_.seed_at(cells[c].first, cells[c].second, window.k);
+            try {
+                // Keep the branch the seed already flies; its grid label is only valid mod 2π.
+                const auto start = integrator_.integrate_fixed_time(seed, config, 2);
+                const double theta_seed = start.samples.back().theta_rad;
+                const double theta_goal = theta_seed + std::remainder(theta_grid[window.k] - theta_seed, TAU);
+                auto refined = integrator_.refine_seed(seed, config, r_target_canonical, theta_goal);
+                if (!refined.converged) {
+                    continue;
+                }
+                // Choose the launch wait from the refined angle and transfer time (circular
+                // phase model). Co-orbiting bodies (e.g. Earth and the Moon) have no wait to
+                // absorb a phase mismatch; the targeting passes below fix it instead.
+                double wait_s = 0.0;
+                if (std::abs(relative_rate) > 1.0e-15) {
+                    const double T_s = refined.seed.transfer_time_days
+                        * variable_isp::VariableIspIntegrator::kDayS * t_scale;
+                    wait_s = positive_mod(
+                        (theta_goal - omega_dest * T_s - current_delta_phi) / relative_rate, synodic_period_s);
+                }
+                // With departure fixed, aim the shooting at the destination *station's* actual
+                // position at departure + T (moon offsets, phase slack). The target moves with T,
+                // and the ship arrives co-moving with it, so it must sit inside the residual —
+                // an outer fixed-point loop over T does not contract.
+                // Likewise start from the origin station's actual position at departure:
+                // it sets the similarity scale and the frame rotation.
+                const auto origin_at_departure = mechanics_.get_station_position(origin, current_time_s + wait_s);
+                const double depart_r_scale = std::hypot(origin_at_departure.x, origin_at_departure.z)
+                    / variable_isp::VariableIspIntegrator::kAstronomicalUnitM;
+                const double depart_t_scale = std::pow(depart_r_scale, 1.5);
+                const double phi_depart = std::atan2(origin_at_departure.z, origin_at_departure.x);
+                const double theta_branch = theta_goal;
+                const auto station_target = [&](double transfer_time_days) {
+                    const double arrival_s = current_time_s + wait_s
+                        + transfer_time_days * variable_isp::VariableIspIntegrator::kDayS * depart_t_scale;
+                    const auto station = mechanics_.get_station_position(destination, arrival_s);
+                    return std::pair {
+                        std::hypot(station.x, station.z) / depart_r_scale,
+                        theta_branch + std::remainder(std::atan2(station.z, station.x) - phi_depart - theta_branch, TAU),
+                    };
+                };
+                refined = integrator_.refine_seed(refined.seed, config, station_target);
+                if (!refined.converged) {
+                    continue;
+                }
+                best_wait_s = wait_s;
+                best_r_scale = depart_r_scale;
+                best_t_scale = depart_t_scale;
+                best_phi_depart = phi_depart;
+                // Integrate the winning canonical trajectory. We use many internal samples so
+                // that arc-length resampling (below) has enough source points to represent tight
+                // solar passes accurately.
+                auto full = integrator_.integrate_fixed_time(refined.seed, config, 1000);
+                if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
+                    fuel_limited = true;
+                    continue;
+                }
+                best_seed = refined.seed;
+                result = std::move(full);
+                best_theta_f = theta_grid[window.k];
+                refine_iterations = refined.iterations;
+                found = true;
+            } catch (const std::runtime_error&) {
+                // Seed dives into the Sun or similar: try the next seed/window.
+            }
         }
     }
 
-    if (!found_window) {
-        return plan;
-    }
-
-    // Re-query the atlas with proper interpolation for the final integration seed.
-    variable_isp::AtlasQueryInfo query_info;
-    const variable_isp::AtlasSeed best_seed = atlas_.query(rho, kappa, best_theta_f, 1, &query_info);
-
-    // Integrate the winning canonical trajectory. We use many internal samples so
-    // that arc-length resampling (below) has enough source points to represent tight
-    // solar passes accurately — near perihelion the ship moves fast and sweeps a
-    // large arc in a small fraction of transfer time, so uniform-time sampling alone
-    // would leave only 1–2 points there.
-    const variable_isp::CanonicalMissionConfig config =
-        variable_isp::VariableIspIntegrator::canonical_config(rho, kappa);
-    variable_isp::IntegrationSummary result;
-    try {
-        result = integrator_.integrate_fixed_time(best_seed, config, 1000);
-    } catch (const std::runtime_error& error) {
-        // Bad atlas seed (e.g. trajectory dives into the Sun): treat as no window.
-        plan.summary = std::format("VariableISP {} -> {} integration failed: {}", origin.name, destination.name, error.what());
-        return plan;
-    }
-
-    if (result.samples.empty()) {
+    if (!found) {
+        plan.summary = std::format(
+            "VariableISP {} -> {} no converged window ({} tried{})",
+            origin.name, destination.name, windows_tried, fuel_limited ? ", fuel-limited" : "");
         return plan;
     }
 
@@ -294,39 +382,21 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // proportionally more output points regardless of how little time is spent there.
     const auto samples = arc_length_resample(result.samples, 120);
 
-    // The hot loop used approximate transfer times from neighborhood seeds.
-    // Now that we have the actual integrated trajectory, recompute the phase condition
-    // using the real endpoint angle and the interpolated transfer time.
-    //
-    // Two sources of error in the hot-loop approximation:
-    //   (a) T_neighbor (neighbor seed) ≠ T_interp (interpolated seed)
-    //   (b) actual_theta (integrated endpoint) ≠ theta_f (grid point)
-    //       because bilinear seed interpolation is not exact for the ODE
-    //
-    // Fix: recompute wait_s so the planet is at phi_origin_at_depart + actual_theta
-    // exactly at departure + T_interp.  This replaces both T_neighbor and theta_f
-    // with the values the integrator actually produced.
     const double actual_theta = samples.back().theta_rad;
     const double T_interp_s = best_seed.transfer_time_days
-        * variable_isp::VariableIspIntegrator::kDayS * t_scale;
-
-    double corrected_wait_s = 0.0;
-    if (std::abs(relative_rate) > 1.0e-15) {
-        const double req = actual_theta - omega_dest * T_interp_s;
-        corrected_wait_s = positive_mod((req - current_delta_phi) / relative_rate, synodic_period_s);
-    }
-    // else: same angular rate — keep wait_s = 0 (already handled above)
+        * variable_isp::VariableIspIntegrator::kDayS * best_t_scale;
+    const double corrected_wait_s = best_wait_s;
 
     // Scale canonical trajectory to real coordinates and rotate to heliocentric frame.
-    const double phi_origin_at_depart = phi_origin + omega_origin * corrected_wait_s;
+    const double phi_origin_at_depart = best_phi_depart;
     const double departure_time_s = current_time_s + corrected_wait_s;
 
     plan.sampled_path.reserve(samples.size());
     plan.sampled_times_s.reserve(samples.size());
     for (const auto& sample : samples) {
-        const double r_real = sample.r_m * r_scale;
+        const double r_real = sample.r_m * best_r_scale;
         const double angle_real = sample.theta_rad + phi_origin_at_depart;
-        const double t_real = departure_time_s + sample.time_s * t_scale;
+        const double t_real = departure_time_s + sample.time_s * best_t_scale;
         plan.sampled_path.push_back({
             std::cos(angle_real) * r_real,
             0.0,
@@ -394,7 +464,9 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         .theta_actual_rad = actual_theta,
         .r_end_canonical_ratio = samples.back().r_m
             / (rho * variable_isp::VariableIspIntegrator::kCanonicalR0SI),
-        .seed_source = query_info.interpolated ? "interpolated" : "nearest",
+        .seed_source = "refined",
+        .refine_iterations = refine_iterations,
+        .windows_tried = windows_tried,
     };
     plan.sampled_path.front() = origin_station_pos;
     plan.sampled_path.back() = dest_station_pos;

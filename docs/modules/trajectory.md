@@ -50,6 +50,17 @@ simulation -> ITrajectoryPlanner -> TrajectoryPlan -> mission assignment / rende
 - Same-parent station transfers use a bounded local direct arc instead of a Sun-centered transfer.
 - Interplanetary Kepler planning is currently circular-orbit and coplanar. It uses a launch-window wait, Hohmann half-period coast time, and exact station endpoints.
 
+## VariableISP Seed Refinement
+
+Atlas cells are solved for their own grid (ρ, θ), and their θ label is only valid mod 2π. The planner ranks launch
+windows from neighbouring cells, then refines a real cell's seed with
+`VariableIspIntegrator::refine_seed()`: a minimum-norm Gauss-Newton shooting over the four costates plus T
+(Jacobian-column scaled), hitting r, θ, v_r = 0, and v_θ = v_circ. The target is the destination station's actual
+position at departure + T (a moving target, since the ship arrives co-moving with it), and the path is scaled and
+rotated from the origin station's position at departure. Windows whose refinement fails or whose corrected path
+needs more fuel than the ship carries are skipped (up to 4 tried). The path shape does not depend on κ: κ only
+decides whether the fuel suffices.
+
 ## Trajectory Audit
 
 `trajectory/TrajectoryAudit.{hpp,cpp}` checks a `TrajectoryPlan` for unphysical geometry. Planners fill

@@ -29,8 +29,11 @@ Findings from the first 2-year sweep (192k plans, 2026-10-06):
 - **Bug 2 = Kepler wait prefix — FIXED.** Paths for awaiting ships prepended only 11 samples of the origin orbit; a
   573-day wait at Venus drew 2.5 turns as a star polygon (83° per step). Now sampled at ≤ 5° of heliocentric sweep
   (11–360 segments); `coarse_wait` went from 11,982 plans to 0.
-- **Bug 1 = VariableISP endpoint snap.** 96% of nearest-cell seeds and 52% of interpolated seeds miss the target
-  by > 0.01 AU (nearest p95 0.34 AU); the snap turns the miss into a dent. Worst: Mars -> Titan overshoots to 22 AU.
+- **Bug 1 = VariableISP endpoint snap — FIXED.** 96% of nearest-cell seeds and 52% of interpolated seeds missed the
+  target by > 0.01 AU (worst: Mars -> Titan overshoots to 22 AU); the snap drew a dent. The planner now refines a real
+  atlas cell's seed by minimum-norm Newton shooting onto the destination station's actual position at arrival (and
+  starts from the origin station's position at departure), trying up to 4 windows. Sweep: max miss 13.3 AU -> 0.0013 AU,
+  `end_dent`/`endpoint_miss`/`start_miss` -> 0. Cost: ion plan p50 ~8 ms, p99 ~94 ms; 3-year headless run 1m36s -> 3m24s.
 - **Integrator hang.** Some ion -> Titan plans got seeds that dive into the Sun and RK45 never finished (would
   freeze the simulation). Now guarded by a step budget; the planner treats failure as no window.
 - **Theta wraparound.** Atlas theta spans ±1.1 rev; planner accepts retrograde/near-full-loop targets, and the
@@ -39,10 +42,11 @@ Findings from the first 2-year sweep (192k plans, 2026-10-06):
 
 Next fixes:
 
-- VariableISP: validate the integrated endpoint against target (r, θ); refine the seed with a few shooting/Newton
-  iterations; reject and try the next launch window when it does not converge. Never snap a far miss.
-- Atlas lookup: no trilinear blending across solution families; no uncorrected nearest-cell seed from a different
-  (ρ, κ); decide which theta branches (retrograde, >1 rev) are acceptable.
+- Decide which theta branches (retrograde, >1 rev) are acceptable; atlas θ labels are only valid mod 2π
+  (~25% of cells actually fly θ ± 2πn).
+- Atlas time-optimality: ~55% of solved cells end with > 2% fuel left (the generator only penalised overuse), so
+  transfer times are not minimal for the ship's kappa. Consider enforcing m_end = m_dry in the shooting.
+- Planning cost: cache refined plans (path depends on (ρ, θ, T) only, not κ) if the live bridge stutters.
 - Investigate the Lambert Titan case; tighten the noisy `sun_dive` flag.
 - Regression tests for each fixed case.
 

@@ -425,8 +425,9 @@ void print_trajectory_record(const spacetrains::trajectory::TrajectoryAuditRecor
         r.origin_station_id, r.destination_station_id, r.trajectory_type);
     if (r.trajectory_type == "variable_isp") {
         std::cout << std::format(
-            "  seed={} rho={:.3f} kappa={:.3f} theta={:.3f}->{:.3f} rEnd/rho={:.3f}",
-            d.seed_source, d.rho, d.kappa, d.theta_target_rad, d.theta_actual_rad, d.r_end_canonical_ratio);
+            "  seed={} iters={} windows={} rho={:.3f} kappa={:.3f} theta={:.3f}->{:.3f} rEnd/rho={:.3f}",
+            d.seed_source, d.refine_iterations, d.windows_tried, d.rho, d.kappa, d.theta_target_rad,
+            d.theta_actual_rad, d.r_end_canonical_ratio);
     }
     std::cout << std::format(
         "\n      miss={:.4f}AU start_miss={:.4f}AU rev={:.2f} max_step={:.1f}deg end_turn={:.1f}deg"
@@ -457,23 +458,33 @@ void print_trajectory_audit_summary(const std::vector<spacetrains::trajectory::T
             if (!r->metrics.flags.empty()) ++flagged;
             for (const auto& f : r->metrics.flags) ++flag_counts[f];
         }
+        std::vector<double> plan_ms;
+        for (const auto* r : group) plan_ms.push_back(r->plan_ms);
+        std::sort(plan_ms.begin(), plan_ms.end());
         std::sort(misses.begin(), misses.end());
         const auto pct = [&](double q) { return misses[static_cast<std::size_t>(q * (misses.size() - 1))]; };
         std::cout << std::format(
-            "  {:28s} plans={:5d} flagged={:5d}  miss AU p50={:.4f} p95={:.4f} max={:.4f}  max_rev={:.2f}\n",
-            type, group.size(), flagged, pct(0.5), pct(0.95), misses.back(), max_rev);
+            "  {:28s} plans={:5d} flagged={:5d}  miss AU p50={:.4f} p95={:.4f} max={:.4f}  max_rev={:.2f}"
+            "  plan ms p50={:.1f} p99={:.1f} max={:.0f}\n",
+            type, group.size(), flagged, pct(0.5), pct(0.95), misses.back(), max_rev,
+            plan_ms[plan_ms.size() / 2], plan_ms[static_cast<std::size_t>(0.99 * (plan_ms.size() - 1))], plan_ms.back());
         for (const auto& [flag, count] : flag_counts) {
             std::cout << std::format("      {:20s} {}\n", flag, count);
         }
     }
 
+    // Worst cases per planner family, so one family's outliers don't hide another's.
     const auto print_worst = [&](const char* title, auto key) {
-        std::vector<const spacetrains::trajectory::TrajectoryAuditRecord*> sorted;
-        for (const auto& r : records) sorted.push_back(&r);
-        std::sort(sorted.begin(), sorted.end(), [&](auto* a, auto* b) { return key(*a) > key(*b); });
-        std::cout << std::format("\n  Worst by {}:\n", title);
-        for (std::size_t i = 0; i < std::min<std::size_t>(8, sorted.size()); ++i) {
-            print_trajectory_record(*sorted[i]);
+        for (const char* family : {"keplerian", "variable_isp"}) {
+            std::vector<const spacetrains::trajectory::TrajectoryAuditRecord*> sorted;
+            for (const auto& r : records) {
+                if (r.trajectory_type.starts_with(family)) sorted.push_back(&r);
+            }
+            std::sort(sorted.begin(), sorted.end(), [&](auto* a, auto* b) { return key(*a) > key(*b); });
+            std::cout << std::format("\n  Worst {} by {}:\n", family, title);
+            for (std::size_t i = 0; i < std::min<std::size_t>(5, sorted.size()); ++i) {
+                print_trajectory_record(*sorted[i]);
+            }
         }
     };
     print_worst("endpoint miss", [](const auto& r) { return r.diagnostics.endpoint_miss_m; });

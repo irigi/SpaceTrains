@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -374,12 +375,7 @@ Index3 VariableIspAtlas::nearest_solved_index(double rho, double kappa, double t
     return best;
 }
 
-AtlasSeed VariableIspAtlas::query(
-    double rho,
-    double kappa,
-    double theta_rad,
-    std::size_t search_radius,
-    AtlasQueryInfo* info) const {
+AtlasSeed VariableIspAtlas::query(double rho, double kappa, double theta_rad, std::size_t search_radius) const {
     const auto i0 = lower_cell_index(rho_grid_, rho);
     const auto j0 = lower_cell_index(kappa_grid_, kappa);
     const auto k0 = lower_cell_index(theta_grid_, theta_rad);
@@ -396,13 +392,7 @@ AtlasSeed VariableIspAtlas::query(
 
     if (!have_full_cube) {
         const auto nearest = nearest_solved_index(rho, kappa, theta_rad, search_radius);
-        if (info != nullptr) {
-            *info = {.interpolated = false, .nearest = nearest};
-        }
         return seed_at(nearest.i, nearest.j, nearest.k);
-    }
-    if (info != nullptr) {
-        *info = {.interpolated = true, .nearest = {i0, j0, k0}};
     }
 
     const double tx = (rho - rho_grid_[i0]) / (rho_grid_[i1] - rho_grid_[i0]);
@@ -459,6 +449,185 @@ CanonicalMissionConfig VariableIspIntegrator::canonical_config(double rho, doubl
 
 double VariableIspIntegrator::normalize_angle(double angle_rad) {
     return std::atan2(std::sin(angle_rad), std::cos(angle_rad));
+}
+
+namespace {
+
+// Scales of the shooting unknowns (lambda_r, lambda_vr, lambda_vtheta, C_theta),
+// taken from the Python generator's SOLUTION0 so all unknowns are O(1).
+constexpr std::array<double, 4> kCostateScale {-9.04177133e-05, -2.23208767e+01, -2.82272150e+03, -1.56907920e+08};
+constexpr std::array<std::size_t, 4> kCostateIndex {0, 1, 2, 4};  // params[3] is the gauge, fixed at 0
+constexpr double kYearDays = 365.0;
+
+using ShootVector = std::array<double, 5>;     // scaled unknowns
+using ShootResidual = std::array<double, 4>;
+
+ShootVector to_unknowns(const AtlasSeed& seed) {
+    ShootVector z {};
+    for (std::size_t i = 0; i < 4; ++i) {
+        z[i] = seed.params[kCostateIndex[i]] / kCostateScale[i];
+    }
+    z[4] = seed.transfer_time_days / kYearDays;
+    return z;
+}
+
+AtlasSeed from_unknowns(const ShootVector& z, const AtlasSeed& base) {
+    AtlasSeed seed = base;
+    for (std::size_t i = 0; i < 4; ++i) {
+        seed.params[kCostateIndex[i]] = z[i] * kCostateScale[i];
+    }
+    seed.transfer_time_days = z[4] * kYearDays;
+    return seed;
+}
+
+double norm(const ShootResidual& f) {
+    double sum = 0.0;
+    for (const double v : f) sum += v * v;
+    return std::sqrt(sum);
+}
+
+// Solve the 4x4 system a * x = b by Gaussian elimination with partial pivoting.
+bool solve4(std::array<std::array<double, 4>, 4> a, ShootResidual b, ShootResidual& x) {
+    for (std::size_t col = 0; col < 4; ++col) {
+        std::size_t pivot = col;
+        for (std::size_t row = col + 1; row < 4; ++row) {
+            if (std::abs(a[row][col]) > std::abs(a[pivot][col])) pivot = row;
+        }
+        if (std::abs(a[pivot][col]) < 1e-300) return false;
+        std::swap(a[col], a[pivot]);
+        std::swap(b[col], b[pivot]);
+        for (std::size_t row = col + 1; row < 4; ++row) {
+            const double factor = a[row][col] / a[col][col];
+            for (std::size_t k = col; k < 4; ++k) a[row][k] -= factor * a[col][k];
+            b[row] -= factor * b[col];
+        }
+    }
+    for (std::size_t row = 4; row-- > 0;) {
+        double sum = b[row];
+        for (std::size_t k = row + 1; k < 4; ++k) sum -= a[row][k] * x[k];
+        x[row] = sum / a[row][row];
+    }
+    return true;
+}
+
+}  // namespace
+
+ShootingResult VariableIspIntegrator::refine_seed(
+    const AtlasSeed& seed,
+    const CanonicalMissionConfig& config,
+    double r_target_m,
+    double theta_target_rad,
+    const ShootingSettings& settings) const {
+    return refine_seed(
+        seed, config, [&](double) { return std::pair {r_target_m, theta_target_rad}; }, settings);
+}
+
+ShootingResult VariableIspIntegrator::refine_seed(
+    const AtlasSeed& seed,
+    const CanonicalMissionConfig& config,
+    const MovingTarget& target,
+    const ShootingSettings& settings) const {
+
+    // Only endpoints matter here, so let RK45 take long steps; endpoints agree
+    // with the 0.5-day rendering step to ~3e-5 relative.
+    IntegratorSettings integration;
+    integration.max_step_s = 10.0 * kDayS;
+    integration.max_steps = 20000;
+    const double v_scale = std::sqrt(config.mu_m3_s2 / target(seed.transfer_time_days).first);
+
+    // Endpoint residual scaled so each tolerance maps to ~1e-3; nullopt if the
+    // integration fails (e.g. the trajectory dives into the Sun).
+    const auto residual = [&](const ShootVector& z) -> std::optional<ShootResidual> {
+        if (z[4] <= 0.0) return std::nullopt;
+        try {
+            const auto summary = integrate_fixed_time(from_unknowns(z, seed), config, 2, integration);
+            const auto& end = summary.samples.back();
+            if (!std::isfinite(end.r_m) || end.r_m <= 0.0) return std::nullopt;
+            const auto [r_target_m, theta_target_rad] = target(z[4] * kYearDays);
+            return ShootResidual {
+                (end.r_m / r_target_m - 1.0) * (1e-3 / settings.r_tolerance_rel),
+                (end.theta_rad - theta_target_rad) * (1e-3 / settings.theta_tolerance_rad),
+                end.vr_mps / v_scale * (1e-3 / settings.velocity_tolerance_rel),
+                (end.vtheta_mps - std::sqrt(config.mu_m3_s2 / end.r_m)) / v_scale * (1e-3 / settings.velocity_tolerance_rel),
+            };
+        } catch (const std::runtime_error&) {
+            return std::nullopt;
+        }
+    };
+    const auto converged = [](const ShootResidual& f) {
+        return std::all_of(f.begin(), f.end(), [](double v) { return std::abs(v) <= 1e-3; });
+    };
+
+    ShootingResult result;
+    ShootVector z = to_unknowns(seed);
+    auto f = residual(z);
+    if (!f) {
+        return result;
+    }
+    for (; result.iterations < settings.max_iterations && !converged(*f); ++result.iterations) {
+        // Forward-difference Jacobian J (4 residuals x 5 unknowns).
+        std::array<ShootVector, 4> jac {};
+        for (std::size_t c = 0; c < 5; ++c) {
+            ShootVector zp = z;
+            const double h = settings.finite_difference_step * std::max(1.0, std::abs(z[c]));
+            zp[c] += h;
+            const auto fp = residual(zp);
+            if (!fp) {
+                return result;
+            }
+            for (std::size_t r = 0; r < 4; ++r) jac[r][c] = ((*fp)[r] - (*f)[r]) / h;
+        }
+        // Column scaling (like scipy's x_scale="jac"): seeds far from SOLUTION0 have
+        // costates 10-100x the nominal scale, which leaves J badly conditioned.
+        ShootVector column_norm {};
+        for (std::size_t c = 0; c < 5; ++c) {
+            for (std::size_t r = 0; r < 4; ++r) column_norm[c] += jac[r][c] * jac[r][c];
+            column_norm[c] = std::sqrt(column_norm[c]);
+            if (column_norm[c] <= 0.0) column_norm[c] = 1.0;
+            for (std::size_t r = 0; r < 4; ++r) jac[r][c] /= column_norm[c];
+        }
+        // Minimum-norm Gauss-Newton step in the scaled unknowns,
+        // dz = J^T (J J^T)^-1 (-f): the smallest change that fixes the endpoint
+        // to first order.
+        std::array<std::array<double, 4>, 4> jjt {};
+        for (std::size_t a = 0; a < 4; ++a) {
+            for (std::size_t b = 0; b < 4; ++b) {
+                for (std::size_t c = 0; c < 5; ++c) jjt[a][b] += jac[a][c] * jac[b][c];
+            }
+        }
+        ShootResidual rhs {};
+        for (std::size_t r = 0; r < 4; ++r) rhs[r] = -(*f)[r];
+        ShootResidual y {};
+        if (!solve4(jjt, rhs, y)) {
+            return result;
+        }
+        ShootVector dz {};
+        for (std::size_t c = 0; c < 5; ++c) {
+            for (std::size_t r = 0; r < 4; ++r) dz[c] += jac[r][c] * y[r];
+            dz[c] /= column_norm[c];
+        }
+        // Backtracking: accept the first step length that reduces the residual.
+        bool improved = false;
+        for (double step = 1.0; step >= 1.0 / 64.0; step *= 0.5) {
+            ShootVector trial = z;
+            for (std::size_t c = 0; c < 5; ++c) trial[c] += step * dz[c];
+            const auto ft = residual(trial);
+            if (ft && norm(*ft) < norm(*f)) {
+                z = trial;
+                f = ft;
+                improved = true;
+                break;
+            }
+        }
+        if (!improved) {
+            break;
+        }
+    }
+
+    result.seed = from_unknowns(z, seed);
+    result.residual_norm = norm(*f);
+    result.converged = converged(*f);
+    return result;
 }
 
 IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
