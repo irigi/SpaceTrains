@@ -358,6 +358,8 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             plan.sampled_times_s.push_back(plan.departure_time_s + alpha * plan.coast_time_s);
         }
     }
+    plan.diagnostics.start_miss_m = (plan.sampled_path.front() - start).length();
+    plan.diagnostics.endpoint_miss_m = (plan.sampled_path.back() - finish).length();
     plan.sampled_path.front() = start;
     plan.sampled_path.back() = finish;
     plan.trajectory_type = best_from_lambert ? "keplerian_lambert" : "keplerian_hohmann";

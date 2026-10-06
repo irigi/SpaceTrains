@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <stdexcept>
 
 namespace spacetrains::trajectory {
 
@@ -266,7 +267,8 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     }
 
     // Re-query the atlas with proper interpolation for the final integration seed.
-    const variable_isp::AtlasSeed best_seed = atlas_.query(rho, kappa, best_theta_f);
+    variable_isp::AtlasQueryInfo query_info;
+    const variable_isp::AtlasSeed best_seed = atlas_.query(rho, kappa, best_theta_f, 1, &query_info);
 
     // Integrate the winning canonical trajectory. We use many internal samples so
     // that arc-length resampling (below) has enough source points to represent tight
@@ -275,8 +277,14 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // would leave only 1–2 points there.
     const variable_isp::CanonicalMissionConfig config =
         variable_isp::VariableIspIntegrator::canonical_config(rho, kappa);
-    const variable_isp::IntegrationSummary result =
-        integrator_.integrate_fixed_time(best_seed, config, 1000);
+    variable_isp::IntegrationSummary result;
+    try {
+        result = integrator_.integrate_fixed_time(best_seed, config, 1000);
+    } catch (const std::runtime_error& error) {
+        // Bad atlas seed (e.g. trajectory dives into the Sun): treat as no window.
+        plan.summary = std::format("VariableISP {} -> {} integration failed: {}", origin.name, destination.name, error.what());
+        return plan;
+    }
 
     if (result.samples.empty()) {
         return plan;
@@ -375,8 +383,21 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // Snap endpoints to actual station positions. Atlas bilinear interpolation doesn't
     // perfectly hit the target radius, which causes the trajectory to end some distance
     // away from the destination body. Snapping eliminates the visual teleport on arrival.
-    plan.sampled_path.front() = mechanics_.get_station_position(origin, departure_time_s);
-    plan.sampled_path.back() = mechanics_.get_station_position(destination, plan.arrival_time_s);
+    const auto origin_station_pos = mechanics_.get_station_position(origin, departure_time_s);
+    const auto dest_station_pos = mechanics_.get_station_position(destination, plan.arrival_time_s);
+    plan.diagnostics = {
+        .start_miss_m = (plan.sampled_path.front() - origin_station_pos).length(),
+        .endpoint_miss_m = (plan.sampled_path.back() - dest_station_pos).length(),
+        .rho = rho,
+        .kappa = kappa,
+        .theta_target_rad = best_theta_f,
+        .theta_actual_rad = actual_theta,
+        .r_end_canonical_ratio = samples.back().r_m
+            / (rho * variable_isp::VariableIspIntegrator::kCanonicalR0SI),
+        .seed_source = query_info.interpolated ? "interpolated" : "nearest",
+    };
+    plan.sampled_path.front() = origin_station_pos;
+    plan.sampled_path.back() = dest_station_pos;
 
     return plan;
 }

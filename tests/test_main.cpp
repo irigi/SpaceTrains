@@ -10,6 +10,7 @@
 #include "celestial/CelestialMechanics.hpp"
 #include "data_loader/DataLoader.hpp"
 #include "simulation/Simulation.hpp"
+#include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
 #include "variable_isp/VariableIsp.hpp"
@@ -422,6 +423,73 @@ int main() {
             require(visp_luna_plan.wait_time_s == 0.0,
                 "VariableISP Earth Orbit->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
         }
+    }
+
+    // --- Trajectory audit: synthetic paths ---
+    {
+        constexpr double AU = 1.495978707e11;
+        // Smooth quarter-arc from 1 AU to 1.5 AU: nothing flagged.
+        spacetrains::domain::TrajectoryPlan smooth;
+        smooth.departure_time_s = 0.0;
+        for (int i = 0; i < 60; ++i) {
+            const double a = 0.5 * PI * i / 59.0;
+            const double r = AU * (1.0 + 0.5 * i / 59.0);
+            smooth.sampled_path.push_back({r * std::cos(a), 0.0, r * std::sin(a)});
+            smooth.sampled_times_s.push_back(i * 86400.0);
+        }
+        const auto smooth_audit = spacetrains::trajectory::audit_trajectory(smooth, AU, 1.5 * AU);
+        require(smooth_audit.flags.empty(), "smooth arc should pass the trajectory audit");
+        require_near(smooth_audit.revolutions, 0.25, 1e-6, "quarter arc should sweep 0.25 revolutions");
+
+        // Bug 1 shape: path stops short and the last sample is snapped onto the station.
+        auto dented = smooth;
+        dented.sampled_path.back() = {0.3 * AU, 0.0, 1.9 * AU};
+        dented.diagnostics.endpoint_miss_m = 0.4 * AU;
+        const auto dented_audit = spacetrains::trajectory::audit_trajectory(dented, AU, 1.5 * AU);
+        const auto has_flag = [](const auto& audit, const char* flag) {
+            return std::find(audit.flags.begin(), audit.flags.end(), flag) != audit.flags.end();
+        };
+        require(has_flag(dented_audit, "end_dent"), "snapped far miss should be flagged as end_dent");
+        require(has_flag(dented_audit, "endpoint_miss"), "pre-snap miss should be flagged as endpoint_miss");
+
+        // Bug 2 shape: 11 wait samples spread over 2.5 origin revolutions before departure.
+        spacetrains::domain::TrajectoryPlan waiting = smooth;
+        waiting.departure_time_s = 1000.0 * 86400.0;
+        std::vector<spacetrains::math::Vec3d> wait_path;
+        std::vector<double> wait_times;
+        for (int i = 0; i < 11; ++i) {
+            const double a = 2.0 * PI * 2.5 * i / 11.0;
+            wait_path.push_back({0.72 * AU * std::cos(a), 0.0, 0.72 * AU * std::sin(a)});
+            wait_times.push_back(i * 90.0 * 86400.0);
+        }
+        for (std::size_t i = 0; i < smooth.sampled_path.size(); ++i) {
+            wait_path.push_back(smooth.sampled_path[i]);
+            wait_times.push_back(waiting.departure_time_s + smooth.sampled_times_s[i]);
+        }
+        waiting.sampled_path = wait_path;
+        waiting.sampled_times_s = wait_times;
+        const auto waiting_audit = spacetrains::trajectory::audit_trajectory(waiting, AU, 1.5 * AU);
+        require(has_flag(waiting_audit, "coarse_wait"), "coarse multi-revolution wait prefix should be flagged");
+        require_near(waiting_audit.revolutions, 0.25, 1e-6, "wait prefix must not count toward transfer revolutions");
+    }
+
+    // --- VariableISP integration hang regression ---
+    // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth L1 -> Titan at
+    // day 210 got an atlas seed that dives into the Sun, and RK45 shrank its step forever.
+    // The integrator now has a step budget and the planner treats the failure as no window.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        const auto& ion_class = ship_class_by_id(universe, "ion_freighter");
+        spacetrains::domain::ShipState low_fuel_ship;
+        low_fuel_ship.class_id = ion_class.id;
+        low_fuel_ship.propellant_kg = 0.1 * ion_class.propellant_capacity_kg;
+        const auto plan = visp_planner.plan_transfer(
+            station_by_id(universe, "earth_l1"), station_by_id(universe, "titan_works"),
+            low_fuel_ship, ion_class, 210.0 * 86400.0);
+        require(!plan.feasible, "Earth L1 -> Titan with a diverging seed must come back infeasible, not hang");
     }
 
     std::cout << "All SpaceTrains tests passed.\n";

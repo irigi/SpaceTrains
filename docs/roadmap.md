@@ -23,12 +23,28 @@ Unphysical trajectories appear after months of self-play:
 - A VariableISP path ends with a sharp dent: the integrated trajectory misses the destination and the final sample is snapped onto the station.
 - A path loops around the Sun many times with only ~10 samples per revolution.
 
-Plan:
+Audit tooling is in place (`--trajectory-audit`, `--trajectory-sweep`; see `docs/modules/trajectory.md`).
+Findings from the first 2-year sweep (192k plans, 2026-10-06):
 
-- Add a headless trajectory validator (endpoint miss distance, revolution count, mass floor, sample spacing) and a `--trajectory-audit` run over a multi-year simulation to reproduce both.
-- VariableISP: validate the integrated endpoint against the target (r, θ); refine the atlas seed with a few shooting/Newton iterations; reject and try the next launch window when it does not converge. Never snap a far miss.
-- Atlas lookup: stop blending corners from different solution families and stop using a nearest-cell seed from a different (ρ, κ) without correction.
-- Regression tests for every bad case the audit finds.
+- **Bug 2 = Kepler wait prefix.** Paths for awaiting ships prepend only 11 samples of the origin orbit; a 573-day
+  wait at Venus draws 2.5 turns as a star polygon (83° per step). 12k Kepler plans have `coarse_wait`.
+- **Bug 1 = VariableISP endpoint snap.** 96% of nearest-cell seeds and 52% of interpolated seeds miss the target
+  by > 0.01 AU (nearest p95 0.34 AU); the snap turns the miss into a dent. Worst: Mars -> Titan overshoots to 22 AU.
+- **Integrator hang.** Some ion -> Titan plans got seeds that dive into the Sun and RK45 never finished (would
+  freeze the simulation). Now guarded by a step budget; the planner treats failure as no window.
+- **Theta wraparound.** Atlas theta spans ±1.1 rev; planner accepts retrograde/near-full-loop targets, and the
+  integrated theta can land 2-4π away from the target.
+- **Lambert path to Titan** (NTR, Ceres -> Titan) ends ~3 AU from the target, then a straight 6.8 AU line.
+
+Next fixes:
+
+- Kepler wait prefix: sample by angle (e.g. ≤ 5° per step) instead of a fixed 11 points.
+- VariableISP: validate the integrated endpoint against target (r, θ); refine the seed with a few shooting/Newton
+  iterations; reject and try the next launch window when it does not converge. Never snap a far miss.
+- Atlas lookup: no trilinear blending across solution families; no uncorrected nearest-cell seed from a different
+  (ρ, κ); decide which theta branches (retrograde, >1 rev) are acceptable.
+- Investigate the Lambert Titan case; tighten the noisy `sun_dive` flag.
+- Regression tests for each fixed case.
 
 ## Economy Follow-ups
 

@@ -247,6 +247,35 @@ void Simulation::record_trade(domain::TradeEntry trade) {
     }
 }
 
+void Simulation::record_trajectory_audit(
+    const domain::ShipState& ship,
+    const domain::StationDefinition& origin,
+    const domain::StationDefinition& destination,
+    const domain::TrajectoryPlan& plan,
+    double planning_propellant_kg) {
+    const double r_origin_m = mechanics_.get_heliocentric_radius(origin.parent_body_id, plan.departure_time_s);
+    const double r_dest_m = mechanics_.get_heliocentric_radius(destination.parent_body_id, plan.arrival_time_s);
+    auto metrics = trajectory::audit_trajectory(plan, r_origin_m, r_dest_m);
+    const bool flagged = !metrics.flags.empty();
+    trajectory_audit_records_.push_back({
+        .planned_at_s = game_time_s_,
+        .ship_name = ship.name,
+        .class_id = ship.class_id,
+        .origin_station_id = origin.id,
+        .destination_station_id = destination.id,
+        .trajectory_type = plan.trajectory_type,
+        .planning_propellant_kg = planning_propellant_kg,
+        .wait_time_s = plan.wait_time_s,
+        .coast_time_s = plan.coast_time_s,
+        .r_origin_m = r_origin_m,
+        .r_dest_m = r_dest_m,
+        .diagnostics = plan.diagnostics,
+        .metrics = std::move(metrics),
+        .sampled_path = flagged ? plan.sampled_path : std::vector<math::Vec3d>{},
+        .sampled_times_s = flagged ? plan.sampled_times_s : std::vector<double>{},
+    });
+}
+
 const domain::CommodityDefinition& Simulation::get_commodity(const std::string& commodity_id) const {
     const auto it = std::find_if(
         universe_.commodities.begin(),
@@ -531,6 +560,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     auto plan = final_planner.plan_transfer(origin_def, *best_destination, planning_ship, ship_class, game_time_s_);
     if (!plan.feasible) {
         return;
+    }
+    if (trajectory_audit_enabled_) {
+        record_trajectory_audit(ship, origin_def, *best_destination, plan, planning_ship.propellant_kg);
     }
 
     double purchase_cost = 0.0;

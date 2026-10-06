@@ -45,6 +45,9 @@ struct IntegratorSettings {
     double max_step_s {43200.0};
     double min_step_s {1e-6};
     double initial_step_s {10.0};
+    // Hard cap on accepted + rejected RK45 steps. A bad seed can drive the
+    // trajectory into the Sun, where the adaptive step shrinks without bound.
+    std::size_t max_steps {200000};
 };
 
 struct IntegrationSummary {
@@ -57,6 +60,13 @@ struct Index3 {
     std::size_t i {0};
     std::size_t j {0};
     std::size_t k {0};
+};
+
+// How query() produced its seed: trilinear blend of a fully solved cube, or the
+// nearest solved cell (whose rho/kappa/theta may differ from the request).
+struct AtlasQueryInfo {
+    bool interpolated {false};
+    Index3 nearest {};
 };
 
 class VariableIspAtlas {
@@ -77,7 +87,12 @@ public:
         double kappa,
         double theta_rad,
         std::size_t search_radius = 1) const;
-    [[nodiscard]] AtlasSeed query(double rho, double kappa, double theta_rad, std::size_t search_radius = 1) const;
+    [[nodiscard]] AtlasSeed query(
+        double rho,
+        double kappa,
+        double theta_rad,
+        std::size_t search_radius = 1,
+        AtlasQueryInfo* info = nullptr) const;
 
 private:
     [[nodiscard]] std::size_t cell_index(std::size_t i, std::size_t j, std::size_t k) const;

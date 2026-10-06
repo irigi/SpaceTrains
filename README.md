@@ -42,6 +42,16 @@ Run the headless sandbox:
 ./build/bin/spacetrains_headless .
 ```
 
+Useful headless flags: `--days N`, `--verbose`, `--econ-audit`, and the trajectory checks:
+
+```bash
+# Audit every mission plan accepted during a normal run
+./build/bin/spacetrains_headless . --days 1095 --trajectory-audit 2>/dev/null
+# Plan every station pair x fuel level x departure day (every 15 days over 730 days),
+# bypassing the economy; dump flagged paths as CSV for plotting
+./build/bin/spacetrains_headless . --days 730 --trajectory-sweep 15 --trajectory-dump build/audit/sweep.csv 2>/dev/null
+```
+
 Run the bridge directly for debugging:
 
 ```bash

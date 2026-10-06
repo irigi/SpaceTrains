@@ -13,6 +13,7 @@ add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/celestial/CelestialMechanics.cpp
     src/trajectory/Lambert.cpp
+    src/trajectory/TrajectoryAudit.cpp
     src/trajectory/TrajectoryPlanner.cpp
     src/trajectory/VariableIspTrajectoryPlanner.cpp
     src/variable_isp/VariableIsp.cpp
@@ -24,7 +25,8 @@ target_include_directories(spacetrains_core PUBLIC src)
 target_compile_options(spacetrains_core PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(spacetrains_headless src/app/main.cpp)
-target_link_libraries(spacetrains_headless PRIVATE spacetrains_core)
+find_package(Threads REQUIRED)
+target_link_libraries(spacetrains_headless PRIVATE spacetrains_core Threads::Threads)
 
 add_executable(spacetrains_bridge src/bridge/main.cpp)
 target_link_libraries(spacetrains_bridge PRIVATE spacetrains_core)

@@ -8,6 +8,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/Types.hpp"
 #include "economy/EconomySystem.hpp"
+#include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
 #include "variable_isp/VariableIsp.hpp"
@@ -32,6 +33,13 @@ public:
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
     [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return recent_trades_; }
 
+    // When enabled, every accepted mission plan is checked by audit_trajectory()
+    // and recorded (headless --trajectory-audit).
+    void set_trajectory_audit_enabled(bool enabled) { trajectory_audit_enabled_ = enabled; }
+    [[nodiscard]] const std::vector<trajectory::TrajectoryAuditRecord>& trajectory_audit_records() const {
+        return trajectory_audit_records_;
+    }
+
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
@@ -47,6 +55,12 @@ private:
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
     void add_event(std::string text, std::string category = "general");
     void record_trade(domain::TradeEntry trade);
+    void record_trajectory_audit(
+        const domain::ShipState& ship,
+        const domain::StationDefinition& origin,
+        const domain::StationDefinition& destination,
+        const domain::TrajectoryPlan& plan,
+        double planning_propellant_kg);
 
     domain::UniverseDefinition universe_;
     celestial::CelestialMechanics mechanics_;
@@ -61,6 +75,8 @@ private:
     std::vector<domain::ShipState> ships_;
     std::vector<domain::EventEntry> recent_events_;
     std::vector<domain::TradeEntry> recent_trades_;
+    bool trajectory_audit_enabled_ {false};
+    std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
 };

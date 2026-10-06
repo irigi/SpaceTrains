@@ -374,7 +374,12 @@ Index3 VariableIspAtlas::nearest_solved_index(double rho, double kappa, double t
     return best;
 }
 
-AtlasSeed VariableIspAtlas::query(double rho, double kappa, double theta_rad, std::size_t search_radius) const {
+AtlasSeed VariableIspAtlas::query(
+    double rho,
+    double kappa,
+    double theta_rad,
+    std::size_t search_radius,
+    AtlasQueryInfo* info) const {
     const auto i0 = lower_cell_index(rho_grid_, rho);
     const auto j0 = lower_cell_index(kappa_grid_, kappa);
     const auto k0 = lower_cell_index(theta_grid_, theta_rad);
@@ -391,7 +396,13 @@ AtlasSeed VariableIspAtlas::query(double rho, double kappa, double theta_rad, st
 
     if (!have_full_cube) {
         const auto nearest = nearest_solved_index(rho, kappa, theta_rad, search_radius);
+        if (info != nullptr) {
+            *info = {.interpolated = false, .nearest = nearest};
+        }
         return seed_at(nearest.i, nearest.j, nearest.k);
+    }
+    if (info != nullptr) {
+        *info = {.interpolated = true, .nearest = {i0, j0, k0}};
     }
 
     const double tx = (rho - rho_grid_[i0]) / (rho_grid_[i1] - rho_grid_[i0]);
@@ -512,6 +523,9 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
         while (!step_accepted) {
             if (h_abs < min_step) {
                 throw std::runtime_error("VariableISP RK45 step size underflow");
+            }
+            if (summary.accepted_steps + summary.rejected_steps >= settings.max_steps) {
+                throw std::runtime_error("VariableISP RK45 step budget exhausted");
             }
 
             long double dt = h_abs;

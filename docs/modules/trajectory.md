@@ -50,11 +50,26 @@ simulation -> ITrajectoryPlanner -> TrajectoryPlan -> mission assignment / rende
 - Same-parent station transfers use a bounded local direct arc instead of a Sun-centered transfer.
 - Interplanetary Kepler planning is currently circular-orbit and coplanar. It uses a launch-window wait, Hohmann half-period coast time, and exact station endpoints.
 
+## Trajectory Audit
+
+`trajectory/TrajectoryAudit.{hpp,cpp}` checks a `TrajectoryPlan` for unphysical geometry. Planners fill
+`TrajectoryPlan::diagnostics` with what the final path hides: the pre-snap start/end miss and, for VariableISP,
+the atlas inputs (rho, kappa, target/actual theta) and whether the seed was interpolated or a nearest-cell fallback.
+
+Flags (thresholds in `TrajectoryAuditThresholds`):
+
+- `endpoint_miss` / `start_miss` — unsnapped path endpoint is > 0.01 AU from the station
+- `end_dent` — sharp turn at the penultimate sample plus an oversized last segment (the snap made visible)
+- `many_revolutions` — transfer sweeps > 1.25 turns around the Sun
+- `coarse_sampling` / `coarse_wait` — consecutive samples > 20° apart in the transfer / wait-period prefix
+- `sun_dive` — perihelion below 0.7 × min(r_origin, r_dest) (informational; many are legitimate)
+- `non_finite`, `non_monotonic_time`
+
+The headless `--trajectory-audit` and `--trajectory-sweep` flags drive it (see README).
+
 ## Deferred Work
 
 - Patched-conic handoffs and richer local orbital transfers
-- Runtime `VariableISPPlanner`
-- Runtime integration of the already verified `/VariableISP` atlas and solver outputs
 
 ## Tests
 

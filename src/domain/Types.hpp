@@ -169,6 +169,20 @@ struct SimulationSnapshot {
     std::vector<EventEntry> recent_events;
 };
 
+// Planner-internal facts that the final path no longer shows (endpoints are
+// snapped onto the stations). Used by the trajectory audit.
+struct TrajectoryDiagnostics {
+    double start_miss_m {0.0};      // unsnapped first sample -> origin station
+    double endpoint_miss_m {0.0};   // unsnapped last sample -> destination station
+    // VariableISP only.
+    double rho {0.0};
+    double kappa {0.0};
+    double theta_target_rad {0.0};  // launch-window theta from the atlas grid
+    double theta_actual_rad {0.0};  // theta reached by the integrated trajectory
+    double r_end_canonical_ratio {0.0};  // integrated final radius / canonical rho
+    std::string seed_source;        // interpolated | nearest
+};
+
 struct TrajectoryPlan {
     bool feasible {false};
     double departure_time_s {0.0};
@@ -182,6 +196,7 @@ struct TrajectoryPlan {
     std::vector<double> sampled_propellant_kg;
     std::string summary;
     std::string trajectory_type;  // keplerian_local | keplerian_lambert | keplerian_hohmann | variable_isp
+    TrajectoryDiagnostics diagnostics;
 };
 
 }  // namespace spacetrains::domain
