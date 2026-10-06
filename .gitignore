@@ -27,3 +27,12 @@ Thumbs.db
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+# Local build outputs
+build/
+
+# Python environments and bytecode
+.venv/
+.venv*/
+__pycache__/
+*.pyc

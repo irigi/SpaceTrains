@@ -1,105 +1,85 @@
-# SpaceTrains — Solar System Simulation
+# SpaceTrains
 
-A self-playing 3D space simulation set in the Solar System, built with Godot 4.x. Watch factions manage stations, dispatch cargo ships, and trade commodities across the solar system.
+SpaceTrains is a self-playing Solar System logistics simulation with a planned **C++ simulation core** and **Godot 4 presentation layer**. The current repository contains the first foundation slice:
 
-## Requirements
+- a data-driven seeded Solar System in `data/`
+- an engine-independent C++ core in `src/`
+- a headless simulation runner
+- a bridge-backed Godot observer frontend in `godot/`
 
-- **Godot 4.2+** (standard build, no paid plugins)
-- **Windows 11** (primary target, but should run on any Godot-supported platform)
+## Current Scope
 
-## Setup
+The implemented gameplay slice is an observer-style sandbox:
 
-1. Open Godot 4.2+
-2. Import the project by selecting the `project.godot` file
-3. Press F5 or click Play to run
+- stations produce and consume commodities
+- factions own stations and ship fleets
+- ships autonomously pick cargo routes
+- transfers are planned through a `ITrajectoryPlanner` interface
+- the default planner is `KeplerTrajectoryPlanner`
 
-## Controls
+The VariableISP research material in [`VariableISP/`](VariableISP) is **reference-only for now**. The architecture is shaped to support a later `VariableISPPlanner`, but runtime integration is not implemented yet.
 
-### Camera
-| Input | Action |
-|-------|--------|
-| Right Mouse + Drag | Rotate camera |
-| Middle Mouse + Drag | Pan camera |
-| Scroll Wheel | Zoom in/out |
-| F | Focus on selected object |
+## Repository Layout
 
-### Selection
-| Input | Action |
-|-------|--------|
-| Left Click | Select planet/station/ship |
-| Left Click (empty space) | Deselect |
+- `src/` — C++20 domain core
+- `data/` — CSV universe data for bodies, stations, ships, commodities, and recipes
+- `tests/` — headless test executable
+- `godot/` — observer frontend that launches the bridge process
+- `VariableISP/` — research code, paper draft, and precomputed atlas
 
-### Time
-| Input | Action |
-|-------|--------|
-| Space | Pause / Resume |
-| 0 | Speed 0.2× (slow) |
-| 1 | Speed 1× |
-| 2 | Speed 5× |
-| 3 | Speed 20× |
-| 4 | Speed 50× |
+## Build and Run
 
-### Other
-| Input | Action |
-|-------|--------|
-| H | Toggle help overlay |
-| Ctrl+S | Save game |
-| Ctrl+L | Load game |
-| Ctrl+Q | Quit game |
+Configure and build:
 
-## Architecture
+```bash
+cmake -B build -G Ninja
+cmake --build build
+```
 
-### Simulation Layer (`sim/`)
-- `Simulation.gd` — Main tick loop, world setup, save/load
-- `WorldState.gd` — Pure data containers (bodies, stations, ships, factions)
-- `EventBus.gd` — Global signal bus (autoload)
-- `systems/OrbitSystem.gd` — Analytic Keplerian orbits
-- `systems/ShipMovementSystem.gd` — Ship travel with smoothstep interpolation
-- `systems/StationEconomySystem.gd` — Production/consumption of commodities
-- `systems/MissionSystem.gd` — Cargo mission creation and dispatch
+Run the headless sandbox:
 
-### View Layer (`view/`)
-- `SolarSystemRenderer.gd` — Creates and updates all 3D visual nodes
-- `OrbitCamera.gd` — Orbit camera with rotate/pan/zoom
-- `FloatingOrigin.gd` — Precision maintenance for large-scale rendering
+```bash
+./build/bin/spacetrains_headless .
+```
 
-### UI Layer (`ui/`)
-- `SelectionPanel.gd` — Entity detail inspector
-- `EventLog.gd` — Filtered event feed
-- `TimeControls.gd` — Pause/speed controls
-- `HelpOverlay.gd` — Controls reference
+Run the bridge directly for debugging:
 
-### Scenes (`scenes/`)
-- `Main.tscn` — Root scene, entry point
+```bash
+./build/bin/spacetrains_bridge --data-root ./data --snapshot-file /tmp/spacetrains_snapshot.json --command-file /tmp/spacetrains_commands.json
+```
 
-## Simulation Details
+Run tests:
 
-### Celestial Bodies
-Sun, Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune, and Ceres. All follow simplified circular orbits (analytic, not n-body).
+```bash
+cd build && ctest --output-on-failure
+```
 
-### Factions
-- **Sol Federation** — Earth-based, high lawfulness, balanced trade/security
-- **Mars Corp** — Mars-based, trade-focused, moderate lawfulness
-- **Independent** — Neutral stations, trade-oriented
+Open the Godot preview shell:
 
-### Stations (10)
-Distributed across Earth, Mars, Venus, Mercury, Ceres, Jupiter, Saturn orbit. Each has modules (Docks, Farm, Refinery, Life Support, etc.), inventory, and a ship roster.
+```bash
+godot4 --editor godot/project.godot
+```
 
-### Ships
-Light Freighters execute cargo delivery missions between stations. Ships launch, travel (with smoothstep interpolation), dock, and deliver commodities.
+Run the Godot observer frontend:
 
-### Commodities
-Food, Water, Oxygen, Metals, Fuel, Electronics, Medical
+```bash
+godot4 --path godot
+```
 
-### Economy
-Stations produce commodities based on modules (Farm → Food, Refinery → Metals→Fuel) and consume based on population. Surplus triggers cargo missions to needy stations.
+The Godot scene starts `spacetrains_bridge` automatically, reads live JSON snapshots, and writes pause/timewarp commands back through a command file.
 
-## Save/Load
-Games save to `user://saves/savegame.json` in JSON format. All entity IDs are stable across saves.
+## Near-Term Architecture
 
-## Version Roadmap
+- `data_loader/` parses external world data
+- `celestial/` provides body and station positions
+- `economy/` advances station inventories
+- `trajectory/` owns transfer planning interfaces
+- `simulation/` coordinates time, missions, fleets, and event history
 
-- **v0.1 (Current)** — MVP: Solar system view, stations, cargo ships, event log, time controls
-- **v0.2** — Pirates, patrols, inspections, bounties
-- **v0.3** — Production chains, shortages, ship services
-- **v0.4** — Visual polish, trails, better UI filtering
+The full architecture pack now lives in:
+
+- [`docs/architecture_overview.md`](docs/architecture_overview.md)
+- [`docs/roadmap.md`](docs/roadmap.md)
+- [`docs/modules/`](docs/modules)
+
+See [`docs/IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md) for the short current-status note.
