@@ -48,13 +48,15 @@ Next fixes:
   (~25% of cells actually fly θ ± 2πn).
 - Atlas time-optimality: ~55% of solved cells end with > 2% fuel left (the generator only penalised overuse), so
   transfer times are not minimal for the ship's kappa. Consider enforcing m_end = m_dry in the shooting.
-- Planning cost: cache refined plans (path depends on (ρ, θ, T) only, not κ) if the live bridge stutters.
-- Tighten the noisy `sun_dive` flag.
+- Planning cost: 3-year headless run 1m36s (before) -> 4m22s now (~0.24 s per simulated day). Cache refined plans
+  (path depends on (ρ, θ, T) only, not κ) if the live bridge stutters.
 - **Hohmann fallback dents — FIXED.** The half-ellipse is now drawn through the actual stations with Kepler timing,
   and elliptic arcs (Hohmann and Lambert) are sampled evenly in eccentric anomaly so the sharply curved far end of
   eccentric ellipses has no kinks. Sweep: Hohmann flagged 1,647 -> 0; Lambert end dents 3 -> 0.
-- **Perihelion limit (open).** No planner bounds perihelion: 8 Lambert and 4 ion plans pass *through the Sun*
-  (r < 0.0047 AU); 236 Lambert and 6,044 ion plans (16%) dive below 0.2 AU. Needs a minimum-perihelion rule.
+- **Perihelion limit — FIXED.** No planner bounded perihelion: 8 Lambert and 4 ion plans passed *through the Sun*.
+  Both planners now enforce 0.1 AU (`kMinPerihelionM`); ion feasible plans -5%.
+- **Path sampling — FIXED.** Rendered paths are thinned by curvature (≤ 6° per point, ≥ 40 segments) from a dense
+  generation. Sweep: chemical plans 0 flagged; ion 1 `coarse_sampling` left (was 3,034).
 - Regression tests for each fixed case.
 
 ## Economy Follow-ups

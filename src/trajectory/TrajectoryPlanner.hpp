@@ -7,6 +7,11 @@
 
 namespace spacetrains::trajectory {
 
+// No planner may send a ship closer to the Sun than this (roughly a thermally
+// survivable limit; Parker Solar Probe reaches 0.046 AU). Unbounded planners sent
+// Lambert and ion paths straight through the Sun.
+inline constexpr double kMinPerihelionM = 0.1 * 1.495978707e11;
+
 class ITrajectoryPlanner {
 public:
     virtual ~ITrajectoryPlanner() = default;

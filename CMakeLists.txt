@@ -13,6 +13,7 @@ add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/celestial/CelestialMechanics.cpp
     src/trajectory/Lambert.cpp
+    src/trajectory/PathSampling.cpp
     src/trajectory/TrajectoryAudit.cpp
     src/trajectory/TrajectoryPlanner.cpp
     src/trajectory/VariableIspTrajectoryPlanner.cpp

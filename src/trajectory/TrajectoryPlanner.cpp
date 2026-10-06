@@ -1,5 +1,6 @@
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/Lambert.hpp"
+#include "trajectory/PathSampling.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -299,6 +300,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
 
             const auto lam = solve_lambert(r1_pos, r2_pos, transit_k, mu);
             if (!lam.found) continue;
+            if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) continue;
 
             const double vc2 = std::sqrt(mu / r2_m_k);
             const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
@@ -347,7 +349,8 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);
     const double start_angle = std::atan2(start.z, start.x);
 
-    constexpr int kSamples = 48;
+    // Generate densely, then thin by curvature for rendering (see PathSampling.hpp).
+    constexpr int kSamples = 721;
     plan.sampled_path.reserve(kSamples);
     plan.sampled_times_s.reserve(kSamples);
 
@@ -436,6 +439,19 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             plan.sampled_times_s.push_back(plan.departure_time_s + time_fraction * plan.coast_time_s);
         }
     }
+    {
+        const auto keep = select_for_rendering(plan.sampled_path);
+        std::vector<math::Vec3d> path;
+        std::vector<double> times;
+        path.reserve(keep.size());
+        times.reserve(keep.size());
+        for (const auto index : keep) {
+            path.push_back(plan.sampled_path[index]);
+            times.push_back(plan.sampled_times_s[index]);
+        }
+        plan.sampled_path = std::move(path);
+        plan.sampled_times_s = std::move(times);
+    }
     plan.diagnostics.start_miss_m = (plan.sampled_path.front() - start).length();
     plan.diagnostics.endpoint_miss_m = (plan.sampled_path.back() - finish).length();
     plan.sampled_path.front() = start;
@@ -479,7 +495,8 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     }
 
     // Compute propellant profile for the transit arc.
-    std::vector<double> arc_propellant(kSamples);
+    const std::size_t arc_samples = plan.sampled_path.size();
+    std::vector<double> arc_propellant(arc_samples);
     {
         const double ve = effective_exhaust_velocity_mps(ship_class);
         const double m0 = ship_class.dry_mass_kg + ship.propellant_kg;
@@ -489,7 +506,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
             ? m1 * (1.0 - std::exp(-best_dv_arr / ve)) : 0.0;
         const double propellant_coast = std::max(0.0, ship.propellant_kg - prop_dep);
         arc_propellant.front() = ship.propellant_kg;
-        for (int i = 1; i < kSamples - 1; ++i)
+        for (std::size_t i = 1; i + 1 < arc_samples; ++i)
             arc_propellant[i] = propellant_coast;
         arc_propellant.back() = std::max(0.0, propellant_coast - prop_arr);
     }

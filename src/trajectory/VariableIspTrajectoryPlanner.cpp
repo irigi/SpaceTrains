@@ -1,4 +1,5 @@
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
+#include "trajectory/PathSampling.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -73,60 +74,6 @@ std::size_t lower_grid_idx(const std::vector<double>& grid, double value) {
     const auto upper = std::lower_bound(grid.begin(), grid.end(), value);
     const auto idx = static_cast<std::size_t>(std::distance(grid.begin(), upper));
     return (*upper == value) ? std::min(idx, grid.size() - 2) : idx - 1;
-}
-
-// Resample a polar-coordinate trajectory to `target_count` points distributed
-// uniformly by Cartesian arc length. Near-perihelion regions with high curvature
-// receive proportionally more output samples, eliminating sparse-sample artifacts
-// when the ship makes a tight solar pass in a small fraction of transfer time.
-std::vector<variable_isp::TrajectorySample> arc_length_resample(
-    const std::vector<variable_isp::TrajectorySample>& src,
-    std::size_t target_count)
-{
-    if (src.size() <= target_count) {
-        return src;
-    }
-
-    std::vector<double> arc(src.size(), 0.0);
-    for (std::size_t i = 1; i < src.size(); ++i) {
-        const double x0 = src[i - 1].r_m * std::cos(src[i - 1].theta_rad);
-        const double z0 = src[i - 1].r_m * std::sin(src[i - 1].theta_rad);
-        const double x1 = src[i].r_m * std::cos(src[i].theta_rad);
-        const double z1 = src[i].r_m * std::sin(src[i].theta_rad);
-        const double dx = x1 - x0, dz = z1 - z0;
-        arc[i] = arc[i - 1] + std::sqrt(dx * dx + dz * dz);
-    }
-
-    const double total_arc = arc.back();
-    if (total_arc == 0.0) {
-        return src;
-    }
-    const double step = total_arc / static_cast<double>(target_count - 1);
-
-    std::vector<variable_isp::TrajectorySample> out;
-    out.reserve(target_count);
-    out.push_back(src.front());
-
-    std::size_t j = 0;
-    for (std::size_t i = 1; i + 1 < target_count; ++i) {
-        const double target_s = step * static_cast<double>(i);
-        while (j + 1 < src.size() - 1 && arc[j + 1] < target_s) {
-            ++j;
-        }
-        const double span = arc[j + 1] - arc[j];
-        const double t = (span > 0.0) ? (target_s - arc[j]) / span : 0.0;
-        variable_isp::TrajectorySample s;
-        s.time_s      = src[j].time_s      + t * (src[j + 1].time_s      - src[j].time_s);
-        s.r_m         = src[j].r_m         + t * (src[j + 1].r_m         - src[j].r_m);
-        s.theta_rad   = src[j].theta_rad   + t * (src[j + 1].theta_rad   - src[j].theta_rad);
-        s.vr_mps      = src[j].vr_mps      + t * (src[j + 1].vr_mps      - src[j].vr_mps);
-        s.vtheta_mps  = src[j].vtheta_mps  + t * (src[j + 1].vtheta_mps  - src[j].vtheta_mps);
-        s.mass_kg     = src[j].mass_kg     + t * (src[j + 1].mass_kg     - src[j].mass_kg);
-        out.push_back(s);
-    }
-
-    out.push_back(src.back());
-    return out;
 }
 
 }  // namespace
@@ -355,10 +302,17 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                 // Integrate the winning canonical trajectory. We use many internal samples so
                 // that arc-length resampling (below) has enough source points to represent tight
                 // solar passes accurately.
-                auto full = integrator_.integrate_fixed_time(refined.seed, config, 1000);
+                // Dense enough that even a 0.1 AU perihelion on a multi-year transfer turns
+                // only a few degrees per sample before thinning.
+                auto full = integrator_.integrate_fixed_time(refined.seed, config, 4000);
                 if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
                     fuel_limited = true;
                     continue;
+                }
+                const auto closest = std::min_element(full.samples.begin(), full.samples.end(),
+                    [](const auto& a, const auto& b) { return a.r_m < b.r_m; });
+                if (closest->r_m * depart_r_scale < kMinPerihelionM) {
+                    continue;  // time-optimal ion arcs like to dive sunward; keep them survivable
                 }
                 best_seed = refined.seed;
                 result = std::move(full);
@@ -378,9 +332,19 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         return plan;
     }
 
-    // Resample uniformly by arc length so curved perihelion regions receive
-    // proportionally more output points regardless of how little time is spent there.
-    const auto samples = arc_length_resample(result.samples, 120);
+    // Thin the dense integration by curvature for rendering: tight perihelion passes keep
+    // many points, long flat spirals few (see PathSampling.hpp).
+    std::vector<variable_isp::TrajectorySample> samples;
+    {
+        std::vector<math::Vec3d> dense;
+        dense.reserve(result.samples.size());
+        for (const auto& sample : result.samples) {
+            dense.push_back({sample.r_m * std::cos(sample.theta_rad), 0.0, sample.r_m * std::sin(sample.theta_rad)});
+        }
+        for (const auto index : select_for_rendering(dense)) {
+            samples.push_back(result.samples[index]);
+        }
+    }
 
     const double actual_theta = samples.back().theta_rad;
     const double T_interp_s = best_seed.transfer_time_days

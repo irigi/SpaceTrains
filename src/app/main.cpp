@@ -602,7 +602,7 @@ std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep
                 if (!plan.feasible) continue;
                 const double r_origin = mechanics.get_heliocentric_radius(origin->parent_body_id, plan.departure_time_s);
                 const double r_dest = mechanics.get_heliocentric_radius(destination->parent_body_id, plan.arrival_time_s);
-                auto metrics = spacetrains::trajectory::audit_trajectory(plan, r_origin, r_dest);
+                auto metrics = spacetrains::trajectory::audit_trajectory(plan);
                 const bool flagged = !metrics.flags.empty();
                 job_records[j].push_back({
                     .planned_at_s = t,

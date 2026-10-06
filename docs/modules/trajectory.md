@@ -61,6 +61,13 @@ rotated from the origin station's position at departure. Windows whose refinemen
 needs more fuel than the ship carries are skipped (up to 4 tried). The path shape does not depend on κ: κ only
 decides whether the fuel suffices.
 
+## Perihelion Limit and Path Sampling
+
+Both planners reject transfers that come closer to the Sun than `kMinPerihelionM` (0.1 AU,
+`TrajectoryPlanner.hpp`): Lambert candidates via `conic_arc_min_radius()`, ion windows via the integrated path.
+Paths are generated densely and thinned for rendering by `select_for_rendering()` (`PathSampling.hpp`): a point is
+kept whenever the accumulated turn reaches 6° or the segment reaches 1/40 of the path length.
+
 ## Trajectory Audit
 
 `trajectory/TrajectoryAudit.{hpp,cpp}` checks a `TrajectoryPlan` for unphysical geometry. Planners fill
@@ -72,8 +79,9 @@ Flags (thresholds in `TrajectoryAuditThresholds`):
 - `endpoint_miss` / `start_miss` — unsnapped path endpoint is > 0.01 AU from the station
 - `end_dent` — sharp turn at the penultimate sample plus an oversized last segment (the snap made visible)
 - `many_revolutions` — transfer sweeps > 1.25 turns around the Sun
-- `coarse_sampling` / `coarse_wait` — consecutive samples > 20° apart in the transfer / wait-period prefix
-- `sun_dive` — perihelion below 0.7 × min(r_origin, r_dest) (informational; many are legitimate)
+- `coarse_sampling` — the rendered transfer path changes direction by > 15° at one point
+- `coarse_wait` — wait-period samples > 20° of heliocentric angle apart
+- `below_min_perihelion` — path comes closer to the Sun than `kMinPerihelionM` (0.1 AU)
 - `non_finite`, `non_monotonic_time`
 
 The headless `--trajectory-audit` and `--trajectory-sweep` flags drive it (see README).

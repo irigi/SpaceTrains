@@ -30,16 +30,15 @@ struct TrajectoryAuditMetrics {
 struct TrajectoryAuditThresholds {
     double endpoint_miss_m {1.5e9};   // 0.01 AU
     double max_revolutions {1.25};
-    double max_step_deg {20.0};
+    double max_step_deg {20.0};       // wait prefix: heliocentric angle per step
+    double max_turn_deg {15.0};       // transfer: direction change at one point
     double end_turn_deg {30.0};
     double last_segment_ratio {3.0};
-    double sun_dive_fraction {0.7};   // min radius below this × min(r_origin, r_dest)
+    double min_perihelion_m {1.495978707e10};  // 0.1 AU, same as kMinPerihelionM
 };
 
 [[nodiscard]] TrajectoryAuditMetrics audit_trajectory(
     const domain::TrajectoryPlan& plan,
-    double r_origin_m,
-    double r_dest_m,
     const TrajectoryAuditThresholds& thresholds = {});
 
 // One accepted mission plan as seen by the audit.

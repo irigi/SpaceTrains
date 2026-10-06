@@ -255,7 +255,7 @@ void Simulation::record_trajectory_audit(
     double planning_propellant_kg) {
     const double r_origin_m = mechanics_.get_heliocentric_radius(origin.parent_body_id, plan.departure_time_s);
     const double r_dest_m = mechanics_.get_heliocentric_radius(destination.parent_body_id, plan.arrival_time_s);
-    auto metrics = trajectory::audit_trajectory(plan, r_origin_m, r_dest_m);
+    auto metrics = trajectory::audit_trajectory(plan);
     const bool flagged = !metrics.flags.empty();
     trajectory_audit_records_.push_back({
         .planned_at_s = game_time_s_,

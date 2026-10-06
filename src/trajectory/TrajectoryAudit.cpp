@@ -36,8 +36,6 @@ double turn_deg(const math::Vec3d& a, const math::Vec3d& b, const math::Vec3d& c
 
 TrajectoryAuditMetrics audit_trajectory(
     const domain::TrajectoryPlan& plan,
-    double r_origin_m,
-    double r_dest_m,
     const TrajectoryAuditThresholds& thresholds) {
 
     TrajectoryAuditMetrics m;
@@ -113,13 +111,13 @@ TrajectoryAuditMetrics audit_trajectory(
     if (plan.diagnostics.endpoint_miss_m > thresholds.endpoint_miss_m) m.flags.emplace_back("endpoint_miss");
     if (plan.diagnostics.start_miss_m > thresholds.endpoint_miss_m) m.flags.emplace_back("start_miss");
     if (m.revolutions > thresholds.max_revolutions) m.flags.emplace_back("many_revolutions");
-    if (m.max_step_deg > thresholds.max_step_deg) m.flags.emplace_back("coarse_sampling");
+    if (std::max(m.max_interior_turn_deg, m.end_turn_deg) > thresholds.max_turn_deg) m.flags.emplace_back("coarse_sampling");
     if (m.wait_max_step_deg > thresholds.max_step_deg) m.flags.emplace_back("coarse_wait");
     if (m.end_turn_deg > thresholds.end_turn_deg && m.last_segment_ratio > thresholds.last_segment_ratio) {
         m.flags.emplace_back("end_dent");
     }
-    if (m.min_radius_m > 0.0 && m.min_radius_m < thresholds.sun_dive_fraction * std::min(r_origin_m, r_dest_m)) {
-        m.flags.emplace_back("sun_dive");
+    if (m.min_radius_m > 0.0 && m.min_radius_m < thresholds.min_perihelion_m) {
+        m.flags.emplace_back("below_min_perihelion");
     }
     return m;
 }

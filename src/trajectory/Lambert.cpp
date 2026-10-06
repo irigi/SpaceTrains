@@ -134,4 +134,33 @@ LambertResult solve_lambert(
     return res;
 }
 
+double conic_arc_min_radius(
+    const math::Vec3d& r1,
+    const math::Vec3d& v1,
+    const math::Vec3d& r2,
+    double mu) {
+    constexpr double tau = 6.28318530717958647692;
+    const double r1m = std::hypot(r1.x, r1.z);
+    const double r2m = std::hypot(r2.x, r2.z);
+    const double endpoints = std::min(r1m, r2m);
+    // Same XZ-plane convention as the path sampler: h = (r × v).y, e from (v × L)/mu − r̂.
+    const double h = r1.x * v1.z - r1.z * v1.x;
+    const double ex = v1.z * h / mu - r1.x / r1m;
+    const double ez = -v1.x * h / mu - r1.z / r1m;
+    const double ecc = std::hypot(ex, ez);
+    if (ecc < 1e-9 || r1m <= 0.0) {
+        return endpoints;  // circular: constant radius
+    }
+    const double omega = std::atan2(ez, ex);
+    const auto wrap = [&](double a) { a = std::fmod(a, tau); return a < 0.0 ? a + tau : a; };
+    // True anomalies in [0, 2π); periapsis sits at 0 ≡ 2π.
+    const double theta1 = wrap(std::atan2(r1.z, r1.x) - omega);
+    const double theta2 = wrap(std::atan2(r2.z, r2.x) - omega);
+    // Prograde (h > 0) motion increases theta and passes periapsis when it wraps past 2π;
+    // retrograde motion decreases theta and passes it when it wraps below 0.
+    const bool passes_periapsis = h >= 0.0 ? theta2 < theta1 : theta2 > theta1;
+    const double periapsis = (h * h / mu) / (1.0 + ecc);
+    return passes_periapsis ? std::min(endpoints, periapsis) : endpoints;
+}
+
 }  // namespace spacetrains::trajectory
