@@ -1,0 +1,390 @@
+#include "data_loader/DataLoader.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+namespace spacetrains::data_loader {
+
+namespace {
+
+std::string trim(std::string text) {
+    auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+    text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+    text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+    return text;
+}
+
+std::vector<std::string> split_csv_line(const std::string& line) {
+    std::vector<std::string> fields;
+    std::string current;
+    bool in_quotes = false;
+
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char ch = line[i];
+        if (ch == '"') {
+            if (in_quotes && i + 1 < line.size() && line[i + 1] == '"') {
+                current += '"';
+                ++i;
+            } else {
+                in_quotes = !in_quotes;
+            }
+            continue;
+        }
+        if (ch == ',' && !in_quotes) {
+            fields.push_back(trim(current));
+            current.clear();
+            continue;
+        }
+        current += ch;
+    }
+
+    if (in_quotes) {
+        throw std::runtime_error("Unterminated quoted CSV field");
+    }
+
+    fields.push_back(trim(current));
+    return fields;
+}
+
+std::vector<std::vector<std::string>> read_csv_rows(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    if (!input) {
+        throw std::runtime_error("Failed to open file: " + path.string());
+    }
+
+    std::vector<std::vector<std::string>> rows;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (trim(line).empty()) {
+            continue;
+        }
+        rows.push_back(split_csv_line(line));
+    }
+
+    if (rows.empty()) {
+        throw std::runtime_error("CSV file is empty: " + path.string());
+    }
+    return rows;
+}
+
+void require_header(
+    const std::vector<std::string>& actual,
+    const std::vector<std::string>& expected,
+    const std::filesystem::path& path) {
+    if (actual != expected) {
+        std::ostringstream message;
+        message << "Unexpected CSV header in " << path.string();
+        throw std::runtime_error(message.str());
+    }
+}
+
+void require_field_count(
+    const std::vector<std::string>& row,
+    std::size_t expected,
+    const std::filesystem::path& path,
+    std::size_t line_number) {
+    if (row.size() != expected) {
+        std::ostringstream message;
+        message << "Unexpected field count in " << path.string() << ":" << line_number
+                << " expected " << expected << " got " << row.size();
+        throw std::runtime_error(message.str());
+    }
+}
+
+double parse_double(
+    const std::string& text,
+    const std::filesystem::path& path,
+    std::size_t line_number,
+    const char* field_name) {
+    try {
+        std::size_t parsed = 0;
+        const double value = std::stod(text, &parsed);
+        if (parsed != text.size()) {
+            throw std::runtime_error("trailing characters");
+        }
+        return value;
+    } catch (const std::exception&) {
+        std::ostringstream message;
+        message << "Invalid number for " << field_name << " in " << path.string() << ":" << line_number;
+        throw std::runtime_error(message.str());
+    }
+}
+
+std::int64_t parse_int64(
+    const std::string& text,
+    const std::filesystem::path& path,
+    std::size_t line_number,
+    const char* field_name) {
+    try {
+        std::size_t parsed = 0;
+        const std::int64_t value = std::stoll(text, &parsed);
+        if (parsed != text.size()) {
+            throw std::runtime_error("trailing characters");
+        }
+        return value;
+    } catch (const std::exception&) {
+        std::ostringstream message;
+        message << "Invalid integer for " << field_name << " in " << path.string() << ":" << line_number;
+        throw std::runtime_error(message.str());
+    }
+}
+
+void require_unique_id(
+    const std::string& id,
+    std::unordered_set<std::string>& seen_ids,
+    const std::filesystem::path& path,
+    std::size_t line_number) {
+    if (!seen_ids.insert(id).second) {
+        std::ostringstream message;
+        message << "Duplicate id '" << id << "' in " << path.string() << ":" << line_number;
+        throw std::runtime_error(message.str());
+    }
+}
+
+domain::Inventory parse_inventory(
+    const std::string& text,
+    const std::filesystem::path& path,
+    std::size_t line_number) {
+    domain::Inventory inventory;
+    if (trim(text).empty()) {
+        return inventory;
+    }
+
+    std::stringstream entries(text);
+    std::string entry;
+    while (std::getline(entries, entry, ';')) {
+        entry = trim(entry);
+        if (entry.empty()) {
+            continue;
+        }
+        const auto separator = entry.find(':');
+        if (separator == std::string::npos) {
+            std::ostringstream message;
+            message << "Invalid inventory entry in " << path.string() << ":" << line_number;
+            throw std::runtime_error(message.str());
+        }
+
+        const std::string commodity_id = trim(entry.substr(0, separator));
+        const std::string amount_text = trim(entry.substr(separator + 1));
+        inventory[commodity_id] = parse_double(amount_text, path, line_number, commodity_id.c_str());
+    }
+    return inventory;
+}
+
+template <typename Collection>
+bool contains_id(const Collection& values, const std::string& id) {
+    return std::any_of(values.begin(), values.end(), [&](const auto& value) { return value.id == id; });
+}
+
+}  // namespace
+
+domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path& root) const {
+    domain::UniverseDefinition universe;
+
+    const auto bodies_path = root / "bodies" / "bodies.csv";
+    const auto factions_path = root / "factions" / "factions.csv";
+    const auto commodities_path = root / "commodities" / "commodities.csv";
+    const auto ship_classes_path = root / "ship_classes" / "ship_classes.csv";
+    const auto stations_path = root / "stations" / "stations.csv";
+    const auto recipes_path = root / "recipes" / "recipes.csv";
+    const auto ships_path = root / "ships" / "ships.csv";
+
+    {
+        const auto rows = read_csv_rows(bodies_path);
+        require_header(rows.front(),
+            {"id", "name", "radius_m", "mu_m3_s2", "parent_id", "semi_major_axis_m", "eccentricity", "orbital_period_s", "phase_at_epoch_rad"},
+            bodies_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 9, bodies_path, i + 1);
+            require_unique_id(row[0], seen_ids, bodies_path, i + 1);
+            universe.bodies.push_back({
+                .id = row[0],
+                .name = row[1],
+                .radius_m = parse_double(row[2], bodies_path, i + 1, "radius_m"),
+                .mu_m3_s2 = parse_double(row[3], bodies_path, i + 1, "mu_m3_s2"),
+                .orbit = {
+                    .parent_id = row[4],
+                    .semi_major_axis_m = parse_double(row[5], bodies_path, i + 1, "semi_major_axis_m"),
+                    .eccentricity = parse_double(row[6], bodies_path, i + 1, "eccentricity"),
+                    .orbital_period_s = parse_double(row[7], bodies_path, i + 1, "orbital_period_s"),
+                    .phase_at_epoch_rad = parse_double(row[8], bodies_path, i + 1, "phase_at_epoch_rad"),
+                },
+            });
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(factions_path);
+        require_header(rows.front(), {"id", "name", "color"}, factions_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 3, factions_path, i + 1);
+            require_unique_id(row[0], seen_ids, factions_path, i + 1);
+            universe.factions.push_back({.id = row[0], .name = row[1], .color_hex = row[2]});
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(commodities_path);
+        require_header(rows.front(), {"id", "name", "mass_per_unit_kg", "decay_fraction_per_day", "base_price"}, commodities_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 5, commodities_path, i + 1);
+            require_unique_id(row[0], seen_ids, commodities_path, i + 1);
+            universe.commodities.push_back({
+                .id = row[0],
+                .name = row[1],
+                .mass_per_unit_kg = parse_double(row[2], commodities_path, i + 1, "mass_per_unit_kg"),
+                .decay_fraction_per_day = parse_double(row[3], commodities_path, i + 1, "decay_fraction_per_day"),
+                .base_price = parse_double(row[4], commodities_path, i + 1, "base_price"),
+            });
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(ship_classes_path);
+        require_header(rows.front(),
+            {"id", "name", "propulsion_type", "dry_mass_kg", "propellant_capacity_kg", "cargo_capacity_units",
+             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg"},
+            ship_classes_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 9, ship_classes_path, i + 1);
+            require_unique_id(row[0], seen_ids, ship_classes_path, i + 1);
+            universe.ship_classes.push_back({
+                .id = row[0],
+                .name = row[1],
+                .propulsion_type = row[2],
+                .dry_mass_kg = parse_double(row[3], ship_classes_path, i + 1, "dry_mass_kg"),
+                .propellant_capacity_kg = parse_double(row[4], ship_classes_path, i + 1, "propellant_capacity_kg"),
+                .cargo_capacity_units = parse_double(row[5], ship_classes_path, i + 1, "cargo_capacity_units"),
+                .max_delta_v_mps = parse_double(row[6], ship_classes_path, i + 1, "max_delta_v_mps"),
+                .cruise_accel_mps2 = parse_double(row[7], ship_classes_path, i + 1, "cruise_accel_mps2"),
+                .specific_engine_power_w_per_kg = parse_double(row[8], ship_classes_path, i + 1, "specific_engine_power_w_per_kg"),
+            });
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(stations_path);
+        require_header(rows.front(),
+            {"id", "name", "faction_id", "parent_body_id", "altitude_m", "theta_rad", "population", "economy_profile_id",
+             "storage_capacity_units", "initial_credits", "initial_inventory"},
+            stations_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 11, stations_path, i + 1);
+            require_unique_id(row[0], seen_ids, stations_path, i + 1);
+            universe.stations.push_back({
+                .id = row[0],
+                .name = row[1],
+                .faction_id = row[2],
+                .parent_body_id = row[3],
+                .altitude_m = parse_double(row[4], stations_path, i + 1, "altitude_m"),
+                .theta_rad = parse_double(row[5], stations_path, i + 1, "theta_rad"),
+                .population = parse_int64(row[6], stations_path, i + 1, "population"),
+                .economy_profile_id = row[7],
+                .storage_capacity_units = parse_double(row[8], stations_path, i + 1, "storage_capacity_units"),
+                .initial_credits = parse_double(row[9], stations_path, i + 1, "initial_credits"),
+                .initial_inventory = parse_inventory(row[10], stations_path, i + 1),
+            });
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(recipes_path);
+        require_header(rows.front(), {"profile_id", "commodity_id", "units_per_day"}, recipes_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 3, recipes_path, i + 1);
+            universe.recipes.push_back({
+                .profile_id = row[0],
+                .commodity_id = row[1],
+                .units_per_day = parse_double(row[2], recipes_path, i + 1, "units_per_day"),
+            });
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(ships_path);
+        require_header(rows.front(),
+            {"id", "name", "faction_id", "class_id", "home_station_id", "start_station_id", "initial_propellant_kg", "initial_credits"},
+            ships_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 8, ships_path, i + 1);
+            require_unique_id(row[0], seen_ids, ships_path, i + 1);
+            universe.ship_seeds.push_back({
+                .id = row[0],
+                .name = row[1],
+                .faction_id = row[2],
+                .class_id = row[3],
+                .home_station_id = row[4],
+                .start_station_id = row[5],
+                .initial_propellant_kg = parse_double(row[6], ships_path, i + 1, "initial_propellant_kg"),
+                .initial_credits = parse_double(row[7], ships_path, i + 1, "initial_credits"),
+            });
+        }
+    }
+
+    for (const auto& body : universe.bodies) {
+        if (!body.orbit.parent_id.empty() && !contains_id(universe.bodies, body.orbit.parent_id)) {
+            throw std::runtime_error("Body '" + body.id + "' references unknown parent body '" + body.orbit.parent_id + "'");
+        }
+    }
+
+    for (const auto& station : universe.stations) {
+        if (!contains_id(universe.factions, station.faction_id)) {
+            throw std::runtime_error("Station '" + station.id + "' references unknown faction '" + station.faction_id + "'");
+        }
+        if (!contains_id(universe.bodies, station.parent_body_id)) {
+            throw std::runtime_error("Station '" + station.id + "' references unknown body '" + station.parent_body_id + "'");
+        }
+        for (const auto& [commodity_id, _] : station.initial_inventory) {
+            if (!contains_id(universe.commodities, commodity_id)) {
+                throw std::runtime_error("Station '" + station.id + "' inventory references unknown commodity '" + commodity_id + "'");
+            }
+        }
+    }
+
+    for (const auto& recipe : universe.recipes) {
+        if (!contains_id(universe.commodities, recipe.commodity_id)) {
+            throw std::runtime_error("Recipe profile '" + recipe.profile_id + "' references unknown commodity '" + recipe.commodity_id + "'");
+        }
+    }
+
+    for (const auto& ship : universe.ship_seeds) {
+        if (!contains_id(universe.factions, ship.faction_id)) {
+            throw std::runtime_error("Ship '" + ship.id + "' references unknown faction '" + ship.faction_id + "'");
+        }
+        if (!contains_id(universe.ship_classes, ship.class_id)) {
+            throw std::runtime_error("Ship '" + ship.id + "' references unknown class '" + ship.class_id + "'");
+        }
+        if (!contains_id(universe.stations, ship.home_station_id)) {
+            throw std::runtime_error("Ship '" + ship.id + "' references unknown home station '" + ship.home_station_id + "'");
+        }
+        if (!contains_id(universe.stations, ship.start_station_id)) {
+            throw std::runtime_error("Ship '" + ship.id + "' references unknown start station '" + ship.start_station_id + "'");
+        }
+    }
+
+    return universe;
+}
+
+}  // namespace spacetrains::data_loader
