@@ -38,7 +38,9 @@ Findings from the first 2-year sweep (192k plans, 2026-10-06):
   freeze the simulation). Now guarded by a step budget; the planner treats failure as no window.
 - **Theta wraparound.** Atlas theta spans ±1.1 rev; planner accepts retrograde/near-full-loop targets, and the
   integrated theta can land 2-4π away from the target.
-- **Lambert path to Titan** (NTR, Ceres -> Titan) ends ~3 AU from the target, then a straight 6.8 AU line.
+- **Lambert path to Titan — FIXED.** A full-tank NTR Ceres -> Titan picks a hyperbolic Lambert arc; the path sampler
+  only handled ellipses, so all samples sat at Ceres' radius with the departure time and the snap drew a 6.8 AU line.
+  Now samples ellipses, hyperbolas, and near-parabolas (Barker). Sweep: Lambert max miss 6.8 AU -> 0.0001 AU.
 
 Next fixes:
 
@@ -47,7 +49,9 @@ Next fixes:
 - Atlas time-optimality: ~55% of solved cells end with > 2% fuel left (the generator only penalised overuse), so
   transfer times are not minimal for the ship's kappa. Consider enforcing m_end = m_dry in the shooting.
 - Planning cost: cache refined plans (path depends on (ρ, θ, T) only, not κ) if the live bridge stutters.
-- Investigate the Lambert Titan case; tighten the noisy `sun_dive` flag.
+- Tighten the noisy `sun_dive` flag.
+- Minor: Kepler Hohmann fallback misses moon stations by up to 0.046 AU (17 small end dents in the sweep); 3 long
+  Sun-diving Lambert arcs show a ~30° kink from 48 evenly spaced true-anomaly samples.
 - Regression tests for each fixed case.
 
 ## Economy Follow-ups

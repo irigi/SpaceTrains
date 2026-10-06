@@ -316,30 +316,44 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         while (theta2 <= theta1) theta2 += TAU;
         if (theta2 - theta1 > TAU) theta2 -= TAU;
 
-        // Kepler time-of-flight: compute mean anomaly for each true anomaly sample so
-        // that time stamps respect the actual orbital speed (fast near periapsis).
-        // M(θ) = E(θ) − e·sin(E), where E = atan2(√(1−e²)·sin(θ), e+cos(θ)).
-        const double ecc_sin_coeff = std::sqrt(std::max(0.0, 1.0 - ecc * ecc));
+        // Kepler time-of-flight: compute a mean anomaly (proportional to time since
+        // periapsis) for each true anomaly sample so that time stamps respect the actual
+        // orbital speed (fast near periapsis). Lambert arcs can be hyperbolic when the ship
+        // has Δv to spare (e.g. a full-tank NTR to Saturn), so handle every conic:
+        //   ellipse   M = E − e·sin E,   E = atan2(√(1−e²)·sin θ, e + cos θ)
+        //   hyperbola M = e·sinh H − H,  tanh(H/2) = √((e−1)/(e+1))·tan(θ/2)
+        //   parabola  M = D + D³/3,      D = tan(θ/2)   (Barker)
+        // Only ratios of ΔM are used, so the conics' different scale factors cancel.
+        constexpr double kParabolicBand = 1e-6;
+        const bool elliptic = ecc < 1.0 - kParabolicBand;
+        const bool hyperbolic = ecc > 1.0 + kParabolicBand;
         const auto mean_anom = [&](double theta) {
-            const double E = std::atan2(
-                ecc_sin_coeff * std::sin(theta),
-                ecc + std::cos(theta));
-            return E - ecc * std::sin(E);
+            if (elliptic) {
+                const double E = std::atan2(std::sqrt(1.0 - ecc * ecc) * std::sin(theta), ecc + std::cos(theta));
+                return E - ecc * std::sin(E);
+            }
+            // Open orbits never pass apoapsis, so the arc lies within (−π, π).
+            const double half = 0.5 * std::remainder(theta, TAU);
+            if (hyperbolic) {
+                const double H = 2.0 * std::atanh(std::sqrt((ecc - 1.0) / (ecc + 1.0)) * std::tan(half));
+                return ecc * std::sinh(H) - H;
+            }
+            const double D = std::tan(half);
+            return D + D * D * D / 3.0;
         };
         const double M1 = mean_anom(theta1);
         double dM_total = mean_anom(theta2) - M1;
-        if (dM_total < -1e-10) dM_total += TAU;
+        if (elliptic && dM_total < -1e-10) dM_total += TAU;
         if (dM_total < 1e-12) dM_total = TAU;  // degenerate guard
 
         for (int i = 0; i < kSamples; ++i) {
             const double alpha = static_cast<double>(i) / (kSamples - 1);
             const double theta = theta1 + (theta2 - theta1) * alpha;
-            const double r_at = (ecc < 1.0 - 1e-6 && p_orb > 1.0)
-                ? p_orb / (1.0 + ecc * std::cos(theta))
-                : r1m;
+            const double denominator = 1.0 + ecc * std::cos(theta);
+            const double r_at = (p_orb > 1.0 && denominator > 1e-9) ? p_orb / denominator : r1m;
             plan.sampled_path.push_back({std::cos(omega + theta) * r_at, 0.0, std::sin(omega + theta) * r_at});
             double dM_i = mean_anom(theta) - M1;
-            if (dM_i < -1e-10) dM_i += TAU;
+            if (elliptic && dM_i < -1e-10) dM_i += TAU;
             plan.sampled_times_s.push_back(plan.departure_time_s + dM_i / dM_total * plan.coast_time_s);
         }
     } else {

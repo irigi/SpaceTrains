@@ -501,6 +501,33 @@ int main() {
             "propellant samples must cover the wait prefix too");
     }
 
+    // --- Kepler hyperbolic Lambert arc regression ---
+    // Found by --trajectory-sweep: a full-tank NTR freighter Ceres -> Titan at day 705 picks a
+    // hyperbolic Lambert arc. The path sampler only handled ellipses, so every transfer sample
+    // sat at Ceres' radius with the departure timestamp and the snap drew a 6.8 AU line.
+    {
+        const auto& ntr = ship_class_by_id(universe, "ntr_freighter");
+        const auto& ceres = station_by_id(universe, "ceres_depot");
+        const auto& titan = station_by_id(universe, "titan_works");
+        spacetrains::domain::ShipState full_ship;
+        full_ship.class_id = ntr.id;
+        full_ship.propellant_kg = ntr.propellant_capacity_kg;
+        const auto plan = planner.plan_transfer(ceres, titan, full_ship, ntr, 705.0 * 86400.0);
+        require(plan.trajectory_type == "keplerian_lambert", "Ceres->Titan full-tank NTR should use a Lambert arc");
+        require(plan.diagnostics.endpoint_miss_m < 1.0e9, "hyperbolic Lambert arc must end at Titan before the snap");
+        double max_r = 0.0;
+        for (std::size_t i = 1; i < plan.sampled_times_s.size(); ++i) {
+            require(plan.sampled_times_s[i] >= plan.sampled_times_s[i - 1], "Lambert sample times must not decrease");
+            if (plan.sampled_times_s[i] > plan.departure_time_s) {
+                require(plan.sampled_times_s[i] > plan.sampled_times_s[i - 1],
+                    "hyperbolic Lambert transfer samples must advance in time");
+            }
+            max_r = std::max(max_r, plan.sampled_path[i].length());
+        }
+        require(max_r <= 1.01 * mechanics.get_heliocentric_radius(titan.parent_body_id, plan.arrival_time_s),
+            "hyperbolic arc must not overshoot Titan's orbit");
+    }
+
     // --- VariableISP integration hang regression ---
     // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth L1 -> Titan at
     // day 210 got an atlas seed that dives into the Sun, and RK45 shrank its step forever.
