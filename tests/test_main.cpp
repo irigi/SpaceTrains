@@ -473,6 +473,34 @@ int main() {
         require_near(waiting_audit.revolutions, 0.25, 1e-6, "wait prefix must not count toward transfer revolutions");
     }
 
+    // --- Kepler wait-prefix regression (bug: "trajectory loops around the Sun") ---
+    // Found by --trajectory-sweep: a 573-day launch wait at Venus was drawn with a fixed 11
+    // samples, i.e. 2.5 turns around the Sun as a star polygon with 83-degree steps.
+    {
+        const auto& freighter = ship_class_by_id(universe, "light_freighter");
+        const auto& venus = station_by_id(universe, "venus_cloud");
+        const auto& luna = station_by_id(universe, "luna_base");
+        spacetrains::domain::ShipState waiting_ship;
+        waiting_ship.class_id = freighter.id;
+        waiting_ship.propellant_kg = 0.1 * freighter.propellant_capacity_kg;
+        const double now_s = 45.0 * 86400.0;
+        const auto plan = planner.plan_transfer(venus, luna, waiting_ship, freighter, now_s);
+        require(plan.wait_time_s > 400.0 * 86400.0, "Venus->Luna regression case should still have a multi-orbit wait");
+        const auto audit = spacetrains::trajectory::audit_trajectory(
+            plan,
+            mechanics.get_heliocentric_radius(venus.parent_body_id, plan.departure_time_s),
+            mechanics.get_heliocentric_radius(luna.parent_body_id, plan.arrival_time_s));
+        require(audit.wait_revolutions > 2.0, "wait prefix should follow Venus for more than two orbits");
+        require(audit.wait_max_step_deg <= 5.0 + 1e-6, "wait prefix must be sampled at most 5 degrees per step");
+        require(distance_between(plan.sampled_path.front(), mechanics.get_station_position(venus, now_s)) < 1.0,
+            "wait prefix must start at the origin station's current position");
+        for (std::size_t i = 1; i < plan.sampled_times_s.size(); ++i) {
+            require(plan.sampled_times_s[i] > plan.sampled_times_s[i - 1], "wait prefix times must increase strictly");
+        }
+        require(plan.sampled_propellant_kg.size() == plan.sampled_path.size(),
+            "propellant samples must cover the wait prefix too");
+    }
+
     // --- VariableISP integration hang regression ---
     // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth L1 -> Titan at
     // day 210 got an atlas seed that dives into the Sun, and RK45 shrank its step forever.

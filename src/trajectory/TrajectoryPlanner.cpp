@@ -419,16 +419,24 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     // Prepend wait-period samples so the rendered path tracks the origin station during the wait.
     // Without these, the frontend sees a gap between the ship's current position and path[0]
     // (the departure position) and draws a straight chord, which looks wrong visually.
+    // Waits can last several origin orbits (up to ~2 years), so sample by the origin's
+    // heliocentric sweep rather than a fixed count; a fixed 11 samples drew long waits as
+    // star polygons around the Sun.
     if (plan.wait_time_s > 60.0) {
-        constexpr int kWaitSamples = 12;
+        constexpr double kWaitStepRad = 5.0 * PI / 180.0;
+        constexpr int kMinWaitSegments = 11;
+        constexpr int kMaxWaitSegments = 360;
+        const double wait_sweep_rad = std::abs(origin_rate) * plan.wait_time_s;
+        const int wait_segments = std::clamp(
+            static_cast<int>(std::ceil(wait_sweep_rad / kWaitStepRad)), kMinWaitSegments, kMaxWaitSegments);
         std::vector<math::Vec3d> wait_path;
         std::vector<double> wait_times;
         std::vector<double> wait_propellant;
-        wait_path.reserve(kWaitSamples - 1);
-        wait_times.reserve(kWaitSamples - 1);
-        wait_propellant.reserve(kWaitSamples - 1);
-        for (int i = 0; i < kWaitSamples - 1; ++i) {
-            const double alpha = static_cast<double>(i) / (kWaitSamples - 1);
+        wait_path.reserve(wait_segments + plan.sampled_path.size());
+        wait_times.reserve(wait_segments + plan.sampled_times_s.size());
+        wait_propellant.reserve(wait_segments + arc_propellant.size());
+        for (int i = 0; i < wait_segments; ++i) {
+            const double alpha = static_cast<double>(i) / wait_segments;
             const double t = current_time_s + alpha * plan.wait_time_s;
             wait_path.push_back(mechanics_.get_station_position(origin, t));
             wait_times.push_back(t);

@@ -1100,10 +1100,14 @@ func _update_ship_trails() -> void:
     elif destination_body_ghost != null:
         destination_body_ghost.visible = false
 
+# Runs every frame for every active ship, so it samples a few points rather than
+# formatting the whole path (long launch waits can add hundreds of samples).
+# A new plan always changes the size or the endpoints.
 func _trajectory_path_signature(trajectory_path: Array) -> String:
     var parts: Array[String] = [str(trajectory_path.size())]
-    for point in trajectory_path:
-        parts.append("%.3f,%.3f,%.3f" % [float(point.get("x", 0.0)), float(point.get("y", 0.0)), float(point.get("z", 0.0))])
+    for index in [0, trajectory_path.size() / 2, trajectory_path.size() - 1]:
+        var point: Dictionary = trajectory_path[index]
+        parts.append("%.3f,%.3f,%.3f,%.0f" % [float(point.get("x", 0.0)), float(point.get("y", 0.0)), float(point.get("z", 0.0)), float(point.get("t_s", 0.0))])
     return "|".join(parts)
 
 func _trajectory_color(trajectory_type: String) -> Color:
