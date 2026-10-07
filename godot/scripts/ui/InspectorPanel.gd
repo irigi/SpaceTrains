@@ -447,7 +447,9 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         # (a tanker sells fuel at the depots it serves).
         var parts: Array[String] = ["sales %+.0f" % float(ledger.get("cargo_revenue", 0.0))]
         for key in ["cargo_purchases", "fuel", "wages", "capital", "provisions", "refits"]:
-            parts.append("%s %+.0f" % [String(key).replace("cargo_purchases", "cargo").replace("_", " "), -float(ledger.get(key, 0.0))])
+            var amount := -float(ledger.get(key, 0.0))
+            if absf(amount) >= 0.5:
+                parts.append("%s %+.0f" % [String(key).replace("cargo_purchases", "cargo").replace("_", " "), amount])
         _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
 
 func _build_body(detail: Dictionary) -> void:

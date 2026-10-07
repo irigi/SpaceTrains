@@ -1177,7 +1177,7 @@ func _setup_scene_lighting() -> void:
         scene_light.light_energy = 0.0
     sun_light = OmniLight3D.new()
     sun_light.name = "SunLight"
-    sun_light.light_energy = 16.0
+    sun_light.light_energy = 7.0
     sun_light.omni_range = 700.0  # past Neptune (~562 units) so outer planets get sunlight
     sun_light.omni_attenuation = 0.15  # far gentler than physical falloff: outer planets stay readable
     sun_light.shadow_enabled = false

@@ -19,6 +19,7 @@ const STOPS := [
     {"name": "saturn_close", "id": "saturn", "kind": "body", "distance": 0.06},
     {"name": "station_leo", "id": "earth_orbit", "kind": "station", "distance": 0.002},
     {"name": "station_l1", "id": "earth_l1", "kind": "station", "distance": 0.004},
+    {"name": "station_mars", "id": "mars_transfer", "kind": "station", "distance": 0.004},
 ]
 
 func _ready() -> void:
