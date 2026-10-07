@@ -118,8 +118,10 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
 
     // Different bodies of one planetary system (Earth <-> Moon): a low-thrust spiral
     // around the planet instead of a heliocentric arc. Constant acceleration over T with
-    // Edelbaum's Δv between the two circular orbits; T is 1.5x the shortest time the
-    // fuel load allows (I = 1/m_f - 1/m0 = Δv²/(2PT) must not exceed 1/m_dry - 1/m0).
+    // Edelbaum's Δv between the two circular orbits. The shortest T the fuel load allows
+    // has I = 1/m_f - 1/m0 = Δv²/(2PT) = 1/m_dry - 1/m0; a longer spiral burns less
+    // (the burn falls as 1/T), so with the owner's costs T is the cheapest of a few
+    // multiples of the shortest, otherwise 1.5x.
     if (const auto primary_id = planet_system_primary(mechanics_, origin.parent_body_id);
         primary_id == planet_system_primary(mechanics_, destination.parent_body_id)) {
         const double mu_p = mechanics_.get_body(primary_id).mu_m3_s2;
@@ -136,15 +138,30 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
         const double max_m0 = laden_dry_kg + load_for_budget(max_budget_kg);
         const double min_transfer_s = delta_v * delta_v
             / (2.0 * power_w * (1.0 / (max_m0 - max_budget_kg) - 1.0 / max_m0));
-        const double transfer_s = std::max(86400.0, 1.5 * min_transfer_s);
-        const double integral = delta_v * delta_v / (2.0 * power_w * transfer_s);
-        // Load only what this spiral burns plus the reserve (one refinement pass: the
+        // Load only what a spiral burns plus the reserve (one refinement pass: the
         // lighter ship burns less, so the reserve still holds).
-        const auto burn_from = [&](double load_kg) {
-            const double start = laden_dry_kg + load_kg;
-            return start - 1.0 / (integral + 1.0 / start);
+        const auto spiral_load_kg = [&](double integral) {
+            const double start = laden_dry_kg + max_load_kg;
+            return std::min(max_load_kg, load_for_budget(start - 1.0 / (integral + 1.0 / start)));
         };
-        const double load_kg = std::min(max_load_kg, load_for_budget(burn_from(max_load_kg)));
+        const bool by_cost = options.propellant_cr_per_kg > 0.0 || options.time_cr_per_day > 0.0;
+        double transfer_s = std::max(86400.0, 1.5 * min_transfer_s);
+        if (by_cost) {
+            double best_cost = std::numeric_limits<double>::infinity();
+            for (const double factor : {1.5, 2.0, 3.0, 4.5, 6.5, 10.0}) {
+                const double candidate_s = std::max(86400.0, factor * min_transfer_s);
+                const double integral = delta_v * delta_v / (2.0 * power_w * candidate_s);
+                const double start = laden_dry_kg + spiral_load_kg(integral);
+                const double burn_kg = start - 1.0 / (integral + 1.0 / start);
+                const double cost = burn_kg * options.propellant_cr_per_kg + candidate_s / 86400.0 * options.time_cr_per_day;
+                if (cost < best_cost) {
+                    best_cost = cost;
+                    transfer_s = candidate_s;
+                }
+            }
+        }
+        const double integral = delta_v * delta_v / (2.0 * power_w * transfer_s);
+        const double load_kg = spiral_load_kg(integral);
         const double m_dry = laden_dry_kg;
         const double m0 = laden_dry_kg + load_kg;
         const double m_final = 1.0 / (integral + 1.0 / m0);

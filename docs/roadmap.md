@@ -14,12 +14,12 @@
 - Bridge snapshots carry `trajectory_path`, destination ghost, and snapshot timing for smooth interpolation.
 - Procedural sci-fi HUD (top bar, entity browser, inspector, market panel, event ticker).
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
-- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold.
+- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
 ## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29).
 
 ### Decisions so far
 
@@ -42,12 +42,11 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
   economy, faction treasuries) over a strictly closed one; the audit must still reconcile to zero drift.
 - **Outer-system exports:** no exotic matter. Candidates: platinum-group metals (Ceres belt), deuterium
   (Ganymede, Titan), nitrogen/ammonia (Titan), science samples.
-- **Fuel supply (user, 2026-10-07):** for now, fuel is plentiful: every station runs a propellant depot that
-  refills toward a large buffer at a high but finite rate, well above total consumption
-  (`data/economy/fuel_supply.csv`). Later, fuel comes from **fuel factories** at a few particular places
+- **Fuel supply (user, 2026-10-07):** fuel comes from **fuel factories** at a few particular places
   (not Earth: lifting from a planet surface costs extra) and very large freighters (or many of them) carry it
-  to the stations that buy it. The planner should also see that a destination will be short of fuel and
-  fly a cheaper trajectory, keeping a reserve in the tank, instead of only rejecting the trip.
+  to the stations that buy it; the planner sees that a destination will be short of fuel. Done in v29
+  (`docs/plans/fuel_factories.md`): ships carry their return fuel and fly cheaper transfers where fuel is
+  scarce, and reject a trip only when even that is impossible.
 
 ### Next steps, in order
 
@@ -76,19 +75,21 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    the destination's demand in later reviews (13/29 profitable, fleet profit −1.4%, money +5.5%).
    Open: the valuation prices the margin at today's scarcity price, which closes once the ship
    serves the route; Low Earth Logistics metals stay short.
-5. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
-   sites (candidates: Ceres and the outer ice moons for water-derived propellant, Venus for its chemical
-   industry; not Earth), with depots at other stations only storing what tankers deliver. Needs very large
-   tanker classes (from fleet investment) and **fuel-aware planning**: when the destination's forecast
-   fuel (stock + deliveries by arrival) cannot cover the next leg, the planner picks a lower-Δv trajectory
-   that arrives with the needed reserve still in the tank, and rejects the trip only when none exists.
+5. **Fuel factories and bulk tankers** (`docs/plans/fuel_factories.md`): done (v29). Fuel factories at
+   Venus, Titan, Lunar Gateway, Ceres and Ganymede (none in Earth orbit); other depots only hold what
+   ships deliver and price against their buffer. Bulk Tanker and Plasma Bulk Tanker classes (2000 units)
+   bought by fleet investment. Fuel-aware planning: ships carry return fuel into ports that cannot refuel
+   them (or sell at more than 2x), pay the local scarcity premium, and the planners trade propellant at
+   the port's price (cis-lunar plasma spirals are now cost-aware). v29: fuel 690k cr (v28 135k), fleet
+   profit 444k (871k), 14/32 profitable, 0 laid up, 0 stranded. Open: Mars runs dry by day 350 and
+   Mercury is marginal (no tanker bought for them); Earth-orbit fuel costs 35-60 cr/u.
 6. **Outer-system exports** bought by Earth's economy.
 7. Leftover trajectory items: theta branches, atlas time-optimality (see below).
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v28: 13/29 profitable, cargo margin 1.39M, fuel 135k cr, 0 laid up, 33 CRITICAL lines, money supply +5.5%,
-drift 0, run 4m02). Debug idle ships with
+(v29: 14/32 profitable, cargo margin 1.54M, fuel 690k cr, 0 laid up, 32 CRITICAL lines, money supply +2.2%,
+drift 0, run 5m32). Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)

@@ -100,6 +100,9 @@ private:
         // Cargo runs: sale value minus purchase and fuel, without urgency or time costs.
         double cargo_margin {0.0};
         domain::TrajectoryPlan plan;
+        // Fuel-aware planning: return fuel loaded on top of the plan's load, for a port that
+        // cannot refuel the ship.
+        double carried_propellant_kg {0.0};
     };
     // `cargo_only`: only cargo runs from the ship's port (no empty legs, no repositioning).
     [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,

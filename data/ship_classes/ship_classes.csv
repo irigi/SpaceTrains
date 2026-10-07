@@ -27,3 +27,11 @@ ntr_freighter_tank050,NTR Freighter (50% tanks),nuclear_thermal,80712,125000,400
 ntr_freighter,NTR Freighter,nuclear_thermal,105462,250000,400,16682,0.3,0,147400,4,ntr_freighter
 ntr_freighter_tank150,NTR Freighter (150% tanks),nuclear_thermal,130212,375000,400,18614,0.211,0,158500,4,ntr_freighter
 ntr_freighter_tank200,NTR Freighter (200% tanks),nuclear_thermal,154962,500000,400,19789,0.163,0,169500,4,ntr_freighter
+bulk_tanker_tank050,Bulk Tanker (50% tanks),nuclear_thermal,103338,150000,2000,8354,0.342,0,63800,3,bulk_tanker
+bulk_tanker,Bulk Tanker,nuclear_thermal,133038,300000,2000,10995,0.2,0,77000,3,bulk_tanker
+bulk_tanker_tank150,Bulk Tanker (150% tanks),nuclear_thermal,162738,450000,2000,12352,0.141,0,90300,3,bulk_tanker
+bulk_tanker_tank200,Bulk Tanker (200% tanks),nuclear_thermal,192438,600000,2000,13186,0.109,0,103600,3,bulk_tanker
+plasma_bulk_tanker_tank050,Plasma Bulk Tanker (50% tanks),variable_isp,84150,50000,2000,0,0,475,89400,3,plasma_bulk_tanker
+plasma_bulk_tanker,Plasma Bulk Tanker,variable_isp,86900,100000,2000,0,0,460,90000,3,plasma_bulk_tanker
+plasma_bulk_tanker_tank150,Plasma Bulk Tanker (150% tanks),variable_isp,89650,150000,2000,0,0,446,90700,3,plasma_bulk_tanker
+plasma_bulk_tanker_tank200,Plasma Bulk Tanker (200% tanks),variable_isp,92400,200000,2000,0,0,433,91300,3,plasma_bulk_tanker

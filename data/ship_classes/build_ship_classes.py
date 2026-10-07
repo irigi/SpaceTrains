@@ -102,6 +102,12 @@ CLASSES = [
               cargo_units=300, propellant_kg=180_000, accel_full_mps2=0.3),
     ClassSpec("ntr_freighter", "NTR Freighter", "liquid_core", crew=4, habitat="long",
               cargo_units=400, propellant_kg=250_000, accel_full_mps2=0.3),
+    # Bulk tankers carry fuel from the fuel factories to the other depots: 2000 units of fuel
+    # are 200 t, half the hold's rating.
+    ClassSpec("bulk_tanker", "Bulk Tanker", "solid_core", crew=3, habitat="long",
+              cargo_units=2000, propellant_kg=300_000, accel_full_mps2=0.2),
+    ClassSpec("plasma_bulk_tanker", "Plasma Bulk Tanker", "plasma", crew=3, habitat="long",
+              cargo_units=2000, propellant_kg=100_000, jet_power_w=40.0e6),
 ]
 
 

@@ -111,32 +111,48 @@ int main() {
     }
 
     {
-        // --- Propellant depots refill toward their buffer at a bounded rate ---
+        // --- Fuel factories fill their depots; other depots hold what ships deliver ---
         const auto& fuel_supply = universe.fuel_supply;
-        require(fuel_supply.depot_buffer_units > 0.0 && fuel_supply.depot_output_units_per_day > 0.0,
-            "fuel_supply.csv must enable depots");
-        // Low Earth Logistics consumes fuel and produces none, so only the depot refills it.
-        const auto& leo = universe.stations.at(1);
-        require(leo.id == "earth_orbit", "expected earth_orbit second");
+        require(fuel_supply.depot_buffer_units > 0.0 && !fuel_supply.factory_output_units_per_day.empty(),
+            "fuel_supply.csv must enable depots and fuel_factories.csv list factories");
+        const auto station_by_id = [&](const std::string& id) -> const spacetrains::domain::StationDefinition& {
+            for (const auto& station : universe.stations) {
+                if (station.id == id) {
+                    return station;
+                }
+            }
+            throw std::runtime_error("missing station " + id);
+        };
+        const auto& luna = station_by_id("luna_base");
+        const double output = economy.fuel_factory_output(luna);
+        require(output > 0.0, "Lunar Gateway must make fuel");
+        const double buffer = economy.fuel_buffer_units(luna);
+        require(buffer >= fuel_supply.depot_buffer_units && buffer >= output * fuel_supply.factory_buffer_days - 1.0e-9,
+            "a factory's depot holds its buffer days of output");
         std::vector<spacetrains::domain::StationState> stations;
-        stations.push_back({.station_id = leo.id, .inventory = leo.initial_inventory});
+        stations.push_back({.station_id = luna.id, .inventory = luna.initial_inventory});
         stations[0].inventory["fuel"] = 0.0;
         economy.step(stations, 86400.0);
         const double one_day = stations[0].inventory["fuel"];
-        require(one_day <= fuel_supply.depot_output_units_per_day + 1.0e-6
-                && one_day >= fuel_supply.depot_output_units_per_day + economy.get_station_net_rates(leo).at("fuel") - 1.0e-6,
-            "an empty depot must refill at its output rate");
+        require(one_day <= output + 1.0e-6 && one_day >= output + economy.get_station_net_rates(luna).at("fuel") - output - 1.0e-6,
+            "an empty factory depot must fill at its output rate");
         for (int day = 0; day < 365; ++day) {
             economy.step(stations, 86400.0);
         }
-        require(stations[0].inventory["fuel"] <= fuel_supply.depot_buffer_units + 1.0e-6,
-            "a depot must stop at its buffer");
-        require_near(economy.fuel_stock_after_days(0.0, 2.0), 2.0 * fuel_supply.depot_output_units_per_day, 1.0e-9,
-            "forecast must count refills");
-        require_near(economy.fuel_stock_after_days(0.0, 1.0e6), fuel_supply.depot_buffer_units, 1.0e-9,
-            "forecast must stop at the buffer");
-        require_near(economy.get_price(leo, "fuel", fuel_supply.depot_buffer_units, 8.0), 8.0, 1.0e-9,
-            "a full depot must sell fuel at base price");
+        require(stations[0].inventory["fuel"] <= buffer + 1.0e-6, "a factory depot must stop at its buffer");
+        require_near(economy.fuel_stock_after_days(luna, 0.0, 2.0), 2.0 * output, 1.0e-9, "forecast must count output");
+        require_near(economy.fuel_stock_after_days(luna, 0.0, 1.0e6), buffer, 1.0e-9, "forecast must stop at the buffer");
+        require_near(economy.get_price(luna, "fuel", buffer, 8.0), 8.0, 1.0e-9, "a full depot must sell fuel at base price");
+
+        // Low Earth Logistics has no factory: its depot only drains.
+        const auto& leo = station_by_id("earth_orbit");
+        require(economy.fuel_factory_output(leo) == 0.0, "no fuel factory in Earth orbit");
+        std::vector<spacetrains::domain::StationState> leo_state;
+        leo_state.push_back({.station_id = leo.id, .inventory = leo.initial_inventory});
+        const double before = leo_state[0].inventory["fuel"];
+        economy.step(leo_state, 86400.0);
+        require(leo_state[0].inventory["fuel"] < before, "a depot without a factory must not refill");
+        require_near(economy.fuel_stock_after_days(leo, 100.0, 30.0), 100.0, 1.0e-9, "no output to forecast without a factory");
     }
 
     {

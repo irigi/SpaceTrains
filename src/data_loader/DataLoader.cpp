@@ -201,6 +201,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto ships_path = root / "ships" / "ships.csv";
     const auto ship_operations_path = root / "economy" / "ship_operations.csv";
     const auto fuel_supply_path = root / "economy" / "fuel_supply.csv";
+    const auto fuel_factories_path = root / "economy" / "fuel_factories.csv";
     const auto open_economy_path = root / "economy" / "open_economy.csv";
     const auto fleet_investment_path = root / "economy" / "fleet_investment.csv";
 
@@ -417,16 +418,37 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             }
             if (row[0] == "depot_buffer_units") {
                 fuel_supply.depot_buffer_units = value;
-            } else if (row[0] == "depot_output_units_per_day") {
-                fuel_supply.depot_output_units_per_day = value;
+            } else if (row[0] == "factory_buffer_days") {
+                fuel_supply.factory_buffer_days = value;
             } else {
                 throw std::runtime_error("Unknown key '" + row[0] + "' in " + fuel_supply_path.string());
             }
         }
-        for (const char* required : {"depot_buffer_units", "depot_output_units_per_day"}) {
+        for (const char* required : {"depot_buffer_units", "factory_buffer_days"}) {
             if (!seen_keys.contains(required)) {
                 throw std::runtime_error(std::string("Missing key '") + required + "' in " + fuel_supply_path.string());
             }
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(fuel_factories_path);
+        require_header(rows.front(), {"station_id", "output_units_per_day"}, fuel_factories_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, fuel_factories_path, i + 1);
+            require_unique_id(row[0], seen_ids, fuel_factories_path, i + 1);
+            const bool known = std::any_of(universe.stations.begin(), universe.stations.end(),
+                [&](const domain::StationDefinition& station) { return station.id == row[0]; });
+            if (!known) {
+                throw std::runtime_error("Fuel factory at unknown station '" + row[0] + "' in " + fuel_factories_path.string());
+            }
+            const double output = parse_double(row[1], fuel_factories_path, i + 1, "output_units_per_day");
+            if (output <= 0.0) {
+                throw std::runtime_error("output_units_per_day must be positive in " + fuel_factories_path.string());
+            }
+            universe.fuel_supply.factory_output_units_per_day[row[0]] = output;
         }
     }
 

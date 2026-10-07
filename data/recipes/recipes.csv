@@ -2,7 +2,6 @@ profile_id,commodity_id,units_per_day
 agri_hub,food,80
 agri_hub,water,-2.5
 agri_hub,oxygen,10
-agri_hub,fuel,20
 agri_hub,electronics,-1.25
 agri_hub,machinery,-0.5
 agri_hub,medicine,5
@@ -12,7 +11,6 @@ industrial_hub,machinery,15
 industrial_hub,food,-5
 industrial_hub,fuel,-2.5
 industrial_hub,reactor_fuel,-1.25
-chem_hub,fuel,300
 chem_hub,oxygen,40
 chem_hub,food,10
 chem_hub,medicine,7

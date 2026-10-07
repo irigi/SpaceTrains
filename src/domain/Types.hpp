@@ -75,12 +75,13 @@ struct ShipOperationsDefinition {
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
 
-// Propellant depots (data/economy/fuel_supply.csv). Every station refills its fuel toward
-// a buffer at a bounded rate, so ships rarely find a port dry. The depot's tanks are
-// outside the station's cargo storage capacity.
+// Propellant supply (data/economy/fuel_supply.csv, fuel_factories.csv). Every station has a
+// depot outside its cargo storage; only fuel factories fill theirs, at their output rate.
+// Other depots hold what ships deliver. Prices follow each depot's buffer.
 struct FuelSupplyDefinition {
     double depot_buffer_units {0.0};          // 0 = no depots
-    double depot_output_units_per_day {0.0};
+    double factory_buffer_days {0.0};         // a factory's depot holds this many days of output (at least the depot buffer)
+    std::unordered_map<std::string, double> factory_output_units_per_day;  // by station id
 };
 
 // The open economy (data/economy/open_economy.csv). Faction treasuries keep each station's
@@ -201,6 +202,8 @@ struct MissionAssignment {
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;
     std::string trajectory_type;
+    // Return fuel carried for a port that cannot refuel the ship; the samples do not include it.
+    double carried_propellant_kg {0.0};
 };
 
 // Where a ship's money went over its lifetime (all amounts positive, in credits).
@@ -271,6 +274,9 @@ struct StationState {
     Inventory inventory;
     double credits {0.0};
     StationLedger ledger;
+    // Fuel ships bought here, units per day, averaged with an exponential window: the demand
+    // a tanker serving the station would meet.
+    double ship_fuel_units_per_day {0.0};
 };
 
 struct SimulationSnapshot {
