@@ -45,10 +45,10 @@ range for the variable-specific-impulse classes:
 | Parameter | linopt default | Meaning |
 |---|---|---|
 | Max exhaust speed | 50-250 km/s | Isp about 5,100-25,500 s |
-| Engine core | 20 kW/kg | jet power per kg of engine |
+| Engine core | 20 kW/kg | total power per kg of engine (fare optimizer default) |
 | Radiators | 10 kW/kg | waste heat rejected per kg of radiator |
 | Waste heat | 15% of total power | 85% of the power ends up in the jet |
-| Aggregate propulsion hardware | 0.25 kg/kW (4 kW/kg) | budget model (engine + radiators) |
+| Aggregate propulsion hardware | 0.25 kg/kW (4 kW/kg) | solver/spreadsheet default (10 kW/kg engine, 30% heat, 4 kW/kg radiators), not the set above; see Reference Numbers |
 | Tank mass | 5% of propellant | |
 | Reference ship | 500 t payload, ~240 t hardware, ~1 GW | whole-ship power/dry mass about 540 W/kg |
 
@@ -66,6 +66,81 @@ Assessment:
 - Consequence for the Kepler classes: in the same era, liquid- or gas-core thermal rockets at 1000-1400 s
   are a consistent pairing; the real problems are the "chemical" label, dry masses and tankage, and the
   tiny holds (issues 1, 2 and 4 above).
+
+## Reference Numbers (method step 1, drafted 2026-10-07)
+
+Status per row: **sourced** (a published number), **derived** (computed from sourced rows), **estimate** (my
+engineering judgement, still needs a source), **game** (a modelling choice, not a physical claim).
+
+### Variable-Isp drive (advanced fusion/plasma, magnetic nozzle, radiators)
+
+linopt (`~/VariableISPRocketTrajectories/linopt/`) has two parameter sets. Hardware mass per jet watt is
+`1 / ((1 - φ) α_eng) + φ / ((1 - φ) ρ_rad)`.
+
+| Quantity | Set A: solver/spreadsheet | Set B: fare optimizer | Status |
+|---|---|---|---|
+| Engine core α_eng (total power / engine kg) | 10 kW/kg | 20 kW/kg | game (linopt) |
+| Waste heat φ (heat / total power) | 30% | 15% | game (linopt) |
+| Radiators ρ_rad (heat / radiator kg) | 4 kW/kg | 10 kW/kg | game (linopt) |
+| Propulsion hardware (engine + radiators) | 0.25 kg/kW_jet = 4.0 kW_jet/kg | 0.077 kg/kW_jet = 13.1 kW_jet/kg | derived |
+| Split engine / radiators | 57% / 43% | 77% / 23% | derived |
+| Exhaust speed | 50-250 km/s (Isp 5,100-25,500 s) | same | game (linopt) |
+| Tank mass | 5% of propellant | same | game (linopt); plausible for dense propellant (water, argon), not for LH2 |
+| Hardware cost | engine 10,000 $/kg, radiators 1,500 $/kg, tanks 300 $/kg | same | game (linopt) |
+
+The "≈540 W/kg whole-ship" reference ship (500 t payload, ~240 t hardware, ~1 GW) is built on **Set A**.
+With Set B the same ship needs only ~76 t of hardware for 1 GW. Recommendation: use **Set A** as the
+baseline. It is the one the 540 W/kg decision was made on, and its radiators stay a large share of the mass,
+in line with "keep radiators". Set B can be a later "improved drive" generation.
+
+### Nuclear-thermal rockets (Kepler classes, LH2 propellant)
+
+| Generation | Isp | Engine thrust/weight | Status / source |
+|---|---|---|---|
+| NERVA XE-Prime (tested 1969) | 841 s vac | 247 kN, 18.1 t → ~1.4 | sourced: [NERVA](https://en.wikipedia.org/wiki/NERVA) |
+| Solid core, NERVA-derived (NASA DRA 5.0, 25 klbf) | 900-910 s | ~3.4 (111 kN, ~3.3 t) | sourced: [Borowski et al., NTRS 20120012928](https://ntrs.nasa.gov/archive/nasa/casi.ntrs.nasa.gov/20120012928.pdf) |
+| Advanced solid core (CERMET / composite) | ~950-1000 s | ~3 | estimate |
+| Liquid core | ~1300-1500 s | ~1 | estimate (needs a source) |
+| Closed gas core ("nuclear light bulb") | 1100-3200 s | 0.4-6.9 across the design range | sourced: [NTRS 19710028762](https://ntrs.nasa.gov/api/citations/19710028762/downloads/19710028762.pdf) |
+| Open-cycle gas core | 2500-6500 s (4400 s at 6000 MW) | ~10⁻² powerplant T/W at 3000 s | sourced: [NTRS gas-core studies](https://ntrs.nasa.gov/api/citations/19700016142/downloads/19700016142.pdf); out of scope (user cap ~1400 s) |
+
+Proposal for the game: two generations. **Solid core 950 s, T/W 3** (workhorse) and **liquid core / light bulb
+1400 s, T/W 1** (premium, heavier engine). DRA 5.0's Copernicus Mars ship carries about 190 t of LH2 with three
+engines: the same propellant load as our `ntr_freighter`, but on a ship that also needs drop tanks, a truss and
+a ~40 t habitat.
+
+### Tankage
+
+| Propellant | Density | Tank mass / propellant mass | Status |
+|---|---|---|---|
+| LH2, launch-vehicle tank | 71 kg/m³ | 0.128 | sourced: [UMD ENAE 483 mass estimating relations](https://spacecraft.ssl.umd.edu/academics/483F24/483F24L08.MERs/483F24L08.MERsx.pdf) |
+| LH2, long-duration in space (MLI + zero-boil-off cryocoolers, meteoroid shield) | 71 kg/m³ | **0.18** | estimate (0.128 + insulation and cooling) |
+| Dense propellant for variable-Isp (water, argon) | 1000-1400 kg/m³ | 0.05 | game (linopt) |
+
+### Crew
+
+| Quantity | Value | Status |
+|---|---|---|
+| Habitat, long endurance (500 days, 4 crew, ISS-derived systems) | 32 t dry / 41.4 t wet → **8 t dry per crew** | sourced: [NASA Deep Space Habitat, NTRS 20120014530](https://ntrs.nasa.gov/api/citations/20120014530/downloads/20120014530.pdf) |
+| Habitat, short hops (weeks; cislunar shuttles) | ~4 t per crew | estimate |
+| Metabolic need, open loop | ~5 kg/person-day (0.84 O₂, ~0.6 food dry, rest water) | sourced: [eclss-assessment](https://skills.cat/skills/luncosim/space-engineering-skills/eclss-assessment), [NTRS 19900019017](https://ntrs.nasa.gov/api/citations/19900019017/downloads/19900019017.pdf) |
+| Make-up with closed water/air loops | food 0.6, water 0.1, oxygen 0.05 kg/crew-day | game (already in `ship_operations.csv`), consistent with the row above |
+
+### Structure and hold (game choices, no physical source needed)
+
+| Quantity | Value | Status |
+|---|---|---|
+| Primary structure and truss | 10% of the other dry mass | game |
+| Cargo hold (racks, containers, handling) | 10% of the rated cargo mass | game |
+
+### Open questions for the user
+
+1. Variable-Isp hardware: Set A (recommended) or Set B?
+2. *Resolved:* `specific_engine_power_w_per_kg` is **jet power** per kg of dry mass
+   (`VariableIspTrajectoryPlanner.cpp:109` feeds it straight into κ and the I-invariant). So α = jet power /
+   (hardware + tanks + habitat + structure + hold), and the hardware rows above are per jet watt.
+3. Sources still needed for the liquid-core Isp and T/W and the in-space LH2 tank fraction. Both are
+   currently estimates.
 
 ## Method
 
