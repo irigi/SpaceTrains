@@ -1686,7 +1686,16 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     const bool trace = trace_ship != nullptr && ship.name == trace_ship;
 
     const auto& ship_class = get_ship_class(ship.class_id);
+    const auto review_start = std::chrono::steady_clock::now();
     const auto choice = choose_mission(ship, ship_class, trace, game_time_s_);
+    // Debug aid: with SPACETRAINS_PROFILE, reviews over half a second are reported (stderr).
+    if (profiling::enabled()) {
+        const double review_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count();
+        if (review_s > 0.5) {
+            std::cerr << std::format("[slow review day {:.1f}] {} ({}) at {}: {:.2f} s\n", game_time_s_ / 86400.0, ship.name,
+                ship_class.id, ship.current_station_id, review_s);
+        }
+    }
     if (consider_refit(ship, choice, trace)) {
         return;
     }

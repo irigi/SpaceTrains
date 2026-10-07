@@ -466,7 +466,9 @@ func _read_snapshot() -> void:
     if file == null:
         return
     var json := JSON.new()
+    var parse_started := Time.get_ticks_usec()
     var parse_status := json.parse(file.get_as_text())
+    if _profile_enabled: _profiled("  snapshot parse", parse_started)
     if parse_status != OK or typeof(json.data) != TYPE_DICTIONARY:
         return
     var new_seq := int(json.data.get("snapshot_seq", -1))
