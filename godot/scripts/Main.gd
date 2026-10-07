@@ -93,11 +93,7 @@ var frame_positions_m: Dictionary = {}  # per-frame cache: entity_id -> PackedFl
 var origin_m := PackedFloat64Array([0.0, 0.0, 0.0])  # the focus; entities are drawn relative to it
 var entity_root: Node3D
 var current_snapshot_seq := -1
-var previous_snapshot_arrival_s := 0.0
 var current_snapshot_arrival_s := 0.0
-var previous_snapshot_bridge_time_s := 0.0
-var current_snapshot_bridge_time_s := 0.0
-var snapshot_interval_s := BRIDGE_STEP_SECONDS
 var selected_id := ""
 var selected_kind := ""
 var focused_id := ""
@@ -492,21 +488,8 @@ func _read_snapshot() -> void:
             print("[MapDebugReject] seq=%d current_seq=%d new_game_day=%.3f current_game_day=%.3f" % [new_seq, current_snapshot_seq, new_game_time_s / 86400.0, current_game_time_s / 86400.0])
         return
     var arrival_now_s := _wall_time_s()
-    var new_bridge_time_s := float(json.data.get("snapshot_real_time_s", arrival_now_s))
-    if current_snapshot_seq >= 0:
-        previous_snapshot_arrival_s = current_snapshot_arrival_s
-        previous_snapshot_bridge_time_s = current_snapshot_bridge_time_s
     current_snapshot_seq = new_seq
     current_snapshot_arrival_s = arrival_now_s
-    current_snapshot_bridge_time_s = new_bridge_time_s
-    var arrival_interval_s := current_snapshot_arrival_s - previous_snapshot_arrival_s
-    var bridge_interval_s := current_snapshot_bridge_time_s - previous_snapshot_bridge_time_s
-    if bridge_interval_s > 0.0:
-        snapshot_interval_s = bridge_interval_s
-    elif arrival_interval_s > 0.0:
-        snapshot_interval_s = arrival_interval_s
-    else:
-        snapshot_interval_s = BRIDGE_STEP_SECONDS
     bridge_state = json.data
     # Ships in flight carry only a path id; attach the planned path from the paths file.
     for ship in bridge_state.get("ships", []):

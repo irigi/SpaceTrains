@@ -110,7 +110,10 @@ TrajectoryAuditMetrics audit_trajectory(
     if (!m.times_monotonic) m.flags.emplace_back("non_monotonic_time");
     if (plan.diagnostics.endpoint_miss_m > thresholds.endpoint_miss_m) m.flags.emplace_back("endpoint_miss");
     if (plan.diagnostics.start_miss_m > thresholds.endpoint_miss_m) m.flags.emplace_back("start_miss");
-    if (m.revolutions > thresholds.max_revolutions) m.flags.emplace_back("many_revolutions");
+    const bool continuous = plan.trajectory_type.starts_with("variable_isp");
+    if (m.revolutions > (continuous ? thresholds.max_revolutions_continuous : thresholds.max_revolutions)) {
+        m.flags.emplace_back("many_revolutions");
+    }
     if (std::max(m.max_interior_turn_deg, m.end_turn_deg) > thresholds.max_turn_deg) m.flags.emplace_back("coarse_sampling");
     if (m.wait_max_step_deg > thresholds.max_step_deg) m.flags.emplace_back("coarse_wait");
     if (m.end_turn_deg > thresholds.end_turn_deg && m.last_segment_ratio > thresholds.last_segment_ratio) {

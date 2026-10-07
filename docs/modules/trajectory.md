@@ -99,7 +99,8 @@ Flags (thresholds in `TrajectoryAuditThresholds`):
 
 - `endpoint_miss` / `start_miss` — unsnapped path endpoint is > 0.01 AU from the station
 - `end_dent` — sharp turn at the penultimate sample plus an oversized last segment (the snap made visible)
-- `many_revolutions` — transfer sweeps > 1.25 turns around the Sun
+- `many_revolutions` — transfer sweeps > 1.25 turns around the Sun (> 2 for variable-Isp spirals: an inward
+  spiral from Venus to Mercury sweeps 1.3-1.4 turns in ~245 days)
 - `coarse_sampling` — the rendered transfer path changes direction by > 15° at one point
 - `coarse_wait` — wait-period samples > 20° of heliocentric angle apart
 - `below_min_perihelion` — path comes closer to the Sun than `kMinPerihelionM` (0.1 AU)
