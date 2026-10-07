@@ -106,6 +106,7 @@ struct FleetInvestmentDefinition {
     double build_days {0.0};               // in the yard before its first mission
     double layup_sale_days {0.0};          // laid up this long: sold; 0 = never
     double salvage_fraction {0.0};         // of the ship's value, paid to its treasury
+    double route_commitment_days {0.0};    // a new ship works the route it was bought for this long
 };
 
 struct StationDefinition {
@@ -236,6 +237,13 @@ struct ShipState {
     double next_refit_review_s {0.0};
     double laid_up_since_s {0.0};      // when the ship was last laid up
     double commissioned_s {0.0};       // 0 for the starting fleet
+    // Route commitment (fleet investment): until route_until_s a new ship only shuttles
+    // between its home and route_destination_id. The commodity and flow it was bought for
+    // count against that destination's demand when the treasuries value the next ship.
+    std::string route_destination_id;
+    std::string route_commodity_id;
+    double route_units_per_day {0.0};
+    double route_until_s {0.0};
 };
 
 // A station's money flows with the world outside the simulated trade (the open economy),

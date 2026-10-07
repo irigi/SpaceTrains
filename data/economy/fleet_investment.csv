@@ -5,3 +5,4 @@ working_capital,25000
 build_days,30
 layup_sale_days,180
 salvage_fraction,0.4
+route_commitment_days,180

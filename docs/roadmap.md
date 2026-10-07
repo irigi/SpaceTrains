@@ -14,12 +14,12 @@
 - Bridge snapshots carry `trajectory_path`, destination ghost, and snapshot timing for smooth interpolation.
 - Procedural sci-fi HUD (top bar, entity browser, inspector, market panel, event ticker).
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
-- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27): treasuries buy ships, long-laid-up ships are sold.
+- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold.
 
 ## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28).
 
 ### Decisions so far
 
@@ -71,8 +71,11 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    sold for 40% salvage to their treasury; every 60 days the treasuries buy the one ship (hull, tank
    variant, yard) with the best sustained return (margin per unit × min(hold per round trip, the
    destination's consumption), minus running costs; hurdle 30%/yr). v27: 7 bought, 4 sold, 15/29
-   profitable, Low Earth Logistics food no longer critical, money +7.0%. Open: new ships drift off
-   their route once its price gap closes; Low Earth Logistics metals stay short.
+   profitable, Low Earth Logistics food no longer critical, money +7.0%. v28: a new ship shuttles
+   between its yard and the destination it was bought for for 180 days, and that flow counts against
+   the destination's demand in later reviews (13/29 profitable, fleet profit −1.4%, money +5.5%).
+   Open: the valuation prices the margin at today's scarcity price, which closes once the ship
+   serves the route; Low Earth Logistics metals stay short.
 5. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
    sites (candidates: Ceres and the outer ice moons for water-derived propellant, Venus for its chemical
    industry; not Earth), with depots at other stations only storing what tankers deliver. Needs very large
@@ -84,8 +87,8 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v27: 15/29 profitable, cargo margin 1.39M, fuel 119k cr, 0 laid up, 34 CRITICAL lines, money supply +7.0%,
-drift 0, run 3m54). Debug idle ships with
+(v28: 13/29 profitable, cargo margin 1.39M, fuel 135k cr, 0 laid up, 33 CRITICAL lines, money supply +5.5%,
+drift 0, run 4m02). Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)
@@ -139,7 +142,7 @@ Next fixes:
   rocket equation -> C modular tanks and refits. See `docs/plans/ship_operating_costs.md`.
 - **Technology plausibility review** of all ship classes (one consistent near-future tech level). See
   `docs/plans/tech_plausibility_review.md`. Do it with or before part B.
-- **Fleet investment:** done (v27), see `docs/plans/fleet_investment.md`.
+- **Fleet investment:** done (v27, route commitment v28), see `docs/plans/fleet_investment.md`.
 - **Open economy with exact accounting:** done (v26), see `docs/plans/open_economy.md`.
 - **Outer-system exports.** Give outer stations something worth shipping inward, not exotic matter.
   Candidates: platinum-group metals and other high-value metals from the Ceres belt; deuterium (heavy water)

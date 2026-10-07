@@ -110,6 +110,7 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v25 | part C: tank refits at the home base (50/100/150/200% variants; 19k cr of yard bills) | 1.47M | 92k | 85k | 274k | 11/22 | 4 (0 stranded) | 36 |
 | v26 | open economy (`docs/plans/open_economy.md`): fleet unchanged; money supply +16.7%, every station at or above the 25k floor | 1.47M | 92k | 85k | 274k | 11/22 | 4 (0 stranded) | 36 |
 | v27 | fleet investment (`docs/plans/fleet_investment.md`): 7 ships bought, 4 sold; money supply +7.0% | 1.39M | 119k | 94k | 263k | 15/29 | 0 (0 stranded) | 34 |
+| v28 | route commitment: new ships shuttle their route for 180 days; committed flow counts against demand; money supply +5.5% | 1.39M | 135k | 91k | 261k | 13/29 | 0 (0 stranded) | 33 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).

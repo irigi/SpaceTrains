@@ -34,6 +34,15 @@ up, and the faction treasuries buy new ships for the routes that pay best.
      money-supply target grows by that working capital. The ship spends `build_days` (30) in the yard
      (the `Refitting` phase) and then dispatches normally. Debug: `SPACETRAINS_TRACE_INVESTMENT=1`.
 
+3. **Route commitment (v28).** A new ship works the route it was bought for until
+   `route_commitment_days` (180) after it leaves the yard: from its yard it only flies to that
+   destination, from anywhere else only home (with cargo if any pays, otherwise empty), and it does
+   not reposition. In later reviews the flow it was bought for (units per day of that commodity to
+   that destination) comes off the destination's consumption, so the treasuries stop buying a second
+   ship for a route that is already served. Without it, ships took the run while the gap lasted and
+   then left for long contracts, the gap reopened, and three Light Freighters were bought for one
+   food route. The audit shows each new ship's route and commitment end.
+
 Parameters: `data/economy/fleet_investment.csv`. The snapshot carries a `FleetInvestmentLedger`
 (ships commissioned and sold, hulls bought, working capital, salvage), `money_supply_target` and
 `sold_ships`. The ledger identities in `tests/economy_test.cpp` include it: outside = producers −
@@ -57,3 +66,23 @@ run takes that run while the price gap lasts, then leaves for long contracts (IC
 for Mars after selling 50u of food for 690 cr), so the gap reopens and the treasuries order another
 ship. Low Earth Logistics metals and reactor fuel stay critical (the Mercury ships deliver about 0.5
 u/day against 9 u/day consumed). Treasury money limits the pace: one ship every 60 to 120 days.
+
+## v28 result: route commitment (730 days)
+
+- Bought 7 ships for 332k: Mercury metals to Low Earth Logistics (Plasma Courier, Plasma Freighter),
+  Earth L1 food to Low Earth Logistics (two Light Freighters, the second at day 720 after the first's
+  commitment ended), Low Earth Logistics electronics to Lunar Gateway and Earth L1, Earth L1 food to
+  Lunar Gateway. Same 4 ships sold.
+- Mostly neutral against v27: fleet lifetime profit 871k (v27 883k), cargo margin 1.39M, 13/29
+  profitable (15/29), 33 CRITICAL lines (34), money supply +5.5% (+7.0%), treasuries 220k (203k).
+  Run 4m02.
+- The commitment works as designed: IC Light Freighter 2 shuttled food and electronics between Earth
+  L1 and Low Earth Logistics for 180 days, and Low Earth Logistics food fell below base price (about
+  15 cr against 50). But that is also why it lost money (−20k at day 730): once it fed the route,
+  the margin it was bought for (271%/yr expected) was gone, and each 0.1-day hop earned about what its
+  fuel cost.
+
+**Open point: the valuation prices the margin at the scarcity price.** A ship whose flow covers a
+destination's open demand ends that scarcity, so its sustained sale price is near base, not today's.
+Fix before the treasuries buy bulk tankers: value the sale at base price when the ship's flow covers
+the open demand.

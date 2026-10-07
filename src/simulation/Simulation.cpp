@@ -186,6 +186,10 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .next_refit_review_s = 0.0,
             .laid_up_since_s = 0.0,
             .commissioned_s = 0.0,
+            .route_destination_id = {},
+            .route_commodity_id = {},
+            .route_units_per_day = 0.0,
+            .route_until_s = 0.0,
         });
     }
     seeded_money_supply_ = internal_money_supply();
@@ -688,6 +692,14 @@ Simulation::MissionChoice Simulation::choose_mission(
     double best_cargo_units = 0.0;
     double best_cargo_margin = 0.0;
 
+    // A newly commissioned ship works the route it was bought for: from home only to its route
+    // destination, from anywhere else only home. Otherwise it left once the gap it was bought
+    // for closed, the gap reopened and the treasuries ordered another ship for it.
+    const bool on_route = !cargo_only && !ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s;
+    const auto route_leg_allowed = [&](const std::string& from_id, const std::string& to_id) {
+        return !on_route || to_id == (from_id == ship.home_station_id ? ship.route_destination_id : ship.home_station_id);
+    };
+
     // Every day of a mission (waiting for the window included) costs capital,
     // wages and provisions; missions are compared on profit after that cost.
     const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state);
@@ -812,7 +824,7 @@ Simulation::MissionChoice Simulation::choose_mission(
             }
             const double decay_per_day = get_commodity(commodity_id).decay_fraction_per_day;
             for (const auto& next : universe_.stations) {
-                if (next.id == destination.id) {
+                if (next.id == destination.id || !route_leg_allowed(destination.id, next.id)) {
                     continue;
                 }
                 const auto next_rates = economy_.get_station_net_rates(next);
@@ -912,7 +924,7 @@ Simulation::MissionChoice Simulation::choose_mission(
         const double decay_per_day = get_commodity(commodity_id).decay_fraction_per_day;
 
         for (const auto& destination : universe_.stations) {
-            if (destination.id == origin_def.id) {
+            if (destination.id == origin_def.id || !route_leg_allowed(origin_def.id, destination.id)) {
                 continue;
             }
             const auto destination_rates = economy_.get_station_net_rates(destination);
@@ -1005,7 +1017,7 @@ Simulation::MissionChoice Simulation::choose_mission(
 
     // Empty legs toward a better pickup compete with cargo runs on the same two-leg terms.
     for (const auto& destination : universe_.stations) {
-        if (cargo_only || destination.id == origin_def.id) {
+        if (cargo_only || destination.id == origin_def.id || !route_leg_allowed(origin_def.id, destination.id)) {
             continue;
         }
         const auto& plan = plan_to(destination, 0.0);
@@ -1034,8 +1046,19 @@ Simulation::MissionChoice Simulation::choose_mission(
         }
     }
 
+    // A ship on its route away from home with nothing to carry back flies home empty.
+    if (best_destination == nullptr && on_route && origin_def.id != ship.home_station_id) {
+        const auto& home = get_station_definition(ship.home_station_id);
+        const auto& plan = plan_to(home, 0.0);
+        if (plan.feasible && plan.travel_time_s / 86400.0 <= max_mission_days) {
+            trace_line("on route: back home empty to " + home.id);
+            best_score = 0.0;
+            best_destination = &home;
+        }
+    }
+
     bool repositioning = false;
-    if (best_destination == nullptr && !cargo_only) {
+    if (best_destination == nullptr && !cargo_only && !on_route) {
         repositioning = true;
         best_score = 0.0;  // repositioning scores are in urgency units, not credits/day
 
@@ -1808,6 +1831,10 @@ void Simulation::commission_best_ship() {
             .next_refit_review_s = 0.0,
             .laid_up_since_s = 0.0,
             .commissioned_s = game_time_s_,
+            .route_destination_id = {},
+            .route_commodity_id = {},
+            .route_units_per_day = 0.0,
+            .route_until_s = 0.0,
         };
         // New ships leave the yard with their full life-support endurance, like the starting fleet.
         for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
@@ -1904,9 +1931,24 @@ void Simulation::commission_best_ship() {
     // consumer's price can be a little above today's, so the bound is a heuristic.
     std::sort(candidates.begin(), candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.return_bound > b.return_bound; });
+    // Ships still committed to a route deliver to it; only the rest of the destination's
+    // demand is open to a new ship.
+    const auto committed_flow = [&](const std::string& destination_id, const std::string& commodity_id) {
+        double flow = 0.0;
+        for (const auto& ship : ships_) {
+            if (ship.route_destination_id == destination_id && ship.route_commodity_id == commodity_id
+                && game_time_s_ < ship.route_until_s) {
+                flow += ship.route_units_per_day;
+            }
+        }
+        return flow;
+    };
     struct Valuation {
         double annual_return {-std::numeric_limits<double>::infinity()};
         std::string label;
+        std::string destination_id;
+        std::string commodity_id;
+        double units_per_day {0.0};
     };
     const auto value_candidate = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
                                      double return_bound) {
@@ -1921,12 +1963,16 @@ void Simulation::commission_best_ship() {
             const double cycle_days = std::max(1.0,
                 2.0 * choice.plan.travel_time_s / 86400.0 + choice.plan.wait_time_s / 86400.0);
             const double units_per_day = std::min(choice.cargo_units / cycle_days,
-                consumption_rate(*choice.destination, choice.commodity_id));
+                std::max(0.0, consumption_rate(*choice.destination, choice.commodity_id)
+                    - committed_flow(choice.destination->id, choice.commodity_id)));
             const double profit_per_day = choice.cargo_margin / choice.cargo_units * units_per_day
                 - (daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id)));
             valuation.annual_return = profit_per_day * 365.0 / ship_class.ship_value_cr;
-            valuation.label = std::format("{:.0f}u {} -> {} in {:.1f} d", choice.cargo_units, choice.commodity_id,
-                choice.destination->name, choice.plan.travel_time_s / 86400.0);
+            valuation.label = std::format("{:.0f}u {} -> {} in {:.1f} d, {:.2f} u/d", choice.cargo_units,
+                choice.commodity_id, choice.destination->name, choice.plan.travel_time_s / 86400.0, units_per_day);
+            valuation.destination_id = choice.destination->id;
+            valuation.commodity_id = choice.commodity_id;
+            valuation.units_per_day = units_per_day;
         }
         if (trace) {
             std::cerr << std::format("[invest day {:.0f}] {} at {}: {}, margin {:.0f}: {:.0f}%/yr (bound {:.0f}%) in {:.2f} s\n",
@@ -1939,7 +1985,7 @@ void Simulation::commission_best_ship() {
     const domain::ShipClassDefinition* best_class = nullptr;
     const domain::StationDefinition* best_yard = nullptr;
     double best_return = investment.hurdle_return_per_year;
-    std::string best_label;
+    Valuation best_valuation;
     int probes = 0;
     for (const auto& candidate : candidates) {
         if (candidate.return_bound <= best_return) {
@@ -1951,7 +1997,7 @@ void Simulation::commission_best_ship() {
             best_return = valuation.annual_return;
             best_class = candidate.ship_class;
             best_yard = candidate.yard;
-            best_label = valuation.label;
+            best_valuation = valuation;
         }
     }
     // The winning hull is built with the tanks that suit it best, judged like a refit (by
@@ -2026,8 +2072,13 @@ void Simulation::commission_best_ship() {
     ship.refit_done_s = game_time_s_ + investment.build_days * 86400.0;
     // Like a refit, the tank choice holds for the payback period before it is reconsidered.
     ship.next_refit_review_s = ship.refit_done_s + REFIT_PAYBACK_DAYS * 86400.0;
+    // It works the route it was bought for until the commitment ends.
+    ship.route_destination_id = best_valuation.destination_id;
+    ship.route_commodity_id = best_valuation.commodity_id;
+    ship.route_units_per_day = best_valuation.units_per_day;
+    ship.route_until_s = ship.refit_done_s + investment.route_commitment_days * 86400.0;
     add_event(std::format("{} ordered at {} for {:.0f} cr: {:.0f}%/yr expected ({})",
-        ship.name, best_yard->name, best_class->ship_value_cr, 100.0 * best_return, best_label), "mission");
+        ship.name, best_yard->name, best_class->ship_value_cr, 100.0 * best_return, best_valuation.label), "mission");
     ships_.push_back(std::move(ship));
 }
 

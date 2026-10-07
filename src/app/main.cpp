@@ -389,7 +389,10 @@ void print_economy_audit(
         std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}{}{}\n",
             ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
             l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id,
-            ship.commissioned_s > 0.0 ? std::format("  (new day {:.0f})", ship.commissioned_s / 86400.0) : "",
+            ship.commissioned_s > 0.0
+                ? std::format("  (new day {:.0f}, {} -> {} until day {:.0f})", ship.commissioned_s / 86400.0,
+                      ship.route_commodity_id, ship.route_destination_id, ship.route_until_s / 86400.0)
+                : "",
             sold ? "  (sold)" : "");
         fleet.cargo_revenue += l.cargo_revenue;
         fleet.cargo_purchases += l.cargo_purchases;
