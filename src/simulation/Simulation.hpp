@@ -74,6 +74,27 @@ private:
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
     void pay_home_station(domain::ShipState& ship, double amount);
     void step_idle_ship(domain::ShipState& ship);
+    // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
+    // variant it could refit to). Planning only: changes nothing but the plan caches.
+    struct MissionChoice {
+        enum class Kind { None, Mission, Reposition };
+        Kind kind {Kind::None};
+        // Mission: two-leg profit per day (urgency-weighted for cargo runs);
+        // Reposition: sourcing urgency, not credits.
+        double score {0.0};
+        const domain::StationDefinition* destination {nullptr};
+        std::string commodity_id;
+        double cargo_units {0.0};
+        domain::TrajectoryPlan plan;
+    };
+    [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,
+        const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s);
+    // Part C: at its home base a ship may refit to another tank variant of its hull when
+    // the missions that opens repay the yard bill. Returns true if the ship went into the yard.
+    bool consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace);
+    [[nodiscard]] double refit_bill(
+        const domain::ShipClassDefinition& from, const domain::ShipClassDefinition& to) const;
+    void step_refitting_ship(domain::ShipState& ship);
     // Two-leg mission scoring: a cheap, cached estimate of a follow-up leg.
     struct LegEstimate {
         bool feasible {false};

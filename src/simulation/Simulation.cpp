@@ -47,6 +47,11 @@ constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
 
 // Part loads dispatch scores: a full hold may be too heavy, and big lots move prices.
 constexpr std::array<double, 3> LOAD_FRACTIONS {1.0, 0.5, 0.25};
+// Tank refits (part C): a docked ship at its home base compares the next smaller and next
+// larger tank variants this often (each comparison is a full dispatch pass, ~0.3 s), and
+// refits when the better missions repay the yard within the payback period.
+constexpr double REFIT_REVIEW_DAYS = 90.0;
+constexpr double REFIT_PAYBACK_DAYS = 180.0;
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -169,6 +174,9 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .ledger = {},
             .next_review_s = 0.0,
             .idle_since_s = 0.0,
+            .refit_class_id = {},
+            .refit_done_s = 0.0,
+            .next_refit_review_s = 0.0,
         });
     }
     // Ships start with their full life-support endurance aboard, as if fresh from the yard.
@@ -488,7 +496,7 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     const double capital = daily_capital_cost(ship_class) * days;
     pay_home_station(ship, capital);
     ship.ledger.capital += capital;
-    if (ship.phase == domain::ShipMissionPhase::LaidUp) {
+    if (ship.phase == domain::ShipMissionPhase::LaidUp || ship.phase == domain::ShipMissionPhase::Refitting) {
         return;  // crew discharged: no wages, no life support
     }
 
@@ -642,29 +650,20 @@ Simulation::LegEstimate Simulation::estimate_leg(
     return estimate;
 }
 
-void Simulation::step_idle_ship(domain::ShipState& ship) {
-    // Planning is expensive, so docked ships look for work every few hours, and laid-up
-    // ships (no crew) every few days, not on every tick.
-    const bool laid_up = ship.phase == domain::ShipMissionPhase::LaidUp;
-    if (game_time_s_ < ship.next_review_s) {
-        return;
-    }
-    ship.next_review_s = game_time_s_ + (laid_up ? LAYUP_REVIEW_DAYS * 86400.0 : IDLE_REVIEW_S);
-
-    // Debug aid: SPACETRAINS_TRACE_SHIP="<ship name>" logs every candidate mission of
-    // that ship and why it was rejected (stderr).
-    static const char* const trace_ship = std::getenv("SPACETRAINS_TRACE_SHIP");
-    const bool trace = trace_ship != nullptr && ship.name == trace_ship;
+Simulation::MissionChoice Simulation::choose_mission(
+    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, bool trace,
+    double earliest_departure_s) {
+    // Plans start at the earliest departure; forecasts of stocks count from now.
+    const double delay_days = std::max(0.0, earliest_departure_s - game_time_s_) / 86400.0;
     const auto trace_line = [&](const std::string& text) {
         if (trace) {
-            std::cerr << std::format("[trace day {:.1f}] {} ({}) at {}: {}\n", game_time_s_ / 86400.0, ship.name,
-                mission_phase_name(ship.phase), ship.current_station_id, text);
+            std::cerr << std::format("[trace day {:.1f}] {} ({}, {}) at {}: {}\n", game_time_s_ / 86400.0, ship.name,
+                mission_phase_name(ship.phase), ship_class.id, ship.current_station_id, text);
         }
     };
 
     auto& origin_state = get_station_state(ship.current_station_id);
     const auto& origin_def = get_station_definition(ship.current_station_id);
-    const auto& ship_class = get_ship_class(ship.class_id);
 
     // Ships fuel per mission: the planner loads what the transfer burns plus the reserve,
     // from what is aboard and what this port can sell.
@@ -704,7 +703,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const auto& dest_state = get_station_state(destination.id);
         const double after_arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg);
         const double dest_fuel_kg = fuel_for_sale_on_arrival_kg(
-            economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0);
+            economy_, destination, dest_state, delay_days + plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0);
         double needed_kg = plan.propellant_required_kg;
         if (ship_class.propulsion_type != "variable_isp" && exhaust_velocity_mps > 0.0) {
             const double planned_mass_kg = ship_class.dry_mass_kg + payload_kg + plan.propellant_load_kg;
@@ -733,7 +732,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         auto it = plans.find(key);
         if (it == plans.end()) {
             it = plans.emplace(key, planner.plan_transfer(
-                origin_def, destination, ship, ship_class, game_time_s_, planning_options(cargo_bucket_kg))).first;
+                origin_def, destination, ship, ship_class, std::max(game_time_s_, earliest_departure_s),
+                planning_options(cargo_bucket_kg))).first;
         }
         return it->second;
     };
@@ -763,10 +763,10 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         std::vector<FollowUp> options;
         const auto& dest_state = get_station_state(destination.id);
         const double arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg);
-        const double follow_days = (plan.wait_time_s + plan.travel_time_s) / 86400.0;
+        const double follow_days = delay_days + (plan.wait_time_s + plan.travel_time_s) / 86400.0;
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
-                economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
+                economy_, destination, dest_state, delay_days + plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
         // Surplus left after the ships already docked there or inbound take their loads.
         // Each of them is assumed to fill its hold from the largest remaining surplus.
         const auto dest_rates = economy_.get_station_net_rates(destination);
@@ -966,7 +966,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 }
                 const double surviving = cargo_units * std::pow(1.0 - decay_per_day, travel_days);
                 const double revenue = sale_value_on_arrival(destination_state, commodity_id, surviving,
-                    plan.wait_time_s / 86400.0 + travel_days, ship.id);
+                    delay_days + plan.wait_time_s / 86400.0 + travel_days, ship.id);
                 const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price;
                 const double cost = trade_value(origin_state, commodity_id, -cargo_units) + fuel_cost
                     + time_cost_per_day * travel_days;
@@ -1015,7 +1015,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         }
     }
 
+    bool repositioning = false;
     if (best_destination == nullptr) {
+        repositioning = true;
         best_score = 0.0;  // repositioning scores are in urgency units, not credits/day
 
         // Sourcing score: does this station have surplus goods urgently needed
@@ -1109,7 +1111,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 trace_line(std::format("reposition -> {}: could not refuel to leave again (burns {:.0f} of {:.0f} kg, port sells {:.0f} kg)",
                     destination.id, plan.propellant_required_kg, plan.propellant_load_kg,
                     fuel_for_sale_on_arrival_kg(economy_, destination, get_station_state(destination.id),
-                        plan.wait_time_s / 86400.0 + reposition_days)));
+                        delay_days + plan.wait_time_s / 86400.0 + reposition_days)));
                 continue;
             }
             const double reposition_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
@@ -1146,8 +1148,44 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         }
     }
 
+    MissionChoice choice;
     if (best_destination == nullptr) {
-        if (ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.01 && origin_fuel_for_sale_kg <= 0.0) {
+        return choice;
+    }
+    choice.kind = repositioning ? MissionChoice::Kind::Reposition : MissionChoice::Kind::Mission;
+    choice.score = best_score;
+    choice.destination = best_destination;
+    choice.commodity_id = best_commodity;
+    choice.cargo_units = best_cargo_units;
+    choice.plan = plan_to(*best_destination,
+        best_commodity.empty() ? 0.0 : best_cargo_units * get_commodity(best_commodity).mass_per_unit_kg);
+    return choice;
+}
+
+void Simulation::step_idle_ship(domain::ShipState& ship) {
+    // Planning is expensive, so docked ships look for work every few hours, and laid-up
+    // ships (no crew) every few days, not on every tick.
+    const bool laid_up = ship.phase == domain::ShipMissionPhase::LaidUp;
+    if (game_time_s_ < ship.next_review_s) {
+        return;
+    }
+    ship.next_review_s = game_time_s_ + (laid_up ? LAYUP_REVIEW_DAYS * 86400.0 : IDLE_REVIEW_S);
+
+    // Debug aid: SPACETRAINS_TRACE_SHIP="<ship name>" logs every candidate mission of
+    // that ship and why it was rejected (stderr).
+    static const char* const trace_ship = std::getenv("SPACETRAINS_TRACE_SHIP");
+    const bool trace = trace_ship != nullptr && ship.name == trace_ship;
+
+    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto choice = choose_mission(ship, ship_class, trace, game_time_s_);
+    if (consider_refit(ship, choice, trace)) {
+        return;
+    }
+
+    auto& origin_state = get_station_state(ship.current_station_id);
+    const auto& origin_def = get_station_definition(ship.current_station_id);
+    if (choice.kind == MissionChoice::Kind::None) {
+        if (ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.01 && purchasable_propellant_kg(ship) <= 0.0) {
             ship.phase = domain::ShipMissionPhase::Stranded;
             add_event(std::format("{} is stranded at {} due to fuel shortage", ship.name, origin_def.name), "alert");
         } else if (!laid_up
@@ -1164,12 +1202,14 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         return;
     }
 
-    const double best_cargo_kg = best_commodity.empty()
-        ? 0.0 : best_cargo_units * get_commodity(best_commodity).mass_per_unit_kg;
-    const auto plan = plan_to(*best_destination, best_cargo_kg);
+    const auto* best_destination = choice.destination;
+    const auto& best_commodity = choice.commodity_id;
+    const double best_cargo_units = choice.cargo_units;
+    const auto& plan = choice.plan;
     if (!plan.feasible) {
         return;
     }
+    const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state);
     if (trajectory_audit_enabled_) {
         record_trajectory_audit(ship, origin_def, *best_destination, plan, plan.propellant_load_kg);
     }
@@ -1277,6 +1317,128 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     } else {
         add_event(std::format("{} repositioned from {} to {}", ship.name, origin_def.name, best_destination->name), "mission");
     }
+}
+
+double Simulation::refit_bill(
+    const domain::ShipClassDefinition& from, const domain::ShipClassDefinition& to) const {
+    return universe_.ship_operations.refit_cost_fraction * std::abs(to.ship_value_cr - from.ship_value_cr);
+}
+
+bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace) {
+    if (ship.current_station_id != ship.home_station_id || game_time_s_ < ship.next_refit_review_s) {
+        return false;
+    }
+    ship.next_refit_review_s = game_time_s_ + REFIT_REVIEW_DAYS * 86400.0;
+    const auto& ship_class = get_ship_class(ship.class_id);
+    const double refit_days = universe_.ship_operations.refit_days;
+    // What the ship earns as it is: dispatch's profit rate, or nothing (a repositioning
+    // score is not a profit, and such a ship has no paying work here either).
+    const double current_score = current.kind == MissionChoice::Kind::Mission ? std::max(0.0, current.score) : 0.0;
+
+    // Only the neighbouring tank sizes: larger steps take several refits.
+    const domain::ShipClassDefinition* next_smaller = nullptr;
+    const domain::ShipClassDefinition* next_larger = nullptr;
+    for (const auto& other : universe_.ship_classes) {
+        if (other.hull_id != ship_class.hull_id) {
+            continue;
+        }
+        const double tank_kg = other.propellant_capacity_kg;
+        if (tank_kg < ship_class.propellant_capacity_kg
+            && (next_smaller == nullptr || tank_kg > next_smaller->propellant_capacity_kg)) {
+            next_smaller = &other;
+        }
+        if (tank_kg > ship_class.propellant_capacity_kg
+            && (next_larger == nullptr || tank_kg < next_larger->propellant_capacity_kg)) {
+            next_larger = &other;
+        }
+    }
+
+    const domain::ShipClassDefinition* best_class = nullptr;
+    double best_gain = 0.0;
+    for (const auto* candidate_ptr : {next_smaller, next_larger}) {
+        if (candidate_ptr == nullptr) {
+            continue;
+        }
+        const auto& candidate = *candidate_ptr;
+        const double bill = refit_bill(ship_class, candidate);
+        if (ship.credits - bill < -credit_line(candidate)) {
+            continue;
+        }
+        domain::ShipState probe = ship;
+        probe.class_id = candidate.id;
+        probe.propellant_kg = std::min(ship.propellant_kg, candidate.propellant_capacity_kg);
+        // Scored on departures after the yard is done: launch windows close meanwhile.
+        const auto option = choose_mission(probe, candidate, trace, game_time_s_ + refit_days * 86400.0);
+        if (option.kind != MissionChoice::Kind::Mission) {
+            continue;
+        }
+        // The better missions must repay the yard bill and the earnings lost in the yard.
+        // The scores already carry each variant's capital charge.
+        const double gain = (option.score - current_score) * REFIT_PAYBACK_DAYS - bill - current_score * refit_days;
+        if (trace) {
+            std::cerr << std::format("[trace day {:.1f}] {}: refit to {}: score {:.1f} vs {:.1f}, bill {:.0f}, gain {:.0f}\n",
+                game_time_s_ / 86400.0, ship.name, candidate.id, option.score, current_score, bill, gain);
+        }
+        if (gain > best_gain) {
+            best_gain = gain;
+            best_class = &candidate;
+        }
+    }
+    if (best_class == nullptr) {
+        return false;
+    }
+
+    auto& yard = get_station_state(ship.current_station_id);
+    // Propellant that no longer fits goes back to the station's depot.
+    const double excess_kg = ship.propellant_kg - best_class->propellant_capacity_kg;
+    if (excess_kg > 0.0) {
+        const double units = excess_kg / FUEL_UNITS_TO_KG;
+        const double value = trade_value(yard, "fuel", units);
+        yard.inventory["fuel"] += units;
+        yard.credits -= value;
+        ship.propellant_kg -= excess_kg;
+        ship.credits += value;
+        ship.lifetime_profit += value;
+        ship.ledger.fuel -= value;
+        record_trade({
+            .time_s = game_time_s_,
+            .ship_id = ship.id,
+            .station_id = yard.station_id,
+            .commodity_id = "fuel",
+            .kind = "sell",
+            .units = units,
+            .unit_price = value / units,
+            .total = value,
+        });
+    }
+    const double bill = refit_bill(ship_class, *best_class);
+    ship.credits -= bill;
+    ship.lifetime_profit -= bill;
+    ship.ledger.refits += bill;
+    yard.credits += bill;
+    ship.refit_class_id = best_class->id;
+    ship.refit_done_s = game_time_s_ + refit_days * 86400.0;
+    // The refit was justified by a payback period of better missions: give it that long
+    // before reconsidering, or ships swap tanks back and forth on each new forecast.
+    ship.next_refit_review_s = ship.refit_done_s + REFIT_PAYBACK_DAYS * 86400.0;
+    ship.phase = domain::ShipMissionPhase::Refitting;
+    add_event(std::format("{} refitting at {}: {} -> {} ({:.0f} cr, {:.0f} days)",
+        ship.name, get_station_definition(ship.current_station_id).name, ship_class.name, best_class->name,
+        bill, refit_days), "mission");
+    return true;
+}
+
+void Simulation::step_refitting_ship(domain::ShipState& ship) {
+    if (game_time_s_ < ship.refit_done_s) {
+        return;
+    }
+    ship.class_id = ship.refit_class_id;
+    ship.refit_class_id.clear();
+    ship.phase = domain::ShipMissionPhase::Idle;
+    ship.idle_since_s = game_time_s_;
+    ship.next_review_s = game_time_s_;
+    add_event(std::format("{} left the yard at {} as {}",
+        ship.name, get_station_definition(ship.current_station_id).name, get_ship_class(ship.class_id).name), "mission");
 }
 
 void Simulation::step_awaiting_departure_ship(domain::ShipState& ship) {
@@ -1423,6 +1585,9 @@ void Simulation::step(double real_dt_s) {
             case domain::ShipMissionPhase::Refueling:
                 ship.phase = domain::ShipMissionPhase::Idle;
                 break;
+            case domain::ShipMissionPhase::Refitting:
+                step_refitting_ship(ship);
+                break;
             case domain::ShipMissionPhase::Stranded:
                 // Fuel for sale here is enough: missions buy their own load.
                 if (purchasable_propellant_kg(ship) > 0.0) {
@@ -1457,6 +1622,8 @@ std::string Simulation::mission_phase_name(domain::ShipMissionPhase phase) const
             return "stranded";
         case domain::ShipMissionPhase::LaidUp:
             return "laid_up";
+        case domain::ShipMissionPhase::Refitting:
+            return "refitting";
     }
     return "unknown";
 }

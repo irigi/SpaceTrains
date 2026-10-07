@@ -19,7 +19,7 @@
 ## Current Plan (updated 2026-10-06) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
+Last commits: `ab6e782` population-scaled economy (v24), part C tank refits (v25).
 
 ### Decisions so far
 
@@ -57,8 +57,11 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
    rebuild (`7cdb236`), fuel depots (`dad132c`), pricing (`1808fe6`), renaming (propulsion types
    `nuclear_thermal` / `variable_isp`, classes `plasma_freighter` / `plasma_courier`), cargo holds with
    price-curve trades and an economy scaled with population (v24). The tech review is complete.
-2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): tank size as a refit
-   option at a base, with refit cost and time; depends on the tank masses from step 1.
+2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): done (v25). Every class
+   has 50/100/150/200% tank variants on one hull; ships refit at their home base when the missions the
+   neighbouring tank size opens repay a 20-day yard stay and a bill of 30% of the hardware change.
+   Mostly inner-system ships shrink their tanks. Consumer stations now bleed faster (LEO −458k), so the
+   open economy (step 5) is more urgent.
 3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
    return for the routes that need serving.
 4. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
@@ -73,7 +76,7 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v16: 10/22 profitable, fuel 10k cr, 9 laid up, 34 CRITICAL lines, run 2m44). Debug idle ships with
+(v25: 11/22 profitable, cargo margin 1.47M, fuel 92k cr, 4 laid up, 36 CRITICAL lines, run 2m55). Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)

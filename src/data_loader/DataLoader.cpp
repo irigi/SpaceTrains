@@ -262,12 +262,12 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const auto rows = read_csv_rows(ship_classes_path);
         require_header(rows.front(),
             {"id", "name", "propulsion_type", "dry_mass_kg", "propellant_capacity_kg", "cargo_capacity_units",
-             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size"},
+             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size", "hull_id"},
             ship_classes_path);
         std::unordered_set<std::string> seen_ids;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 11, ship_classes_path, i + 1);
+            require_field_count(row, 12, ship_classes_path, i + 1);
             require_unique_id(row[0], seen_ids, ship_classes_path, i + 1);
             if (row[2] != "nuclear_thermal" && row[2] != "variable_isp") {
                 throw std::runtime_error(std::format("{}:{}: propulsion_type must be nuclear_thermal or variable_isp, got '{}'",
@@ -285,6 +285,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .specific_engine_power_w_per_kg = parse_double(row[8], ship_classes_path, i + 1, "specific_engine_power_w_per_kg"),
                 .ship_value_cr = parse_double(row[9], ship_classes_path, i + 1, "ship_value_cr"),
                 .crew_size = parse_double(row[10], ship_classes_path, i + 1, "crew_size"),
+                .hull_id = row[11].empty() ? row[0] : row[11],
             });
         }
     }
@@ -371,6 +372,10 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 operations.interest_rate_per_year = value;
             } else if (row[0] == "lifetime_years") {
                 operations.lifetime_years = value;
+            } else if (row[0] == "refit_days") {
+                operations.refit_days = value;
+            } else if (row[0] == "refit_cost_fraction") {
+                operations.refit_cost_fraction = value;
             } else if (row[0].starts_with(life_support_prefix)) {
                 operations.life_support_units_per_crew_day[row[0].substr(life_support_prefix.size())] = value;
             } else {
@@ -384,6 +389,9 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
         if (operations.lifetime_years <= 0.0) {
             throw std::runtime_error("lifetime_years must be positive in " + ship_operations_path.string());
+        }
+        if (operations.refit_days < 0.0 || operations.refit_cost_fraction < 0.0) {
+            throw std::runtime_error("refit_days and refit_cost_fraction must not be negative in " + ship_operations_path.string());
         }
         for (const auto& [commodity_id, _] : operations.life_support_units_per_crew_day) {
             if (!contains_id(universe.commodities, commodity_id)) {

@@ -5,3 +5,5 @@ lifetime_years,30
 life_support.food,0.006
 life_support.water,0.001
 life_support.oxygen,0.001
+refit_days,20
+refit_cost_fraction,0.3

@@ -107,6 +107,7 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v22 | + trades priced along the price curve, lot size by score: markets too thin for big lots | 53k | 42k | 23k | 281k | 1/22 | 14 | 38 |
 | v23 | economy scaled with population: recipe rates per 10k inhabitants x10, storage and stocks x pop/1000 | 335k | 187k | 75k | 281k | 3/22 | 6 | 39 |
 | v24 | + sales valued on the destination's forecast stock (inbound cargo, consumption by arrival) | 929k | 185k | 88k | 281k | 8/22 | 4 (0 stranded) | 36 |
+| v25 | part C: tank refits at the home base (50/100/150/200% variants; 19k cr of yard bills) | 1.47M | 92k | 85k | 274k | 11/22 | 4 (0 stranded) | 36 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).
@@ -172,3 +173,47 @@ margin vs ~377k costs). Not met: profits concentrate in 5-7 ships, most ships en
 more than in the baseline (39 vs 14 CRITICAL lines). The fleet moves only ~1.9 units/day against ~11 units/day of
 demand: long launch windows (Mars synodic ~780 days), provisioning range, and refuel constraints make many
 individual trips unprofitable or infeasible even when the destination pays the 16x cap.
+
+## Part C: Tank Refits (v25)
+
+- **Variants.** `data/ship_classes/build_ship_classes.py` builds every class with 50%, 100%, 150% and 200%
+  of its nominal propellant. Engine, radiators, habitat and hold stay the same. Tankage (LH2 0.18 kg/kg,
+  plasma 0.05 kg/kg) and the 10% structure follow the propellant, and dry mass, Δv, acceleration, α and
+  price come from the same parts model. Variants share the class's `hull_id`; the nominal one keeps the
+  class id (`ntr_freighter`, `ntr_freighter_tank150`, ...).
+- **Where and when.** A docked ship at its home base (its owner's yard) compares the next smaller and
+  next larger tank every 90 days. Each comparison is a full dispatch pass (`choose_mission`) with the
+  ship as that variant, planned from the day the yard would finish, because launch windows close
+  meanwhile. The first version scored the variants on today's windows: Mars freighters refit for a
+  250-day window that was gone 20 days later, leaving 953 days to wait.
+- **Decision.** Refit when (variant score − current score) × 180 days > yard bill + current score ×
+  20 days. The scores are dispatch's two-leg profit per day (a repositioning or no-mission ship counts
+  as 0). They already include each variant's capital charge. After a refit, the ship does not
+  reconsider for the yard time plus 180 days; without this lock a Light Freighter swapped tanks four
+  times in a year.
+- **Costs.** 20 days in the yard with the crew discharged (capital is still charged). The yard bill is
+  30% of the hardware value added or removed, paid to the home station (`ShipLedger::refits`). The
+  owner finances the hardware itself, so the new ship value sets the capital charge and credit line.
+  Propellant that no longer fits is sold to the yard's depot along the fuel price curve.
+  `data/economy/ship_operations.csv`: `refit_days`, `refit_cost_fraction`.
+- **v25 result:**
+  - 10 refits on day 1, mostly to 50% tanks for inner-system work (lighter ships, lower capital, more
+    payload Δv on short hops), plus 2 later ones: one back to nominal, one plasma freighter to 150%.
+  - Cargo margin 929k → 1.47M, fuel 185k → 92k, 8 → 11 ships profitable. Money drift 0; trajectory
+    audit clean.
+  - The 730-day run takes 2m55 (v24: 2m07); the variant probes cost about 0.3 s each.
+  - With refits turned off, the run reproduces v24 exactly.
+- **Not solved by tanks:**
+  - The NTR Freighter at Ganymede: even at 200% tanks every inward leg takes 1,200+ days and about 78k of
+    time cost.
+  - The Mars light freighters: no window within reach after the yard.
+  - The Titan tanker and plasma freighter.
+  These are fleet-investment and outer-export questions.
+- **Side effects:**
+  - The fleet now captures more of the station spread. Consumer stations bleed harder: Low Earth
+    Logistics ended at −458k (v24: +194k), mostly paid to a half-tank Fast Courier shuttling food and
+    electronics between Earth L1 and LEO (0.1-day hops, 489k margin). The open economy (roadmap step 5)
+    should come before this grows further.
+  - Ships that shrink their tanks resell the surplus at the port's fuel price. The NTR Freighter SF
+    Icarus netted 22k that way at Venus.
+

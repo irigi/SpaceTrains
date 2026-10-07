@@ -56,6 +56,9 @@ struct ShipClassDefinition {
     // Operating economics:
     double ship_value_cr {0.0};   // capital tied up in the ship (amortised + interest)
     double crew_size {0.0};
+    // Classes with the same hull differ only in their tanks; ships refit between them
+    // at their home base. Empty = the class's own id (no refit options).
+    std::string hull_id;
 };
 
 // Fleet-wide operating parameters (data/economy/ship_operations.csv).
@@ -63,6 +66,11 @@ struct ShipOperationsDefinition {
     double wage_cr_per_crew_day {0.0};
     double interest_rate_per_year {0.0};
     double lifetime_years {30.0};
+    // Tank refits at the home base: days in the yard, and the yard's bill as a fraction
+    // of the hardware value added or removed (the owner finances the hardware itself,
+    // through the capital charge on the new ship value).
+    double refit_days {20.0};
+    double refit_cost_fraction {0.3};
     // Life support per crew-day, in commodity units, bought as real goods.
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
@@ -124,7 +132,8 @@ enum class ShipMissionPhase {
     InTransit,
     Refueling,
     Stranded,
-    LaidUp  // out of money: crew discharged, docked until a mission pays
+    LaidUp,     // out of money: crew discharged, docked until a mission pays
+    Refitting   // in the home yard for new tanks; crew discharged until it is done
 };
 
 struct EventEntry {
@@ -174,6 +183,7 @@ struct ShipLedger {
     double wages {0.0};
     double capital {0.0};
     double provisions {0.0};
+    double refits {0.0};
 };
 
 struct ShipState {
@@ -192,6 +202,10 @@ struct ShipState {
     ShipLedger ledger;
     double next_review_s {0.0};  // when a docked ship next looks for a mission
     double idle_since_s {0.0};         // when the ship last became idle (crewed, docked)
+    // Tank refits (part C): the class the ship becomes when the yard is done.
+    std::string refit_class_id;
+    double refit_done_s {0.0};
+    double next_refit_review_s {0.0};
 };
 
 struct StationState {

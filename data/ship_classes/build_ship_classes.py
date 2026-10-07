@@ -8,6 +8,11 @@ the parts, so changing a reference number and re-running keeps the classes consi
 
     python3 data/ship_classes/build_ship_classes.py            # write the CSV, print a summary
     python3 data/ship_classes/build_ship_classes.py --markdown # also print the breakdown table
+
+Every class also gets tank variants (TANK_OPTIONS): the same hull, engine and hold with
+smaller or larger propellant tanks. Ships refit between the variants of their hull at their
+home base (part C, docs/plans/ship_operating_costs.md). The variants share the class's
+`hull_id`; the nominal variant keeps the class id.
 """
 
 from __future__ import annotations
@@ -62,6 +67,10 @@ USD_PER_KG = {
 # (the game's fuel base price is 0.08 cr/kg).
 CR_PER_USD = 0.00078
 
+# Tank refit options, as multiples of the class's nominal propellant capacity. The engine
+# keeps the nominal size (thrust, jet power); tanks and structure follow the propellant.
+TANK_OPTIONS = (0.5, 1.0, 1.5, 2.0)
+
 
 @dataclass(frozen=True)
 class ClassSpec:
@@ -108,6 +117,16 @@ class Build:
     dry_kg: float
     thrust_n: float
     isp_s: float
+    propellant_kg: float
+    tank_option: float = 1.0
+
+    @property
+    def id(self) -> str:
+        return self.spec.id if self.tank_option == 1.0 else f"{self.spec.id}_tank{round(self.tank_option * 100):03d}"
+
+    @property
+    def name(self) -> str:
+        return self.spec.name if self.tank_option == 1.0 else f"{self.spec.name} ({round(self.tank_option * 100)}% tanks)"
 
     @property
     def cargo_kg(self) -> float:
@@ -115,7 +134,7 @@ class Build:
 
     @property
     def wet_kg(self) -> float:
-        return self.dry_kg + self.spec.propellant_kg
+        return self.dry_kg + self.propellant_kg
 
     def delta_v(self, payload_kg: float = 0.0) -> float:
         if self.isp_s <= 0.0:
@@ -160,7 +179,8 @@ def build(spec: ClassSpec) -> Build:
         tank = PLASMA_TANK_FRACTION * spec.propellant_kg
         rest = engine + radiator + tank + habitat + hold
         structure = STRUCTURE_FRACTION * rest
-        return Build(spec, engine, radiator, tank, habitat, hold, structure, rest + structure, 0.0, 0.0)
+        return Build(spec, engine, radiator, tank, habitat, hold, structure, rest + structure, 0.0, 0.0,
+                     spec.propellant_kg)
 
     ntr = NTR[spec.drive]
     tank = LH2_TANK_FRACTION * spec.propellant_kg
@@ -174,30 +194,44 @@ def build(spec: ClassSpec) -> Build:
     structure = s * (engine + fixed)
     dry = engine + fixed + structure
     return Build(spec, engine, 0.0, tank, habitat, hold, structure, dry,
-                 spec.accel_full_mps2 * full, ntr["isp_s"])
+                 spec.accel_full_mps2 * full, ntr["isp_s"], spec.propellant_kg)
+
+
+def tank_variant(nominal: Build, option: float) -> Build:
+    """The nominal build with its tanks scaled: same engine, radiators, habitat and hold."""
+    if option == 1.0:
+        return nominal
+    propellant = nominal.propellant_kg * option
+    plasma = nominal.spec.drive == "plasma"
+    tank = (PLASMA_TANK_FRACTION if plasma else LH2_TANK_FRACTION) * propellant
+    rest = nominal.engine_kg + nominal.radiator_kg + tank + nominal.habitat_kg + nominal.hold_kg
+    structure = STRUCTURE_FRACTION * rest
+    return Build(nominal.spec, nominal.engine_kg, nominal.radiator_kg, tank, nominal.habitat_kg, nominal.hold_kg,
+                 structure, rest + structure, nominal.thrust_n, nominal.isp_s, propellant, option)
 
 
 def write_csv(builds: list[Build], path: Path) -> None:
     header = ["id", "name", "propulsion_type", "dry_mass_kg", "propellant_capacity_kg",
               "cargo_capacity_units", "max_delta_v_mps", "cruise_accel_mps2",
-              "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size"]
+              "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size", "hull_id"]
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(header)
         for b in builds:
             plasma = b.spec.drive == "plasma"
             writer.writerow([
-                b.spec.id,
-                b.spec.name,
+                b.id,
+                b.name,
                 "variable_isp" if plasma else "nuclear_thermal",
                 round(b.dry_kg),
-                round(b.spec.propellant_kg),
+                round(b.propellant_kg),
                 round(b.spec.cargo_units),
                 0 if plasma else round(b.delta_v()),
                 0 if plasma else round(b.cruise_accel, 3),
                 round(b.alpha) if plasma else 0,
                 int(round(b.value_cr, -2)),
                 b.spec.crew,
+                b.spec.id,
             ])
 
 
@@ -208,7 +242,7 @@ def summary(builds: list[Build]) -> None:
         else:
             perf = (f"Isp={b.isp_s:4.0f}s  dv={b.delta_v() / 1000:5.1f} km/s  "
                     f"laden={b.delta_v(b.cargo_kg) / 1000:5.1f}  a={b.cruise_accel:.2f} m/s2")
-        print(f"{b.spec.id:22s} dry={b.dry_kg / 1000:6.1f} t  prop={b.spec.propellant_kg / 1000:5.0f} t  "
+        print(f"{b.id:29s} dry={b.dry_kg / 1000:6.1f} t  prop={b.propellant_kg / 1000:5.0f} t  "
               f"MR={b.wet_kg / b.dry_kg:4.2f}  {perf}  value={b.value_usd / 1e6:5.1f} M$ = {b.value_cr:6.0f} cr")
 
 
@@ -225,7 +259,7 @@ def markdown(builds: list[Build]) -> None:
                     f"({b.delta_v(b.cargo_kg) / 1000:.1f} laden), {b.cruise_accel:.2f} m/s²")
         print(f"| {b.spec.name} | {b.spec.drive.replace('_', ' ')} | {b.spec.crew} | {t(b.engine_kg)} | "
               f"{t(b.radiator_kg) if b.radiator_kg else '-'} | {t(b.tank_kg)} | {t(b.habitat_kg)} | "
-              f"{t(b.hold_kg)} | {t(b.structure_kg)} | {t(b.dry_kg)} | {t(b.spec.propellant_kg)} | {perf} | "
+              f"{t(b.hold_kg)} | {t(b.structure_kg)} | {t(b.dry_kg)} | {t(b.propellant_kg)} | {perf} | "
               f"{b.value_usd / 1e6:.0f} M$ = {b.value_cr / 1000:.0f}k cr |")
 
 
@@ -234,12 +268,13 @@ def main() -> None:
     parser.add_argument("--markdown", action="store_true", help="print the per-class mass breakdown table")
     parser.add_argument("--dry-run", action="store_true", help="do not write the CSV")
     args = parser.parse_args()
-    builds = [build(spec) for spec in CLASSES]
+    nominal = [build(spec) for spec in CLASSES]
+    variants = [tank_variant(b, option) for b in nominal for option in TANK_OPTIONS]
     if not args.dry_run:
-        write_csv(builds, Path(__file__).with_name("ship_classes.csv"))
-    summary(builds)
+        write_csv(variants, Path(__file__).with_name("ship_classes.csv"))
+    summary(variants)
     if args.markdown:
-        markdown(builds)
+        markdown(nominal)
 
 
 if __name__ == "__main__":

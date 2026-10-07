@@ -104,6 +104,20 @@ int main() {
     require(universe.stations.size() >= 6, "expected seeded stations");
     require(universe.ship_seeds.size() >= 3, "expected seeded ships");
 
+    // Tank variants (part C): a hull's classes differ only in their tanks.
+    for (const auto& variant : universe.ship_classes) {
+        const auto& nominal = ship_class_by_id(universe, variant.hull_id);
+        require(nominal.hull_id == nominal.id, "a hull's nominal class should carry the hull id");
+        require(variant.propulsion_type == nominal.propulsion_type && variant.crew_size == nominal.crew_size
+                && variant.cargo_capacity_units == nominal.cargo_capacity_units,
+            "tank variants should share propulsion, crew and hold with their hull");
+        const bool bigger = variant.propellant_capacity_kg > nominal.propellant_capacity_kg;
+        const bool smaller = variant.propellant_capacity_kg < nominal.propellant_capacity_kg;
+        require((!bigger || (variant.dry_mass_kg > nominal.dry_mass_kg && variant.ship_value_cr > nominal.ship_value_cr))
+                && (!smaller || (variant.dry_mass_kg < nominal.dry_mass_kg && variant.ship_value_cr < nominal.ship_value_cr)),
+            "bigger tanks should weigh and cost more, smaller ones less");
+    }
+
     spacetrains::celestial::CelestialMechanics mechanics(universe);
     spacetrains::trajectory::KeplerTrajectoryPlanner planner(universe, mechanics);
     const auto& origin = station_by_id(universe, "earth_l1");
@@ -240,9 +254,30 @@ int main() {
     bool bridge_snapshot_included_ship_stats = false;
     bool checked_awaiting_departure_parked = false;
     bool checked_render_position_on_path = false;
+    bool saw_refit = false;
+    const auto total_credits = [](const spacetrains::domain::SimulationSnapshot& snap) {
+        double total = 0.0;
+        for (const auto& station : snap.stations) {
+            total += station.credits;
+        }
+        for (const auto& ship : snap.ships) {
+            total += ship.credits;
+        }
+        return total;
+    };
     for (int i = 0; i < 90; ++i) {
         sim.step(1.0);
         const auto during = sim.snapshot();
+        for (std::size_t s = 0; s < during.ships.size(); ++s) {
+            const auto& ship_state = during.ships[s];
+            const auto& ship_class = ship_class_by_id(universe, ship_state.class_id);
+            require(ship_class.hull_id == ship_class_by_id(universe, universe.ship_seeds[s].class_id).hull_id,
+                "a refitted ship should keep its hull");
+            require(ship_state.propellant_kg <= ship_class.propellant_capacity_kg + 1.0e-6,
+                "a ship should never carry more propellant than its tanks hold");
+            saw_refit = saw_refit || ship_state.phase == spacetrains::domain::ShipMissionPhase::Refitting
+                || ship_state.class_id != universe.ship_seeds[s].class_id;
+        }
         const auto bridge_during = sim.build_bridge_snapshot_json(false, static_cast<std::uint64_t>(i + 1), 0.1);
         if (bridge_during.find("\"trajectory_path\"") != std::string::npos) {
             bridge_snapshot_included_trajectory_path = true;
@@ -289,6 +324,8 @@ int main() {
 
     const auto after = sim.snapshot();
     require(after.game_time_s > before.game_time_s, "time should advance");
+    require_near(total_credits(after), total_credits(before), 1.0e-6, "trades, costs and refits should conserve money");
+    require(saw_refit, "the seeded fleet should refit at least one ship's tanks within 90 days");
     require(!after.recent_events.empty(), "simulation should emit events");
     const auto bridge_json = sim.build_bridge_snapshot_json(false, 1, 0.1);
     require(bridge_json.find("\"bodies\"") != std::string::npos, "bridge snapshot should include bodies");
