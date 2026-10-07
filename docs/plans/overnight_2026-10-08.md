@@ -146,3 +146,9 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
 - 00:3x UI: station panel lists its **orders** (wanted up to its target stock, cargo already on the way, the price it
   pays now) - the user's "station orders" made visible. Audit: variable-Isp spirals may sweep 2 turns (inward
   Venus -> Mercury spirals sweep 1.3-1.4 turns; physics, not a sampling fault).
+- 00:4x **Checks of the current state (v38 = v37d + map changes):** save/load at full size exact (400 days straight =
+  200 + save/load + 200, 265 KB save). **4-year run:** unmet demand 42.3% cumulative at day 1095, 35.5% at day 1460 -
+  **only ~15% of demand went unmet in year 4** (by value); 81/96 profitable; money supply -3.1%; drift 0; holds 83,400 u
+  in 90 ships; 1460 days in 2m33; worst tick 1.7 s (one big ship's review), 0 trajectory flags beyond the spirals.
+  GUI: sunlight energy 7 (16 overexposed Mars); the station panel's orders, mixed holds in inbound lists, checked on
+  screenshots at day 200.
