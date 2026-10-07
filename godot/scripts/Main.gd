@@ -379,7 +379,8 @@ func _start_bridge() -> void:
         "--data-root", repo_root.path_join("data"),
         "--snapshot-file", snapshot_path,
         "--command-file", command_path,
-        "--step-seconds", str(BRIDGE_STEP_SECONDS)
+        "--step-seconds", str(BRIDGE_STEP_SECONDS),
+        "--opening-cache", ProjectSettings.globalize_path("user://opening_cache")
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:

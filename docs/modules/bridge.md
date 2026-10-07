@@ -24,7 +24,9 @@
 - Pacing: the simulation advances in fixed ticks (`Simulation::TICK_S`, 0.1 day). Each loop hands it the real time
   since the last loop x timewarp, one tick at a time and for at most 100 ms of work, and carries the rest over (up
   to 4 s): a slow stretch (a fleet review) delays snapshots by at most a tenth of a second and the UI slows down
-  smoothly. The opening tick (the whole fleet's first dispatch, ~2-3 s) runs before the clock starts.
+  smoothly. The opening tick (the whole fleet's first dispatch, ~2-3 s) runs before the clock starts, and its
+  result is kept (`--opening-cache DIR`, the UI passes `user://opening_cache`): a later start with the same data
+  (fingerprint) and the same bridge build loads it in milliseconds.
 - Files (all written aside and renamed, so a reader never sees half a file):
   - `<snapshot>`: the state, written when something changed, at most 10 times a second. Bodies carry their orbital
     elements and stations their altitude/angle (the UI places them itself); ships in flight carry a `path_id`.

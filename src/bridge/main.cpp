@@ -16,6 +16,7 @@ struct BridgeConfig {
     std::string snapshot_file;
     std::string command_file;
     bool once {false};
+    std::string opening_cache_dir;  // where the state after the opening dispatch is kept
     double step_seconds {0.1};
     int startup_steps {0};
 };
@@ -34,6 +35,8 @@ BridgeConfig parse_args(int argc, char** argv) {
             config.snapshot_file = argv[++i];
         } else if (arg == "--command-file" && i + 1 < argc) {
             config.command_file = argv[++i];
+        } else if (arg == "--opening-cache" && i + 1 < argc) {
+            config.opening_cache_dir = argv[++i];
         } else if (arg == "--once") {
             config.once = true;
         } else if (arg == "--step-seconds" && i + 1 < argc) {
@@ -233,7 +236,34 @@ int main(int argc, char** argv) {
     // planning): show the starting state before it, so the UI does not wait on a blank
     // screen, and start the clock after it, so its planning time is not caught up later.
     write_snapshot();
-    simulation.step(spacetrains::simulation::Simulation::TICK_S / simulation.timewarp_factor());
+    // The opening is the same for the same data and the same build, so it is kept: a later
+    // start loads it instead of planning again (the user's "pre-calculate and save").
+    std::string opening_path;
+    if (!config.opening_cache_dir.empty()) {
+        std::error_code error;
+        const auto build_time = std::filesystem::last_write_time(argv[0], error);
+        opening_path = (std::filesystem::path(config.opening_cache_dir)
+            / std::format("opening_{}_{}.json", simulation.data_fingerprint(),
+                error ? 0 : build_time.time_since_epoch().count())).string();
+    }
+    bool opened_from_cache = false;
+    if (const auto cached = opening_path.empty() ? std::string {} : read_text_file(opening_path); !cached.empty()) {
+        try {
+            simulation.load_state_json(cached);
+            simulation.set_timewarp(timewarp);
+            opened_from_cache = true;
+        } catch (const std::exception&) {
+            // A stale or damaged cache: plan the opening again below.
+        }
+    }
+    if (!opened_from_cache) {
+        simulation.step(spacetrains::simulation::Simulation::TICK_S / simulation.timewarp_factor());
+        if (!opening_path.empty()) {
+            std::error_code error;
+            std::filesystem::create_directories(std::filesystem::path(opening_path).parent_path(), error);
+            write_text_file(opening_path, simulation.save_state_json());
+        }
+    }
     write_snapshot();
     if (config.once) {
         return 0;
