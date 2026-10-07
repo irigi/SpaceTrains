@@ -154,7 +154,8 @@ cargo at 200 kg/unit. Choices made in this step:
 - Nuclear-thermal engines are sized for 0.5 m/s² at full tanks (0.3 for the two big liquid-core ships).
 - Plasma ships keep their old α and κ (same trip performance); the jet power grows with the heavier ship.
 - Ship values are priced from the breakdown (see Pricing below). Display names: ion → Plasma.
-  Ids and the `propulsion_type` strings (`chemical`, `electric_ion`) are still the old ones.
+  Renamed afterwards (2026-10-07): `propulsion_type` is `nuclear_thermal` or `variable_isp` (the loader
+  rejects anything else), and `ion_freighter` / `ion_courier` are `plasma_freighter` / `plasma_courier`.
 - Starting propellant in `ships.csv` keeps each ship's old fraction of a full tank.
 
 | Class | Drive | Crew | Engine | Radiators | Tanks | Habitat | Hold | Structure | Dry | Propellant | Performance | Price |

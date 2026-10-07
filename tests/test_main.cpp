@@ -316,7 +316,7 @@ int main() {
 
         spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
 
-        const auto& ion_class = ship_class_by_id(universe, "ion_freighter");
+        const auto& ion_class = ship_class_by_id(universe, "plasma_freighter");
         const auto& earth_station = station_by_id(universe, "earth_l1");
         const auto& mars_station = station_by_id(universe, "mars_transfer");
 
@@ -398,25 +398,25 @@ int main() {
         // --- VariableISP heliocentric rate regression (moon-station origin/destination) ---
         // Earth Orbit → Luna Base: same planetary system, so a low-thrust spiral around
         // Earth (no launch window), not a heliocentric atlas transfer at rho ≈ 1.
-        const auto& ion_courier_class = ship_class_by_id(universe, "ion_courier");
+        const auto& plasma_courier_class = ship_class_by_id(universe, "plasma_courier");
         const auto& earth_orbit_station = station_by_id(universe, "earth_orbit");
         const auto& luna_station_visp = station_by_id(universe, "luna_base");
-        spacetrains::domain::ShipState ion_courier_ship {
+        spacetrains::domain::ShipState plasma_courier_ship {
             .id = "test_courier",
             .name = "Test Courier",
             .faction_id = "sol_fed",
-            .class_id = ion_courier_class.id,
+            .class_id = plasma_courier_class.id,
             .home_station_id = earth_orbit_station.id,
             .current_station_id = earth_orbit_station.id,
             .phase = spacetrains::domain::ShipMissionPhase::Idle,
-            .propellant_kg = ion_courier_class.propellant_capacity_kg,
+            .propellant_kg = plasma_courier_class.propellant_capacity_kg,
             .active_mission = {},
         };
         const auto visp_luna_plan = visp_planner.plan_transfer(
-            earth_orbit_station, luna_station_visp, ion_courier_ship, ion_courier_class, 0.0);
+            earth_orbit_station, luna_station_visp, plasma_courier_ship, plasma_courier_class, 0.0);
         require(visp_luna_plan.feasible && visp_luna_plan.trajectory_type == "variable_isp_planet_system",
             "VariableISP Earth Orbit->Luna must be a feasible spiral around Earth");
-        require(visp_luna_plan.propellant_required_kg < 0.8 * ion_courier_class.propellant_capacity_kg,
+        require(visp_luna_plan.propellant_required_kg < 0.8 * plasma_courier_class.propellant_capacity_kg,
             "VariableISP Earth Orbit->Luna spiral must leave fuel to spare");
         {
             require(distance_between(visp_luna_plan.sampled_path.front(),
@@ -539,7 +539,7 @@ int main() {
         spacetrains::variable_isp::VariableIspAtlas visp_atlas;
         visp_atlas.load_binary(atlas_path);
         spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
-        const auto& ion_class = ship_class_by_id(universe, "ion_freighter");
+        const auto& ion_class = ship_class_by_id(universe, "plasma_freighter");
         spacetrains::domain::ShipState low_fuel_ship;
         low_fuel_ship.class_id = ion_class.id;
         low_fuel_ship.propellant_kg = 0.1 * ion_class.propellant_capacity_kg;
@@ -599,7 +599,7 @@ int main() {
         spacetrains::variable_isp::VariableIspAtlas visp_atlas;
         visp_atlas.load_binary(atlas_path);
         spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
-        const auto& ion_class = ship_class_by_id(universe, "ion_freighter");
+        const auto& ion_class = ship_class_by_id(universe, "plasma_freighter");
         spacetrains::domain::ShipState ion_empty;
         ion_empty.class_id = ion_class.id;
         auto ion_options = buy_fuel;
@@ -648,17 +648,17 @@ int main() {
         };
         // Worst cases before the fix: 0.088 AU dent, 13.3 AU overshoot, 0.07 AU dent.
         // (This one's fastest window now dives below kMinPerihelionM, so it may be infeasible.)
-        check("ion_courier", "venus_cloud", "earth_l1", 0.65, 185.0);
-        check("ion_freighter", "mars_transfer", "titan_works", 0.75, 540.0);
-        check("ion_freighter", "earth_l1", "ceres_depot", 0.65, 384.0);
+        check("plasma_courier", "venus_cloud", "earth_l1", 0.65, 185.0);
+        check("plasma_freighter", "mars_transfer", "titan_works", 0.75, 540.0);
+        check("plasma_freighter", "earth_l1", "ceres_depot", 0.65, 384.0);
         // Moon stations at both ends (offset from the parent planet) and co-orbiting Earth/Moon.
-        check("ion_courier", "ganymede_depot", "titan_works", 0.35, 480.0);
-        check("ion_courier", "luna_base", "earth_orbit", 0.35, 15.0);
+        check("plasma_courier", "ganymede_depot", "titan_works", 0.35, 480.0);
+        check("plasma_courier", "luna_base", "earth_orbit", 0.35, 15.0);
         int feasible = 0;
         for (const char* to : {"venus_cloud", "mars_transfer", "ceres_depot", "mercury_yard"}) {
             for (const double fuel : {0.2, 0.6, 1.0}) {
                 for (const double day : {0.0, 200.0, 400.0}) {
-                    feasible += check("ion_freighter", "earth_l1", to, fuel, day) ? 1 : 0;
+                    feasible += check("plasma_freighter", "earth_l1", to, fuel, day) ? 1 : 0;
                 }
             }
         }

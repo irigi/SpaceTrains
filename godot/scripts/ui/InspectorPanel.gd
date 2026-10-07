@@ -206,7 +206,7 @@ func _trajectory_label(trajectory_type: String) -> String:
         "keplerian_hohmann":
             return "Keplerian — Hohmann"
         "variable_isp":
-            return "Variable-ISP (ion)"
+            return "Variable-ISP (plasma)"
         _:
             return "—"
 

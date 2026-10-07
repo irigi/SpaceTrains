@@ -110,7 +110,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const double max_budget_kg = max_load_kg / (1.0 + reserve);
     const auto load_for_budget = [&](double budget_kg) { return std::max(aboard_kg, (1.0 + reserve) * budget_kg); };
 
-    // Same-parent transfers are not handled by VariableISP planner (ion ships
+    // Same-parent transfers are not handled by VariableISP planner (plasma ships
     // currently cannot fly them; there is no fallback in the simulation).
     if (origin.parent_body_id == destination.parent_body_id) {
         return plan;
@@ -419,7 +419,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     const auto closest = std::min_element(full.samples.begin(), full.samples.end(),
                         [](const auto& a, const auto& b) { return a.r_m < b.r_m; });
                     if (closest->r_m * depart_r_scale < kMinPerihelionM) {
-                        continue;  // time-optimal ion arcs like to dive sunward; keep them survivable
+                        continue;  // time-optimal variable-Isp arcs like to dive sunward; keep them survivable
                     }
                     best_seed = refined.seed;
                     result = std::move(full);

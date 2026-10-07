@@ -139,13 +139,13 @@ double effective_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_cl
     return ship_class.max_delta_v_mps / std::log(full_mass_kg / ship_class.dry_mass_kg);
 }
 
-// Propellant a chemical ship loads for a burn of Δv: what the burn needs plus the
+// Propellant a nuclear-thermal ship loads for a burn of Δv: what the burn needs plus the
 // reserve, never less than it already carries (tanks are not drained). The payload
 // rides on the hull, so the laden class keeps the engine's exhaust velocity but has
 // a heavier dry mass.
-class ChemicalLoading {
+class ThermalLoading {
 public:
-    ChemicalLoading(const domain::ShipClassDefinition& bare_class,
+    ThermalLoading(const domain::ShipClassDefinition& bare_class,
                     const domain::ShipState& ship,
                     const PlanningOptions& options)
         : exhaust_velocity_mps_(effective_exhaust_velocity_mps(bare_class)),
@@ -310,7 +310,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     domain::TrajectoryPlan plan;
     // Below, `ship_class` is laden with the payload and each branch flies `ship`, the
     // ship loaded with the propellant its chosen Δv needs.
-    const ChemicalLoading loading(bare_class, ship_aboard, options);
+    const ThermalLoading loading(bare_class, ship_aboard, options);
     const auto& ship_class = loading.laden_class();
     const auto& costs = options;
 
@@ -772,7 +772,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     return plan;
 }
 
-double chemical_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class) {
+double thermal_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class) {
     return effective_exhaust_velocity_mps(ship_class);
 }
 

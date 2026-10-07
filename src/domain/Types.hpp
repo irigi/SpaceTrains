@@ -44,14 +44,14 @@ struct CommodityDefinition {
 struct ShipClassDefinition {
     std::string id;
     std::string name;
-    std::string propulsion_type {"chemical"};   // "chemical" or "electric_ion"
+    std::string propulsion_type {"nuclear_thermal"};   // "nuclear_thermal" or "variable_isp"
     double dry_mass_kg {0.0};
     double propellant_capacity_kg {0.0};
     double cargo_capacity_units {0.0};
-    // Chemical propulsion fields:
+    // Nuclear-thermal propulsion fields:
     double max_delta_v_mps {0.0};
     double cruise_accel_mps2 {0.0};
-    // Electric ion propulsion fields:
+    // Variable-Isp (plasma) propulsion fields:
     double specific_engine_power_w_per_kg {0.0};  // alpha [W/kg_dry]
     // Operating economics:
     double ship_value_cr {0.0};   // capital tied up in the ship (amortised + interest)

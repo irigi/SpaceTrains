@@ -588,7 +588,7 @@ Simulation::LegEstimate Simulation::estimate_leg(
     probe.class_id = ship_class.id;
     probe.current_station_id = origin.id;
     probe.propellant_kg = 0.0;
-    const auto& planner = (ship_class.propulsion_type == "electric_ion" && variable_isp_planner_)
+    const auto& planner = (ship_class.propulsion_type == "variable_isp" && variable_isp_planner_)
         ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
         : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
     LegEstimate estimate;
@@ -650,18 +650,18 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     const double spendable_credits = std::max(0.0, ship.credits + credit_line(ship_class));
 
     // The plan depends on the destination and the cargo mass, so plan each (destination,
-    // cargo tonne) once per scoring pass rather than once per commodity. Ion plans cost
+    // cargo tonne) once per scoring pass rather than once per commodity. Plasma plans cost
     // ~8 ms each.
-    const auto& planner = (ship_class.propulsion_type == "electric_ion" && variable_isp_planner_)
+    const auto& planner = (ship_class.propulsion_type == "variable_isp" && variable_isp_planner_)
         ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
         : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
     // A ship must be able to leave its destination again: the fuel it has left on
     // arrival plus what the station can sell must cover a leg as long as this one,
     // flown without cargo. Without this, ships flew into fuel-dry consumers (Mercury)
-    // and stayed there. For a chemical ship the same Δv takes
-    // m_dry * (mass_ratio - 1), with the plan's mass ratio; ion ships are close enough
+    // and stayed there. For a nuclear-thermal ship the same Δv takes
+    // m_dry * (mass_ratio - 1), with the plan's mass ratio; plasma ships are close enough
     // with the plan's own burn.
-    const double exhaust_velocity_mps = trajectory::chemical_exhaust_velocity_mps(ship_class);
+    const double exhaust_velocity_mps = trajectory::thermal_exhaust_velocity_mps(ship_class);
     const auto can_leave_again = [&](const domain::StationDefinition& destination,
                                      const domain::TrajectoryPlan& plan,
                                      double payload_kg) {
@@ -670,7 +670,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const double dest_fuel_kg = fuel_for_sale_on_arrival_kg(
             economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0);
         double needed_kg = plan.propellant_required_kg;
-        if (ship_class.propulsion_type != "electric_ion" && exhaust_velocity_mps > 0.0) {
+        if (ship_class.propulsion_type != "variable_isp" && exhaust_velocity_mps > 0.0) {
             const double planned_mass_kg = ship_class.dry_mass_kg + payload_kg + plan.propellant_load_kg;
             const double mass_ratio = planned_mass_kg
                 / std::max(1.0, planned_mass_kg - plan.propellant_required_kg);
@@ -1134,11 +1134,11 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const auto& destination_state = get_station_state(best_destination->id);
         expected_revenue = best_cargo_units * station_price(destination_state, best_commodity);
     }
-    // Chemical ships: deduct propellant at mission start (instantaneous burns).
-    // Electric ion ships: propellant is consumed continuously during transit and
+    // Nuclear-thermal ships: deduct propellant at mission start (instantaneous burns).
+    // Variable-Isp ships: propellant is consumed continuously during transit and
     // tracked per-sample, so we don't deduct here — ship.propellant_kg is updated
     // in step_in_transit_ship from sampled_propellant_kg.
-    if (ship_class.propulsion_type != "electric_ion") {
+    if (ship_class.propulsion_type != "variable_isp") {
         ship.propellant_kg -= plan.propellant_required_kg;
     }
     auto sampled_propellant = plan.sampled_propellant_kg;
@@ -1229,7 +1229,7 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
     (void)dt_s;
     ship.active_mission.remaining_travel_time_s = std::max(0.0, ship.active_mission.arrival_time_s - game_time_s_);
 
-    // Update propellant continuously from the pre-computed mass samples (ion drives only).
+    // Update propellant continuously from the pre-computed mass samples (variable-Isp drives only).
     // The samples run from initial propellant at departure to final propellant at arrival,
     // giving a smooth display rather than a step-change at mission assignment.
     if (!ship.active_mission.sampled_propellant_kg.empty()

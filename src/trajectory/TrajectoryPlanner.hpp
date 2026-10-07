@@ -11,7 +11,7 @@ namespace spacetrains::trajectory {
 
 // No planner may send a ship closer to the Sun than this (roughly a thermally
 // survivable limit; Parker Solar Probe reaches 0.046 AU). Unbounded planners sent
-// Lambert and ion paths straight through the Sun.
+// Lambert and variable-Isp paths straight through the Sun.
 inline constexpr double kMinPerihelionM = 0.1 * 1.495978707e11;
 
 // The body orbiting the root (Sun) that `body_id` belongs to: a planet for itself
@@ -54,9 +54,9 @@ struct PlanningOptions {
     double reserve_fraction {0.0};
 };
 
-// Effective exhaust velocity of a chemical/NTR class, from its rated full-tank Δv
-// (0 for classes without one, e.g. ion ships).
-[[nodiscard]] double chemical_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class);
+// Effective exhaust velocity of a nuclear-thermal class, from its rated full-tank Δv
+// (0 for classes without one, e.g. variable-Isp ships).
+[[nodiscard]] double thermal_exhaust_velocity_mps(const domain::ShipClassDefinition& ship_class);
 
 class ITrajectoryPlanner {
 public:

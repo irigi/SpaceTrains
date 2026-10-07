@@ -47,7 +47,7 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
 
     std::cout << "\n=== Ship Classes ===\n";
     for (const auto& sc : universe.ship_classes) {
-        if (sc.propulsion_type == "electric_ion") {
+        if (sc.propulsion_type == "variable_isp") {
             const double m_dry = sc.dry_mass_kg;
             const double m0 = m_dry + sc.propellant_capacity_kg;
             const double P = sc.specific_engine_power_w_per_kg * m_dry;
@@ -55,7 +55,7 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
                 ? 2.0 * P * (1.0 / m_dry - 1.0 / m0) * kappa_scale : 0.0;
             const double fuel_frac = sc.propellant_capacity_kg / m0;
             std::cout << std::format(
-                "  {:20s}  [electric_ion]  m_dry={:.0f}kg  propellant={:.0f}kg  "
+                "  {:20s}  [variable_isp]     m_dry={:.0f}kg  propellant={:.0f}kg  "
                 "alpha={:.0f}W/kg  eps={:.2f}  kappa={:.3f}\n",
                 sc.name, m_dry, sc.propellant_capacity_kg,
                 sc.specific_engine_power_w_per_kg, fuel_frac, kappa);
@@ -67,7 +67,7 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
             const double isp_s = ve / kG0;
             const double fuel_frac = (m_wet > 0.0) ? sc.propellant_capacity_kg / m_wet : 0.0;
             std::cout << std::format(
-                "  {:20s}  [NTR/chemical]  m_dry={:.0f}kg  propellant={:.0f}kg  "
+                "  {:20s}  [nuclear_thermal]  m_dry={:.0f}kg  propellant={:.0f}kg  "
                 "dv={:.0f}m/s  ISP={:.0f}s  MR={:.2f}  eps={:.2f}\n",
                 sc.name, sc.dry_mass_kg, sc.propellant_capacity_kg,
                 sc.max_delta_v_mps, isp_s, mass_ratio, fuel_frac);
@@ -119,7 +119,7 @@ void print_route_diagnosis(
             synodic_days = 1.0 / std::abs(1.0/T1 - 1.0/T2) / kDayS;
         }
 
-        // Compute wait for a light_freighter (any chemical ship will use same Hohmann)
+        // Compute wait for a light_freighter (any nuclear-thermal ship will use same Hohmann)
         double wait_days = 0.0;
         {
             const double TAU = 2.0 * PI;
@@ -152,7 +152,7 @@ void print_route_diagnosis(
     std::cout << "\n=== NTR Ship Class Feasibility: Earth→Mars Hohmann (dv≈5591 m/s) ===\n";
     const double earth_mars_dv = 5591.0;  // m/s (Hohmann, no 250 fudge)
     for (const auto& sc : universe.ship_classes) {
-        if (sc.propulsion_type == "electric_ion") continue;
+        if (sc.propulsion_type == "variable_isp") continue;
         const double m_wet = sc.dry_mass_kg + sc.propellant_capacity_kg;
         const double mass_ratio = (sc.dry_mass_kg > 0.0) ? m_wet / sc.dry_mass_kg : 0.0;
         const double ve = (mass_ratio > 1.0 && sc.max_delta_v_mps > 0.0)
@@ -595,7 +595,7 @@ std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep
         auto& slot = in_flight[next_slot++];
         for (std::size_t j = next_job++; j < jobs.size(); j = next_job++) {
             const auto& [ship_class, origin, destination, fraction] = jobs[j];
-            const auto& planner = ship_class->propulsion_type == "electric_ion"
+            const auto& planner = ship_class->propulsion_type == "variable_isp"
                 ? static_cast<const spacetrains::trajectory::ITrajectoryPlanner&>(ion_planner)
                 : static_cast<const spacetrains::trajectory::ITrajectoryPlanner&>(kepler_planner);
             spacetrains::domain::ShipState ship;

@@ -1,8 +1,8 @@
 id,name,propulsion_type,dry_mass_kg,propellant_capacity_kg,cargo_capacity_units,max_delta_v_mps,cruise_accel_mps2,specific_engine_power_w_per_kg,ship_value_cr,crew_size
-light_freighter,Light Freighter,chemical,47674,90000,40,9880,0.5,0,46000,3
-tanker,Orbital Tanker,chemical,48122,90000,60,9823,0.5,0,46100,3
-fast_courier,Fast Courier,chemical,43222,90000,15,15455,0.5,0,80300,2
-ion_freighter,Plasma Freighter,electric_ion,30965,30000,20,0,0,291,40300,3
-ion_courier,Plasma Courier,electric_ion,24376,30000,8,0,0,738,41900,2
-deep_space_freighter,Deep Space Freighter,chemical,80030,180000,20,16179,0.3,0,116400,4
-ntr_freighter,NTR Freighter,chemical,97038,250000,30,17496,0.3,0,143500,4
+light_freighter,Light Freighter,nuclear_thermal,47674,90000,40,9880,0.5,0,46000,3
+tanker,Orbital Tanker,nuclear_thermal,48122,90000,60,9823,0.5,0,46100,3
+fast_courier,Fast Courier,nuclear_thermal,43222,90000,15,15455,0.5,0,80300,2
+plasma_freighter,Plasma Freighter,variable_isp,30965,30000,20,0,0,291,40300,3
+plasma_courier,Plasma Courier,variable_isp,24376,30000,8,0,0,738,41900,2
+deep_space_freighter,Deep Space Freighter,nuclear_thermal,80030,180000,20,16179,0.3,0,116400,4
+ntr_freighter,NTR Freighter,nuclear_thermal,97038,250000,30,17496,0.3,0,143500,4

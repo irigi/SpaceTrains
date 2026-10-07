@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -268,6 +269,10 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             const auto& row = rows[i];
             require_field_count(row, 11, ship_classes_path, i + 1);
             require_unique_id(row[0], seen_ids, ship_classes_path, i + 1);
+            if (row[2] != "nuclear_thermal" && row[2] != "variable_isp") {
+                throw std::runtime_error(std::format("{}:{}: propulsion_type must be nuclear_thermal or variable_isp, got '{}'",
+                    ship_classes_path.string(), i + 1, row[2]));
+            }
             universe.ship_classes.push_back({
                 .id = row[0],
                 .name = row[1],
