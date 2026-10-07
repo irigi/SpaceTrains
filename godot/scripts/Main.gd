@@ -653,7 +653,11 @@ func _advance_display_clock(delta: float) -> void:
     # The starting state is shown before the opening dispatch (a few seconds of planning):
     # the clock starts with the first simulated tick.
     var paused := bool(bridge_state.get("paused", current_paused)) or snapshot_game_time_s <= 0.0
-    var requested := 0.0 if paused else float(bridge_state.get("timewarp_factor", current_timewarp))
+    if paused:
+        # No time passes while paused: resuming must not look like a long-overdue snapshot.
+        snapshot_wall_s = _wall_time_s()
+        return
+    var requested := float(bridge_state.get("timewarp_factor", current_timewarp))
     # The clock runs at the simulation's measured pace (at most the requested timewarp): when
     # ticks run slow the picture slows down rather than freezing, and after a timewarp change
     # it follows within a second or two.

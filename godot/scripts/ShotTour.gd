@@ -92,6 +92,18 @@ func _run() -> void:
     var rig: Node3D = main.get("camera_rig")
     _apply_debug_flags()
     for arg in OS.get_cmdline_user_args():
+        if arg == "--shot-pause":
+            var before := float(main.get("display_time_s"))
+            main._on_pause_toggled()
+            await get_tree().create_timer(3.0).timeout
+            var paused_at := float(main.get("display_time_s"))
+            main._on_pause_toggled()
+            await get_tree().create_timer(1.0).timeout
+            var after := float(main.get("display_time_s"))
+            print("[ShotTour] pause: moved %.2f d while paused 3 s (from %.2f), %.2f d in the first second after resuming" % [
+                (paused_at - before) / 86400.0, before / 86400.0, (after - paused_at) / 86400.0])
+            get_tree().quit()
+            return
         if arg.begins_with("--shot-smooth="):
             await _measure_smoothness(float(arg.trim_prefix("--shot-smooth=")), 432000.0)
             await _measure_smoothness(20.0, 86400.0)
