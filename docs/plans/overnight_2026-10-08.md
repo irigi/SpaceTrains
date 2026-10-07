@@ -190,3 +190,10 @@ outposts (design question).
   the time on snapshots at 5 days/s; trails now use the bridge's `path_id` and redraw the flown part in 8 steps for
   unselected ships (50 for the selected one): snapshot handling ~130 -> ~84 ms per second. Added tests: integrator
   end sample for any sample count, JSON round trip (bit-exact doubles), resupply-aware targets.
+- 01:1x **Scenario: local life support at the outposts** (Mars, Ceres, Ganymede, Moon, Mercury grow ~70% of their
+  food/oxygen): unmet 52.2 +- 1.9% vs 52.8 +- 2.6% - no real change. The remaining unmet *value* is mostly dear
+  goods (reactor fuel, machinery, electronics) for distant stations; food and oxygen are cheap. Not applied. Most of
+  the day-730 figure is the ramp-up while the fleet grows (year 4 of a 4-year run: ~15% unmet). Reviews every 30
+  days instead of 60: 51.0 +- 2.7% (noise level), not applied. Contracts with prices fixed at departure would not
+  change which goods move (dispatch already plans at the forecast price and later ships count earlier cargo), only
+  who bears the forecast error: deferred.
