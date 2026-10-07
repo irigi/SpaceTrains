@@ -1,4 +1,6 @@
 #include "trajectory/TrajectoryPlanner.hpp"
+
+#include "util/Profiling.hpp"
 #include "trajectory/Lambert.hpp"
 #include "trajectory/PathSampling.hpp"
 
@@ -308,6 +310,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const domain::ShipClassDefinition& bare_class,
     double current_time_s,
     const PlanningOptions& options) const {
+    const profiling::Scope profile_scope(profiling::Phase::KeplerPlan);
     domain::TrajectoryPlan plan;
     // Below, `ship_class` is laden with the payload and each branch flies `ship`, the
     // ship loaded with the propellant its chosen Δv needs.

@@ -1,4 +1,6 @@
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
+
+#include "util/Profiling.hpp"
 #include "trajectory/PathSampling.hpp"
 
 #include <algorithm>
@@ -95,6 +97,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     const domain::ShipClassDefinition& ship_class,
     double current_time_s,
     const PlanningOptions& options) const {
+    const profiling::Scope profile_scope(profiling::Phase::VariableIspPlan);
 
     domain::TrajectoryPlan plan;
 
@@ -461,6 +464,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     // solar passes accurately.
                     // Dense enough that even a 0.1 AU perihelion on a multi-year transfer turns
                     // only a few degrees per sample before thinning.
+                    const profiling::Scope path_scope(profiling::Phase::VariableIspPath);
                     auto full = integrator_.integrate_fixed_time(refined.seed, config, 4000);
                     if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
                         fuel_limited = true;

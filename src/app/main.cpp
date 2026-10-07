@@ -18,6 +18,7 @@
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
+#include "util/Profiling.hpp"
 #include "variable_isp/VariableIsp.hpp"
 
 namespace {
@@ -800,6 +801,8 @@ int main(int argc, char** argv) {
     bool trajectory_audit = false;
     std::string trajectory_dump_path;
     int sweep_step_days = 0;
+    bool profile = false;
+    double step_days = 1.0;
 
     // Parse arguments
     std::vector<std::string> args(argv + 1, argv + argc);
@@ -812,6 +815,10 @@ int main(int argc, char** argv) {
             verbose = true;
         } else if (args[i] == "--econ-audit") {
             econ_audit = true;
+        } else if (args[i] == "--profile") {
+            profile = true;
+        } else if (args[i] == "--step-days" && i + 1 < args.size()) {
+            step_days = std::stod(args[++i]);
         } else if (args[i] == "--trajectory-audit") {
             trajectory_audit = true;
         } else if (args[i] == "--trajectory-sweep" && i + 1 < args.size()) {
@@ -832,7 +839,12 @@ int main(int argc, char** argv) {
     std::cout << std::format("Data root: {}\n", data_root.string());
     std::cout << std::format("Simulating {} days, report every {} days\n", sim_days, report_interval_days);
 
+    if (profile) {
+        spacetrains::profiling::set_enabled(true);
+    }
+    const auto load_start = std::chrono::steady_clock::now();
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
+    const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
     sim.set_trajectory_audit_enabled(trajectory_audit);
     if (sweep_step_days > 0) {
         spacetrains::celestial::CelestialMechanics sweep_mechanics(sim.universe());
@@ -860,9 +872,19 @@ int main(int argc, char** argv) {
 
     double last_report_day = 0.0;
     int total_events = 0;
+    // Per-step wall time (profiling): the bridge shows a hitch whenever one step is slow.
+    std::vector<double> step_wall_s;
+    const auto run_start = std::chrono::steady_clock::now();
+    const int steps_per_day = std::max(1, static_cast<int>(std::lround(1.0 / step_days)));
 
     for (int step = 0; step < sim_days; ++step) {
-        sim.step(1.0);  // advance 1 simulated day
+        for (int sub = 0; sub < steps_per_day; ++sub) {
+            const auto step_start = std::chrono::steady_clock::now();
+            sim.step(1.0 / steps_per_day);  // advance 1 simulated day in steps_per_day steps
+            if (profile) {
+                step_wall_s.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - step_start).count());
+            }
+        }
 
         const double game_day = sim.snapshot().game_time_s / kDayS;
 
@@ -901,6 +923,24 @@ int main(int argc, char** argv) {
                 }
             }
         }
+    }
+
+    if (profile) {
+        const double run_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - run_start).count();
+        std::cout << std::format("\n=== Profile ===\nload {:.2f} s, run {:.2f} s ({:.1f} ms per simulated day), {} steps of {:.3f} d\n",
+            load_s, run_s, 1000.0 * run_s / std::max(1, sim_days), step_wall_s.size(), 1.0 / steps_per_day);
+        if (!step_wall_s.empty()) {
+            auto sorted = step_wall_s;
+            std::sort(sorted.begin(), sorted.end());
+            const auto pct = [&](double q) { return 1000.0 * sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(q * static_cast<double>(sorted.size())))]; };
+            std::size_t over_50ms = 0;
+            for (const double s : step_wall_s) {
+                over_50ms += s > 0.05 ? 1 : 0;
+            }
+            std::cout << std::format("step ms: p50 {:.1f}, p90 {:.1f}, p99 {:.1f}, max {:.1f} (first step {:.1f}); {} steps over 50 ms\n",
+                pct(0.5), pct(0.9), pct(0.99), 1000.0 * sorted.back(), 1000.0 * step_wall_s.front(), over_50ms);
+        }
+        std::cout << spacetrains::profiling::report();
     }
 
     std::cout << "\n=== Final Report ===\n";

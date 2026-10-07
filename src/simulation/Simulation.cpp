@@ -1,5 +1,7 @@
 #include "simulation/Simulation.hpp"
 
+#include "util/Profiling.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <array>
@@ -210,6 +212,7 @@ Simulation Simulation::from_data_root(const std::string& data_root) {
     data_loader::DataLoader loader;
     auto universe = loader.load_universe(data_root);
     Simulation sim(std::move(universe));
+    sim.thread_pool_ = std::make_unique<util::ThreadPool>();
 
     // Try to load the VariableISP atlas. It lives next to the data root.
     const std::filesystem::path data_path(data_root);
@@ -622,20 +625,26 @@ Simulation::LegEstimate Simulation::estimate_leg(
     double departure_time_s,
     double available_propellant_kg,
     double payload_kg) {
+    const profiling::Scope profile_scope(profiling::Phase::EstimateLeg);
     // Follow-up legs are only estimates, so departures share 5-day buckets, available
     // fuel 10%-of-tank buckets and payloads 2 t buckets (fuel at the bucket's lower edge,
     // payload at its upper edge: conservative). Ships of one class then reuse each
     // other's plans across a whole bucket. The ship is assumed to buy what it needs.
     constexpr double BUCKET_S = 5.0 * 86400.0;
     const auto bucket = static_cast<std::int64_t>(std::floor(departure_time_s / BUCKET_S));
-    // Plan with this class's typical costs (provision prices vary a little by port).
+    // Plan with this class's typical costs: provisions at base prices, so an estimate does
+    // not depend on the port's prices on the day the bucket was first planned.
+    double typical_crew_cost = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
+    for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+        typical_crew_cost += ship_class.crew_size * units_per_crew_day * get_commodity(commodity_id).base_price;
+    }
     const double fuel_step_kg = std::max(1.0, ship_class.propellant_capacity_kg * 0.1);
     const auto fuel_bucket = static_cast<std::int64_t>(std::floor(available_propellant_kg / fuel_step_kg));
     constexpr double PAYLOAD_STEP_KG = 2000.0;
     const auto payload_bucket = static_cast<std::int64_t>(std::ceil(std::max(0.0, payload_kg) / PAYLOAD_STEP_KG));
     const trajectory::PlanningOptions options {
         .propellant_cr_per_kg = get_commodity("fuel").base_price / FUEL_UNITS_TO_KG,
-        .time_cr_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(origin.id)),
+        .time_cr_per_day = daily_capital_cost(ship_class) + typical_crew_cost,
         .payload_kg = static_cast<double>(payload_bucket) * PAYLOAD_STEP_KG,
         .purchasable_propellant_kg = static_cast<double>(fuel_bucket) * fuel_step_kg,
         .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
@@ -644,8 +653,13 @@ Simulation::LegEstimate Simulation::estimate_leg(
         leg_estimates_.lower_bound(static_cast<std::int64_t>(std::floor(game_time_s_ / BUCKET_S))));
     auto& slot = leg_estimates_[bucket];
     const auto key = std::format("{}|{}|{}|{}|{}", ship_class.id, origin.id, destination.id, fuel_bucket, payload_bucket);
+    // Measured from this caller's departure, not the bucket edge.
+    const auto for_caller = [departure_time_s](LegEstimate estimate) {
+        estimate.travel_days = std::max(0.0, estimate.arrival_time_s - departure_time_s) / 86400.0;
+        return estimate;
+    };
     if (const auto it = slot.find(key); it != slot.end()) {
-        return it->second;
+        return it->second.feasible ? for_caller(it->second) : it->second;
     }
     domain::ShipState probe;
     probe.class_id = ship_class.id;
@@ -654,29 +668,77 @@ Simulation::LegEstimate Simulation::estimate_leg(
     const auto& planner = (ship_class.propulsion_type == "variable_isp" && variable_isp_planner_)
         ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
         : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
-    LegEstimate estimate;
-    if (options.purchasable_propellant_kg > 0.0) {
-        const auto plan = planner.plan_transfer(origin, destination, probe, ship_class,
-            std::max(game_time_s_, static_cast<double>(bucket) * BUCKET_S), options);
-        // Measured from the actual departure, not the bucket edge.
-        estimate = {
-            .feasible = plan.feasible,
-            .travel_days = std::max(0.0, plan.arrival_time_s - departure_time_s) / 86400.0,
-            .propellant_kg = plan.propellant_required_kg,
-        };
+    if (options.purchasable_propellant_kg <= 0.0) {
+        slot.emplace(key, LegEstimate {});
+        return {};
     }
+    // Planned from the bucket's start, whenever the bucket is first asked for, so an
+    // estimate does not depend on which ship asked first (or on a save and load).
+    const double plan_departure_s = static_cast<double>(bucket) * BUCKET_S;
+    const auto to_estimate = [](const domain::TrajectoryPlan& plan) {
+        return LegEstimate {
+            .feasible = plan.feasible,
+            .propellant_kg = plan.propellant_required_kg,
+            .arrival_time_s = plan.arrival_time_s,
+        };
+    };
+    if (deferred_plans_ != nullptr) {
+        // Inside a choose_mission pass: plan later, in parallel with the others.
+        defer_plan(std::format("leg|{}|{}", bucket, key), {
+            .compute = [&planner, &origin, &destination, probe, &ship_class, plan_departure_s, options] {
+                return planner.plan_transfer(origin, destination, probe, ship_class, plan_departure_s, options);
+            },
+            .commit = [this, bucket, key, to_estimate](domain::TrajectoryPlan&& plan) {
+                leg_estimates_[bucket].emplace(key, to_estimate(plan));
+            },
+        });
+        return {};
+    }
+    const auto estimate = to_estimate(planner.plan_transfer(origin, destination, probe, ship_class, plan_departure_s, options));
     slot.emplace(key, estimate);
-    return estimate;
+    return estimate.feasible ? for_caller(estimate) : estimate;
+}
+
+void Simulation::defer_plan(const std::string& key, DeferredPlan request) {
+    if (deferred_keys_.insert(key).second) {
+        deferred_plans_->push_back(std::move(request));
+    }
 }
 
 Simulation::MissionChoice Simulation::choose_mission(
     const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, bool trace,
     double earliest_departure_s, bool cargo_only) {
+    const profiling::Scope profile_scope(profiling::Phase::ChooseMission);
+    std::unordered_map<std::string, domain::TrajectoryPlan> plans;
+    for (;;) {
+        std::vector<DeferredPlan> deferred;
+        deferred_plans_ = &deferred;
+        deferred_keys_.clear();
+        std::string trace_text;
+        auto choice = choose_mission_pass(ship, ship_class, trace, earliest_departure_s, cargo_only, plans, trace_text);
+        deferred_plans_ = nullptr;
+        if (deferred.empty()) {
+            std::cerr << trace_text;
+            return choice;
+        }
+        std::vector<domain::TrajectoryPlan> results(deferred.size());
+        thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        for (std::size_t i = 0; i < deferred.size(); ++i) {
+            deferred[i].commit(std::move(results[i]));
+        }
+    }
+}
+
+Simulation::MissionChoice Simulation::choose_mission_pass(
+    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, bool trace,
+    double earliest_departure_s, bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans,
+    std::string& trace_text) {
     // Plans start at the earliest departure; forecasts of stocks count from now.
     const double delay_days = std::max(0.0, earliest_departure_s - game_time_s_) / 86400.0;
+    // Traces are kept until the pass that has every plan, so each line is printed once.
     const auto trace_line = [&](const std::string& text) {
         if (trace) {
-            std::cerr << std::format("[trace day {:.1f}] {} ({}, {}) at {}: {}\n", game_time_s_ / 86400.0, ship.name,
+            trace_text += std::format("[trace day {:.1f}] {} ({}, {}) at {}: {}\n", game_time_s_ / 86400.0, ship.name,
                 mission_phase_name(ship.phase), ship_class.id, ship.current_station_id, text);
         }
     };
@@ -767,18 +829,28 @@ Simulation::MissionChoice Simulation::choose_mission(
             .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
         };
     };
-    std::unordered_map<std::string, domain::TrajectoryPlan> plans;
     const auto plan_to = [&](const domain::StationDefinition& destination, double cargo_kg) -> const domain::TrajectoryPlan& {
         // Cargo rounded up to whole tonnes keeps the cache small and the estimate safe.
         const double cargo_bucket_kg = std::ceil(std::max(0.0, cargo_kg) / 1000.0) * 1000.0;
-        const auto key = std::format("{}|{:.0f}", destination.id, cargo_bucket_kg);
-        auto it = plans.find(key);
-        if (it == plans.end()) {
-            it = plans.emplace(key, planner.plan_transfer(
-                origin_def, destination, ship, ship_class, std::max(game_time_s_, earliest_departure_s),
-                planning_options(cargo_bucket_kg))).first;
+        auto key = std::format("{}|{:.0f}", destination.id, cargo_bucket_kg);
+        if (const auto it = plans.find(key); it != plans.end()) {
+            return it->second;
         }
-        return it->second;
+        // Not planned yet: queue it and read it as infeasible for this pass.
+        static const domain::TrajectoryPlan pending = [] {
+            domain::TrajectoryPlan plan;
+            plan.summary = "pending";
+            return plan;
+        }();
+        defer_plan("plan|" + key, {
+            .compute = [&planner, &origin_def, &destination, &ship, &ship_class,
+                           departure_s = std::max(game_time_s_, earliest_departure_s),
+                           options = planning_options(cargo_bucket_kg)] {
+                return planner.plan_transfer(origin_def, destination, ship, ship_class, departure_s, options);
+            },
+            .commit = [&plans, key](domain::TrajectoryPlan&& plan) { plans.emplace(key, std::move(plan)); },
+        });
+        return pending;
     };
     // Fuel-aware planning: where the destination's depot cannot refuel the ship for the next
     // leg, the ship carries the return fuel from here. That fuel rides as payload, so the leg
@@ -883,8 +955,8 @@ Simulation::MissionChoice Simulation::choose_mission(
         double profit {0.0};
         double days {0.0};
         bool carries_cargo {false};
-        std::string label;
-        std::string commodity_id;
+        std::string label {};
+        std::string commodity_id {};
         double units {0.0};
     };
     std::unordered_map<std::string, std::vector<FollowUp>> follow_ups_by_destination;
@@ -1320,6 +1392,7 @@ Simulation::MissionChoice Simulation::choose_mission(
 }
 
 void Simulation::step_idle_ship(domain::ShipState& ship) {
+    const profiling::Scope profile_scope(profiling::Phase::ShipReview);
     // Planning is expensive, so docked ships look for work every few hours, and laid-up
     // ships (no crew) every few days, not on every tick.
     const bool laid_up = ship.phase == domain::ShipMissionPhase::LaidUp;
@@ -1491,6 +1564,7 @@ double Simulation::refit_bill(
 }
 
 bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace) {
+    const profiling::Scope profile_scope(profiling::Phase::ConsiderRefit);
     if (ship.current_station_id != ship.home_station_id || game_time_s_ < ship.next_refit_review_s) {
         return false;
     }
@@ -1732,6 +1806,7 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
 }
 
 void Simulation::step(double real_dt_s) {
+    const profiling::Scope profile_scope(profiling::Phase::Step);
     const double dt_s = real_dt_s * timewarp_factor_;
     game_time_s_ += dt_s;
     std::vector<domain::Inventory> stocks_before;
@@ -1739,7 +1814,10 @@ void Simulation::step(double real_dt_s) {
     for (const auto& station : stations_) {
         stocks_before.push_back(station.inventory);
     }
-    economy_.step(stations_, dt_s);
+    {
+        const profiling::Scope economy_scope(profiling::Phase::EconomyStep);
+        economy_.step(stations_, dt_s);
+    }
     for (auto& station : stations_) {
         const double decay = std::exp(-dt_s / 86400.0 / TRADE_FLOW_DAYS);
         station.ship_fuel_units_per_day *= decay;
@@ -1832,6 +1910,7 @@ double Simulation::internal_money_supply() const {
 }
 
 void Simulation::step_treasuries(double dt_s) {
+    const profiling::Scope profile_scope(profiling::Phase::Treasuries);
     const auto& open = universe_.open_economy;
     const double dt_days = dt_s / 86400.0;
 
@@ -1896,6 +1975,7 @@ void Simulation::step_treasuries(double dt_s) {
 }
 
 void Simulation::step_fleet_investment() {
+    const profiling::Scope profile_scope(profiling::Phase::FleetInvestment);
     const auto& investment = universe_.fleet_investment;
     if (investment.layup_sale_days > 0.0) {
         for (std::size_t i = ships_.size(); i-- > 0;) {
@@ -2357,6 +2437,7 @@ math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) 
 }
 
 std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const {
+    const profiling::Scope profile_scope(profiling::Phase::Snapshot);
     auto inventory_value = [](const domain::Inventory& inventory, const std::string& commodity_id) {
         const auto it = inventory.find(commodity_id);
         return it == inventory.end() ? 0.0 : it->second;

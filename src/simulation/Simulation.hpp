@@ -1,9 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "celestial/CelestialMechanics.hpp"
 #include "data_loader/DataLoader.hpp"
@@ -12,6 +15,7 @@
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
+#include "util/ThreadPool.hpp"
 #include "variable_isp/VariableIsp.hpp"
 
 namespace spacetrains::simulation {
@@ -123,6 +127,20 @@ private:
     [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
         bool cargo_only = false);
+    // One pass of choose_mission. Plans it has no result for yet are queued in
+    // deferred_plans_ and read as infeasible; choose_mission computes the queue in parallel
+    // and repeats the pass until nothing is missing, so the last pass is exactly the
+    // sequential result.
+    [[nodiscard]] MissionChoice choose_mission_pass(const domain::ShipState& ship,
+        const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
+        bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans, std::string& trace_text);
+    // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
+    struct DeferredPlan {
+        std::function<domain::TrajectoryPlan()> compute;
+        std::function<void(domain::TrajectoryPlan&&)> commit;
+    };
+    // Queues a plan once per key and pass.
+    void defer_plan(const std::string& key, DeferredPlan request);
     // Part C: at its home base a ship may refit to another tank variant of its hull when
     // the missions that opens repay the yard bill. Returns true if the ship went into the yard.
     bool consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace);
@@ -132,8 +150,9 @@ private:
     // Two-leg mission scoring: a cheap, cached estimate of a follow-up leg.
     struct LegEstimate {
         bool feasible {false};
-        double travel_days {0.0};
+        double travel_days {0.0};      // from the caller's departure
         double propellant_kg {0.0};
+        double arrival_time_s {0.0};   // cached; travel_days is derived per caller
     };
     [[nodiscard]] LegEstimate estimate_leg(
         const domain::ShipClassDefinition& ship_class,
@@ -176,6 +195,10 @@ private:
     std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
     // estimate_leg() cache: departure bucket -> "class|from|to|fuel bucket" -> estimate.
     std::map<std::int64_t, std::unordered_map<std::string, LegEstimate>> leg_estimates_;
+    // Plans the current choose_mission pass is missing (null outside choose_mission).
+    std::vector<DeferredPlan>* deferred_plans_ {nullptr};
+    std::unordered_set<std::string> deferred_keys_;
+    std::unique_ptr<util::ThreadPool> thread_pool_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
 };
