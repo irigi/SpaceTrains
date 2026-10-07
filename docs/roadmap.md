@@ -118,9 +118,10 @@ Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorit
     departure, and investment that sizes hulls to the orders, not started.
 
 Checks after each step: the three test suites, `tools/benchmark.py` (four starting dates, mean and spread; one
-run is too noisy to judge a change) and `--trajectory-audit`. v37b (2026-10-08): unmet demand 63.3 +- 2.2%,
-49.8 +- 5.3% in the last fifth, 52.8/91.5 profitable, holds 42,800 u, 1.5 trajectory flags per run (theta
-branches), drift 0, 730 days in 52 s single run. Older single-run figures, for history: compare with the calibration log in `ship_operating_costs.md`
+run is too noisy to judge a change) and `--trajectory-audit`. v39b (2026-10-08, four starts, 730 days): unmet
+demand 51.2 +- 0.7%, 33.7 +- 2.1% in the last fifth, 47/90.5 profitable, holds 93,800 u, money -3.2 +- 5.3%,
+0 trajectory flags, drift 0; a single run takes about a minute. Over 1460 days (v39a): 34.4 +- 3.5%, the last
+~290 days 15.4 +- 5.9%. Earlier: v37b 63.3 +- 2.2% (before the map changes and the investment ranking). Older single-run figures, for history: compare with the calibration log in `ship_operating_costs.md`
 (v33: 17/43 profitable, fleet profit 1.035M, cargo margin 2.06M, fuel 599k cr, exports 1.02M, unmet demand
 72.9%, 34 CRITICAL lines, money supply +6.7%, drift 0, run 11m10; trajectory audit 0 of 277 plans flagged;
 v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'
