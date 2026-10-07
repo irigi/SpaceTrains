@@ -6,3 +6,4 @@ build_days,30
 layup_sale_days,180
 salvage_fraction,0.4
 route_commitment_days,180
+max_ships_per_review,8

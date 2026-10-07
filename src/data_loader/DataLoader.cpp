@@ -506,6 +506,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"layup_sale_days", &investment.layup_sale_days},
             {"salvage_fraction", &investment.salvage_fraction},
             {"route_commitment_days", &investment.route_commitment_days},
+            {"max_ships_per_review", &investment.max_ships_per_review},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];

@@ -84,7 +84,8 @@ private:
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);
-    void commission_best_ship();
+    // Buys the best ship above the hurdle; false if there was none.
+    bool commission_best_ship();
     void step_idle_ship(domain::ShipState& ship);
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.

@@ -108,6 +108,7 @@ struct FleetInvestmentDefinition {
     double layup_sale_days {0.0};          // laid up this long: sold; 0 = never
     double salvage_fraction {0.0};         // of the ship's value, paid to its treasury
     double route_commitment_days {0.0};    // a new ship works the route it was bought for this long
+    double max_ships_per_review {1.0};     // ships bought per review while candidates clear the hurdle
 };
 
 struct StationDefinition {

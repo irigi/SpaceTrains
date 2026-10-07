@@ -1875,7 +1875,10 @@ void Simulation::step_fleet_investment() {
     }
     if (investment.review_days > 0.0 && game_time_s_ >= next_investment_review_s_) {
         next_investment_review_s_ += investment.review_days * 86400.0;
-        commission_best_ship();
+        // Each purchase is a committed flow and keeps its yard busy, so the next one is
+        // valued against the demand still open.
+        for (int bought = 0; bought < static_cast<int>(investment.max_ships_per_review) && commission_best_ship(); ++bought) {
+        }
     }
 }
 
@@ -1902,7 +1905,7 @@ void Simulation::sell_ship(std::size_t index) {
     ships_.erase(ships_.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
-void Simulation::commission_best_ship() {
+bool Simulation::commission_best_ship() {
     const auto& investment = universe_.fleet_investment;
     // Debug aid: SPACETRAINS_TRACE_INVESTMENT=1 logs every candidate and the review's time (stderr).
     static const bool trace = std::getenv("SPACETRAINS_TRACE_INVESTMENT") != nullptr;
@@ -2035,11 +2038,13 @@ void Simulation::commission_best_ship() {
         [](const Candidate& a, const Candidate& b) { return a.return_bound > b.return_bound; });
     // Ships still committed to a route deliver to it; only the rest of the destination's
     // demand is open to a new ship.
-    const auto committed_flow = [&](const std::string& destination_id, const std::string& commodity_id) {
+    // Ships still in the yard have delivered nothing yet, so the observed imports miss them.
+    const auto committed_flow = [&](const std::string& destination_id, const std::string& commodity_id, bool in_yard) {
         double flow = 0.0;
         for (const auto& ship : ships_) {
             if (ship.route_destination_id == destination_id && ship.route_commodity_id == commodity_id
-                && game_time_s_ < ship.route_until_s) {
+                && game_time_s_ < ship.route_until_s
+                && in_yard == (game_time_s_ < ship.commissioned_s + investment.build_days * 86400.0)) {
                 flow += ship.route_units_per_day;
             }
         }
@@ -2083,7 +2088,8 @@ void Simulation::commission_best_ship() {
             = (destination_rates.contains(commodity_id) ? destination_rates.at(commodity_id) : 0.0)
             - (fuel ? destination_state.ship_fuel_units_per_day : 0.0)
             + std::max(flow_of(destination_state.import_units_per_day, commodity_id),
-                committed_flow(destination.id, commodity_id));
+                committed_flow(destination.id, commodity_id, false))
+            + committed_flow(destination.id, commodity_id, true);
         double destination_stock = flow_of(destination_state.inventory, commodity_id);
         const auto advance = [&](double days) {
             yard_stock = std::clamp(yard_stock + yard_drift * days, 0.0, yard_cap);
@@ -2194,7 +2200,7 @@ void Simulation::commission_best_ship() {
             std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count());
     }
     if (best_class == nullptr) {
-        return;
+        return false;
     }
 
     // The yard's own faction invests if it can pay for the ship and its working capital,
@@ -2248,6 +2254,7 @@ void Simulation::commission_best_ship() {
     add_event(std::format("{} ordered at {} for {:.0f} cr: {:.0f}%/yr expected ({})",
         ship.name, best_yard->name, best_class->ship_value_cr, 100.0 * best_return, best_valuation.label), "mission");
     ships_.push_back(std::move(ship));
+    return true;
 }
 
 domain::SimulationSnapshot Simulation::snapshot() const {
