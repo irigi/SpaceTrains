@@ -216,6 +216,8 @@ func _setup_ui() -> void:
     top_bar.offset_right = -8.0
     top_bar.pause_toggled.connect(_on_pause_toggled)
     top_bar.timewarp_changed.connect(_on_timewarp_changed)
+    top_bar.save_requested.connect(func() -> void: _request_save_or_load(true))
+    top_bar.load_requested.connect(func() -> void: _request_save_or_load(false))
     ui_root.add_child(top_bar)
 
     entity_browser = EntityBrowserPanel.new()

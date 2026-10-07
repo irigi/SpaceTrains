@@ -4,6 +4,8 @@ const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 
 signal pause_toggled
 signal timewarp_changed(factor: float)
+signal save_requested
+signal load_requested
 
 const TIMEWARP_PRESETS := {
     600.0: "10m/s",
@@ -50,6 +52,18 @@ func _ready() -> void:
         button.pressed.connect(func() -> void: timewarp_changed.emit(factor))
         warp_row.add_child(button)
         _warp_buttons[factor] = button
+
+    var file_row := HBoxContainer.new()
+    file_row.add_theme_constant_override("separation", 2)
+    row.add_child(file_row)
+    for entry in [["SAVE", "Quick save (F5)", save_requested], ["LOAD", "Quick load (F9)", load_requested]]:
+        var button := Button.new()
+        button.text = entry[0]
+        button.tooltip_text = entry[1]
+        button.focus_mode = Control.FOCUS_NONE
+        var request: Signal = entry[2]
+        button.pressed.connect(func() -> void: request.emit())
+        file_row.add_child(button)
 
     var spacer := Control.new()
     spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
