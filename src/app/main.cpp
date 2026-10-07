@@ -790,6 +790,78 @@ std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep
     return records;
 }
 
+// Demand audit: the transport capacity the stations' consumption needs, against the
+// fleet's. For each consumed good, the nearest producer by a rough transfer time (Hohmann
+// between the parent planets' orbits, a few days within one planet's system); a steady
+// supply needs rate x round trip units in holds (loaded out, empty back).
+void print_capacity_balance(const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::economy::EconomySystem& economy, const spacetrains::domain::SimulationSnapshot& snap) {
+    using namespace spacetrains;
+    const auto& bodies = universe.bodies;
+    const auto body_of = [&](const std::string& id) -> const domain::CelestialBodyDefinition& {
+        for (const auto& b : bodies) {
+            if (b.id == id) return b;
+        }
+        throw std::runtime_error("unknown body " + id);
+    };
+    // The planet (child of the Sun) a station's body belongs to.
+    const auto planet_of = [&](const std::string& body_id) {
+        const auto* body = &body_of(body_id);
+        while (!body->orbit.parent_id.empty() && !body_of(body->orbit.parent_id).orbit.parent_id.empty()) {
+            body = &body_of(body->orbit.parent_id);
+        }
+        return body;
+    };
+    const double mu_sun = body_of("sun").mu_m3_s2;
+    const auto one_way_days = [&](const domain::StationDefinition& a, const domain::StationDefinition& b) {
+        const auto* pa = planet_of(a.parent_body_id);
+        const auto* pb = planet_of(b.parent_body_id);
+        if (pa == pb) {
+            return a.parent_body_id == b.parent_body_id ? 0.5 : 5.0;
+        }
+        const double axis = 0.5 * (pa->orbit.semi_major_axis_m + pb->orbit.semi_major_axis_m);
+        return 3.14159265358979 * std::sqrt(axis * axis * axis / mu_sun) / kDayS;
+    };
+    double needed_units = 0.0;
+    double needed_inner = 0.0;
+    std::cout << "\n  [DEMAND AUDIT] Transport capacity for steady supply (nearest producer, Hohmann-like times):\n";
+    std::cout << std::format("    {:<26}{:<14}{:>8}{:>26}{:>9}{:>11}\n", "consumer", "good", "u/day", "nearest producer", "days", "hold u");
+    for (const auto& consumer : universe.stations) {
+        const auto rates = economy.get_station_net_rates(consumer);
+        for (const auto& commodity : universe.commodities) {
+            const auto it = rates.find(commodity.id);
+            if (it == rates.end() || it->second >= 0.0) continue;
+            const double rate = -it->second;
+            const domain::StationDefinition* best = nullptr;
+            double best_days = 1e18;
+            for (const auto& producer : universe.stations) {
+                const auto prates = economy.get_station_net_rates(producer);
+                const auto pit = prates.find(commodity.id);
+                if (pit == prates.end() || pit->second <= 0.0) continue;
+                const double days = one_way_days(producer, consumer);
+                if (days < best_days) {
+                    best_days = days;
+                    best = &producer;
+                }
+            }
+            if (best == nullptr) continue;
+            const double hold = rate * 2.0 * best_days;
+            needed_units += hold;
+            if (best_days < 200.0) needed_inner += hold;
+            std::cout << std::format("    {:<26}{:<14}{:>8.1f}{:>26}{:>9.0f}{:>11.0f}\n", consumer.name.substr(0, 25), commodity.id, rate,
+                best->name.substr(0, 25), best_days, hold);
+        }
+    }
+    double fleet_units = 0.0;
+    for (const auto& ship : snap.ships) {
+        for (const auto& ship_class : universe.ship_classes) {
+            if (ship_class.id == ship.class_id) fleet_units += ship_class.cargo_capacity_units;
+        }
+    }
+    std::cout << std::format("    Holds needed for steady supply: {:.0f} u (routes under 200 days: {:.0f} u); fleet holds now: {:.0f} u in {} ships\n",
+        needed_units, needed_inner, fleet_units, snap.ships.size());
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -937,6 +1009,7 @@ int main(int argc, char** argv) {
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
                 print_economy_audit(snap, sim.universe(), sim.economy_system());
+                print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {
                 std::cout << "  Recent events:\n";

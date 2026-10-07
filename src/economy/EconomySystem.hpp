@@ -42,6 +42,8 @@ public:
     // Consumers target a 21-day buffer, producers a 14-day buffer, non-traders a flat 20 units.
     // Depot fuel targets the station's depot buffer.
     [[nodiscard]] double get_target_stock(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Days of consumption a consumer's target stock covers (21 if it does not consume the good).
+    [[nodiscard]] double cover_days(const domain::StationDefinition& station, const std::string& commodity_id) const;
 
     // Local unit price: base_price * (target/stock)^elasticity, clamped to [0.25x, 16x] base;
     // the base price at an export market, and 0.25x base for an export good where it is
@@ -63,6 +65,7 @@ public:
         double base_price) const;
 
 private:
+    void compute_cover_days();
     [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
     // A price that does not move with the stock: the base price at an export market, the
     // floor price for an export good anywhere that neither makes nor exports it (0 otherwise).
@@ -74,6 +77,9 @@ private:
     // Export goods by station id.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> export_markets_;
     std::unordered_set<std::string> export_goods_;
+    // Days of its consumption a consumer wants in stock, by station id and good: three weeks,
+    // or longer where the nearest producer is far (see resupply_cover_days in the .cpp).
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> cover_days_;
 };
 
 }  // namespace spacetrains::economy

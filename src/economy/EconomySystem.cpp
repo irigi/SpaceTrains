@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdlib>
 #include <format>
 #include <iostream>
@@ -40,6 +41,82 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
         export_markets_[market.station_id][market.commodity_id] = market.units_per_day;
         export_goods_.insert(market.commodity_id);
     }
+    compute_cover_days();
+}
+
+// A consumer's target stock (where its price is the base price) covers three weeks of
+// consumption, or, where the nearest producer is far, 1.4 x the one-way transfer time (at
+// most a year): a delivery has to last until the next one can come. With three weeks
+// everywhere, a hold big enough for a 200-day route flooded a Mars price down to a quarter
+// of base, so nobody supplied the distant stations (v36: about 45,000 u of holds would be
+// needed for steady supply, the fleet had 5,000-10,000 u). Transfer times are Hohmann
+// half-orbits between the parent planets (a few days within one planet's system), a
+// map-level estimate that does not depend on where the planets are.
+void EconomySystem::compute_cover_days() {
+    const auto body_of = [&](const std::string& id) -> const domain::CelestialBodyDefinition* {
+        for (const auto& body : universe_.bodies) {
+            if (body.id == id) {
+                return &body;
+            }
+        }
+        return nullptr;
+    };
+    const auto planet_of = [&](const std::string& body_id) {
+        const auto* body = body_of(body_id);
+        while (body != nullptr && !body->orbit.parent_id.empty()) {
+            const auto* parent = body_of(body->orbit.parent_id);
+            if (parent == nullptr || parent->orbit.parent_id.empty()) {
+                break;
+            }
+            body = parent;
+        }
+        return body;
+    };
+    double mu_sun = 0.0;
+    for (const auto& body : universe_.bodies) {
+        if (body.orbit.parent_id.empty()) {
+            mu_sun = body.mu_m3_s2;
+        }
+    }
+    const auto one_way_days = [&](const domain::StationDefinition& a, const domain::StationDefinition& b) {
+        const auto* pa = planet_of(a.parent_body_id);
+        const auto* pb = planet_of(b.parent_body_id);
+        if (pa == nullptr || pb == nullptr || mu_sun <= 0.0) {
+            return 0.0;
+        }
+        if (pa == pb) {
+            return a.parent_body_id == b.parent_body_id ? 0.5 : 5.0;
+        }
+        const double axis = 0.5 * (pa->orbit.semi_major_axis_m + pb->orbit.semi_major_axis_m);
+        return 3.14159265358979323846 * std::sqrt(axis * axis * axis / mu_sun) / 86400.0;
+    };
+    for (const auto& consumer : universe_.stations) {
+        for (const auto* recipe : recipes_of(consumer)) {
+            if (recipe->units_per_day >= 0.0) {
+                continue;
+            }
+            double nearest = std::numeric_limits<double>::infinity();
+            for (const auto& producer : universe_.stations) {
+                for (const auto* other : recipes_of(producer)) {
+                    if (other->commodity_id == recipe->commodity_id && other->units_per_day > 0.0) {
+                        nearest = std::min(nearest, one_way_days(producer, consumer));
+                    }
+                }
+            }
+            if (std::isfinite(nearest)) {
+                cover_days_[consumer.id][recipe->commodity_id] = std::clamp(1.4 * nearest, 21.0, 365.0);
+            }
+        }
+    }
+}
+
+double EconomySystem::cover_days(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    const auto station_it = cover_days_.find(station.id);
+    if (station_it == cover_days_.end()) {
+        return 21.0;
+    }
+    const auto it = station_it->second.find(commodity_id);
+    return it == station_it->second.end() ? 21.0 : it->second;
 }
 
 double EconomySystem::flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -207,7 +284,7 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
     const auto rates = get_station_net_rates(station);
     const double net_rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
     if (net_rate < 0.0) {
-        return std::abs(net_rate) * 21.0;
+        return std::abs(net_rate) * cover_days(station, commodity_id);
     }
     if (net_rate > 0.0) {
         return net_rate * 14.0;

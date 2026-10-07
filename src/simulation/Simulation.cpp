@@ -372,25 +372,38 @@ double Simulation::trade_value(
 
 double Simulation::sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
     double units, double days_ahead, const std::string& seller_ship_id) const {
-    // Forecast the stock the sale lands on: what the station holds, plus cargo of the
-    // same kind other ships are already bringing, plus its own net production meanwhile.
-    // Without the inbound cargo, every ship sent to a starving port expects its scarcity
-    // price and the late arrivals sell at a loss.
+    // Forecast the stock the sale lands on: today's stock run forward to this ship's
+    // arrival at the station's net rate (never below empty), plus the cargo of the same
+    // kind other ships deliver before then. Without the inbound cargo, every ship sent to a
+    // starving port expects its scarcity price and the late arrivals sell at a loss. Cargo
+    // that arrives after this ship does not lower its price: before v36 all inbound cargo
+    // counted, so a hop of hours to a starving station looked worthless whenever a slow
+    // ship was months out with the same good (Low Earth Logistics waited for Venus food
+    // with 10,000 units at Earth L1).
     const auto& definition = get_station_definition(state.station_id);
     const auto stock_it = state.inventory.find(commodity_id);
     double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;
+    const double arrival_s = game_time_s_ + std::max(0.0, days_ahead) * 86400.0;
+    std::vector<std::pair<double, double>> deliveries;
     for (const auto& other : ships_) {
         if (other.id != seller_ship_id
             && (other.phase == domain::ShipMissionPhase::InTransit
                 || other.phase == domain::ShipMissionPhase::AwaitingDeparture)
             && other.active_mission.destination_station_id == state.station_id
-            && other.active_mission.commodity_id == commodity_id) {
-            stock += other.active_mission.cargo_units;
+            && other.active_mission.commodity_id == commodity_id
+            && other.active_mission.arrival_time_s <= arrival_s) {
+            deliveries.emplace_back(other.active_mission.arrival_time_s, other.active_mission.cargo_units);
         }
     }
+    std::sort(deliveries.begin(), deliveries.end());
     const auto rates = economy_.get_station_net_rates(definition);
     const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
-    stock = std::max(0.0, stock + rate * std::max(0.0, days_ahead));
+    double time_s = game_time_s_;
+    for (const auto& [delivery_s, delivered] : deliveries) {
+        stock = std::max(0.0, stock + rate * std::max(0.0, delivery_s - time_s) / 86400.0) + delivered;
+        time_s = std::max(time_s, delivery_s);
+    }
+    stock = std::max(0.0, stock + rate * std::max(0.0, arrival_s - time_s) / 86400.0);
     return economy_.get_trade_value(definition, commodity_id, stock, units, get_commodity(commodity_id).base_price);
 }
 
@@ -2040,6 +2053,11 @@ void Simulation::step_fleet_investment() {
     // One purchase per tick (each takes a second or two of probing), so a review never
     // stalls the simulation for long. Each purchase is a committed flow and keeps its yard
     // busy, so the next one is valued against the demand still open.
+    // A fleet beyond about a hundred ships is more than a player can follow: the treasuries
+    // stop buying at the limit (laid-up ships sold for salvage free their places).
+    if (investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= investment.max_fleet_size) {
+        investment_purchases_left_ = 0;
+    }
     if (investment_purchases_left_ > 0) {
         investment_purchases_left_ = commission_best_ship() ? investment_purchases_left_ - 1 : 0;
     }

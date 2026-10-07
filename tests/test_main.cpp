@@ -273,15 +273,19 @@ int main() {
     for (int i = 0; i < 90; ++i) {
         sim.step(1.0);
         const auto during = sim.snapshot();
-        for (std::size_t s = 0; s < during.ships.size(); ++s) {
-            const auto& ship_state = during.ships[s];
+        for (const auto& ship_state : during.ships) {
             const auto& ship_class = ship_class_by_id(universe, ship_state.class_id);
-            require(ship_class.hull_id == ship_class_by_id(universe, universe.ship_seeds[s].class_id).hull_id,
-                "a refitted ship should keep its hull");
+            // The starting fleet keeps its hull through refits (ships bought later have no seed).
+            const auto seed = std::find_if(universe.ship_seeds.begin(), universe.ship_seeds.end(),
+                [&](const auto& candidate) { return candidate.id == ship_state.id; });
+            if (seed != universe.ship_seeds.end()) {
+                require(ship_class.hull_id == ship_class_by_id(universe, seed->class_id).hull_id,
+                    "a refitted ship should keep its hull");
+            }
             require(ship_state.propellant_kg <= ship_class.propellant_capacity_kg + 1.0e-6,
                 "a ship should never carry more propellant than its tanks hold");
             saw_refit = saw_refit || ship_state.phase == spacetrains::domain::ShipMissionPhase::Refitting
-                || ship_state.class_id != universe.ship_seeds[s].class_id;
+                || (seed != universe.ship_seeds.end() && ship_state.class_id != seed->class_id);
         }
         const auto bridge_during = sim.build_bridge_snapshot_json(false, static_cast<std::uint64_t>(i + 1), 0.1);
         if (bridge_during.find("\"trajectory_path\"") != std::string::npos) {

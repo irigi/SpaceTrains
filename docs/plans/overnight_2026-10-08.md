@@ -69,3 +69,25 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   commands; UI F5 quick save / F9 quick load (debug map toggle moved to F11), checked in the GUI: saved at day
   10.7, loaded back to 10.7, clock continued. The UI's "simulation busy" notice no longer fires while paused or at
   slow timewarps (no snapshot is due then).
+- 23:1x **v35 baseline** (ordered maps): 730 days 40 s, unmet 72.5%, 17/43 profitable, money +5.3%, drift 0.
+- 23:2x **Step 12 findings (the unmet-demand investigation).**
+  1. **Bug, fixed (v36a):** the stock forecast for a sale counted every inbound cargo of the good, whenever it would
+     arrive. Three slow Venus ships carrying food to Low Earth Logistics made a hop of hours from Earth L1 (10,000 food,
+     price 12) look worthless (300 u valued at 3,750 cr), so the station starved for 100+ days. Now the stock is run
+     forward to this ship's arrival with only the deliveries before it. Unmet 72.5 -> 71.6%, 20/41 profitable.
+  2. **The main cause: transport capacity.** New `--econ-audit` section "Transport capacity for steady supply":
+     supplying every consumer from its nearest producer needs ~45,000 u of holds in transit (104,000 with the two
+     export markets); routes under 200 days alone need 7,400 u. The starting fleet has 5,190 u in 22 ships (about
+     11,000 u by day 730). Interplanetary transfers take 76-470 days (Hohmann), so no dispatch rule can close the
+     gap: most station-goods sit near 94% unmet = the opening stock lasted ~40 days and was barely resupplied.
+  3. **Why investment did not add capacity:** a consumer's target stock (base price) was 21 days of consumption, so
+     a hold sized for a 200-day route flooded the price to a quarter of base: distant supply did not pay.
+     **Decision (v36b):** target stock = consumption x max(21 d, 1.4 x one-way transfer from the nearest producer,
+     capped at a year) - the "order until the next delivery" part of the user's contract idea. Effect: unmet 66.3%
+     (falling to 61% in the last 146 days), cargo margin 9.7M, fleet grew to 104 ships / 39,700 u.
+  4. **Decision (v36c):** `max_fleet_size` 90 in `fleet_investment.csv` (user: >100 ships is incomprehensible).
+     Same unmet (cap reached late); 48/93 profitable; money +9.1%; drift 0. Costs: 730 days now 1m49 (90 ships),
+     ticks up to 8.6 s; 4 plasma Venus->Mercury plans flagged `many_revolutions` (1.3-1.4 rev, theta branches).
+  **Open for the user:** remote outposts import all their food/oxygen from Venus (217-932 days away); local life
+  support production (greenhouses, electrolysis) at the outposts would cut the transport need by far more than any
+  fleet could add. A game-design decision, not taken tonight.

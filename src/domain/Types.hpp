@@ -112,6 +112,7 @@ struct FleetInvestmentDefinition {
     double salvage_fraction {0.0};         // of the ship's value, paid to its treasury
     double route_commitment_days {0.0};    // a new ship works the route it was bought for this long
     double max_ships_per_review {1.0};     // ships bought per review while candidates clear the hurdle
+    double max_fleet_size {0.0};           // no purchase while this many ships are in service; 0 = no limit
 };
 
 struct StationDefinition {
