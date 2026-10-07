@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -653,6 +654,44 @@ int main() {
             "an ion load must keep the reserve unburned");
         require(ion_sized.sampled_propellant_kg.back() >= 0.09 * ion_sized.propellant_required_kg,
             "an ion ship must arrive with its reserve");
+    }
+
+    // --- VariableISP kappa at the origin's radius (bug: no way home from the outer system) ---
+    // The atlas is solved at 1 AU and scaled to the origin's orbit, but kappa was taken at
+    // 1 AU for every origin: a plasma freighter leaving Ganymede was planned 60x too weak
+    // and had no feasible way to Earth (Earth -> Ganymede took 345 days). The trip home must
+    // now be feasible and take about as long as the trip out.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        const auto& ship_class = ship_class_by_id(universe, "plasma_freighter");
+        spacetrains::domain::ShipState ship;
+        ship.class_id = ship_class.id;
+        const spacetrains::trajectory::PlanningOptions options {
+            .propellant_cr_per_kg = 0.1,
+            .time_cr_per_day = 300.0,
+            .payload_kg = 2000.0,
+            .purchasable_propellant_kg = ship_class.propellant_capacity_kg,
+            .reserve_fraction = 0.1,
+        };
+        const auto fastest = [&](const char* from, const char* to) {
+            double best_days = std::numeric_limits<double>::infinity();
+            for (int day = 0; day < 720; day += 60) {
+                const auto plan = visp_planner.plan_transfer(station_by_id(universe, from), station_by_id(universe, to),
+                    ship, ship_class, day * 86400.0, options);
+                if (plan.feasible) {
+                    best_days = std::min(best_days, plan.arrival_time_s / 86400.0 - day);
+                }
+            }
+            return best_days;
+        };
+        const double out_days = fastest("earth_l1", "ganymede_depot");
+        const double home_days = fastest("ganymede_depot", "earth_l1");
+        const auto message = std::format("plasma freighter Earth L1 -> Ganymede {:.0f} d, back {:.0f} d", out_days, home_days);
+        require(std::isfinite(out_days) && std::isfinite(home_days), message.c_str());
+        require(home_days < 1.5 * out_days, message.c_str());
     }
 
     // --- VariableISP endpoint regression (bug: trajectory ends in a sharp "dent") ---

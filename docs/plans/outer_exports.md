@@ -1,4 +1,4 @@
-# Outer-System Exports (roadmap step 7, v32)
+# Outer-System Exports (roadmap step 7, v32-v33)
 
 Before this step the outer stations (Ceres, Ganymede, Titan) made only goods the inner system also
 makes, so a ship that flew supplies out came back empty and the trip rarely paid. They went without
@@ -58,10 +58,43 @@ about 94% of their demand (the audit's "Unmet Demand").
 - Ceres -> Earth takes a plasma freighter 480-590 days one way. With the first price (1000 cr,
   1 u/day per 10k, 90-day stockpile) a load was at most 81 units and no run cleared the hurdle.
 
+## v33: stockpile forecast and reach
+
+Two fixes, benchmarked separately (v33a: the first alone; v33: both).
+
+1. **Follow-ups forecast the producer's stock at arrival** (`open_surplus` in `choose_mission`). A ship
+   records the follow-up load it planned (`MissionAssignment::pickup_commodity_id`, `pickup_units`);
+   other ships' forecasts subtract those planned pickups first and assume only the remaining docked or
+   inbound ships fill their holds from the largest surplus. The stock counts the producer's output until
+   the ship arrives, up to its stockpile limit. Before, every inbound ship was assumed to take the
+   largest surplus, at Ceres a bulk good, so the 77 units of platinum looked open to every ship.
+2. **Plasma reach** (roadmap step 8, `docs/modules/trajectory.md`): the variable-Isp planner took κ at
+   1 AU for every origin, so ships leaving Jupiter or Saturn were planned 60-280x too weak. Ganymede ->
+   Earth now takes a Plasma Freighter about 300 days (was infeasible), Titan -> Earth about 520 (was
+   infeasible), Ceres -> Earth about 190 (was 430). Missed launch windows no longer wait a whole synodic
+   period.
+
+| | v31 | v32 | v33a | v33 | v31, 1460 d | v32, 1460 d | v33, 1460 d |
+|---|---|---|---|---|---|---|---|
+| Fleet profit | 981k | 768k | 793k | 1.035M | 2.39M | 2.79M | 2.51M |
+| Profitable ships | 19/41 | 12/36 | 15/39 | 17/43 | 42/66 | 37/67 | 43/69 |
+| Unmet demand | 71.4% | 74.3% | 73.1% | 72.9% | 71.1% | 72.9% | 73.5% |
+| Exports sold to Earth | - | 387k | 387k | 1.02M | - | 387k | 1.14M |
+| Money supply | +6.2% | +0.3% | +3.3% | +6.7% | +5.6% | +7.6% | +6.9% |
+
+- The trade runs: by day 730, 217 units of platinum and 246 of deuterium (from Ganymede and Titan)
+  reached Earth. Fleet profit at 730 days is the highest so far.
+- Fewer ships chase one stockpile: at day 730 of v33a three ships were inbound to Ceres (v32 five) and a
+  second platinum load was on its way.
+- After the starting stockpiles are sold, exports run at the producers' pace: 0.45 units of platinum
+  and 1.3 of deuterium a day, at most about 1.2M cr a year. At day 1460, 175 units were in transit and
+  the producers held 11-98 units.
+- Unmet demand stays 1.5-2.5 points above v31. Ganymede and Titan still go without 94% of their
+  demand within four years, and Low Earth Logistics gets less metal: plasma ships leaving Mercury (the
+  metals source) are now planned at their true, much lower, κ (10x below the old value).
+
 ## Open points
 
-- The follow-up leg values a producer's stockpile at today's level minus the ships already inbound,
-  but not against ships that will choose the same follow-up later, nor the stock it will hold after a
-  500-day trip: the rush to Ceres comes from there.
-- Whether exports should stay enabled while the outer system is out of reach in the benchmark
-  horizon (they cost 3 points of unmet demand and 7 profitable ships at 730 days).
+- Export volumes are set by the station recipes (0.5 and 1 unit per day per 10k inhabitants); larger
+  rates or more export goods would make the trade a bigger part of the economy.
+- Supplies to the outer stations: ships carry exports home but little goes out to Ganymede and Titan.

@@ -115,6 +115,8 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v30 | investment valued over the commitment at forecast stocks and observed flows; unmet demand 71.7% (v29 72.3%); money supply +8.8% | 1.99M | 699k | 97k | 273k | 16/32 | 1 (0 stranded) | 34 |
 | v31 | up to 8 ships bought per review (19 bought, fleet 41); unmet demand 71.4%; money supply +6.2%, treasuries 69k left | 2.06M | 662k | 101k | 283k | 19/41 | 2 (0 stranded) | 35 |
 | v32 | outer exports: Ceres platinum to Earth's markets (one 129u load, 387k); ships drawn off inner routes; unmet demand 74.3%; money supply +0.3% | 1.66M | 473k | 101k | 287k | 12/36 | 2 (0 stranded) | 33 |
+| v33a | follow-ups forecast a producer's stock at arrival and leave other ships' planned pickups to them; unmet demand 73.1%; money supply +3.3% | 1.82M | 617k | 99k | 282k | 15/39 | 1 (0 stranded) | 34 |
+| v33 | + plasma planner: κ at the origin's radius, missed windows flown at once; exports 1.02M (platinum 217u, deuterium 246u); unmet demand 72.9%; money supply +6.7%; fleet profit 1.035M | 2.06M | 599k | 104k | 300k | 17/43 | 2 (1 stranded) | 34 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).

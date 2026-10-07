@@ -19,7 +19,7 @@
 ## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33).
 
 ### Decisions so far
 
@@ -88,18 +88,25 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
 6. **Investment rate**: done (v31). A review buys until no candidate clears the hurdle (at most 8),
    each valued against the flow of the ships already ordered. 19 ships bought (v30 10), fleet profit
    981k, 19/41 profitable, treasuries end with 69k (v30 542k); unmet demand 71.4% (71.7%).
-7. **Outer-system exports** (`docs/plans/outer_exports.md`): first version (v32). Ceres mines
-   platinum, Ganymede and Titan deuterium; Earth's two stations buy any amount at the base price for
-   the outside economy. One 129-unit load reached Earth (387k); the platinum drew ships off inner
-   routes (730 d: unmet demand 74.3%, 12/36 profitable, fleet profit 768k), and the outer stations are
-   no better supplied within four years. Ganymede and Titan are out of reach (step 8). Open.
-8. Leftover trajectory items: theta branches, atlas time-optimality (see below); Titan -> Ganymede
-   nuclear-thermal plans of about 9000 days.
+7. **Outer-system exports** (`docs/plans/outer_exports.md`): done (v32, v33). Ceres mines platinum,
+   Ganymede and Titan deuterium; Earth's two stations buy any amount at the base price for the outside
+   economy. v32 started a rush to Ceres; v33a: follow-ups forecast the producer's stock at arrival and
+   leave other ships' planned pickups to them. v33 (with step 8): 1.02M cr exported by day 730, fleet
+   profit 1.035M, 17/43 profitable, unmet demand 72.9% (v31 71.4%). Open: export volumes are small
+   (production-limited after the starting stockpiles), and Ganymede and Titan still get few supplies.
+8. **Trajectory reach** (`docs/modules/trajectory.md`): done (v33). The variable-Isp planner now takes κ
+   at the origin's radius (it used 1 AU for every origin: ships leaving Jupiter or Saturn were planned
+   60-280x too weak, those leaving Mercury 10x too strong), and a refined window that just passed is
+   flown at once instead of a whole synodic period later. Plasma ships reach every outer station in
+   250-550 days in both directions. Nuclear-thermal Jupiter <-> Saturn plans of 2500-4500 days are
+   physical (Hohmann about 3700 days) and lose on cost. Left: theta branches, atlas time-optimality
+   (needs a regenerated atlas).
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v32: 12/36 profitable, fleet profit 768k, cargo margin 1.66M, fuel 473k cr, exports 387k, unmet demand
-74.3%, 33 CRITICAL lines, money supply +0.3%, drift 0, run 8m35; v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'
+(v33: 17/43 profitable, fleet profit 1.035M, cargo margin 2.06M, fuel 599k cr, exports 1.02M, unmet demand
+72.9%, 34 CRITICAL lines, money supply +6.7%, drift 0, run 11m10; trajectory audit 0 of 277 plans flagged;
+v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'
 consumption (by base value, over the whole run) that found no stock; CRITICAL lines only count the
 station goods with under 7 days of stock at the last day. Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
@@ -129,6 +136,10 @@ Findings from the first 2-year sweep (192k plans, 2026-10-06):
 - **Lambert path to Titan — FIXED.** A full-tank NTR Ceres -> Titan picks a hyperbolic Lambert arc; the path sampler
   only handled ellipses, so all samples sat at Ceres' radius with the departure time and the snap drew a 6.8 AU line.
   Now samples ellipses, hyperbolas, and near-parabolas (Barker). Sweep: Lambert max miss 6.8 AU -> 0.0001 AU.
+
+- **VariableISP κ at the origin's radius — FIXED (v33).** κ was taken at 1 AU while the atlas path was scaled to
+  the origin's orbit: no plasma ship could fly home from Titan, Ganymede -> Earth took 995 days against 241 out.
+  Missed windows no longer wrap to a whole synodic period (Ganymede -> Ceres 3133 -> 432 days).
 
 Next fixes:
 

@@ -70,6 +70,18 @@ rotated from the origin station's position at departure. Windows whose refinemen
 needs more fuel than the ship carries are skipped (up to 4 tried). The path shape does not depend on κ: κ only
 decides whether the fuel suffices.
 
+**κ at the origin's radius (v33).** The atlas is solved at r0 = 1 AU and scaled to the origin's orbit: lengths by
+r/1 AU, times by (r/1 AU)^1.5, accelerations by (r/1 AU)^-2, so the transfer needs (r/1 AU)^-2.5 of the canonical
+∫a²dt. The planner therefore looks up and integrates with κ·(r/1 AU)^2.5, where κ = 2P(1/m_dry − 1/m0)·(1 AU)^2.5/μ^1.5;
+with that the propellant formula (I_real = I_canonical·δ_real/δ_canonical) holds unchanged. Before, κ was taken at
+1 AU for every origin: plasma ships leaving Jupiter were planned about 60x too weak and those leaving Saturn 280x
+(no feasible way home to Earth), those leaving Mercury 10x too strong (unphysically fast and cheap).
+
+**Missed windows (v33).** Refinement moves a window a little. When it moves just into the past (phase error under
+0.3 rad), the ship leaves now and the station-targeting pass absorbs the error; only if that does not converge does
+it wait for the next window. Before, the wait wrapped to almost a whole synodic period (Ganymede -> Ceres planned
+3133 days, 2705 of them waiting; now 432).
+
 ## Perihelion Limit and Path Sampling
 
 Both planners reject transfers that come closer to the Sun than `kMinPerihelionM` (0.1 AU,
