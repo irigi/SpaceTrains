@@ -523,6 +523,7 @@ func _apply_snapshot() -> void:
     for ship in bridge_state.get("ships", []):
         _cache_ship_path(String(ship["id"]), ship)
 
+    var upsert_started := Time.get_ticks_usec()
     for body in bridge_state.get("bodies", []):
         _upsert_entity(body, "body")
         seen_ids[body["id"]] = true
@@ -566,8 +567,11 @@ func _apply_snapshot() -> void:
     for ship_id in ship_paths.keys():
         if not seen_ids.has(ship_id):
             ship_paths.erase(ship_id)
+    if _profile_enabled: _profiled("  upsert entities", upsert_started)
     _update_faction_colors()
+    var trails_started := Time.get_ticks_usec()
     _update_ship_trails()
+    if _profile_enabled: _profiled("  ship trails", trails_started)
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
