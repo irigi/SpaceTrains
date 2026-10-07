@@ -3,6 +3,34 @@
 Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Decisions taken on my own are marked
 **Decision** with the reason; the user reviews them in the morning.
 
+## Morning summary (draft, finalised at the end of the night)
+
+**Done (all committed on `feature/opus5_5_return`, not pushed):**
+
+- **Speed:** a 730-day run takes about a minute with 90 ships (11 min with 41 ships before); the opening
+  dispatch is cached (start in milliseconds after the first run with the same data and build).
+- **Smooth play:** the display moves smoothly at 1 day/s (0 stalled frames measured with 90 ships); at 5 days/s short
+  stalls remain during fleet reviews.
+- **GUI:** orbit lines exact up close; KSP-like map (true-size planets, icons and labels when far, brighter Sun);
+  ship panel says what the ship does in words; station panel shows stock vs target, days of cover, share gone short,
+  **orders**, inbound/docked ships; economy overview (M); body panel (orbit, moons, stations).
+- **Save/load:** F5/F9, exact continuation.
+- **Unmet demand:** 72.9% (v33) -> 52.8 +- 2.6% at day 730 over four starts; ~15% unmet in year 4 of a 4-year run.
+
+**Decisions to review (each reverts on its own):**
+
+1. Target stocks cover the resupply time (economy price curve), `EconomySystem::cover_days`.
+2. Mixed cargo by marginal value (your contract idea, stage 1; no price-fixed contracts yet).
+3. Fleet cap `max_fleet_size` 90; near it, purchases ranked by profit per day (bigger hulls).
+4. Production gating: weighted average of inputs instead of the scarcest input.
+5. Ship cash reserve 50k -> 25k (money supply held near target).
+6. **Map data:** fuel factory at Mercury, metals at Lunar Gateway (commit `934baa8`, data only).
+7. Sunlight energy 7, true-size planets, labels in screen space (look).
+
+**Open:** contracts with prices fixed at departure; investment sizing hulls to orders; Titan/Ganymede still
+62-94% short; reactor fuel at Low Earth Logistics; stalls at 5 days/s during fleet reviews; local life support at the
+outposts (design question).
+
 ## Log
 
 - 22:25 Plan copied. Defaults: fixed tick 0.1 day, nlohmann/json vendored, hold capacity stays in units.
@@ -157,3 +185,8 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   shows a running game within a second (2.3 s -> 0.01 s). **Fix:** resuming after a pause no longer jumps the
   display ahead (the clock's reference time is held while paused); tested in the window: 0.93 days in the first
   second after resuming at 1 day/s.
+- 00:5x **GUI soak test:** 10 minutes at 5 days/s to day 3,117 with 90 ships: no crash, bridge memory flat (88-100
+  MB), 2.7% of frames stalled (longest 3.3 s, fleet reviews), then 1 day/s: 0 stalled frames. Godot spent ~13-17% of
+  the time on snapshots at 5 days/s; trails now use the bridge's `path_id` and redraw the flown part in 8 steps for
+  unselected ships (50 for the selected one): snapshot handling ~130 -> ~84 ms per second. Added tests: integrator
+  end sample for any sample count, JSON round trip (bit-exact doubles), resupply-aware targets.

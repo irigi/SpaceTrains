@@ -704,7 +704,9 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
     if path.size() < 2:
         ship_paths.erase(ship_id)
         return
-    var signature := _trajectory_path_signature(path)
+    var signature := String(ship.get("path_id", ""))
+    if signature == "":
+        signature = _trajectory_path_signature(path)
     if ship_paths.has(ship_id) and String(ship_paths[ship_id]["sig"]) == signature:
         return
     var times := PackedFloat64Array()
@@ -1518,8 +1520,14 @@ func _update_ship_trails() -> void:
         var is_selected: bool = ship_id == selected_id
         var departure_s := float(ship.get("departure_time_s", 0.0))
         var arrival_s := float(ship.get("arrival_time_s", 0.0))
-        var progress_bucket := int(clamp((game_time_s - departure_s) / max(arrival_s - departure_s, 1.0), 0.0, 1.0) * 50.0)
-        var signature := "%s|%d|%s" % [_trajectory_path_signature(trajectory_path), progress_bucket, is_selected]
+        # The flown part dims as the ship moves: 50 steps for the selected ship, 8 for the rest
+        # (each step rebuilds the line). The bridge's path id names the plan.
+        var steps := 50.0 if is_selected else 8.0
+        var progress_bucket := int(clamp((game_time_s - departure_s) / max(arrival_s - departure_s, 1.0), 0.0, 1.0) * steps)
+        var plan_id := String(ship.get("path_id", ""))
+        if plan_id == "":
+            plan_id = _trajectory_path_signature(trajectory_path)
+        var signature := "%s|%d|%s" % [plan_id, progress_bucket, is_selected]
         if trail_path_signatures.get(ship_id, "") != signature:
             _rebuild_trail_mesh(trail_node, trajectory_path, ship, is_selected, game_time_s)
             trail_path_signatures[ship_id] = signature
