@@ -216,6 +216,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
             cover_label.add_theme_color_override("font_color", bar_color if short < 0.01 else UiTheme.ALERT)
         row.add_child(cover_label)
 
+    _add_station_orders(detail, context)
     _add_station_ships(detail, context)
 
     var ledger: Dictionary = detail.get("ledger", {})
@@ -229,6 +230,40 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
             UiTheme.format_credits(float(ledger.get("dividends", 0.0))),
             UiTheme.format_credits(float(ledger.get("subsidies", 0.0))),
             UiTheme.format_credits(float(ledger.get("taxes", 0.0)))], UiTheme.TEXT_DIM, 12)
+
+# What the station still wants of each good it consumes: up to its target stock (which
+# covers its resupply time), less its stock and the cargo already on the way. These are the
+# prices ships see: the bigger the gap, the higher the station bids.
+func _add_station_orders(detail: Dictionary, context: Dictionary) -> void:
+    var station_id := String(detail.get("id", ""))
+    var inventory: Dictionary = detail.get("inventory", {})
+    var targets: Dictionary = detail.get("target_stock", {})
+    var rates: Dictionary = detail.get("net_rates", {})
+    var prices: Dictionary = detail.get("prices", {})
+    var inbound := {}
+    for ship in context.get("ships", []):
+        var phase := String(ship.get("phase", ""))
+        if (phase == "in_transit" or phase == "awaiting_departure") and String(ship.get("destination_station_id", "")) == station_id:
+            for lot in ship.get("cargo", []):
+                var id := String(lot.get("commodity_id", ""))
+                inbound[id] = float(inbound.get(id, 0.0)) + float(lot.get("units", 0.0))
+    var orders: Array = []
+    for commodity_id in targets.keys():
+        if float(rates.get(commodity_id, 0.0)) >= 0.0:
+            continue
+        var stock := float(inventory.get(commodity_id, 0.0))
+        var coming := float(inbound.get(commodity_id, 0.0))
+        var wanted := float(targets[commodity_id]) - stock - coming
+        if wanted >= 1.0:
+            orders.append({"id": commodity_id, "wanted": wanted, "coming": coming, "price": float(prices.get(commodity_id, 0.0))})
+    if orders.is_empty():
+        return
+    orders.sort_custom(func(a, b): return float(a["wanted"]) * float(a["price"]) > float(b["wanted"]) * float(b["price"]))
+    _add_separator()
+    _add_label("ORDERS   wanted up to target · on the way · paying now", UiTheme.ACCENT, 12)
+    for order in orders:
+        _add_label("%s: %.0f u wanted · %.0f u on the way · %.0f cr/u" % [order["id"], order["wanted"], order["coming"], order["price"]],
+            UiTheme.TEXT_DIM, 12)
 
 # Ships on their way here (with cargo and arrival) and ships docked here.
 func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
