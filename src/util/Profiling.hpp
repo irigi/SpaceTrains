@@ -19,6 +19,7 @@ enum class Phase : std::uint8_t {
     ConsiderRefit,
     EstimateLeg,
     KeplerPlan,
+    KeplerPath,
     VariableIspPlan,
     VariableIspRefine,
     VariableIspIntegrate,

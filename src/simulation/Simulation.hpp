@@ -26,6 +26,10 @@ public:
 
     [[nodiscard]] static Simulation from_data_root(const std::string& data_root);
 
+    // The simulation advances in fixed ticks of TICK_S game seconds, whatever the timewarp
+    // or the caller's step: step() adds real_dt_s x timewarp and runs the whole ticks due.
+    // Headless runs and the UI therefore simulate the same game.
+    static constexpr double TICK_S = 0.1 * 86400.0;
     void step(double real_dt_s);
     void set_timewarp(double timewarp_factor);
 
@@ -180,6 +184,8 @@ private:
     std::unique_ptr<trajectory::KeplerTrajectoryPlanner> kepler_planner_;
     std::unique_ptr<trajectory::VariableIspTrajectoryPlanner> variable_isp_planner_;
     double game_time_s_ {0.0};
+    double untimed_s_ {0.0};   // game time step() was given that no tick has used yet
+    void tick();
     double outside_economy_credits_ {0.0};
     std::unordered_map<std::string, double> faction_treasuries_;
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships

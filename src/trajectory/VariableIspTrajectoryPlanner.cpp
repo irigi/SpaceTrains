@@ -1,7 +1,7 @@
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
 
-#include "util/Profiling.hpp"
 #include "trajectory/PathSampling.hpp"
+#include "util/Profiling.hpp"
 
 #include <algorithm>
 #include <cmath>

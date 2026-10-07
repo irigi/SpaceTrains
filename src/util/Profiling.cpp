@@ -27,6 +27,7 @@ constexpr std::array<const char*, static_cast<std::size_t>(Phase::Count)> kNames
     "    consider_refit",
     "      estimate_leg",
     "      kepler plan",
+    "        kepler path",
     "      variable-isp plan",
     "        refine_seed",
     "        integrate",

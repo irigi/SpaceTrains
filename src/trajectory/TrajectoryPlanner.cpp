@@ -1,8 +1,8 @@
 #include "trajectory/TrajectoryPlanner.hpp"
 
-#include "util/Profiling.hpp"
 #include "trajectory/Lambert.hpp"
 #include "trajectory/PathSampling.hpp"
+#include "util/Profiling.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -303,6 +303,60 @@ KeplerTrajectoryPlanner::KeplerTrajectoryPlanner(
     }
 }
 
+std::shared_ptr<const std::vector<KeplerTrajectoryPlanner::LambertCell>> KeplerTrajectoryPlanner::lambert_grid(
+    const std::string& origin_body_id, const std::string& destination_body_id,
+    double current_time_s, double search_window_s, double hohmann_time_s, double mu) const {
+    const auto key = std::format("{}|{}|{:a}", origin_body_id, destination_body_id, current_time_s);
+    {
+        const std::lock_guard lock(lambert_mutex_);
+        if (const auto it = lambert_grids_.find(key); it != lambert_grids_.end()) {
+            return it->second;
+        }
+    }
+    // N_DEP departure offsets x N_TRANSIT transit fractions of the Hohmann time.
+    constexpr int N_DEP = 30;
+    constexpr int N_TRANSIT = 10;
+    auto cells = std::make_shared<std::vector<LambertCell>>();
+    cells->reserve(N_DEP * N_TRANSIT);
+    for (int di = 0; di < N_DEP; ++di) {
+        const double wait_k = search_window_s * static_cast<double>(di) / N_DEP;
+        const double dep_time_k = current_time_s + wait_k;
+        const auto r1_pos = mechanics_.get_body_position(origin_body_id, dep_time_k);
+        const double r1_m_k = std::max(1.0, r1_pos.length());
+        const double vc1 = std::sqrt(mu / r1_m_k);
+        const math::Vec3d v_circ1{-r1_pos.z / r1_m_k * vc1, 0.0, r1_pos.x / r1_m_k * vc1};
+
+        for (int ti = 0; ti < N_TRANSIT; ++ti) {
+            const double frac = 0.3 + 1.2 * static_cast<double>(ti) / (N_TRANSIT - 1);
+            const double transit_k = hohmann_time_s * frac;
+            const auto r2_pos = mechanics_.get_body_position(destination_body_id, dep_time_k + transit_k);
+            const double r2_m_k = std::max(1.0, r2_pos.length());
+
+            const auto lam = solve_lambert(r1_pos, r2_pos, transit_k, mu);
+            if (!lam.found) continue;
+            if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) continue;
+
+            const double vc2 = std::sqrt(mu / r2_m_k);
+            const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
+            cells->push_back({
+                .wait_s = wait_k,
+                .transit_s = transit_k,
+                .dv_departure = (lam.v1 - v_circ1).length(),
+                .dv_arrival = (lam.v2 - v_circ2).length(),
+                .r1 = r1_pos,
+                .r2 = r2_pos,
+                .v1 = lam.v1,
+            });
+        }
+    }
+    const std::lock_guard lock(lambert_mutex_);
+    // Plans ask for "now" and a few bucket times, so old grids are rarely reused.
+    if (lambert_grids_.size() >= 2048) {
+        lambert_grids_.clear();
+    }
+    return lambert_grids_.emplace(key, std::move(cells)).first->second;
+}
+
 domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const domain::StationDefinition& origin,
     const domain::StationDefinition& destination,
@@ -529,61 +583,31 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
 
     // Lambert grid search: N_DEP departure offsets × N_TRANSIT transit fractions.
     // Minimise the objective above (cost, or wait + transit), subject to propellant feasibility.
-    constexpr int N_DEP = 30;
-    constexpr int N_TRANSIT = 10;
     const double search_window_s = std::min(synodic_period_s, 730.0 * 86400.0);
 
-    for (int di = 0; di < N_DEP; ++di) {
-        const double wait_k = search_window_s * static_cast<double>(di) / N_DEP;
-        const double dep_time_k = current_time_s + wait_k;
-        const auto r1_pos = mechanics_.get_body_position(origin_body.id, dep_time_k);
-        const double r1_m_k = std::max(1.0, r1_pos.length());
-        const double vc1 = std::sqrt(mu / r1_m_k);
-        const math::Vec3d v_circ1{-r1_pos.z / r1_m_k * vc1, 0.0, r1_pos.x / r1_m_k * vc1};
-
-        for (int ti = 0; ti < N_TRANSIT; ++ti) {
-            const double frac = 0.3 + 1.2 * static_cast<double>(ti) / (N_TRANSIT - 1);
-            const double transit_k = hohmann_time_s * frac;
-            const auto r2_pos = mechanics_.get_body_position(destination_body.id, dep_time_k + transit_k);
-            const double r2_m_k = std::max(1.0, r2_pos.length());
-
-            const auto lam = solve_lambert(r1_pos, r2_pos, transit_k, mu);
-            if (!lam.found) continue;
-            if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) continue;
-
-            const double vc2 = std::sqrt(mu / r2_m_k);
-            const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
-            const double dv_dep_k = (lam.v1 - v_circ1).length();
-            const double dv_arr_k = (lam.v2 - v_circ2).length();
-            const double dv_k = dv_dep_k + dv_arr_k;
-            const double total_k = wait_k + transit_k;
-            const bool feas_k = loading.feasible(dv_k);
-
-            const double objective_k = objective(total_k, dv_k);
-            if (feas_k && (!found_feasible || objective_k < best_objective)) {
-                best_objective = objective_k;
-                best_dv = dv_k;
-                found_feasible = true;
-                best_dep_time = dep_time_k;
-                best_transit_time = transit_k;
-                best_dv_dep = dv_dep_k;
-                best_dv_arr = dv_arr_k;
-                best_r1_pos = r1_pos;
-                best_r2_pos = r2_pos;
-                best_v1_lambert = lam.v1;
-                best_from_lambert = true;
-            } else if (!found_feasible && dv_k < best_dv) {
-                best_dv = dv_k;
-                best_dep_time = dep_time_k;
-                best_transit_time = transit_k;
-                best_dv_dep = dv_dep_k;
-                best_dv_arr = dv_arr_k;
-                best_r1_pos = r1_pos;
-                best_r2_pos = r2_pos;
-                best_v1_lambert = lam.v1;
-                best_from_lambert = true;
-            }
+    for (const auto& cell : *lambert_grid(
+             origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu)) {
+        const double dv_k = cell.dv_departure + cell.dv_arrival;
+        const bool feas_k = loading.feasible(dv_k);
+        const double objective_k = objective(cell.wait_s + cell.transit_s, dv_k);
+        const bool better_feasible = feas_k && (!found_feasible || objective_k < best_objective);
+        // Until a feasible transfer turns up, keep the cheapest in Δv.
+        if (!better_feasible && (found_feasible || dv_k >= best_dv)) {
+            continue;
         }
+        if (better_feasible) {
+            best_objective = objective_k;
+            found_feasible = true;
+        }
+        best_dv = dv_k;
+        best_dep_time = current_time_s + cell.wait_s;
+        best_transit_time = cell.transit_s;
+        best_dv_dep = cell.dv_departure;
+        best_dv_arr = cell.dv_arrival;
+        best_r1_pos = cell.r1;
+        best_r2_pos = cell.r2;
+        best_v1_lambert = cell.v1;
+        best_from_lambert = true;
     }
 
     const double delta_v = best_dv_dep + best_dv_arr;
@@ -601,6 +625,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);
     const double start_angle = std::atan2(start.z, start.x);
 
+    const profiling::Scope path_scope(profiling::Phase::KeplerPath);
     // Generate densely, then thin by curvature for rendering (see PathSampling.hpp).
     constexpr int kSamples = 721;
     plan.sampled_path.reserve(kSamples);

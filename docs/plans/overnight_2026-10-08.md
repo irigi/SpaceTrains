@@ -19,3 +19,10 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   step 25 -> 4.2 s. **Decision:** `estimate_leg` now plans at the bucket start with base-price crew costs and
   measures travel days from each caller's own departure (before: from whichever ship asked first, at "now"): no
   history dependence, needed for save/load. The 60-day report did not change.
+- 23:55 **9b fixed tick**: `Simulation::step()` now runs whole ticks of `TICK_S` = 0.1 day (an accumulator), so a
+  1-day headless step and the bridge's 0.1-day step simulate the same game (60-day reports byte-identical). The
+  headless benchmark now plans as often as the GUI (reviews every 6 h instead of once a day), so it is a little
+  slower than with 1-day steps, but it measures the game the player sees. **New baseline needed (v34).**
+- 00:10 **Lambert grid memo**: the Kepler planner's 30x10 Lambert grid depends only on the two bodies and the time,
+  not on the payload or fuel; one mission choice plans the same pair many times. Cached (thread-safe, 2048 grids),
+  identical reports. 60 days 11.5 -> 5.4 s, opening dispatch 3.3 s (was 50 s at the start of the night).

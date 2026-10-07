@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -85,10 +87,31 @@ public:
         double current_time_s,
         const PlanningOptions& costs = {}) const override;
 
+    // One cell of the Lambert departure x transit grid: geometry only, the same for any
+    // ship, payload or fuel load.
+    struct LambertCell {
+        double wait_s {0.0};
+        double transit_s {0.0};
+        double dv_departure {0.0};
+        double dv_arrival {0.0};
+        math::Vec3d r1 {};
+        math::Vec3d r2 {};
+        math::Vec3d v1 {};
+    };
+
 private:
+    // The usable cells (solved, above the perihelion limit) in search order. Memoised by
+    // bodies and time: one mission choice plans the same pair many times (cargo sizes,
+    // return fuel), and the Lambert solves are the planner's cost. Thread-safe.
+    std::shared_ptr<const std::vector<LambertCell>> lambert_grid(
+        const std::string& origin_body_id, const std::string& destination_body_id,
+        double current_time_s, double search_window_s, double hohmann_time_s, double mu) const;
+
     const domain::UniverseDefinition& universe_;
     const celestial::CelestialMechanics& mechanics_;
     std::unordered_map<std::string, const domain::CelestialBodyDefinition*> bodies_by_id_;
+    mutable std::mutex lambert_mutex_;
+    mutable std::unordered_map<std::string, std::shared_ptr<const std::vector<LambertCell>>> lambert_grids_;
 };
 
 }  // namespace spacetrains::trajectory

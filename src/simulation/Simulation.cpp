@@ -1806,8 +1806,17 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
 }
 
 void Simulation::step(double real_dt_s) {
+    untimed_s_ += real_dt_s * timewarp_factor_;
+    // A millisecond of slack absorbs rounding (0.1 s x 86400 is not exactly 8640 s).
+    while (untimed_s_ >= TICK_S - 1e-3) {
+        untimed_s_ = std::max(0.0, untimed_s_ - TICK_S);
+        tick();
+    }
+}
+
+void Simulation::tick() {
     const profiling::Scope profile_scope(profiling::Phase::Step);
-    const double dt_s = real_dt_s * timewarp_factor_;
+    const double dt_s = TICK_S;
     game_time_s_ += dt_s;
     std::vector<domain::Inventory> stocks_before;
     stocks_before.reserve(stations_.size());
