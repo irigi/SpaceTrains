@@ -99,6 +99,7 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v13 | two-leg mission scoring (alone) | 355k | 25k | 61k | 270k | 4/22 | 14 | 37 |
 | v14 | + 2-year provisioning endurance, cost-optimal Lambert, rocket-equation return check | 809k | 53k | 98k | 274k | 11/22 | 13 | 35 |
 | v16 | part B: mission-sized fuelling, cargo + provisions in the rocket equation | 690k | 10k | 108k | 274k | 10/22 | 9 | 34 |
+| v17 | tech review: classes rebuilt bottom-up (heavier, NTR Δv halved), ship values unchanged | 324k | 3.6k | 38k | 274k | 7/22 | 13 (+3 stranded) | 43 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).
