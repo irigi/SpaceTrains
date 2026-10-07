@@ -42,10 +42,27 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 - Economy stepping is independent of Godot or UI frame rate.
 - Profile rate lookup is derived from loaded recipe data, not hardcoded.
 
+## Prices and target stocks (v36-v37)
+
+- A station's price for a good is `base x clamp((target / stock)^1.3, 0.25, 16)`; trades integrate it exactly over
+  the stock they move (`get_trade_value`), so big lots move along the curve.
+- **Target stock.** A producer's is 14 days of output. A consumer's covers its *resupply time*: three weeks, or
+  1.4 x the one-way transfer from the nearest producer (Hohmann half-orbit between the parent planets, a few days
+  within one planet's system), at most a year (`cover_days`). With three weeks everywhere a hold sized for a
+  200-day route flooded a Mars price to a quarter of base and nobody supplied the distant stations.
+- **Forecast at arrival** (`Simulation::forecast_stock_on_arrival`): today's stock run forward at the net rate,
+  never below empty, plus the same good other ships deliver *before* this ship arrives. (Before v36 every inbound
+  cargo counted, so a hop of hours to a starving station looked worthless while a slow ship was months out.)
+- **Mixed cargo** (dispatch, `Simulation::choose_mission_pass`): per destination, the hold is filled chunk by chunk
+  (1/40 of it) with the good whose next units earn the most along both stations' curves, weighted by how short the
+  destination is of it; the whole manifest, its half and its quarter are scored like single-good runs. Fleet
+  investment still values a new ship by its best single-good run.
+- **Transport capacity** (`--econ-audit`): steady supply of every consumer from its nearest producer needs about
+  45,000 u of holds in transit (104,000 with the export markets); the fleet is capped at `max_fleet_size` (90).
+
 ## Deferred Work
 
 - More detailed production chains
-- Price signals and market scoring
 - Station budget / faction budget systems
 - Maintenance and service commodities
 

@@ -16,10 +16,10 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-07) — start here
+## Current Plan (updated 2026-10-08) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33); overnight 2026-10-07/08 (steps 9-13 below, log in `docs/plans/overnight_2026-10-08.md`): speed, smooth display, map look, panels, save/load, unmet-demand findings (v36), mixed cargo (v37).
 
 ### Decisions so far
 
@@ -102,8 +102,25 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    physical (Hohmann about 3700 days) and lose on cost. Left: theta branches, atlas time-optimality
    (needs a regenerated atlas).
 
-Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
---econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
+Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorities):
+
+9. **Speed:** done. Profiling timers (`--profile`), double-precision integration, exact parallel mission
+   planning (passes over a thread pool), a memoised Lambert grid, candidates planned without paths, fleet reviews
+   spread over ticks, a fixed 0.1-day tick for headless and UI. 730 days: 11m10 -> 52 s with 90 ships.
+10. **GUI:** done, the user reviews the look. Smooth display clock (no stalls at 1 day/s; short ones at 5 days/s
+    during fleet reviews), orbit rings exact up close, KSP-like map (true-size bodies, icon labels, brighter Sun
+    and planets), mission in words and richer ship/station panels, economy overview (M).
+11. **Save/load:** done (F5/F9, `--save-at`/`--load`; exact continuation, tested).
+12. **Unmet demand:** investigated. Main cause transport capacity (steady supply needs ~45,000 u of holds in
+    transit, the fleet had 5,000-11,000 u) and targets too small for distant supply; one forecast bug. Open for the
+    user: local life-support production at the outposts (design decision).
+13. **Orders and mixed cargo:** stage 1 (mixed cargo by marginal value) done; contracts with prices fixed at
+    departure, and investment that sizes hulls to the orders, not started.
+
+Checks after each step: the three test suites, `tools/benchmark.py` (four starting dates, mean and spread; one
+run is too noisy to judge a change) and `--trajectory-audit`. v37b (2026-10-08): unmet demand 63.3 +- 2.2%,
+49.8 +- 5.3% in the last fifth, 52.8/91.5 profitable, holds 42,800 u, 1.5 trajectory flags per run (theta
+branches), drift 0, 730 days in 52 s single run. Older single-run figures, for history: compare with the calibration log in `ship_operating_costs.md`
 (v33: 17/43 profitable, fleet profit 1.035M, cargo margin 2.06M, fuel 599k cr, exports 1.02M, unmet demand
 72.9%, 34 CRITICAL lines, money supply +6.7%, drift 0, run 11m10; trajectory audit 0 of 277 plans flagged;
 v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'

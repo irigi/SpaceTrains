@@ -117,6 +117,13 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v32 | outer exports: Ceres platinum to Earth's markets (one 129u load, 387k); ships drawn off inner routes; unmet demand 74.3%; money supply +0.3% | 1.66M | 473k | 101k | 287k | 12/36 | 2 (0 stranded) | 33 |
 | v33a | follow-ups forecast a producer's stock at arrival and leave other ships' planned pickups to them; unmet demand 73.1%; money supply +3.3% | 1.82M | 617k | 99k | 282k | 15/39 | 1 (0 stranded) | 34 |
 | v33 | + plasma planner: κ at the origin's radius, missed windows flown at once; exports 1.02M (platinum 217u, deuterium 246u); unmet demand 72.9%; money supply +6.7%; fleet profit 1.035M | 2.06M | 599k | 104k | 300k | 17/43 | 2 (1 stranded) | 34 |
+| v34 | fixed 0.1-day tick for headless and UI (reviews every 6 h now also headless); speed work, results otherwise unchanged; unmet demand 72.2%; money supply +5.5%; 730 days in 42 s | 1.87M | 601k | 102k | 297k | 18/41 | 1 (0 stranded) | 34 |
+| v35 | ordered maps (`Inventory`, treasuries) for exact save/load; unmet demand 72.5%; money supply +5.3% | 1.98M | 687k | 103k | 299k | 17/43 | - | 35 |
+| v36a | sale forecasts count only cargo arriving before the ship; unmet demand 71.6%; money supply +11.7% | 2.11M | 751k | 105k | 301k | 20/41 | - | 37 |
+| v36b | consumers' target stock covers their resupply time (21 d to a year); fleet grows to 104 ships, 39,700 u of holds; unmet demand 66.3% (61% in the last fifth); money supply +7.3% | 9.72M | 1.86M | 238k | 572k | 48/104 | - | 28 |
+| v36e | + `max_fleet_size` 90; candidates planned without paths, integrator end-sample fix; unmet demand 66.3%; money supply +9.1%; 1m08 | 9.75M | 1.77M | 237k | 566k | 48/93 | - | - |
+| v37a | mixed cargo (holds filled by marginal value); 41,400 u of holds; unmet demand 59.8% (40.6% in the last fifth); money supply +29.7% | 13.16M | 1.09M | 241k | 640k | 49/93 | - | - |
+| v37b | fleet reviews spread over ticks; unmet demand 63.3% (four starts: 63.3 +- 2.2%, last fifth 49.8 +- 5.3%); money supply +20.3%; 52 s | 12.28M | 1.20M | 236k | 642k | 47/94 | - | - |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).
