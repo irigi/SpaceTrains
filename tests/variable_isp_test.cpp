@@ -379,6 +379,34 @@ void verify_dataset(
 
 }  // namespace
 
+// The output samples are interpolated, so the RK45 steps do not depend on how many are
+// asked for, and the last one is exactly the end. (Until 2026-10-08 the last sample time,
+// dt x (n - 1), could round a hair above the end and the loop spun on zero-length steps until
+// the step budget threw: some sample counts, e.g. 600, failed where 4000 worked.)
+void verify_sample_counts(const std::filesystem::path& dataset_path, const VariableIspIntegrator& integrator) {
+    const JsonValue root = JsonParser(read_text(dataset_path)).parse();
+    for (const auto& entry : root.at("trajectories").array_value) {
+        const AtlasSeed seed = seed_from_json(entry.at("seed"));
+        const auto config = VariableIspIntegrator::canonical_config(entry.at("rho").number_value, entry.at("kappa").number_value);
+        std::size_t steps = 0;
+        double end_r = 0.0;
+        for (const std::size_t count : {2, 600, 601, 999, 4000}) {
+            const auto result = integrator.integrate_fixed_time(seed, config, count);
+            require(result.samples.size() == count, "integrate_fixed_time should return the samples asked for");
+            require(result.samples.back().time_s == seed.transfer_time_days * VariableIspIntegrator::kDayS,
+                "the last sample should be exactly the end of the transfer");
+            if (count == 2) {
+                steps = result.accepted_steps + result.rejected_steps;
+                end_r = result.samples.back().r_m;
+            } else {
+                require(result.accepted_steps + result.rejected_steps == steps,
+                    "the RK45 steps should not depend on the number of output samples");
+                require(result.samples.back().r_m == end_r, "the end state should not depend on the number of output samples");
+            }
+        }
+    }
+}
+
 int main() {
     const auto repo_root = std::filesystem::current_path();
     VariableIspAtlas atlas;
@@ -389,6 +417,8 @@ int main() {
     VariableIspIntegrator integrator;
     verify_dataset(repo_root / "tests/data/variable_isp/reference_unit.json", atlas, integrator, false);
     verify_dataset(repo_root / "tests/data/variable_isp/reference_validation.json", atlas, integrator, false);
+
+    verify_sample_counts(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
 
     std::cout << "VariableISP tests passed.\n";
     return 0;

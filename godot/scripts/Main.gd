@@ -1041,6 +1041,8 @@ func _refresh_ui_now() -> void:
         "names": _entity_name_map(),
         "price_trends": _price_trends_for(selected_id) if selected_kind == "station" else {},
         "ships": bridge_state.get("ships", []),
+        "bodies": bridge_state.get("bodies", []),
+        "stations": bridge_state.get("stations", []),
     })
 
 func _entity_name_map() -> Dictionary:

@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <filesystem>
@@ -10,6 +12,7 @@
 
 #include "celestial/CelestialMechanics.hpp"
 #include "data_loader/DataLoader.hpp"
+#include "persistence/Json.hpp"
 #include "simulation/Simulation.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -747,6 +750,42 @@ int main() {
             }
         }
         require(feasible >= 20, "most Earth L1 ion freighter plans in the grid should be feasible");
+    }
+
+    // --- Save files: doubles and strings survive a JSON round trip exactly. ---
+    {
+        using spacetrains::persistence::Json;
+        const std::vector<double> values {0.1, 1.0 / 3.0, 1e-300, 1.7976931348623157e308, -0.0, 4.9e-324, 123456789.123456789,
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
+        auto array = Json::array();
+        for (const double value : values) {
+            array.push(value);
+        }
+        auto object = Json::object();
+        object.set("numbers", std::move(array));
+        object.set("text", std::string("a \"quoted\" line\nand a tab\t"));
+        const auto parsed = Json::parse(object.dump());
+        const auto& items = parsed.get("numbers").items();
+        require(items.size() == values.size(), "JSON array length should survive a round trip");
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            require(std::bit_cast<std::uint64_t>(items[i].number()) == std::bit_cast<std::uint64_t>(values[i]),
+                "a double should survive a JSON round trip bit for bit");
+        }
+        require(std::isnan(Json::parse(Json(std::numeric_limits<double>::quiet_NaN()).dump()).number()), "NaN should survive");
+        require(parsed.get("text").string() == "a \"quoted\" line\nand a tab\t", "a string should survive a JSON round trip");
+    }
+
+    // --- Resupply-aware targets: a consumer far from its producers wants more stock than three
+    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer). ---
+    {
+        const auto economy_sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        const auto& economy = economy_sim.economy_system();
+        const auto& mars = *std::find_if(universe.stations.begin(), universe.stations.end(),
+            [](const auto& station) { return station.id == "mars_transfer"; });
+        const auto& lunar = *std::find_if(universe.stations.begin(), universe.stations.end(),
+            [](const auto& station) { return station.id == "luna_base"; });
+        require(economy.cover_days(mars, "food") > 200.0, "Mars should want food for its long resupply");
+        require(economy.cover_days(lunar, "food") == 21.0, "the Moon, days from Earth L1, should want three weeks of food");
     }
 
     // --- Save and load: a game continued after a load plays exactly as one that never

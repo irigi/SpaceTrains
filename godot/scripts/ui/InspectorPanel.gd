@@ -92,7 +92,7 @@ func update_selection(detail: Dictionary, kind: String, context: Dictionary) -> 
         "ship":
             _build_ship(detail, context)
         _:
-            _build_body(detail)
+            _build_body(detail, context)
 
 func _faction_color(detail: Dictionary, context: Dictionary) -> Color:
     var colors: Dictionary = context.get("faction_colors", {})
@@ -452,11 +452,33 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
                 parts.append("%s %+.0f" % [String(key).replace("cargo_purchases", "cargo").replace("_", " "), amount])
         _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
 
-func _build_body(detail: Dictionary) -> void:
+func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
     var strip := ColorRect.new()
     strip.color = Color(0.4, 0.5, 0.6)
     strip.custom_minimum_size = Vector2(0, 3)
     _content.add_child(strip)
-    _add_label(String(detail.get("name", detail.get("id", ""))), UiTheme.TEXT_PRIMARY, 16)
-    _add_label("Celestial body", UiTheme.TEXT_DIM, 12)
+    var body_id := String(detail.get("id", ""))
+    _add_label(String(detail.get("name", body_id)), UiTheme.TEXT_PRIMARY, 16)
+    var parent_id := String(detail.get("parent_id", ""))
+    var a_m := float(detail.get("semi_major_axis_m", 0.0))
+    var period_d := float(detail.get("orbital_period_s", 0.0)) / 86400.0
+    if parent_id == "":
+        _add_label("Star", UiTheme.TEXT_DIM, 12)
+    elif parent_id == "sun":
+        _add_label("Planet · %.2f AU from the Sun · year %.0f days" % [a_m / 1.495978707e11, period_d], UiTheme.TEXT_DIM, 12)
+    else:
+        _add_label("Moon of %s · %.0f thousand km · month %.1f days" % [_resolve_name(context, parent_id), a_m / 1.0e6, period_d],
+            UiTheme.TEXT_DIM, 12)
     _add_label("Radius: %.0f km" % (float(detail.get("radius_m", 0.0)) / 1000.0), UiTheme.TEXT_DIM)
+    var moons: Array[String] = []
+    for body in context.get("bodies", []):
+        if String(body.get("parent_id", "")) == body_id:
+            moons.append(String(body.get("name", "")))
+    if not moons.is_empty():
+        _add_label("Moons: " + ", ".join(moons), UiTheme.TEXT_DIM, 12)
+    var stations: Array[String] = []
+    for station in context.get("stations", []):
+        if String(station.get("parent_body_id", "")) == body_id:
+            stations.append(String(station.get("name", "")))
+    if not stations.is_empty():
+        _add_label("Stations: " + ", ".join(stations), UiTheme.TEXT_DIM, 12)
