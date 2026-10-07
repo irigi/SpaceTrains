@@ -270,6 +270,16 @@ Simulation Simulation::from_data_root(const std::string& data_root) {
     return sim;
 }
 
+void Simulation::start_at(double time_s) {
+    game_time_s_ = time_s;
+    next_investment_review_s_ = time_s;
+    for (auto& ship : ships_) {
+        ship.next_review_s = time_s;
+        ship.idle_since_s = time_s;
+        ship.next_refit_review_s = time_s;
+    }
+}
+
 void Simulation::set_timewarp(double timewarp_factor) {
     timewarp_factor_ = std::max(1.0, timewarp_factor);
 }
@@ -2247,6 +2257,7 @@ void Simulation::step_fleet_investment() {
     if (investment.review_days > 0.0 && game_time_s_ >= next_investment_review_s_) {
         next_investment_review_s_ += investment.review_days * 86400.0;
         investment_purchases_left_ = static_cast<int>(investment.max_ships_per_review);
+        review_probes_.clear();
     }
     // One purchase per tick (each takes a second or two of probing), so a review never
     // stalls the simulation for long. Each purchase is a committed flow and keeps its yard
@@ -2256,8 +2267,22 @@ void Simulation::step_fleet_investment() {
     if (investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= investment.max_fleet_size) {
         investment_purchases_left_ = 0;
     }
+    // One batch of probes or one purchase per tick: a review never stalls the simulation for
+    // long (probing every candidate at once took up to six seconds with ninety ships).
     if (investment_purchases_left_ > 0) {
-        investment_purchases_left_ = commission_best_ship() ? investment_purchases_left_ - 1 : 0;
+        switch (commission_step()) {
+            case CommissionStep::Probed:
+                break;
+            case CommissionStep::Bought:
+                --investment_purchases_left_;
+                break;
+            case CommissionStep::NothingToBuy:
+                investment_purchases_left_ = 0;
+                break;
+        }
+    }
+    if (investment_purchases_left_ <= 0) {
+        review_probes_.clear();
     }
 }
 
@@ -2284,7 +2309,7 @@ void Simulation::sell_ship(std::size_t index) {
     ships_.erase(ships_.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
-bool Simulation::commission_best_ship() {
+Simulation::CommissionStep Simulation::commission_step() {
     const auto& investment = universe_.fleet_investment;
     // Debug aid: SPACETRAINS_TRACE_INVESTMENT=1 logs every candidate and the review's time (stderr).
     static const bool trace = std::getenv("SPACETRAINS_TRACE_INVESTMENT") != nullptr;
@@ -2536,39 +2561,66 @@ bool Simulation::commission_best_ship() {
     double best_return = investment.hurdle_return_per_year;
     Valuation best_valuation;
     int probes = 0;
-    // Probed in batches, planned together; valued in order, so the early stop picks the
-    // same ship as probing one by one (a batch may probe a few candidates for nothing).
+    // Candidates are valued in order of their bound, so the early stop picks the same ship
+    // as probing one by one. A candidate not probed yet in this review stops the scan: the
+    // next batch is probed (this tick) and the purchase waits for a later tick.
     constexpr std::size_t kProbeBatch = 8;
-    bool stop = false;
-    for (std::size_t first = 0; first < candidates.size() && !stop; first += kProbeBatch) {
-        if (candidates[first].return_bound <= best_return) {
+    const auto probe_key = [](const Candidate& candidate) {
+        return candidate.ship_class->id + "|" + candidate.yard->id;
+    };
+    std::vector<std::size_t> to_probe;
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const auto& candidate = candidates[i];
+        if (candidate.return_bound <= best_return) {
             break;
         }
-        const std::size_t last = std::min(candidates.size(), first + kProbeBatch);
+        const auto probed = review_probes_.find(probe_key(candidate));
+        if (probed == review_probes_.end()) {
+            for (std::size_t j = i; j < candidates.size() && to_probe.size() < kProbeBatch; ++j) {
+                if (!review_probes_.contains(probe_key(candidates[j]))) {
+                    to_probe.push_back(j);
+                }
+            }
+            break;
+        }
+        MissionChoice choice;
+        for (const auto& run : probed->second) {
+            choice.cargo_options.push_back({.destination = &get_station_definition(run.destination_id),
+                .commodity_id = run.commodity_id, .cargo_units = run.cargo_units, .travel_days = run.travel_days,
+                .wait_days = run.wait_days, .fuel_cost = run.fuel_cost});
+        }
+        const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound, choice);
+        ++probes;
+        if (valuation.annual_return > best_return) {
+            best_return = valuation.annual_return;
+            best_class = candidate.ship_class;
+            best_yard = candidate.yard;
+            best_valuation = valuation;
+        }
+    }
+    if (!to_probe.empty()) {
         std::vector<domain::ShipState> probe_ships;
-        probe_ships.reserve(last - first);
+        probe_ships.reserve(to_probe.size());
         std::vector<MissionRequest> requests;
-        for (std::size_t i = first; i < last; ++i) {
-            probe_ships.push_back(new_ship(*candidates[i].ship_class, *candidates[i].yard));
-            requests.push_back({.ship = &probe_ships.back(), .ship_class = candidates[i].ship_class,
+        for (const auto index : to_probe) {
+            probe_ships.push_back(new_ship(*candidates[index].ship_class, *candidates[index].yard));
+            requests.push_back({.ship = &probe_ships.back(), .ship_class = candidates[index].ship_class,
                 .earliest_departure_s = game_time_s_ + investment.build_days * 86400.0, .cargo_only = true});
         }
         const auto choices = choose_missions(requests);
-        for (std::size_t i = first; i < last; ++i) {
-            const auto& candidate = candidates[i];
-            if (candidate.return_bound <= best_return) {
-                stop = true;
-                break;
-            }
-            const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound, choices[i - first]);
-            ++probes;
-            if (valuation.annual_return > best_return) {
-                best_return = valuation.annual_return;
-                best_class = candidate.ship_class;
-                best_yard = candidate.yard;
-                best_valuation = valuation;
+        for (std::size_t k = 0; k < to_probe.size(); ++k) {
+            auto& runs = review_probes_[probe_key(candidates[to_probe[k]])];
+            for (const auto& option : choices[k].cargo_options) {
+                runs.push_back({.destination_id = option.destination->id, .commodity_id = option.commodity_id,
+                    .cargo_units = option.cargo_units, .travel_days = option.travel_days,
+                    .wait_days = option.wait_days, .fuel_cost = option.fuel_cost});
             }
         }
+        if (trace) {
+            std::cerr << std::format("[invest day {:.1f}] probed {} candidates in {:.2f} s\n", game_time_s_ / 86400.0,
+                to_probe.size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count());
+        }
+        return CommissionStep::Probed;
     }
     // The winning hull is built with the tanks that suit it best, judged like a refit (by
     // dispatch's full score, which carries each variant's capital charge); otherwise it would
@@ -2606,7 +2658,7 @@ bool Simulation::commission_best_ship() {
             std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count());
     }
     if (best_class == nullptr) {
-        return false;
+        return CommissionStep::NothingToBuy;
     }
 
     // The yard's own faction invests if it can pay for the ship and its working capital,
@@ -2660,7 +2712,7 @@ bool Simulation::commission_best_ship() {
     add_event(std::format("{} ordered at {} for {:.0f} cr: {:.0f}%/yr expected ({})",
         ship.name, best_yard->name, best_class->ship_value_cr, 100.0 * best_return, best_valuation.label), "mission");
     ships_.push_back(std::move(ship));
-    return true;
+    return CommissionStep::Bought;
 }
 
 domain::SimulationSnapshot Simulation::snapshot() const {

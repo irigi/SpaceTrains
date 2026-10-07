@@ -879,6 +879,7 @@ int main(int argc, char** argv) {
     double step_days = 1.0;
     std::string load_path;
     std::string save_path;
+    double start_day = 0.0;
     int save_at_day = -1;
 
     // Parse arguments
@@ -892,6 +893,8 @@ int main(int argc, char** argv) {
             verbose = true;
         } else if (args[i] == "--econ-audit") {
             econ_audit = true;
+        } else if (args[i] == "--start-day" && i + 1 < args.size()) {
+            start_day = std::stod(args[++i]);
         } else if (args[i] == "--load" && i + 1 < args.size()) {
             load_path = args[++i];
         } else if (args[i] == "--save-at" && i + 2 < args.size()) {
@@ -927,6 +930,9 @@ int main(int argc, char** argv) {
     const auto load_start = std::chrono::steady_clock::now();
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
     const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
+    if (start_day > 0.0) {
+        sim.start_at(start_day * kDayS);
+    }
     if (!load_path.empty()) {
         std::ifstream file(load_path, std::ios::binary);
         if (!file) {
@@ -961,7 +967,9 @@ int main(int argc, char** argv) {
     // Use 1-day steps for legible reports.
     sim.set_timewarp(kDayS);  // 1 real second = 1 simulated day per step
 
-    double last_report_day = 0.0;
+    // Reports count from the start (a --start-day or a loaded game starts later than day 0).
+    const double first_day = sim.game_time_s() / kDayS;
+    double last_report_day = first_day;
     int total_events = 0;
     // Per-step wall time (profiling): the bridge shows a hitch whenever one step is slow.
     std::vector<double> step_wall_s;
@@ -996,7 +1004,7 @@ int main(int argc, char** argv) {
         if (verbose) {
             for (const auto& event : sim.snapshot().recent_events) {
                 // Only print events newer than the last step
-                if (event.time_s > (step * kDayS) && event.time_s <= ((step + 1) * kDayS)) {
+                if (event.time_s > ((first_day + step) * kDayS) && event.time_s <= ((first_day + step + 1) * kDayS)) {
                     std::cout << std::format("[day {:7.1f}] {}\n", event.time_s / kDayS, event.text);
                     ++total_events;
                 }

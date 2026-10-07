@@ -37,6 +37,10 @@ public:
     [[nodiscard]] const economy::EconomySystem& economy_system() const;
     [[nodiscard]] domain::SimulationSnapshot snapshot() const;
     [[nodiscard]] double game_time_s() const { return game_time_s_; }
+    // Starts a fresh game at another date (planets elsewhere along their orbits): the same
+    // economy in a different geometry, for benchmarks over several starts. Call before the
+    // first step.
+    void start_at(double time_s);
 
     // Save games (src/persistence/SimulationPersistence.cpp): the mutable state as JSON.
     // load_state_json() expects a Simulation built from the same data files (checked by
@@ -104,8 +108,11 @@ private:
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);
-    // Buys the best ship above the hurdle; false if there was none.
-    bool commission_best_ship();
+    // One step of a fleet review: probes a batch of candidates (their cargo runs from the
+    // yard, kept in review_probes_ for the rest of the review), or, once every candidate that
+    // could still win has been probed, buys the best one.
+    enum class CommissionStep { Probed, Bought, NothingToBuy };
+    CommissionStep commission_step();
     void step_idle_ship(domain::ShipState& ship);
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.
@@ -214,6 +221,17 @@ private:
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};
     int investment_purchases_left_ {0};   // of the current review, one per tick
+    // A review's probes, by "hull class|yard": the cargo runs a new ship could fly. Saved with
+    // the game (the review spans several ticks).
+    struct ProbedRun {
+        std::string destination_id;
+        std::string commodity_id;
+        double cargo_units {0.0};
+        double travel_days {0.0};
+        double wait_days {0.0};
+        double fuel_cost {0.0};
+    };
+    std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;
     std::vector<domain::ShipState> sold_ships_;
     double timewarp_factor_ {3600.0};

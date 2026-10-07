@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 2;  // 2: mixed cargo (a list of lots per mission)
+constexpr int kSaveVersion = 3;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -301,6 +301,22 @@ std::string Simulation::save_state_json() const {
     root.set("seeded_money_supply", seeded_money_supply_);
     root.set("next_investment_review_s", next_investment_review_s_);
     root.set("investment_purchases_left", investment_purchases_left_);
+    auto probes = Json::object();
+    for (const auto& [key, runs] : review_probes_) {
+        auto list = Json::array();
+        for (const auto& run : runs) {
+            auto entry = Json::object();
+            entry.set("destination_id", run.destination_id);
+            entry.set("commodity_id", run.commodity_id);
+            entry.set("cargo_units", run.cargo_units);
+            entry.set("travel_days", run.travel_days);
+            entry.set("wait_days", run.wait_days);
+            entry.set("fuel_cost", run.fuel_cost);
+            list.push(std::move(entry));
+        }
+        probes.set(key, std::move(list));
+    }
+    root.set("review_probes", std::move(probes));
     auto investment = Json::object();
     investment.set("ships_commissioned", investment_ledger_.ships_commissioned);
     investment.set("ships_sold", investment_ledger_.ships_sold);
@@ -402,6 +418,21 @@ void Simulation::load_state_json(const std::string& text) {
         });
     }
     const auto& investment = root.get("investment_ledger");
+    std::map<std::string, std::vector<ProbedRun>> review_probes;
+    for (const auto& [key, list] : root.get("review_probes").fields()) {
+        auto& runs = review_probes[key];
+        for (const auto& entry : list.items()) {
+            runs.push_back({
+                .destination_id = entry.get("destination_id").string(),
+                .commodity_id = entry.get("commodity_id").string(),
+                .cargo_units = entry.get("cargo_units").number(),
+                .travel_days = entry.get("travel_days").number(),
+                .wait_days = entry.get("wait_days").number(),
+                .fuel_cost = entry.get("fuel_cost").number(),
+            });
+            (void)get_station_definition(runs.back().destination_id);  // throws on an unknown station
+        }
+    }
 
     game_time_s_ = root.get("game_time_s").number();
     untimed_s_ = root.get("untimed_s").number();
@@ -411,6 +442,7 @@ void Simulation::load_state_json(const std::string& text) {
     seeded_money_supply_ = root.get("seeded_money_supply").number();
     next_investment_review_s_ = root.get("next_investment_review_s").number();
     investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());
+    review_probes_ = std::move(review_probes);
     investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());
     investment_ledger_.ships_sold = static_cast<int>(investment.get("ships_sold").number());
     investment_ledger_.hulls_bought = investment.get("hulls_bought").number();

@@ -106,3 +106,10 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   (two-leg, follow-up). Single-good runs remain candidates. 730 days: **unmet 59.8% (last 146 days 40.6%)**, 49/93
   profitable, fleet holds 41,400 u in 90 ships, fuel 1.09M (v36e 1.77M), money supply **+29.7%** (ships hold 2.4M
   cr; to look at), drift 0, 2 trajectory flags (theta branches), 1m05. The inspector shows the full hold.
+- 23:5x **Fleet reviews spread over ticks (v37b):** a review keeps its probes (cargo runs of each hull at each
+  yard, `review_probes_`, saved with the game; save version 3) and each tick does one batch of 8 probes or one
+  purchase. Worst investment tick 0.9 s (was 2-6 s), 730 days 52 s.
+- 00:0x **Benchmark over several starts** (`tools/benchmark.py`, headless `--start-day`): one run is a poor judge
+  (v37a and v37b differ by 12 points in the last fifth though v37b only moves purchases by hours). Four starts
+  (day 0/90/180/270) in parallel, mean ± sd. v37b: unmet **63.3 ± 2.2%**, last fifth **49.8 ± 5.3%**, 52.8/91.5
+  profitable, holds 42,800 ± 8,500 u, 1.5 trajectory flags per run. **From here on, compare versions with it.**
