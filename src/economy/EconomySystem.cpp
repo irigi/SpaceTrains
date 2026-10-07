@@ -82,15 +82,18 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             // Inventory cap for produced commodities: prevents unbounded accumulation when
             // ships can't distribute fast enough.
             if (recipe->units_per_day > 0.0) {
-                const double cap = std::max(units_per_day * PRODUCTION_CAP_DAYS,
-                    recipe->commodity_id == FUEL_ID ? fuel_buffer_units(*station_it) : 0.0);
+                const double cap = production_cap_units(*station_it, recipe->commodity_id, units_per_day);
                 if (stock > cap) {
                     stock = cap;
                 }
             }
 
+            if (units_per_day < 0.0) {
+                station.demand_units[recipe->commodity_id] -= units_per_day * dt_days;
+            }
             if (stock < 0.0) {
                 if (recipe->units_per_day < 0.0) {
+                    station.unmet_units[recipe->commodity_id] -= stock;
                     std::cerr << std::format(
                         "[STARVED] station={} commodity={} shortfall={:.2f}u\n",
                         station.station_id,
@@ -174,6 +177,11 @@ double EconomySystem::get_price(
     const double ratio = target / std::max(stock, 0.5);
     const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
     return base_price * multiplier;
+}
+
+double EconomySystem::production_cap_units(
+    const domain::StationDefinition& station, const std::string& commodity_id, double units_per_day) const {
+    return std::max(units_per_day * PRODUCTION_CAP_DAYS, commodity_id == FUEL_ID ? fuel_buffer_units(station) : 0.0);
 }
 
 double EconomySystem::get_trade_value(

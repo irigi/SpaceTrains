@@ -56,8 +56,8 @@ constexpr double REFIT_PAYBACK_DAYS = 180.0;
 // Ships carry their return fuel to ports that sell it at more than this multiple of the
 // departure port's price.
 constexpr double TANKERING_PRICE_RATIO = 2.0;
-// Ships' fuel purchases at a station are averaged over about this many days.
-constexpr double SHIP_FUEL_DEMAND_DAYS = 60.0;
+// Ships' fuel purchases and cargo trades at a station are averaged over about this many days.
+constexpr double TRADE_FLOW_DAYS = 60.0;
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -593,7 +593,7 @@ void Simulation::buy_propellant(domain::ShipState& ship, double kg) {
     const double fuel_bill = trade_value(station, "fuel", -transferred_units);
     const double fuel_unit_price = fuel_bill / transferred_units;
     station.inventory["fuel"] -= transferred_units;
-    station.ship_fuel_units_per_day += transferred_units / SHIP_FUEL_DEMAND_DAYS;
+    station.ship_fuel_units_per_day += transferred_units / TRADE_FLOW_DAYS;
     ship.propellant_kg += transferable_kg;
     ship.credits -= fuel_bill;
     ship.lifetime_profit -= fuel_bill;
@@ -696,6 +696,7 @@ Simulation::MissionChoice Simulation::choose_mission(
     double best_cargo_margin = 0.0;
     const domain::TrajectoryPlan* best_plan = nullptr;
     double best_carried_kg = 0.0;
+    std::vector<MissionChoice::CargoOption> cargo_options;
 
     // A newly commissioned ship works the route it was bought for: from home only to its route
     // destination, from anywhere else only home. Otherwise it left once the gap it was bought
@@ -1057,6 +1058,11 @@ Simulation::MissionChoice Simulation::choose_mission(
                     + fuel_premium(plan, fuel_plan.carried_kg);
                 const double cost = trade_value(origin_state, commodity_id, -cargo_units) + fuel_cost
                     + time_cost_per_day * travel_days;
+                if (cargo_only) {
+                    cargo_options.push_back({.destination = &destination, .commodity_id = commodity_id,
+                        .cargo_units = cargo_units, .travel_days = travel_days,
+                        .wait_days = plan.wait_time_s / 86400.0, .fuel_cost = fuel_cost});
+                }
                 std::string follow_label;
                 // Cargo-only probes (fleet investment) value the run on its own and skip the
                 // follow-up forecast, the expensive part of a dispatch pass.
@@ -1267,6 +1273,7 @@ Simulation::MissionChoice Simulation::choose_mission(
     }
 
     MissionChoice choice;
+    choice.cargo_options = std::move(cargo_options);
     if (best_destination == nullptr) {
         return choice;
     }
@@ -1353,6 +1360,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         purchase_cost = trade_value(origin_state, best_commodity, -best_cargo_units);
         const double unit_price = purchase_cost / best_cargo_units;
         origin_state.inventory[best_commodity] -= best_cargo_units;
+        origin_state.export_units_per_day[best_commodity] += best_cargo_units / TRADE_FLOW_DAYS;
         ship.credits -= purchase_cost;
         ship.lifetime_profit -= purchase_cost;
         ship.ledger.cargo_purchases += purchase_cost;
@@ -1645,6 +1653,7 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         const double revenue = trade_value(destination, ship.active_mission.commodity_id, arrived);
         const double unit_price = arrived > 0.0 ? revenue / arrived : 0.0;
         destination.inventory[ship.active_mission.commodity_id] += arrived;
+        destination.import_units_per_day[ship.active_mission.commodity_id] += arrived / TRADE_FLOW_DAYS;
         destination.credits -= revenue;
         ship.credits += revenue;
         ship.lifetime_profit += revenue;
@@ -1699,7 +1708,13 @@ void Simulation::step(double real_dt_s) {
     }
     economy_.step(stations_, dt_s);
     for (auto& station : stations_) {
-        station.ship_fuel_units_per_day *= std::exp(-dt_s / 86400.0 / SHIP_FUEL_DEMAND_DAYS);
+        const double decay = std::exp(-dt_s / 86400.0 / TRADE_FLOW_DAYS);
+        station.ship_fuel_units_per_day *= decay;
+        for (auto* flows : {&station.import_units_per_day, &station.export_units_per_day}) {
+            for (auto& [commodity_id, units_per_day] : *flows) {
+                units_per_day *= decay;
+            }
+        }
     }
     settle_local_economy(stocks_before);
     step_treasuries(dt_s);
@@ -1928,9 +1943,9 @@ void Simulation::commission_best_ship() {
 
     // Candidates: every hull in its standard tanks, built at every station; the winner's tank
     // variants are compared at the end. Dispatch's score is a one-shot rate (a 0.1-day hop with a one-off
-    // price gap scores thousands of credits per day), so a candidate is valued by the flow it
-    // can keep up: the margin per unit of its best cargo run from the yard, times the units it
-    // moves per day, at most what the destination consumes, minus its daily running costs.
+    // price gap scores thousands of credits per day), so a candidate is valued by what its best
+    // cargo run from the yard earns per day over the route commitment (sustained_profit_per_day),
+    // minus its daily running costs.
     double richest_treasury = 0.0;
     for (const auto& [faction_id, balance] : faction_treasuries_) {
         richest_treasury = std::max(richest_treasury, balance);
@@ -2037,33 +2052,99 @@ void Simulation::commission_best_ship() {
         std::string commodity_id;
         double units_per_day {0.0};
     };
+    const auto flow_of = [](const domain::Inventory& flows, const std::string& commodity_id) {
+        const auto it = flows.find(commodity_id);
+        return it == flows.end() ? 0.0 : it->second;
+    };
+    // A cargo run is valued over the route commitment as the ship would fly it: a hold out
+    // every round trip, bought and sold along the price curves of the stocks both stations
+    // would hold by then. The yard keeps making the good and other ships keep taking their
+    // share of it; the destination keeps consuming it and other ships (at least those committed
+    // to the route) keep delivering it. A route already served thus sells near the base
+    // price, not at today's scarcity price.
+    const auto sustained_profit_per_day = [&](const domain::StationDefinition& yard,
+                                              const MissionChoice::CargoOption& option, double& units_per_day) {
+        const auto& commodity_id = option.commodity_id;
+        const auto& commodity = get_commodity(commodity_id);
+        const auto& destination = *option.destination;
+        const auto& yard_state = get_station_state(yard.id);
+        const auto& destination_state = get_station_state(destination.id);
+        const auto yard_rates = economy_.get_station_net_rates(yard);
+        const auto destination_rates = economy_.get_station_net_rates(destination);
+        const bool fuel = commodity_id == economy::FUEL_ID;
+
+        const double yard_rate = yard_rates.contains(commodity_id) ? yard_rates.at(commodity_id) : 0.0;
+        const double yard_drift = yard_rate - flow_of(yard_state.export_units_per_day, commodity_id)
+            - (fuel ? yard_state.ship_fuel_units_per_day : 0.0);
+        const double yard_reserve = 8.0 + std::max(0.0, yard_rate) * 7.0;
+        double yard_stock = flow_of(yard_state.inventory, commodity_id);
+        const double yard_cap = std::max(yard_stock, economy_.production_cap_units(yard, commodity_id, yard_rate));
+        const double destination_drift
+            = (destination_rates.contains(commodity_id) ? destination_rates.at(commodity_id) : 0.0)
+            - (fuel ? destination_state.ship_fuel_units_per_day : 0.0)
+            + std::max(flow_of(destination_state.import_units_per_day, commodity_id),
+                committed_flow(destination.id, commodity_id));
+        double destination_stock = flow_of(destination_state.inventory, commodity_id);
+        const auto advance = [&](double days) {
+            yard_stock = std::clamp(yard_stock + yard_drift * days, 0.0, yard_cap);
+            destination_stock = std::max(0.0, destination_stock + destination_drift * days);
+        };
+
+        // Whole round trips over the commitment, at least one: a run longer than the
+        // commitment earns its margin over its own cycle.
+        const double cycle_days = std::max(1.0, 2.0 * option.travel_days + option.wait_days);
+        const double cycles = std::max(1.0, std::floor(investment.route_commitment_days / cycle_days));
+        const double window_days = cycles * cycle_days;
+        const double leg_days = std::min(cycle_days, option.travel_days + option.wait_days);
+        advance(investment.build_days);
+        double margin = 0.0;
+        double delivered = 0.0;
+        for (int cycle = 0; cycle < static_cast<int>(cycles); ++cycle) {
+            const double units = std::min(option.cargo_units, yard_stock - yard_reserve);
+            if (units <= 1.0) {
+                advance(cycle_days);
+                continue;
+            }
+            // The empty way back is lighter but is often fuelled at the dearer port: count it
+            // as a second loaded leg.
+            const double cost = economy_.get_trade_value(yard, commodity_id, yard_stock, -units, commodity.base_price)
+                + 2.0 * option.fuel_cost;
+            yard_stock -= units;
+            advance(leg_days);
+            const double surviving = units * std::pow(1.0 - commodity.decay_fraction_per_day, option.travel_days);
+            margin += economy_.get_trade_value(destination, commodity_id, destination_stock, surviving, commodity.base_price)
+                - cost;
+            destination_stock += surviving;
+            delivered += surviving;
+            advance(cycle_days - leg_days);
+        }
+        units_per_day = delivered / window_days;
+        return margin / window_days;
+    };
     const auto value_candidate = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
                                      double return_bound) {
         const auto probe = new_ship(ship_class, yard);
         const auto probe_start = std::chrono::steady_clock::now();
         const auto choice = choose_mission(probe, ship_class, false, game_time_s_ + investment.build_days * 86400.0, true);
+        const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id));
         Valuation valuation;
-        if (choice.kind != MissionChoice::Kind::Mission || choice.cargo_units <= 0.0) {
-            valuation.label = "no cargo run";
-        } else {
-            // Out loaded, back empty (the follow-up is only a forecast), at least a day a trip.
-            const double cycle_days = std::max(1.0,
-                2.0 * choice.plan.travel_time_s / 86400.0 + choice.plan.wait_time_s / 86400.0);
-            const double units_per_day = std::min(choice.cargo_units / cycle_days,
-                std::max(0.0, consumption_rate(*choice.destination, choice.commodity_id)
-                    - committed_flow(choice.destination->id, choice.commodity_id)));
-            const double profit_per_day = choice.cargo_margin / choice.cargo_units * units_per_day
-                - (daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id)));
-            valuation.annual_return = profit_per_day * 365.0 / ship_class.ship_value_cr;
-            valuation.label = std::format("{:.0f}u {} -> {} in {:.1f} d, {:.2f} u/d", choice.cargo_units,
-                choice.commodity_id, choice.destination->name, choice.plan.travel_time_s / 86400.0, units_per_day);
-            valuation.destination_id = choice.destination->id;
-            valuation.commodity_id = choice.commodity_id;
-            valuation.units_per_day = units_per_day;
+        valuation.label = "no cargo run";
+        for (const auto& option : choice.cargo_options) {
+            double units_per_day = 0.0;
+            const double profit_per_day = sustained_profit_per_day(yard, option, units_per_day) - running_cost;
+            const double annual_return = profit_per_day * 365.0 / ship_class.ship_value_cr;
+            if (annual_return > valuation.annual_return) {
+                valuation.annual_return = annual_return;
+                valuation.label = std::format("{:.0f}u {} -> {} in {:.1f} d, {:.2f} u/d", option.cargo_units,
+                    option.commodity_id, option.destination->name, option.travel_days, units_per_day);
+                valuation.destination_id = option.destination->id;
+                valuation.commodity_id = option.commodity_id;
+                valuation.units_per_day = units_per_day;
+            }
         }
         if (trace) {
-            std::cerr << std::format("[invest day {:.0f}] {} at {}: {}, margin {:.0f}: {:.0f}%/yr (bound {:.0f}%) in {:.2f} s\n",
-                game_time_s_ / 86400.0, ship_class.id, yard.id, valuation.label, choice.cargo_margin,
+            std::cerr << std::format("[invest day {:.0f}] {} at {}: {} of {} runs: {:.0f}%/yr (bound {:.0f}%) in {:.2f} s\n",
+                game_time_s_ / 86400.0, ship_class.id, yard.id, valuation.label, choice.cargo_options.size(),
                 100.0 * valuation.annual_return, 100.0 * return_bound,
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - probe_start).count());
         }

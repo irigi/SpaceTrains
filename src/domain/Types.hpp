@@ -277,6 +277,14 @@ struct StationState {
     // Fuel ships bought here, units per day, averaged with an exponential window: the demand
     // a tanker serving the station would meet.
     double ship_fuel_units_per_day {0.0};
+    // Cargo ships delivered here and bought here, units per day, averaged the same way: the
+    // flow a new ship competes with.
+    Inventory import_units_per_day {};
+    Inventory export_units_per_day {};
+    // Units the station's consumers asked for since the start, and the part they went without
+    // because the stock had run out.
+    Inventory demand_units {};
+    Inventory unmet_units {};
 };
 
 struct SimulationSnapshot {

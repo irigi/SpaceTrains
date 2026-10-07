@@ -277,6 +277,33 @@ void print_economy_audit(
         }
     }
 
+    // Unmet demand over the whole run: the share of what consumers asked for that they went
+    // without, weighted by base value so a unit of medicine counts more than a unit of water.
+    {
+        std::unordered_map<std::string, double> base_prices;
+        for (const auto& commodity : universe.commodities) {
+            base_prices[commodity.id] = commodity.base_price;
+        }
+        double demand_value = 0.0;
+        double unmet_value = 0.0;
+        std::cout << "\n  [ECON AUDIT] Unmet Demand (since start, consumers that went without):\n";
+        for (const auto& ss : snap.stations) {
+            const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+                [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+            for (const auto& [c, demand] : ss.demand_units) {
+                const double unmet = ss.unmet_units.contains(c) ? ss.unmet_units.at(c) : 0.0;
+                demand_value += demand * base_prices[c];
+                unmet_value += unmet * base_prices[c];
+                if (demand > 0.0 && unmet / demand >= 0.05) {
+                    std::cout << std::format("    {:30s}  {:15s}  {:8.0f} of {:8.0f}u unmet  {:5.1f}%\n",
+                        name, c, unmet, demand, 100.0 * unmet / demand);
+                }
+            }
+        }
+        std::cout << std::format("    Unmet demand: {:.1f}% of {:.0f} cr consumed at base prices ({:.0f} cr unmet)\n",
+            demand_value > 0.0 ? 100.0 * unmet_value / demand_value : 0.0, demand_value, unmet_value);
+    }
+
     // Ship utilization
     int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0, ships_laid_up = 0,
         ships_refitting = 0;

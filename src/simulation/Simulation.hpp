@@ -103,6 +103,17 @@ private:
         // Fuel-aware planning: return fuel loaded on top of the plan's load, for a port that
         // cannot refuel the ship.
         double carried_propellant_kg {0.0};
+        // Cargo-only probes (fleet investment): every feasible cargo run, which the
+        // investment review values at its sustained flow and prices.
+        struct CargoOption {
+            const domain::StationDefinition* destination {nullptr};
+            std::string commodity_id;
+            double cargo_units {0.0};
+            double travel_days {0.0};
+            double wait_days {0.0};
+            double fuel_cost {0.0};
+        };
+        std::vector<CargoOption> cargo_options;
     };
     // `cargo_only`: only cargo runs from the ship's port (no empty legs, no repositioning).
     [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,

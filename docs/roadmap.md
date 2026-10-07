@@ -19,7 +19,7 @@
 ## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30).
 
 ### Decisions so far
 
@@ -73,8 +73,10 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    profitable, Low Earth Logistics food no longer critical, money +7.0%. v28: a new ship shuttles
    between its yard and the destination it was bought for for 180 days, and that flow counts against
    the destination's demand in later reviews (13/29 profitable, fleet profit −1.4%, money +5.5%).
-   Open: the valuation prices the margin at today's scarcity price, which closes once the ship
-   serves the route; Low Earth Logistics metals stay short.
+   v30: each candidate run is valued over the commitment at the stocks both stations would hold,
+   with other ships' observed imports and exports (fleet profit 891k vs 444k in v29, 16/32 profitable).
+   Open: treasuries buy only one ship per review and end with 542k unspent while 72% of demand goes
+   unmet.
 5. **Fuel factories and bulk tankers** (`docs/plans/fuel_factories.md`): done (v29). Fuel factories at
    Venus, Titan, Lunar Gateway, Ceres and Ganymede (none in Earth orbit); other depots only hold what
    ships deliver and price against their buffer. Bulk Tanker and Plasma Bulk Tanker classes (2000 units)
@@ -83,13 +85,18 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    the port's price (cis-lunar plasma spirals are now cost-aware). v29: fuel 690k cr (v28 135k), fleet
    profit 444k (871k), 14/32 profitable, 0 laid up, 0 stranded. Open: Mars runs dry by day 350 and
    Mercury is marginal (no tanker bought for them); Earth-orbit fuel costs 35-60 cr/u.
-6. **Outer-system exports** bought by Earth's economy.
-7. Leftover trajectory items: theta branches, atlas time-optimality (see below).
+6. **Investment rate**: buy every candidate above the hurdle each review (re-valued with the committed
+   flow after each purchase), so the fleet grows toward the demand the audit's "Unmet Demand" shows.
+7. **Outer-system exports** bought by Earth's economy.
+8. Leftover trajectory items: theta branches, atlas time-optimality (see below); Titan -> Ganymede
+   nuclear-thermal plans of about 9000 days.
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v29: 14/32 profitable, cargo margin 1.54M, fuel 690k cr, 0 laid up, 32 CRITICAL lines, money supply +2.2%,
-drift 0, run 5m32). Debug idle ships with
+(v30: 16/32 profitable, fleet profit 891k, cargo margin 1.99M, fuel 699k cr, 1 laid up, unmet demand 71.7%,
+34 CRITICAL lines, money supply +8.8%, drift 0, run 6m57). "Unmet demand" is the share of the stations'
+consumption (by base value, over the whole run) that found no stock; CRITICAL lines only count the
+station goods with under 7 days of stock at the last day. Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)

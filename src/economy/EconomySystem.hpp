@@ -28,6 +28,9 @@ public:
     [[nodiscard]] double fuel_factory_output(const domain::StationDefinition& station) const;
     // A station's depot holds this much fuel: the depot buffer, more at a factory.
     [[nodiscard]] double fuel_buffer_units(const domain::StationDefinition& station) const;
+    // A producer stops adding to its stock of a good it makes at this many units.
+    [[nodiscard]] double production_cap_units(const domain::StationDefinition& station, const std::string& commodity_id,
+        double units_per_day) const;
     // Fuel stock expected after `days` of factory output, ignoring other trade.
     [[nodiscard]] double fuel_stock_after_days(const domain::StationDefinition& station, double stock, double days) const;
 

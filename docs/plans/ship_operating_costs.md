@@ -112,6 +112,7 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v27 | fleet investment (`docs/plans/fleet_investment.md`): 7 ships bought, 4 sold; money supply +7.0% | 1.39M | 119k | 94k | 263k | 15/29 | 0 (0 stranded) | 34 |
 | v28 | route commitment: new ships shuttle their route for 180 days; committed flow counts against demand; money supply +5.5% | 1.39M | 135k | 91k | 261k | 13/29 | 0 (0 stranded) | 33 |
 | v29 | fuel factories (`docs/plans/fuel_factories.md`): only 5 stations make fuel, bulk tankers, ships carry return fuel; money supply +2.2% | 1.54M | 690k | 98k | 276k | 14/32 | 0 (0 stranded) | 32 |
+| v30 | investment valued over the commitment at forecast stocks and observed flows; unmet demand 71.7% (v29 72.3%); money supply +8.8% | 1.99M | 699k | 97k | 273k | 16/32 | 1 (0 stranded) | 34 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).

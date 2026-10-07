@@ -12,16 +12,23 @@ up, and the faction treasuries buy new ships for the routes that pay best.
    (or debt) goes to its home station, booked as a dividend. Sold ships keep their ledger and stay in the
    audit, marked `(sold)`.
 2. **Commissioning.** Every `review_days` (60) the treasuries consider one new ship:
-   - Candidates: every hull in its standard tanks, built at every station that no ship commissioned
-     in the last two reviews calls home, skipping a hull where a ship of it already sits idle or laid
+   - Candidates: every hull in its standard tanks, built at every station whose yard is not still
+     building a ship (since v29; before, no ship commissioned in the last two reviews could call it home), skipping a hull where a ship of it already sits idle or laid
      up (that is the existing fleet's work) and hulls no treasury can pay for.
    - **Valuation: sustained flow, not dispatch's score.** Dispatch's score is a one-shot rate: a 0.1-day
      hop with a one-off price gap scores thousands of credits per day, and annualising it bought ships
      for one-off trades that then lost money (first try: 6 ships, most unprofitable). A candidate is
-     probed by dispatch in cargo-only mode (cargo runs from the yard, no follow-up forecast), and its
-     best run is valued as margin per unit (sale value minus purchase and fuel) × units per day, where
-     units per day = min(hold / round trip, destination's consumption rate), minus the ship's daily
-     capital and crew cost. Annual profit / price must reach `hurdle_return_per_year` (0.3).
+     probed by dispatch in cargo-only mode (cargo runs from the yard, no follow-up forecast), which
+     lists every feasible cargo run. Since v30 each run is valued over the route commitment, as whole
+     round trips (at least one): out loaded, back empty, each hold bought and sold along the price
+     curves of the stocks both stations would hold by then. The yard keeps producing and other ships
+     keep taking their observed share (exports, and ship refuelling for fuel); the destination keeps
+     consuming and other ships keep delivering (observed imports, at least the flow committed to the
+     route). So a route that is already served, or that this ship's own flow saturates, sells near or
+     below the base price instead of today's scarcity price. Fuel counts twice per round trip (the
+     empty way back is lighter, but is often fuelled at the dearer port). Profit per day minus the
+     ship's daily capital and crew cost, over the hull price, must reach `hurdle_return_per_year` (0.3).
+     (v27-v29: margin per unit at the forecast arrival price × min(hold / round trip, open demand).)
    - Probes run in order of a cheap price-based upper bound and stop once the best return beats the
      next bound (the bound is loose at scarcity prices, so it mostly orders the probes). A review takes
      about 5 s, none when no treasury can afford a hull.
@@ -82,7 +89,23 @@ u/day against 9 u/day consumed). Treasury money limits the pace: one ship every 
   the margin it was bought for (271%/yr expected) was gone, and each 0.1-day hop earned about what its
   fuel cost.
 
-**Open point: the valuation prices the margin at the scarcity price.** A ship whose flow covers a
-destination's open demand ends that scarcity, so its sustained sale price is near base, not today's.
-Fix before the treasuries buy bulk tankers: value the sale at base price when the ship's flow covers
-the open demand.
+## v30 result: sustained valuation (730 days)
+
+Imports and exports per station and commodity are now tracked (60-day average of ship cargo trades),
+and the valuation above replaced the one-trip margin. Against v29 (same seed, same code otherwise):
+
+- Fleet lifetime profit 891k (v29 444k), 16/32 profitable (14/32), cargo margin 1.99M (1.54M), fuel
+  699k (690k), money supply +8.8% (+2.2%), unmet demand 71.7% (72.3%), run 6m57 (5m41).
+- 10 ships bought, as in v29, still almost all for the Earth cluster: metals and fuel to Low Earth
+  Logistics, water to Earth L1, electronics to Lunar Gateway. A Plasma Bulk Tanker for Lunar fuel came
+  at day 540 (+78k). Most of the profit gain is in the existing fleet (new ships 266k, v29 371k), so
+  part of it is the different order of purchases, not the valuation itself.
+- First try without the two fixes above: a 9000-day Titan -> Ganymede plan was valued as if it
+  delivered within the window, and only the loaded leg's fuel was counted; an Orbital Tanker bought
+  for Lunar fuel to Earth L1 earned 66k of cargo margin and burned 96k of fuel (fleet profit 394k).
+
+**Open point: one ship per review.** The treasuries end with 542k they could not spend, while consumers
+go without 72% of their demand (by base value; the audit's "Unmet Demand" table). Mars, Mercury,
+Ceres, Ganymede and Titan get almost nothing; the production is there (the system makes 8-10x what
+the stations consume and producers hold large stocks). Buying every candidate above the hurdle each
+review, re-valued after each purchase with its committed flow, is the next lever.
