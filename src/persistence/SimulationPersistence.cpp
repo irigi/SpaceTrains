@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 3;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes
+constexpr int kSaveVersion = 4;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -312,6 +312,7 @@ std::string Simulation::save_state_json() const {
             entry.set("travel_days", run.travel_days);
             entry.set("wait_days", run.wait_days);
             entry.set("fuel_cost", run.fuel_cost);
+            entry.set("run", run.run);
             list.push(std::move(entry));
         }
         probes.set(key, std::move(list));
@@ -429,6 +430,7 @@ void Simulation::load_state_json(const std::string& text) {
                 .travel_days = entry.get("travel_days").number(),
                 .wait_days = entry.get("wait_days").number(),
                 .fuel_cost = entry.get("fuel_cost").number(),
+                .run = static_cast<int>(entry.get("run").number()),
             });
             (void)get_station_definition(runs.back().destination_id);  // throws on an unknown station
         }

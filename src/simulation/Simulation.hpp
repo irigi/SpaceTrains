@@ -154,6 +154,7 @@ private:
             double travel_days {0.0};
             double wait_days {0.0};
             double fuel_cost {0.0};
+            int run {-1};  // lots of one mixed hold share a run number (its fuel is on the first lot)
         };
         std::vector<CargoOption> cargo_options;
     };
@@ -239,6 +240,7 @@ private:
         double travel_days {0.0};
         double wait_days {0.0};
         double fuel_cost {0.0};
+        int run {-1};
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;

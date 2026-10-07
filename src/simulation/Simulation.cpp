@@ -1300,8 +1300,10 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // chunk. Each chunk goes to the good whose next units earn the most along both stations'
     // price curves (weighted by how short the destination is of it), so once fuel's price
     // has fallen below food's the next chunk is food, and a big hold is not filled with one
-    // good that floods its price. Single-good runs are the candidates above.
-    if (!cargo_only) {
+    // good that floods its price. Single-good runs are the candidates above. Fleet
+    // investment probes (cargo_only) get each manifest as lots sharing a run number.
+    int next_run = 0;
+    {
         struct Offer {
             std::string commodity_id;
             double surplus {0.0};
@@ -1427,6 +1429,15 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 }
                 const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                     + fuel_premium(plan, fuel_plan.carried_kg);
+                if (cargo_only) {
+                    const int run = next_run++;
+                    for (std::size_t l = 0; l < lots.size(); ++l) {
+                        cargo_options.push_back({.destination = &destination, .commodity_id = lots[l].commodity_id,
+                            .cargo_units = lots[l].units, .travel_days = travel_days,
+                            .wait_days = plan.wait_time_s / 86400.0, .fuel_cost = l == 0 ? fuel_cost : 0.0, .run = run});
+                    }
+                    continue;
+                }
                 const double trip_cost = fuel_cost + time_cost_per_day * travel_days;
                 const double total_units = domain::total_units(lots);
                 double revenue = 0.0;
@@ -2552,18 +2563,44 @@ Simulation::CommissionStep Simulation::commission_step() {
         const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id));
         Valuation valuation;
         valuation.label = "no cargo run";
-        for (const auto& option : choice.cargo_options) {
-            double units_per_day = 0.0;
-            const double profit_per_day = sustained_profit_per_day(yard, option, units_per_day) - running_cost;
-            const double annual_return = profit_per_day * 365.0 / ship_class.ship_value_cr;
+        // A single-good run is valued alone; the lots of a mixed hold together (each along its
+        // own good's stocks), less the running costs once.
+        struct RunValue {
+            double profit_per_day {0.0};
+            std::string label;
+            const MissionChoice::CargoOption* main_lot {nullptr};
+            double main_units_per_day {0.0};
+        };
+        std::map<int, RunValue> mixed_runs;
+        const auto consider = [&](const RunValue& run) {
+            const double annual_return = (run.profit_per_day - running_cost) * 365.0 / ship_class.ship_value_cr;
             if (annual_return > valuation.annual_return) {
                 valuation.annual_return = annual_return;
-                valuation.label = std::format("{:.0f}u {} -> {} in {:.1f} d, {:.2f} u/d", option.cargo_units,
-                    option.commodity_id, option.destination->name, option.travel_days, units_per_day);
-                valuation.destination_id = option.destination->id;
-                valuation.commodity_id = option.commodity_id;
-                valuation.units_per_day = units_per_day;
+                valuation.label = run.label;
+                valuation.destination_id = run.main_lot->destination->id;
+                valuation.commodity_id = run.main_lot->commodity_id;
+                valuation.units_per_day = run.main_units_per_day;
             }
+        };
+        for (const auto& option : choice.cargo_options) {
+            double units_per_day = 0.0;
+            const double profit_per_day = sustained_profit_per_day(yard, option, units_per_day);
+            const auto label = std::format("{:.0f}u {} -> {} in {:.1f} d, {:.2f} u/d", option.cargo_units,
+                option.commodity_id, option.destination->name, option.travel_days, units_per_day);
+            if (option.run < 0) {
+                consider({.profit_per_day = profit_per_day, .label = label, .main_lot = &option, .main_units_per_day = units_per_day});
+                continue;
+            }
+            auto& run = mixed_runs[option.run];
+            run.profit_per_day += profit_per_day;
+            run.label += (run.label.empty() ? "mixed: " : " + ") + label;
+            if (run.main_lot == nullptr || units_per_day > run.main_units_per_day) {
+                run.main_lot = &option;
+                run.main_units_per_day = units_per_day;
+            }
+        }
+        for (const auto& [run_number, run] : mixed_runs) {
+            consider(run);
         }
         if (trace) {
             std::cerr << std::format("[invest day {:.0f}] {} at {}: {} of {} runs: {:.0f}%/yr (bound {:.0f}%)\n",
@@ -2604,7 +2641,7 @@ Simulation::CommissionStep Simulation::commission_step() {
         for (const auto& run : probed->second) {
             choice.cargo_options.push_back({.destination = &get_station_definition(run.destination_id),
                 .commodity_id = run.commodity_id, .cargo_units = run.cargo_units, .travel_days = run.travel_days,
-                .wait_days = run.wait_days, .fuel_cost = run.fuel_cost});
+                .wait_days = run.wait_days, .fuel_cost = run.fuel_cost, .run = run.run});
         }
         const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound, choice);
         ++probes;
@@ -2634,7 +2671,7 @@ Simulation::CommissionStep Simulation::commission_step() {
             for (const auto& option : choices[k].cargo_options) {
                 runs.push_back({.destination_id = option.destination->id, .commodity_id = option.commodity_id,
                     .cargo_units = option.cargo_units, .travel_days = option.travel_days,
-                    .wait_days = option.wait_days, .fuel_cost = option.fuel_cost});
+                    .wait_days = option.wait_days, .fuel_cost = option.fuel_cost, .run = option.run});
             }
         }
         if (trace) {

@@ -197,3 +197,8 @@ outposts (design question).
   days instead of 60: 51.0 +- 2.7% (noise level), not applied. Contracts with prices fixed at departure would not
   change which goods move (dispatch already plans at the forecast price and later ships count earlier cargo), only
   who bears the forecast error: deferred.
+- 01:2x **v39a: fleet investment values mixed holds** like dispatch flies them: probes return each manifest as lots
+  sharing a run number (the trip's fuel on the first lot); a run is valued as the sum of its lots' sustained profits
+  (each along its own good's stocks) less running costs once (save version 4). Four starts: unmet **50.5 +- 2.4%**
+  (v38 52.8 +- 2.6), last fifth **31.3 +- 4.2** (33.4), holds 97,000 u (73,000), profitable 45.5/91 (51.5), money
+  -1.4 +- 9.3%.
