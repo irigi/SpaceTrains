@@ -696,6 +696,8 @@ Simulation::MissionChoice Simulation::choose_mission(
     double best_cargo_margin = 0.0;
     const domain::TrajectoryPlan* best_plan = nullptr;
     double best_carried_kg = 0.0;
+    std::string best_pickup_commodity;
+    double best_pickup_units = 0.0;
     std::vector<MissionChoice::CargoOption> cargo_options;
 
     // A newly commissioned ship works the route it was bought for: from home only to its route
@@ -826,16 +828,23 @@ Simulation::MissionChoice Simulation::choose_mission(
     };
 
     // A station's surplus left after the ships already docked there or inbound take their
-    // loads. Each of them is assumed to fill its hold from the largest remaining surplus.
-    const auto open_surplus = [&](const domain::StationDefinition& station_def, const domain::StationState& station_state) {
+    // loads, `days_ahead` from now (the producer keeps adding up to its stockpile limit).
+    // An inbound ship takes the follow-up load it planned; the others are assumed to fill
+    // their holds from the largest remaining surplus. (Before v33 every ship was assumed to
+    // take the largest surplus: at Ceres a bulk good, so the platinum looked open to all.)
+    const auto open_surplus = [&](const domain::StationDefinition& station_def, const domain::StationState& station_state,
+                                  double days_ahead = 0.0) {
         const auto rates = economy_.get_station_net_rates(station_def);
         std::unordered_map<std::string, double> surplus_by_commodity;
         for (const auto& [commodity_id, stock] : station_state.inventory) {
             const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
             if (rate > 0.0) {
-                surplus_by_commodity[commodity_id] = stock - (8.0 + rate * 7.0);
+                const double cap = economy_.production_cap_units(station_def, commodity_id, rate);
+                const double forecast = std::max(stock, std::min(cap, stock + rate * days_ahead));
+                surplus_by_commodity[commodity_id] = forecast - (8.0 + rate * 7.0);
             }
         }
+        std::vector<const domain::ShipState*> unplanned;
         for (const auto& other : ships_) {
             if (other.id == ship.id) {
                 continue;
@@ -845,11 +854,22 @@ Simulation::MissionChoice Simulation::choose_mission(
                 && other.active_mission.destination_station_id == station_def.id;
             const bool docked = other.current_station_id == station_def.id
                 && (other.phase == domain::ShipMissionPhase::Idle || other.phase == domain::ShipMissionPhase::Refueling);
-            if ((inbound || docked) && !surplus_by_commodity.empty()) {
-                auto largest = std::max_element(surplus_by_commodity.begin(), surplus_by_commodity.end(),
-                    [](const auto& a, const auto& b) { return a.second < b.second; });
-                largest->second -= std::max(0.0, std::min(largest->second, get_ship_class(other.class_id).cargo_capacity_units));
+            if (inbound && other.active_mission.pickup_units > 0.0) {
+                if (const auto it = surplus_by_commodity.find(other.active_mission.pickup_commodity_id);
+                    it != surplus_by_commodity.end()) {
+                    it->second -= std::max(0.0, std::min(it->second, other.active_mission.pickup_units));
+                }
+            } else if (inbound || docked) {
+                unplanned.push_back(&other);
             }
+        }
+        for (const auto* other : unplanned) {
+            if (surplus_by_commodity.empty()) {
+                break;
+            }
+            auto largest = std::max_element(surplus_by_commodity.begin(), surplus_by_commodity.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; });
+            largest->second -= std::max(0.0, std::min(largest->second, get_ship_class(other->class_id).cargo_capacity_units));
         }
         return surplus_by_commodity;
     };
@@ -864,6 +884,8 @@ Simulation::MissionChoice Simulation::choose_mission(
         double days {0.0};
         bool carries_cargo {false};
         std::string label;
+        std::string commodity_id;
+        double units {0.0};
     };
     std::unordered_map<std::string, std::vector<FollowUp>> follow_ups_by_destination;
     const auto follow_ups_from = [&](const domain::StationDefinition& destination,
@@ -879,7 +901,7 @@ Simulation::MissionChoice Simulation::choose_mission(
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
                 economy_, destination, dest_state, delay_days + plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
-        auto surplus_by_commodity = open_surplus(destination, dest_state);
+        auto surplus_by_commodity = open_surplus(destination, dest_state, follow_days);
         for (const auto& [commodity_id, surplus] : surplus_by_commodity) {
             const double full_units = std::min(surplus, ship_class.cargo_capacity_units);
             if (full_units <= 1.0) {
@@ -933,6 +955,8 @@ Simulation::MissionChoice Simulation::choose_mission(
                     .days = leg.travel_days,
                     .carries_cargo = true,
                     .label = std::format("then {:.0f}u {} -> {}", units, commodity_id, next.id),
+                    .commodity_id = commodity_id,
+                    .units = units,
                 });
             }
         }
@@ -957,7 +981,7 @@ Simulation::MissionChoice Simulation::choose_mission(
                                    double leg_profit,
                                    double leg_days,
                                    bool cargo_follow_up_only,
-                                   std::string& follow_label) {
+                                   FollowUp& follow) {
         double best = -std::numeric_limits<double>::infinity();
         for (const auto& option : follow_ups_from(destination, plan, carried_kg)) {
             if (cargo_follow_up_only && !option.carries_cargo) {
@@ -966,7 +990,7 @@ Simulation::MissionChoice Simulation::choose_mission(
             const double score = (leg_profit + option.profit) / std::max(1.0, leg_days + option.days);
             if (score > best) {
                 best = score;
-                follow_label = option.label;
+                follow = option;
             }
         }
         return best;
@@ -1069,15 +1093,15 @@ Simulation::MissionChoice Simulation::choose_mission(
                         .cargo_units = cargo_units, .travel_days = travel_days,
                         .wait_days = plan.wait_time_s / 86400.0, .fuel_cost = fuel_cost});
                 }
-                std::string follow_label;
+                FollowUp follow;
                 // Cargo-only probes (fleet investment) value the run on its own and skip the
                 // follow-up forecast, the expensive part of a dispatch pass.
                 const double score = cargo_only
                     ? urgency * (revenue - cost) / std::max(1.0, travel_days)
                     : two_leg_score(destination, plan, fuel_plan.carried_kg, urgency * (revenue - cost), travel_days, false,
-                          follow_label);
+                          follow);
                 trace_line(std::format("{}: {:.0f} days revenue {:.0f} cost {:.0f} (time {:.0f}), {}: score {:.1f}{}",
-                    cargo_label, travel_days, revenue, cost, time_cost_per_day * travel_days, follow_label, score,
+                    cargo_label, travel_days, revenue, cost, time_cost_per_day * travel_days, follow.label, score,
                     score > best_score ? " (best so far)" : ""));
                 if (score > best_score) {
                     best_score = score;
@@ -1087,6 +1111,8 @@ Simulation::MissionChoice Simulation::choose_mission(
                     best_cargo_margin = revenue - trade_value(origin_state, commodity_id, -cargo_units) - fuel_cost;
                     best_plan = &plan;
                     best_carried_kg = fuel_plan.carried_kg;
+                    best_pickup_commodity = follow.commodity_id;
+                    best_pickup_units = follow.units;
                 }
             }
         }
@@ -1109,13 +1135,13 @@ Simulation::MissionChoice Simulation::choose_mission(
         const double leg_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
             + fuel_premium(plan, fuel_plan.carried_kg)
             + time_cost_per_day * leg_days;
-        std::string follow_label;
-        const double score = two_leg_score(destination, plan, fuel_plan.carried_kg, -leg_cost, leg_days, true, follow_label);
-        if (follow_label.empty()) {
+        FollowUp follow;
+        const double score = two_leg_score(destination, plan, fuel_plan.carried_kg, -leg_cost, leg_days, true, follow);
+        if (follow.label.empty()) {
             continue;
         }
         trace_line(std::format("empty -> {}: {:.0f} days cost {:.0f}, {}: score {:.1f}{}",
-            destination.id, leg_days, leg_cost, follow_label, score, score > best_score ? " (best so far)" : ""));
+            destination.id, leg_days, leg_cost, follow.label, score, score > best_score ? " (best so far)" : ""));
         if (score > best_score) {
             best_score = score;
             best_destination = &destination;
@@ -1124,6 +1150,8 @@ Simulation::MissionChoice Simulation::choose_mission(
             best_cargo_margin = 0.0;
             best_plan = &plan;
             best_carried_kg = fuel_plan.carried_kg;
+            best_pickup_commodity = follow.commodity_id;
+            best_pickup_units = follow.units;
         }
     }
 
@@ -1133,6 +1161,8 @@ Simulation::MissionChoice Simulation::choose_mission(
         const auto& plan = plan_to(home, 0.0);
         if (plan.feasible && plan.travel_time_s / 86400.0 <= max_mission_days) {
             trace_line("on route: back home empty to " + home.id);
+            best_pickup_commodity.clear();
+            best_pickup_units = 0.0;
             best_score = 0.0;
             best_destination = &home;
             best_plan = &plan;
@@ -1143,6 +1173,8 @@ Simulation::MissionChoice Simulation::choose_mission(
     bool repositioning = false;
     if (best_destination == nullptr && !cargo_only && !on_route) {
         repositioning = true;
+        best_pickup_commodity.clear();
+        best_pickup_units = 0.0;
         best_score = 0.0;  // repositioning scores are in urgency units, not credits/day
 
         // Sourcing score: does this station have surplus goods urgently needed
@@ -1282,6 +1314,8 @@ Simulation::MissionChoice Simulation::choose_mission(
     choice.cargo_margin = best_cargo_margin;
     choice.plan = *best_plan;
     choice.carried_propellant_kg = best_carried_kg;
+    choice.pickup_commodity_id = best_pickup_commodity;
+    choice.pickup_units = best_pickup_units;
     return choice;
 }
 
@@ -1405,6 +1439,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         .sampled_propellant_kg = std::move(sampled_propellant),
         .trajectory_type = plan.trajectory_type,
         .carried_propellant_kg = choice.carried_propellant_kg,
+        .pickup_commodity_id = choice.pickup_commodity_id,
+        .pickup_units = choice.pickup_units,
     };
     if (choice.carried_propellant_kg > 0.0) {
         add_event(std::format("{} carries {:.0f} kg of return fuel to {}", ship.name, choice.carried_propellant_kg,

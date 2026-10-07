@@ -218,6 +218,10 @@ struct MissionAssignment {
     std::string trajectory_type;
     // Return fuel carried for a port that cannot refuel the ship; the samples do not include it.
     double carried_propellant_kg {0.0};
+    // The follow-up load the ship planned to pick up at its destination (none if empty):
+    // other ships' forecasts leave it to this ship.
+    std::string pickup_commodity_id;
+    double pickup_units {0.0};
 };
 
 // Where a ship's money went over its lifetime (all amounts positive, in credits).

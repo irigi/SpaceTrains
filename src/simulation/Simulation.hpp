@@ -104,6 +104,9 @@ private:
         // Fuel-aware planning: return fuel loaded on top of the plan's load, for a port that
         // cannot refuel the ship.
         double carried_propellant_kg {0.0};
+        // Missions: the follow-up load planned at the destination (see MissionAssignment).
+        std::string pickup_commodity_id;
+        double pickup_units {0.0};
         // Cargo-only probes (fleet investment): every feasible cargo run, which the
         // investment review values at its sustained flow and prices.
         struct CargoOption {
