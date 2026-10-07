@@ -42,19 +42,32 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
   economy, faction treasuries) over a strictly closed one; the audit must still reconcile to zero drift.
 - **Outer-system exports:** no exotic matter. Candidates: platinum-group metals (Ceres belt), deuterium
   (Ganymede, Titan), nitrogen/ammonia (Titan), science samples.
+- **Fuel supply (user, 2026-10-07):** for now, fuel is plentiful: every station runs a propellant depot that
+  refills toward a large buffer at a high but finite rate, well above total consumption
+  (`data/economy/fuel_supply.csv`). Later, fuel comes from **fuel factories** at a few particular places
+  (not Earth: lifting from a planet surface costs extra) and very large freighters (or many of them) carry it
+  to the stations that buy it. The planner should also see that a destination will be short of fuel and
+  fly a cheaper trajectory, keeping a reserve in the tank, instead of only rejecting the trip.
 
 ### Next steps, in order
 
 1. **Tech plausibility review** (`docs/plans/tech_plausibility_review.md`): fix reference numbers for the
    era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
-   price ships from the breakdown (naming already confirmed).
+   price ships from the breakdown (naming already confirmed). Done so far: reference numbers, class
+   rebuild (`7cdb236`), fuel depots. Left: pricing, renaming ids and propulsion types.
 2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): tank size as a refit
    option at a base, with refit cost and time; depends on the tank masses from step 1.
 3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
    return for the routes that need serving.
-4. **Open economy** with an external account, subsidies/stashing and a slow money-supply controller.
-5. **Outer-system exports** bought by Earth's economy.
-6. Leftover trajectory items: theta branches, atlas time-optimality (see below).
+4. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
+   sites (candidates: Ceres and the outer ice moons for water-derived propellant, Venus for its chemical
+   industry; not Earth), with depots at other stations only storing what tankers deliver. Needs very large
+   tanker classes (from fleet investment) and **fuel-aware planning**: when the destination's forecast
+   fuel (stock + deliveries by arrival) cannot cover the next leg, the planner picks a lower-Δv trajectory
+   that arrives with the needed reserve still in the tank, and rejects the trip only when none exists.
+5. **Open economy** with an external account, subsidies/stashing and a slow money-supply controller.
+6. **Outer-system exports** bought by Earth's economy.
+7. Leftover trajectory items: theta branches, atlas time-optimality (see below).
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`

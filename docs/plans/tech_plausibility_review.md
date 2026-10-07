@@ -181,6 +181,13 @@ Audit (730 days, `--econ-audit`): cargo margin 324k, fuel 3.6k, wages 38k, 7/22 
 3. **Revenue per trip.** Holds of 1-12 t on ships of 25-100 t dry; cargo pays the same as before while
    the ship is heavier.
 
+Follow-up (v18, fuel depots): every station refills its fuel toward 3000 units at up to 200 units/day
+(`data/economy/fuel_supply.csv`), in tanks outside its cargo storage, and dispatch counts the refills a
+destination makes before the ship arrives. Cargo margin 648k, fuel 168k (fuel now sells at base price
+instead of the old 0.25x glut price, and the ships are heavier), 8/22 profitable, 7 laid up, 0 stranded,
+35 CRITICAL. Five of the six plasma ships are laid up: three times heavier than before with the same small
+holds and their old prices. Pricing (step 3) and hold sizes come next.
+
 ## Method
 
 1. Fix the era from the linopt range above (advanced non-torch fusion or plasma drives; liquid- or gas-core

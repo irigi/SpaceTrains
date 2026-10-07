@@ -199,6 +199,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto recipes_path = root / "recipes" / "recipes.csv";
     const auto ships_path = root / "ships" / "ships.csv";
     const auto ship_operations_path = root / "economy" / "ship_operations.csv";
+    const auto fuel_supply_path = root / "economy" / "fuel_supply.csv";
 
     {
         const auto rows = read_csv_rows(bodies_path);
@@ -382,6 +383,34 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         for (const auto& [commodity_id, _] : operations.life_support_units_per_crew_day) {
             if (!contains_id(universe.commodities, commodity_id)) {
                 throw std::runtime_error("Ship operations reference unknown life-support commodity '" + commodity_id + "'");
+            }
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(fuel_supply_path);
+        require_header(rows.front(), {"key", "value"}, fuel_supply_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& fuel_supply = universe.fuel_supply;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, fuel_supply_path, i + 1);
+            require_unique_id(row[0], seen_keys, fuel_supply_path, i + 1);
+            const double value = parse_double(row[1], fuel_supply_path, i + 1, row[0].c_str());
+            if (value < 0.0) {
+                throw std::runtime_error("'" + row[0] + "' must not be negative in " + fuel_supply_path.string());
+            }
+            if (row[0] == "depot_buffer_units") {
+                fuel_supply.depot_buffer_units = value;
+            } else if (row[0] == "depot_output_units_per_day") {
+                fuel_supply.depot_output_units_per_day = value;
+            } else {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + fuel_supply_path.string());
+            }
+        }
+        for (const char* required : {"depot_buffer_units", "depot_output_units_per_day"}) {
+            if (!seen_keys.contains(required)) {
+                throw std::runtime_error(std::string("Missing key '") + required + "' in " + fuel_supply_path.string());
             }
         }
     }

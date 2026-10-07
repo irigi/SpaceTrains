@@ -69,24 +69,43 @@ int main() {
 
         std::vector<spacetrains::domain::StationState> stations;
         stations.push_back({.station_id = "earth_l1", .inventory = earth_l1->initial_inventory});
-        // Fill the station to capacity with water so production must halt.
-        double stored = 0.0;
-        for (const auto& [_, units] : stations[0].inventory) {
-            stored += units;
-        }
-        stations[0].inventory["water"] += earth_l1->storage_capacity_units - stored;
+        // Fill the station to capacity with water so production must halt. Depot fuel
+        // is stored outside the cargo storage and keeps refilling.
+        stations[0].inventory["water"] += earth_l1->storage_capacity_units
+            - economy.storage_used_units(stations[0].inventory);
 
-        auto total_units = [](const spacetrains::domain::StationState& station) {
-            double total = 0.0;
-            for (const auto& [_, units] : station.inventory) {
-                total += units;
-            }
-            return total;
-        };
-        const double before = total_units(stations[0]);
+        const double before = economy.storage_used_units(stations[0].inventory);
         economy.step(stations, 86400.0);
-        const double after = total_units(stations[0]);
+        const double after = economy.storage_used_units(stations[0].inventory);
         require(after <= before + 1.0e-6, "full station must not gain inventory (production halted)");
+    }
+
+    {
+        // --- Propellant depots refill toward their buffer at a bounded rate ---
+        const auto& fuel_supply = universe.fuel_supply;
+        require(fuel_supply.depot_buffer_units > 0.0 && fuel_supply.depot_output_units_per_day > 0.0,
+            "fuel_supply.csv must enable depots");
+        const auto& earth_l1 = universe.stations.front();
+        std::vector<spacetrains::domain::StationState> stations;
+        stations.push_back({.station_id = earth_l1.id, .inventory = earth_l1.initial_inventory});
+        stations[0].inventory["fuel"] = 0.0;
+        economy.step(stations, 86400.0);
+        // earth_l1 also produces fuel by recipe; the depot adds at most its output per day.
+        const double one_day = stations[0].inventory["fuel"];
+        require(one_day >= fuel_supply.depot_output_units_per_day - 1.0e-6
+                && one_day <= fuel_supply.depot_output_units_per_day + 50.0,
+            "an empty depot must refill at its output rate");
+        for (int day = 0; day < 365; ++day) {
+            economy.step(stations, 86400.0);
+        }
+        require(stations[0].inventory["fuel"] <= fuel_supply.depot_buffer_units + 1.0e-6,
+            "a depot must stop at its buffer");
+        require_near(economy.fuel_stock_after_days(0.0, 2.0), 2.0 * fuel_supply.depot_output_units_per_day, 1.0e-9,
+            "forecast must count refills");
+        require_near(economy.fuel_stock_after_days(0.0, 1.0e6), fuel_supply.depot_buffer_units, 1.0e-9,
+            "forecast must stop at the buffer");
+        require_near(economy.get_price("agri_hub", "fuel", fuel_supply.depot_buffer_units, 8.0), 8.0, 1.0e-9,
+            "a full depot must sell fuel at base price");
     }
 
     {

@@ -354,18 +354,38 @@ namespace {
 
 // Units a station will sell for provisions: consumers keep 14 days of their own
 // use, everyone else a small working stock.
+double sellable_reserve_units(
+    const economy::EconomySystem& economy,
+    const domain::StationDefinition& station_def,
+    const std::string& commodity_id,
+    bool departing) {
+    const auto rates = economy.get_profile_net_rates(station_def.economy_profile_id);
+    const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
+    return departing ? 0.0 : (rate < 0.0 ? std::abs(rate) * 14.0 : 5.0);
+}
+
 double sellable_units(
     const economy::EconomySystem& economy,
     const domain::StationDefinition& station_def,
     const domain::StationState& station_state,
     const std::string& commodity_id,
     bool departing) {
-    const auto rates = economy.get_profile_net_rates(station_def.economy_profile_id);
-    const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
-    const double reserve = departing ? 0.0 : (rate < 0.0 ? std::abs(rate) * 14.0 : 5.0);
     const auto it = station_state.inventory.find(commodity_id);
     const double stock = it == station_state.inventory.end() ? 0.0 : it->second;
-    return std::max(0.0, stock - reserve);
+    return std::max(0.0, stock - sellable_reserve_units(economy, station_def, commodity_id, departing));
+}
+
+// Fuel a station can sell to a ship arriving in `days`, counting the depot's refills
+// meanwhile (but not other ships' purchases).
+double fuel_for_sale_on_arrival_kg(
+    const economy::EconomySystem& economy,
+    const domain::StationDefinition& station_def,
+    const domain::StationState& station_state,
+    double days) {
+    const auto it = station_state.inventory.find(economy::FUEL_ID);
+    const double stock = it == station_state.inventory.end() ? 0.0 : it->second;
+    const double reserve = sellable_reserve_units(economy, station_def, economy::FUEL_ID, false);
+    return std::max(0.0, economy.fuel_stock_after_days(stock, days) - reserve) * FUEL_UNITS_TO_KG;
 }
 
 }  // namespace
@@ -647,7 +667,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                                      double payload_kg) {
         const auto& dest_state = get_station_state(destination.id);
         const double after_arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg);
-        const double dest_fuel_kg = sellable_units(economy_, destination, dest_state, "fuel", false) * FUEL_UNITS_TO_KG;
+        const double dest_fuel_kg = fuel_for_sale_on_arrival_kg(
+            economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0);
         double needed_kg = plan.propellant_required_kg;
         if (ship_class.propulsion_type != "electric_ion" && exhaust_velocity_mps > 0.0) {
             const double planned_mass_kg = ship_class.dry_mass_kg + payload_kg + plan.propellant_load_kg;
@@ -707,7 +728,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const auto& dest_state = get_station_state(destination.id);
         const double arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg);
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
-            arrival_kg + sellable_units(economy_, destination, dest_state, "fuel", false) * FUEL_UNITS_TO_KG);
+            arrival_kg + fuel_for_sale_on_arrival_kg(
+                economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
         // Loads that other ships already docked there or inbound will take first.
         double claimed_units = 0.0;
         for (const auto& other : ships_) {
@@ -830,11 +852,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             // and the destination's free storage.
             double free_capacity = ship_class.cargo_capacity_units;
             if (destination.storage_capacity_units > 0.0) {
-                double stored = 0.0;
-                for (const auto& [_, units] : destination_state.inventory) {
-                    stored += std::max(0.0, units);
-                }
-                free_capacity = std::max(0.0, destination.storage_capacity_units - stored);
+                free_capacity = std::max(0.0,
+                    destination.storage_capacity_units - economy_.storage_used_units(destination_state.inventory));
             }
             const double affordable = origin_price > 0.0 ? spendable_credits / origin_price : surplus;
             const double cargo_units = std::min({ship_class.cargo_capacity_units, surplus, affordable, free_capacity});
@@ -1013,7 +1032,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             if (!can_leave_again(destination, plan, 0.0)) {
                 trace_line(std::format("reposition -> {}: could not refuel to leave again (burns {:.0f} of {:.0f} kg, port sells {:.0f} kg)",
                     destination.id, plan.propellant_required_kg, plan.propellant_load_kg,
-                    sellable_units(economy_, destination, get_station_state(destination.id), "fuel", false) * FUEL_UNITS_TO_KG));
+                    fuel_for_sale_on_arrival_kg(economy_, destination, get_station_state(destination.id),
+                        plan.wait_time_s / 86400.0 + reposition_days)));
                 continue;
             }
             const double reposition_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
@@ -1247,11 +1267,8 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         // Clamp delivery to the destination's free storage; the overflow is jettisoned.
         const auto& destination_def = get_station_definition(ship.current_station_id);
         if (destination_def.storage_capacity_units > 0.0) {
-            double stored = 0.0;
-            for (const auto& [_, units] : destination.inventory) {
-                stored += std::max(0.0, units);
-            }
-            const double free_capacity = std::max(0.0, destination_def.storage_capacity_units - stored);
+            const double free_capacity = std::max(0.0,
+                destination_def.storage_capacity_units - economy_.storage_used_units(destination.inventory));
             if (arrived > free_capacity) {
                 add_event(std::format(
                     "{} jettisoned {:.1f}u {} at {} — storage full",

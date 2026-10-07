@@ -32,6 +32,7 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
 
 void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_s) const {
     const double dt_days = dt_s / 86400.0;
+    const auto& fuel_supply = universe_.fuel_supply;
     for (auto& station : stations) {
         const auto station_it = std::find_if(
             universe_.stations.begin(),
@@ -67,13 +68,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         // Production stops at 85% so the station keeps headroom to receive imports —
         // a producer that fills itself to the brim can no longer be resupplied at all.
         const double capacity = station_it->storage_capacity_units;
-        double total_stored = 0.0;
-        if (capacity > 0.0) {
-            for (const auto& [commodity_id, units] : station.inventory) {
-                total_stored += std::max(0.0, units);
-            }
-        }
-        const bool storage_full = capacity > 0.0 && total_stored >= capacity * 0.85;
+        const bool storage_full = capacity > 0.0 && storage_used_units(station.inventory) >= capacity * 0.85;
 
         for (const auto* recipe : recipe_it->second) {
             const double rate = (recipe->units_per_day > 0.0)
@@ -85,7 +80,8 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             // Inventory cap for produced commodities: prevents unbounded accumulation when
             // ships can't distribute fast enough.
             if (recipe->units_per_day > 0.0) {
-                const double cap = recipe->units_per_day * PRODUCTION_CAP_DAYS;
+                const double cap = std::max(recipe->units_per_day * PRODUCTION_CAP_DAYS,
+                    recipe->commodity_id == FUEL_ID ? fuel_supply.depot_buffer_units : 0.0);
                 if (stock > cap) {
                     stock = cap;
                 }
@@ -103,6 +99,12 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             }
         }
 
+        // Propellant depot: refills toward its buffer at a bounded rate.
+        if (fuel_supply.depot_buffer_units > 0.0) {
+            double& fuel = station.inventory[FUEL_ID];
+            fuel = fuel_stock_after_days(fuel, dt_days);
+        }
+
         // Machinery wear: independent of recipes, represents physical deterioration.
         auto& machinery_stock = station.inventory["machinery"];
         if (machinery_stock > 0.0) {
@@ -111,7 +113,31 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
     }
 }
 
+double EconomySystem::storage_used_units(const domain::Inventory& inventory) const {
+    const bool depot_fuel = universe_.fuel_supply.depot_buffer_units > 0.0;
+    double stored = 0.0;
+    for (const auto& [commodity_id, units] : inventory) {
+        if (!(depot_fuel && commodity_id == FUEL_ID)) {
+            stored += std::max(0.0, units);
+        }
+    }
+    return stored;
+}
+
+double EconomySystem::fuel_stock_after_days(double stock, double days) const {
+    const auto& fuel_supply = universe_.fuel_supply;
+    if (fuel_supply.depot_buffer_units <= 0.0 || stock >= fuel_supply.depot_buffer_units) {
+        return stock;
+    }
+    return std::min(fuel_supply.depot_buffer_units,
+        std::max(0.0, stock) + fuel_supply.depot_output_units_per_day * std::max(0.0, days));
+}
+
 double EconomySystem::get_target_stock(const std::string& profile_id, const std::string& commodity_id) const {
+    // A depot's fuel sells at base price when its buffer is full.
+    if (commodity_id == FUEL_ID && universe_.fuel_supply.depot_buffer_units > 0.0) {
+        return universe_.fuel_supply.depot_buffer_units;
+    }
     const auto it = recipes_by_profile_.find(profile_id);
     double net_rate = 0.0;
     if (it != recipes_by_profile_.end()) {

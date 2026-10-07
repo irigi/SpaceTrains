@@ -67,6 +67,14 @@ struct ShipOperationsDefinition {
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
 
+// Propellant depots (data/economy/fuel_supply.csv). Every station refills its fuel toward
+// a buffer at a bounded rate, so ships rarely find a port dry. The depot's tanks are
+// outside the station's cargo storage capacity.
+struct FuelSupplyDefinition {
+    double depot_buffer_units {0.0};          // 0 = no depots
+    double depot_output_units_per_day {0.0};
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -107,6 +115,7 @@ struct UniverseDefinition {
     std::vector<RecipeDefinition> recipes;
     std::vector<ShipSeedDefinition> ship_seeds;
     ShipOperationsDefinition ship_operations;
+    FuelSupplyDefinition fuel_supply;
 };
 
 enum class ShipMissionPhase {
