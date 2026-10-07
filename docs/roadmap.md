@@ -54,7 +54,8 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
 1. **Tech plausibility review** (`docs/plans/tech_plausibility_review.md`): fix reference numbers for the
    era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
    price ships from the breakdown (naming already confirmed). Done so far: reference numbers, class
-   rebuild (`7cdb236`), fuel depots. Left: pricing, renaming ids and propulsion types.
+   rebuild (`7cdb236`), fuel depots (`dad132c`), pricing. Left: renaming ids and propulsion types,
+   cargo hold sizes.
 2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): tank size as a refit
    option at a base, with refit cost and time; depends on the tank masses from step 1.
 3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best

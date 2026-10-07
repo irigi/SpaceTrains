@@ -153,19 +153,19 @@ cargo at 200 kg/unit. Choices made in this step:
   so bigger holds are a separate economy change.
 - Nuclear-thermal engines are sized for 0.5 m/s² at full tanks (0.3 for the two big liquid-core ships).
 - Plasma ships keep their old α and κ (same trip performance); the jet power grows with the heavier ship.
-- Ship values are unchanged until step 3 prices them from the breakdown. Display names: ion → Plasma.
+- Ship values are priced from the breakdown (see Pricing below). Display names: ion → Plasma.
   Ids and the `propulsion_type` strings (`chemical`, `electric_ion`) are still the old ones.
 - Starting propellant in `ships.csv` keeps each ship's old fraction of a full tank.
 
-| Class | Drive | Crew | Engine | Radiators | Tanks | Habitat | Hold | Structure | Dry | Propellant | Performance |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Light Freighter | solid core | 3 | 2.3 t | - | 16.2 t | 24.0 t | 0.8 t | 4.3 t | 47.7 t | 90.0 t | 950 s, Δv 9.9 km/s (9.0 laden), 0.50 m/s² |
-| Orbital Tanker | solid core | 3 | 2.3 t | - | 16.2 t | 24.0 t | 1.2 t | 4.4 t | 48.1 t | 90.0 t | 950 s, Δv 9.8 km/s (8.5 laden), 0.50 m/s² |
-| Fast Courier | liquid core | 2 | 6.8 t | - | 16.2 t | 16.0 t | 0.3 t | 3.9 t | 43.2 t | 90.0 t | 1400 s, Δv 15.5 km/s (14.8 laden), 0.50 m/s² |
-| Plasma Freighter | plasma | 3 | 1.3 t | 1.0 t | 1.5 t | 24.0 t | 0.4 t | 2.8 t | 31.0 t | 30.0 t | 9 MW jet, α = 291 W/kg, κ = 1.6 |
-| Plasma Courier | plasma | 2 | 2.6 t | 1.9 t | 1.5 t | 16.0 t | 0.2 t | 2.2 t | 24.4 t | 30.0 t | 18 MW jet, α = 738 W/kg, κ = 4.6 |
-| Deep Space Freighter | liquid core | 4 | 8.0 t | - | 32.4 t | 32.0 t | 0.4 t | 7.3 t | 80.0 t | 180.0 t | 1400 s, Δv 16.2 km/s (15.7 laden), 0.30 m/s² |
-| NTR Freighter | liquid core | 4 | 10.6 t | - | 45.0 t | 32.0 t | 0.6 t | 8.8 t | 97.0 t | 250.0 t | 1400 s, Δv 17.5 km/s (16.9 laden), 0.30 m/s² |
+| Class | Drive | Crew | Engine | Radiators | Tanks | Habitat | Hold | Structure | Dry | Propellant | Performance | Price |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Light Freighter | solid core | 3 | 2.3 t | - | 16.2 t | 24.0 t | 0.8 t | 4.3 t | 47.7 t | 90.0 t | 950 s, Δv 9.9 km/s (9.0 laden), 0.50 m/s² | 59 M$ = 46k cr |
+| Orbital Tanker | solid core | 3 | 2.3 t | - | 16.2 t | 24.0 t | 1.2 t | 4.4 t | 48.1 t | 90.0 t | 950 s, Δv 9.8 km/s (8.5 laden), 0.50 m/s² | 59 M$ = 46k cr |
+| Fast Courier | liquid core | 2 | 6.8 t | - | 16.2 t | 16.0 t | 0.3 t | 3.9 t | 43.2 t | 90.0 t | 1400 s, Δv 15.5 km/s (14.8 laden), 0.50 m/s² | 103 M$ = 80k cr |
+| Plasma Freighter | plasma | 3 | 1.3 t | 1.0 t | 1.5 t | 24.0 t | 0.4 t | 2.8 t | 31.0 t | 30.0 t | 9 MW jet, α = 291 W/kg, κ = 1.6 | 52 M$ = 40k cr |
+| Plasma Courier | plasma | 2 | 2.6 t | 1.9 t | 1.5 t | 16.0 t | 0.2 t | 2.2 t | 24.4 t | 30.0 t | 18 MW jet, α = 738 W/kg, κ = 4.6 | 54 M$ = 42k cr |
+| Deep Space Freighter | liquid core | 4 | 8.0 t | - | 32.4 t | 32.0 t | 0.4 t | 7.3 t | 80.0 t | 180.0 t | 1400 s, Δv 16.2 km/s (15.7 laden), 0.30 m/s² | 149 M$ = 116k cr |
+| NTR Freighter | liquid core | 4 | 10.6 t | - | 45.0 t | 32.0 t | 0.6 t | 8.8 t | 97.0 t | 250.0 t | 1400 s, Δv 17.5 km/s (16.9 laden), 0.30 m/s² | 184 M$ = 144k cr |
 
 Nuclear-thermal Δv roughly halves (Light Freighter 20.4 → 9.9 km/s, NTR Freighter 41.1 → 17.5 km/s). Mass
 ratios of 3-3.6 replace 6-20, because tanks, habitat and engine now count.
@@ -187,6 +187,26 @@ destination makes before the ship arrives. Cargo margin 648k, fuel 168k (fuel no
 instead of the old 0.25x glut price, and the ships are heavier), 8/22 profitable, 7 laid up, 0 stranded,
 35 CRITICAL. Five of the six plasma ships are laid up: three times heavier than before with the same small
 holds and their old prices. Pricing (step 3) and hold sizes come next.
+
+## Pricing (method step 3, 2026-10-07)
+
+`build_ship_classes.py` prices each part per kg: plasma engine 10,000 $/kg, radiators 1,500, dense-propellant
+tanks 300, habitat 1,500, structure and hold 300 (all linopt); solid-core NTR engine 5,000, liquid-core
+10,000 and LH2 tanks 600 $/kg (estimates). Dollars convert at 0.00078 cr/$, chosen once so the starting
+fleet's total value stayed at the old 1.65 M cr: relative prices follow the hardware, the total capital
+burden does not move. Cross-check: linopt's 20 $/kg propellant becomes 0.016 cr/kg; the game's fuel base
+price is 0.08 cr/kg.
+
+Habitat dominates every price (24-36 M$ of 52-184 M$), so plasma ships get cheaper (90k -> 40k cr): a 9-18 MW
+drive is only 1-3 t of hardware. Liquid-core ships get dearer (NTR Freighter 120k -> 144k, Deep Space
+Freighter 70k -> 116k) for their big engines and LH2 tanks.
+
+Audit (v19, 730 days): cargo margin 790k, fuel 171k, wages 71k, capital 274k, 9/22 profitable, 6 laid up,
+0 stranded, 31 CRITICAL. Seven ships never move. Two Mars light freighters (≤ 10 km/s; Earth trips don't pay
+for 46 t ships carrying 8 t), the NTR Freighter at Ganymede (needs 229-260 t + 10% reserve for any inner
+destination, holds 250 t), and the Plasma Freighter at Ganymede and Titan (κ 1.6: no atlas window inward
+from Titan; Ceres trips take 3,000-5,000 days). The Plasma Courier (κ 4.6) does leave the outer system.
+These are class sizing questions for fleet investment.
 
 ## Method
 

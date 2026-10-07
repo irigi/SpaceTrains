@@ -41,6 +41,27 @@ STRUCTURE_FRACTION = 0.10         # of all other dry mass
 HOLD_FRACTION = 0.10              # of the rated cargo mass
 RATED_KG_PER_CARGO_UNIT = 200.0   # metals; commodities range 20-500 kg/unit
 
+# Hardware prices [$ per kg]. linopt: plasma engine, radiators, dense-propellant tanks,
+# habitat (its constant-payload price), structure and hold at its tank price.
+# Estimates: NTR engines (solid core half the plasma engine price, liquid core the
+# same) and LH2 tanks (twice linopt's tank price for insulation and cryocoolers).
+USD_PER_KG = {
+    "solid_core": 5_000.0,
+    "liquid_core": 10_000.0,
+    "plasma": 10_000.0,
+    "radiator": 1_500.0,
+    "lh2_tank": 600.0,
+    "plasma_tank": 300.0,
+    "habitat": 1_500.0,
+    "hold": 300.0,
+    "structure": 300.0,
+}
+# Credits per dollar, chosen once (2026-10-07) so the starting fleet's total value stayed
+# at the old hand-set 1.65 M cr: relative prices follow the hardware, the economy's total
+# capital burden does not move. Cross-check: linopt's 20 $/kg propellant -> 0.016 cr/kg
+# (the game's fuel base price is 0.08 cr/kg).
+CR_PER_USD = 0.00078
+
 
 @dataclass(frozen=True)
 class ClassSpec:
@@ -53,26 +74,25 @@ class ClassSpec:
     propellant_kg: float
     accel_full_mps2: float = 0.0   # NTR: thrust / full mass (ship + propellant), sizes the engine
     jet_power_w: float = 0.0       # plasma: jet power, sizes engine + radiators
-    ship_value_cr: float = 0.0     # kept from the old CSV until ships are priced from the breakdown
 
 
 # Cargo holds keep their old sizes in this step; dispatch counts whole holds when it
 # reserves cargo, so larger holds are a separate economy change.
 CLASSES = [
     ClassSpec("light_freighter", "Light Freighter", "solid_core", crew=3, habitat="long",
-              cargo_units=40, propellant_kg=90_000, accel_full_mps2=0.5, ship_value_cr=40_000),
+              cargo_units=40, propellant_kg=90_000, accel_full_mps2=0.5),
     ClassSpec("tanker", "Orbital Tanker", "solid_core", crew=3, habitat="long",
-              cargo_units=60, propellant_kg=90_000, accel_full_mps2=0.5, ship_value_cr=50_000),
+              cargo_units=60, propellant_kg=90_000, accel_full_mps2=0.5),
     ClassSpec("fast_courier", "Fast Courier", "liquid_core", crew=2, habitat="long",
-              cargo_units=15, propellant_kg=90_000, accel_full_mps2=0.5, ship_value_cr=35_000),
+              cargo_units=15, propellant_kg=90_000, accel_full_mps2=0.5),
     ClassSpec("ion_freighter", "Plasma Freighter", "plasma", crew=3, habitat="long",
-              cargo_units=20, propellant_kg=30_000, jet_power_w=9.0e6, ship_value_cr=90_000),
+              cargo_units=20, propellant_kg=30_000, jet_power_w=9.0e6),
     ClassSpec("ion_courier", "Plasma Courier", "plasma", crew=2, habitat="long",
-              cargo_units=8, propellant_kg=30_000, jet_power_w=18.0e6, ship_value_cr=80_000),
+              cargo_units=8, propellant_kg=30_000, jet_power_w=18.0e6),
     ClassSpec("deep_space_freighter", "Deep Space Freighter", "liquid_core", crew=4, habitat="long",
-              cargo_units=20, propellant_kg=180_000, accel_full_mps2=0.3, ship_value_cr=70_000),
+              cargo_units=20, propellant_kg=180_000, accel_full_mps2=0.3),
     ClassSpec("ntr_freighter", "NTR Freighter", "liquid_core", crew=4, habitat="long",
-              cargo_units=30, propellant_kg=250_000, accel_full_mps2=0.3, ship_value_cr=120_000),
+              cargo_units=30, propellant_kg=250_000, accel_full_mps2=0.3),
 ]
 
 
@@ -105,6 +125,20 @@ class Build:
     @property
     def cruise_accel(self) -> float:
         return self.thrust_n / self.wet_kg if self.thrust_n > 0.0 else 0.0
+
+    @property
+    def value_usd(self) -> float:
+        plasma = self.spec.drive == "plasma"
+        return (self.engine_kg * USD_PER_KG[self.spec.drive]
+                + self.radiator_kg * USD_PER_KG["radiator"]
+                + self.tank_kg * USD_PER_KG["plasma_tank" if plasma else "lh2_tank"]
+                + self.habitat_kg * USD_PER_KG["habitat"]
+                + self.hold_kg * USD_PER_KG["hold"]
+                + self.structure_kg * USD_PER_KG["structure"])
+
+    @property
+    def value_cr(self) -> float:
+        return self.value_usd * CR_PER_USD
 
     @property
     def alpha(self) -> float:
@@ -162,7 +196,7 @@ def write_csv(builds: list[Build], path: Path) -> None:
                 0 if plasma else round(b.delta_v()),
                 0 if plasma else round(b.cruise_accel, 3),
                 round(b.alpha) if plasma else 0,
-                round(b.spec.ship_value_cr),
+                int(round(b.value_cr, -2)),
                 b.spec.crew,
             ])
 
@@ -175,13 +209,13 @@ def summary(builds: list[Build]) -> None:
             perf = (f"Isp={b.isp_s:4.0f}s  dv={b.delta_v() / 1000:5.1f} km/s  "
                     f"laden={b.delta_v(b.cargo_kg) / 1000:5.1f}  a={b.cruise_accel:.2f} m/s2")
         print(f"{b.spec.id:22s} dry={b.dry_kg / 1000:6.1f} t  prop={b.spec.propellant_kg / 1000:5.0f} t  "
-              f"MR={b.wet_kg / b.dry_kg:4.2f}  {perf}")
+              f"MR={b.wet_kg / b.dry_kg:4.2f}  {perf}  value={b.value_usd / 1e6:5.1f} M$ = {b.value_cr:6.0f} cr")
 
 
 def markdown(builds: list[Build]) -> None:
     print("| Class | Drive | Crew | Engine | Radiators | Tanks | Habitat | Hold | Structure | Dry | "
-          "Propellant | Performance |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+          "Propellant | Performance | Price |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     t = lambda kg: f"{kg / 1000:.1f} t"
     for b in builds:
         if b.spec.drive == "plasma":
@@ -191,7 +225,8 @@ def markdown(builds: list[Build]) -> None:
                     f"({b.delta_v(b.cargo_kg) / 1000:.1f} laden), {b.cruise_accel:.2f} m/s²")
         print(f"| {b.spec.name} | {b.spec.drive.replace('_', ' ')} | {b.spec.crew} | {t(b.engine_kg)} | "
               f"{t(b.radiator_kg) if b.radiator_kg else '-'} | {t(b.tank_kg)} | {t(b.habitat_kg)} | "
-              f"{t(b.hold_kg)} | {t(b.structure_kg)} | {t(b.dry_kg)} | {t(b.spec.propellant_kg)} | {perf} |")
+              f"{t(b.hold_kg)} | {t(b.structure_kg)} | {t(b.dry_kg)} | {t(b.spec.propellant_kg)} | {perf} | "
+              f"{b.value_usd / 1e6:.0f} M$ = {b.value_cr / 1000:.0f}k cr |")
 
 
 def main() -> None:
