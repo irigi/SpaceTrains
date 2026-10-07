@@ -43,3 +43,10 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   opening tick before its clock starts and catches up stalls of up to 4 s instead of dropping time. Checked with a
   scripted screenshot tour (`godot4 --path godot -- --shot-tour=<dir>`, `godot/scripts/ShotTour.gd`): the Moon's and
   Earth's orbit lines pass through the bodies at the closest zoom; display clock 1.00 day/s, no stalls.
+- 23:2x **10b map look** (checked on screenshots, the user reviews in the morning): bodies at true radius with
+  smooth 128x64 spheres; minimum zoom stops outside the focused body; ship and station models a few tens of km
+  (icons stand in from afar, as in KSP's map); screen-space name labels beside icons with overlap culling (bodies
+  first, then stations, then ships in flight; docked ships unlabelled) instead of world-scaled 3D text; brighter
+  sunlight (energy 16, gentler falloff) and a faint self-lit planet texture so night sides read; brighter planet
+  icons; a larger, brighter, depth-tested Sun halo. **Bug fixed:** billboards (engine glows, Sun halo) ignored their
+  node's scale and were always 0.05 AU wide: a plasma ship near Jupiter filled the screen with blue haze.

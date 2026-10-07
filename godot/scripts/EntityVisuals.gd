@@ -10,7 +10,8 @@ static func make_entity(kind: String, data: Dictionary) -> Node3D:
     var container := Node3D.new()
     match kind:
         "body":
-            container.add_child(_named(_sphere(1.0, 24, 12), "hull"))
+            # Dense enough for a smooth limb when a planet fills the screen.
+            container.add_child(_named(_sphere(1.0, 128, 64), "hull"))
         "station":
             _build_station(container)
         "ship":
@@ -194,7 +195,14 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
             var texture_path := "res://assets/planets/%s.jpg" % body_id
             if ResourceLoader.exists(texture_path):
                 var material := _standard(Color.WHITE, 0.9)
-                material.albedo_texture = load(texture_path)
+                var texture: Texture2D = load(texture_path)
+                material.albedo_texture = texture
+                # A faint glow of the planet's own texture keeps the night side readable
+                # (a map, not a photograph).
+                material.emission_enabled = true
+                material.emission_texture = texture
+                material.emission = Color.WHITE
+                material.emission_energy_multiplier = 0.08
                 materials["hull"] = material
             else:
                 materials["hull"] = _standard(body_color(body_id), 0.82)
@@ -248,6 +256,9 @@ static func _make_engine_glow() -> MeshInstance3D:
     material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
     material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
     material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+    # Without this a billboard ignores its node's scale and is always one world unit
+    # (0.05 AU) across: a ship's glow filled the screen near Jupiter.
+    material.billboard_keep_scale = true
     material.albedo_texture = _glow_falloff_texture()
     material.albedo_color = Color(1.0, 0.8, 0.45)
     instance.material_override = material

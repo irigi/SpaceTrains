@@ -1,11 +1,14 @@
 extends Node3D
 
 const POSITION_SCALE := 1.0 / 8_000_000_000.0
-const BODY_MIN_MODEL_SCALE := 0.00045
-const SHIP_MIN_MODEL_SCALE := 0.00008
-const STATION_MIN_MODEL_SCALE := 0.00012
-const SHIP_MASS_SCALE := 0.00012
-const STATION_POPULATION_SCALE := 0.00016
+# Bodies are drawn at their true radius (a map icon stands in when they are a few pixels
+# across, as in Kerbal Space Program's map view). Ships and stations are tiny next to a
+# planet; their models are a few tens of kilometres, shown only up close, icons otherwise.
+const BODY_MIN_MODEL_SCALE := 1.0e-9
+const SHIP_MIN_MODEL_SCALE := 0.000004
+const STATION_MIN_MODEL_SCALE := 0.000006
+const SHIP_MASS_SCALE := 0.000006
+const STATION_POPULATION_SCALE := 0.000008
 const BRIDGE_STEP_SECONDS := 0.1
 # The simulation advances in ticks of 0.1 day (Simulation::TICK_S). Between snapshots the
 # display clock runs on at the timewarp rate, at most this far ahead of the last snapshot.
@@ -26,6 +29,10 @@ const BODY_ICON_SIZE := {
 const STATION_ICON_SIZE := 8.0
 const SHIP_ICON_SIZE := 8.0
 const ICON_ALPHA := 0.58
+const BODY_ICON_ALPHA := 0.92
+# Screen-space labels next to the map icons.
+const LABEL_FONT_SIZE := {"body": 14, "station": 12, "ship": 11}
+const LABEL_OFFSET_PX := Vector2(10.0, -9.0)
 const ICON_PICK_PADDING_PX := 6.0
 const DEBUG_SAMPLE_BODY_IDS := ["sun", "mercury", "earth", "mars", "jupiter", "saturn", "neptune"]
 const DEBUG_LOG_INTERVAL_S := 1.0
@@ -131,6 +138,7 @@ var sun_light: OmniLight3D
 var space_env: Node3D
 var map_icon_layer: Control
 var _map_icons: Dictionary = {}
+var _map_labels: Dictionary = {}
 var _icon_textures: Dictionary = {}
 var debug_map_enabled := false
 var debug_log_accum_s := 0.0
@@ -449,6 +457,9 @@ func _apply_snapshot() -> void:
             if _map_icons.has(entity_id):
                 (_map_icons[entity_id] as Node).queue_free()
                 _map_icons.erase(entity_id)
+            if _map_labels.has(entity_id):
+                (_map_labels[entity_id] as Node).queue_free()
+                _map_labels.erase(entity_id)
             ids_changed = true
             if entity_id == focused_id:
                 focused_id = ""
@@ -487,7 +498,6 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_nodes[entity_id] = container
         entity_targets[entity_id] = Vector3.ZERO
         entity_visual_signatures[entity_id] = ""
-        _attach_entity_label(container, kind, data)
         _attach_map_icon(entity_id, kind, data)
         if entity_id == "saturn":
             container.add_child(SpaceEnvironmentScript.make_planet_ring())
@@ -497,10 +507,6 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         EntityVisualsScript.apply_visuals(entity_nodes[entity_id], kind, data, faction_colors)
         entity_nodes[entity_id].scale = _make_scale(kind, data)
         entity_visual_signatures[entity_id] = visual_signature
-    if kind == "ship":
-        EntityVisualsScript.update_engine_glow(
-            entity_nodes[entity_id], data, float(bridge_state.get("game_time_s", 0.0)),
-            _world_size_for_pixels(entity_nodes[entity_id], 28.0))
     # Positions are computed every frame (_update_nodes); this marks the entity as placeable.
     entity_targets[entity_id] = _scaled_position(data)
 
@@ -527,9 +533,11 @@ func _update_nodes(delta: float) -> void:
         var kind: String = entity_kinds.get(entity_id, "")
         node.position = _to_render(_entity_m(entity_id))
         if kind == "ship":
-            if String((entity_details.get(entity_id, {}) as Dictionary).get("phase", "idle")) != "in_transit":
+            var detail: Dictionary = entity_details.get(entity_id, {})
+            if String(detail.get("phase", "idle")) != "in_transit":
                 node.position += _docked_ship_offset(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
+            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0))
     _update_history_trails(delta)
     if space_env != null:
         space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
@@ -539,7 +547,7 @@ func _update_nodes(delta: float) -> void:
         sun_light.global_position = sun_node.global_position
         if space_env != null:
             space_env.update_sun(sun_node.global_position, sun_node.scale.x,
-                _world_size_for_pixels(sun_node, 64.0))
+                _world_size_for_pixels(sun_node, 110.0))
     if space_env != null:
         space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
@@ -1020,9 +1028,9 @@ func _setup_scene_lighting() -> void:
         scene_light.light_energy = 0.0
     sun_light = OmniLight3D.new()
     sun_light.name = "SunLight"
-    sun_light.light_energy = 10.0
+    sun_light.light_energy = 16.0
     sun_light.omni_range = 700.0  # past Neptune (~562 units) so outer planets get sunlight
-    sun_light.omni_attenuation = 0.35  # gentler than physical falloff for readability
+    sun_light.omni_attenuation = 0.15  # far gentler than physical falloff: outer planets stay readable
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
@@ -1035,7 +1043,7 @@ func _setup_scene_lighting() -> void:
     env.ambient_light_color = Color(0.16, 0.17, 0.22, 1.0)
     # High enough that textured night sides stay readable, low enough that the
     # sunward terminator still shows.
-    env.ambient_light_energy = 0.45
+    env.ambient_light_energy = 0.55
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
     env.glow_enabled = true
     env.glow_intensity = 0.6
@@ -1057,28 +1065,6 @@ func _setup_map_icon_layer() -> void:
     map_icon_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
     canvas_layer.add_child(map_icon_layer)
     canvas_layer.move_child(map_icon_layer, 0)
-
-func _attach_entity_label(node: Node3D, kind: String, data: Dictionary) -> void:
-    var label := Label3D.new()
-    label.text = String(data.get("name", data.get("id", "")))
-    label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-    label.no_depth_test = true
-    label.modulate = Color(0.92, 0.94, 1.0, 0.78)
-    label.outline_size = 6
-    if kind == "body":
-        label.font_size = 22
-        label.pixel_size = 0.03
-        label.position = Vector3(0, _model_display_scale(kind, data) + 0.08, 0)
-    elif kind == "station":
-        label.font_size = 16
-        label.pixel_size = 0.018
-        label.position = Vector3(0, _model_display_scale(kind, data) + 0.045, 0)
-    else:
-        label.font_size = 14
-        label.pixel_size = 0.016
-        label.position = Vector3(0, _model_display_scale(kind, data) + 0.04, 0)
-        label.visible = false
-    node.add_child(label)
 
 func _icon_shape(kind: String, data: Dictionary) -> String:
     if kind == "body":
@@ -1151,23 +1137,42 @@ func _attach_map_icon(entity_id: String, kind: String, data: Dictionary) -> void
     else:
         canvas_layer.add_child(icon_node)
     _map_icons[entity_id] = icon_node
+    var label := Label.new()
+    label.name = "%s_label" % entity_id
+    label.text = String(data.get("name", entity_id))
+    label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    label.add_theme_font_size_override("font_size", int(LABEL_FONT_SIZE.get(kind, 11)))
+    var label_color := _icon_color(kind, data).lightened(0.45)
+    label_color.a = 0.9 if kind == "body" else 0.75
+    label.add_theme_color_override("font_color", label_color)
+    label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+    label.add_theme_constant_override("outline_size", 4)
+    label.visible = false
+    (map_icon_layer if map_icon_layer != null else canvas_layer).add_child(label)
+    _map_labels[entity_id] = label
 
 func _projected_model_pixels(node: Node3D) -> float:
     var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
-    var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-9)
     return node.scale.x / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
 
 # Inverse of the above: the world size that projects to target_pixels at the
 # node's current camera distance.
 func _world_size_for_pixels(node: Node3D, target_pixels: float) -> float:
     var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
-    var dist: float = max(camera.global_position.distance_to(node.global_position), 0.0001)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-9)
     return target_pixels / viewport_height * 2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)
 
 func _update_map_icons() -> void:
     var viewport_rect := get_viewport().get_visible_rect()
+    # Labels are placed in priority order (bodies, stations, ships; selected first) and
+    # skipped where they would overlap one already placed.
+    var label_candidates: Array = []
     for entity_id in _map_icons.keys():
         var icon: Sprite2D = _map_icons[entity_id]
+        var label: Label = _map_labels.get(entity_id)
+        if label != null:
+            label.visible = false
         var model: Node3D = entity_nodes.get(entity_id)
         if not model or not entity_details.has(entity_id) or camera.is_position_behind(model.global_position):
             icon.visible = false
@@ -1179,20 +1184,46 @@ func _update_map_icons() -> void:
         var selected_scale := 1.25 if entity_id == selected_id else 1.0
         var target_size := pixel_size * selected_scale
         var screen_pos := camera.unproject_position(model.global_position)
-
-        # Hand off from map icon to the actual mesh once it is large on screen.
-        if _projected_model_pixels(model) > target_size * 1.5:
+        if not viewport_rect.grow(pixel_size).has_point(screen_pos):
             icon.visible = false
             continue
-        icon.visible = viewport_rect.grow(pixel_size).has_point(screen_pos)
-        if not icon.visible:
+        var model_pixels := _projected_model_pixels(model)
+        # Hand off from map icon to the actual mesh once it is large on screen.
+        icon.visible = model_pixels <= target_size * 1.5
+        if icon.visible:
+            icon.position = screen_pos
+            var texture_size := Vector2(icon.texture.get_width(), icon.texture.get_height())
+            icon.scale = Vector2.ONE * (target_size / max(texture_size.x, texture_size.y))
+            var color := (_icon_color(kind, data).lightened(0.35) if entity_id == selected_id else _icon_color(kind, data))
+            color.a = BODY_ICON_ALPHA if kind == "body" else ICON_ALPHA
+            icon.modulate = color
+        if label == null:
             continue
-        icon.position = screen_pos
-        var texture_size := Vector2(icon.texture.get_width(), icon.texture.get_height())
-        icon.scale = Vector2.ONE * (target_size / max(texture_size.x, texture_size.y))
-        var color := (_icon_color(kind, data).lightened(0.35) if entity_id == selected_id else _icon_color(kind, data))
-        color.a = ICON_ALPHA
-        icon.modulate = color
+        var priority := {"body": 0, "station": 1, "ship": 2}.get(kind, 3) as int
+        if entity_id == selected_id:
+            priority = -1
+        elif kind == "ship" and String(data.get("phase", "")) != "in_transit":
+            continue  # docked ships are listed by their station
+        var offset := LABEL_OFFSET_PX
+        if not icon.visible:
+            # Beside the body's disc rather than over it.
+            offset.x += minf(model_pixels, viewport_rect.size.x * 0.25)
+        label_candidates.append({"id": entity_id, "priority": priority, "position": screen_pos + offset})
+    label_candidates.sort_custom(func(a, b): return a["priority"] < b["priority"])
+    var placed: Array[Rect2] = []
+    for candidate in label_candidates:
+        var label: Label = _map_labels[candidate["id"]]
+        var rect := Rect2(candidate["position"], label.get_minimum_size())
+        var free := true
+        for other in placed:
+            if other.grow(2.0).intersects(rect):
+                free = false
+                break
+        if not free:
+            continue
+        label.position = candidate["position"]
+        label.visible = true
+        placed.append(rect)
 
 func _update_map_debug(delta: float) -> void:
     if not debug_map_enabled:
@@ -1483,6 +1514,12 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
         return
     focused_id = entity_id
     focused_kind = entity_kind
+    # Zoom stops outside the focused body (bodies are drawn at true size now).
+    var min_distance := 0.00002
+    if entity_kind == "body":
+        min_distance = maxf(min_distance, _body_display_scale(entity_id) * 1.6)
+    camera_rig.set("min_distance", min_distance)
+    camera_rig.set("distance", maxf(float(camera_rig.get("distance")), min_distance))
     if entity_nodes.has(entity_id):
         camera_rig.focus_point(entity_nodes[entity_id].global_position)
     else:

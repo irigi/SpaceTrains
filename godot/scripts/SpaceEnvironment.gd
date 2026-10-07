@@ -134,10 +134,11 @@ func _build_sun_halo() -> MeshInstance3D:
     material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
     material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
     material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+    material.billboard_keep_scale = true  # sized by update_sun()
     material.albedo_texture = _radial_falloff_texture()
     # HDR push so the halo core crosses the glow threshold and blooms.
-    material.albedo_color = Color(1.6, 1.45, 1.15)
-    material.no_depth_test = true
+    material.albedo_color = Color(2.4, 2.1, 1.6)
+    # Depth-tested, so a planet in front hides the Sun's glow.
     material.disable_receive_shadows = true
     instance.material_override = material
     instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
