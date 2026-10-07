@@ -83,6 +83,19 @@ struct FuelSupplyDefinition {
     double depot_output_units_per_day {0.0};
 };
 
+// The open economy (data/economy/open_economy.csv). Faction treasuries keep each station's
+// balance inside a band, ships pay the cash above a working reserve to their owner (the home
+// station), and a slow controller transfers money per head of population to hold the money
+// supply in stations and ships near the seeded amount.
+struct OpenEconomyDefinition {
+    double station_credit_floor {0.0};     // subsidies close the gap below this
+    double station_credit_ceiling {0.0};   // taxes take the excess above this; 0 = no taxes
+    double station_balance_days {90.0};    // time to close a subsidy or tax gap
+    double ship_cash_reserve {0.0};        // dividends take the excess above this; 0 = no dividends
+    double dividend_days {30.0};
+    double money_supply_days {0.0};        // controller time constant; 0 = no controller
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -124,6 +137,7 @@ struct UniverseDefinition {
     std::vector<ShipSeedDefinition> ship_seeds;
     ShipOperationsDefinition ship_operations;
     FuelSupplyDefinition fuel_supply;
+    OpenEconomyDefinition open_economy;
 };
 
 enum class ShipMissionPhase {
@@ -184,6 +198,7 @@ struct ShipLedger {
     double capital {0.0};
     double provisions {0.0};
     double refits {0.0};
+    double dividends {0.0};  // surplus cash paid to the owner; not a cost, so not in lifetime_profit
 };
 
 struct ShipState {
@@ -208,14 +223,30 @@ struct ShipState {
     double next_refit_review_s {0.0};
 };
 
+// A station's money flows with the world outside the simulated trade (the open economy),
+// all amounts positive, in credits.
+struct StationLedger {
+    double household_sales {0.0};       // residents and local industry paid for goods they used up
+    double producer_purchases {0.0};    // the market paid local producers and its depot for new output
+    double dividends {0.0};             // paid in by the ships it owns
+    double subsidies {0.0};             // from the faction treasury (band floor and money-supply controller)
+    double taxes {0.0};                 // to the faction treasury (band ceiling and money-supply controller)
+};
+
 struct StationState {
     std::string station_id;
     Inventory inventory;
     double credits {0.0};
+    StationLedger ledger;
 };
 
 struct SimulationSnapshot {
     double game_time_s {0.0};
+    // The outside economy: residents and local producers (what they paid into the simulated
+    // economy is negative) and the faction treasuries. Station + ship + outside + treasury
+    // credits always equal the seeded money.
+    double outside_economy_credits {0.0};
+    std::unordered_map<std::string, double> faction_treasuries;
     std::vector<StationState> stations;
     std::vector<ShipState> ships;
     std::vector<EventEntry> recent_events;

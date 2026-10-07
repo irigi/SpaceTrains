@@ -201,6 +201,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto ships_path = root / "ships" / "ships.csv";
     const auto ship_operations_path = root / "economy" / "ship_operations.csv";
     const auto fuel_supply_path = root / "economy" / "fuel_supply.csv";
+    const auto open_economy_path = root / "economy" / "open_economy.csv";
 
     {
         const auto rows = read_csv_rows(bodies_path);
@@ -425,6 +426,47 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             if (!seen_keys.contains(required)) {
                 throw std::runtime_error(std::string("Missing key '") + required + "' in " + fuel_supply_path.string());
             }
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(open_economy_path);
+        require_header(rows.front(), {"key", "value"}, open_economy_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& open_economy = universe.open_economy;
+        const std::unordered_map<std::string, double*> fields {
+            {"station_credit_floor", &open_economy.station_credit_floor},
+            {"station_credit_ceiling", &open_economy.station_credit_ceiling},
+            {"station_balance_days", &open_economy.station_balance_days},
+            {"ship_cash_reserve", &open_economy.ship_cash_reserve},
+            {"dividend_days", &open_economy.dividend_days},
+            {"money_supply_days", &open_economy.money_supply_days},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, open_economy_path, i + 1);
+            require_unique_id(row[0], seen_keys, open_economy_path, i + 1);
+            const double value = parse_double(row[1], open_economy_path, i + 1, row[0].c_str());
+            if (value < 0.0) {
+                throw std::runtime_error("'" + row[0] + "' must not be negative in " + open_economy_path.string());
+            }
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + open_economy_path.string());
+            }
+            *field->second = value;
+        }
+        for (const auto& [key, field] : fields) {
+            if (!seen_keys.contains(key)) {
+                throw std::runtime_error("Missing key '" + key + "' in " + open_economy_path.string());
+            }
+        }
+        if (open_economy.station_balance_days <= 0.0 || open_economy.dividend_days <= 0.0) {
+            throw std::runtime_error("station_balance_days and dividend_days must be positive in " + open_economy_path.string());
+        }
+        if (open_economy.station_credit_ceiling > 0.0
+            && open_economy.station_credit_ceiling < open_economy.station_credit_floor) {
+            throw std::runtime_error("station_credit_ceiling must not be below the floor in " + open_economy_path.string());
         }
     }
 

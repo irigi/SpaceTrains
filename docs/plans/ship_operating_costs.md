@@ -108,6 +108,7 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v23 | economy scaled with population: recipe rates per 10k inhabitants x10, storage and stocks x pop/1000 | 335k | 187k | 75k | 281k | 3/22 | 6 | 39 |
 | v24 | + sales valued on the destination's forecast stock (inbound cargo, consumption by arrival) | 929k | 185k | 88k | 281k | 8/22 | 4 (0 stranded) | 36 |
 | v25 | part C: tank refits at the home base (50/100/150/200% variants; 19k cr of yard bills) | 1.47M | 92k | 85k | 274k | 11/22 | 4 (0 stranded) | 36 |
+| v26 | open economy (`docs/plans/open_economy.md`): fleet unchanged; money supply +16.7%, every station at or above the 25k floor | 1.47M | 92k | 85k | 274k | 11/22 | 4 (0 stranded) | 36 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).

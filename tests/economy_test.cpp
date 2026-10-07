@@ -159,14 +159,48 @@ int main() {
 
         const auto snap = sim.snapshot();
         double final_supply = 0.0;
+        spacetrains::domain::StationLedger stations_ledger;
         for (const auto& station : snap.stations) {
             final_supply += station.credits;
+            stations_ledger.household_sales += station.ledger.household_sales;
+            stations_ledger.producer_purchases += station.ledger.producer_purchases;
+            stations_ledger.dividends += station.ledger.dividends;
+            stations_ledger.subsidies += station.ledger.subsidies;
+            stations_ledger.taxes += station.ledger.taxes;
         }
+        double ship_dividends = 0.0;
         for (const auto& ship : snap.ships) {
             final_supply += ship.credits;
+            ship_dividends += ship.ledger.dividends;
         }
+        const double internal_supply = final_supply;
+        double treasuries = 0.0;
+        for (const auto& [faction_id, balance] : snap.faction_treasuries) {
+            treasuries += balance;
+        }
+        final_supply += snap.outside_economy_credits + treasuries;
         require_near(final_supply, initial_supply, 1.0e-3,
-            "money must be conserved: every trade is a transfer, never a source or sink");
+            "money must be conserved: stations, ships and the external account only transfer credits");
+
+        // The open economy: every external payment is booked on a station ledger.
+        require(stations_ledger.household_sales > 0.0 && stations_ledger.producer_purchases > 0.0,
+            "residents must pay for consumed goods and stations must pay local producers");
+        require_near(snap.outside_economy_credits,
+            stations_ledger.producer_purchases - stations_ledger.household_sales, 1.0e-3,
+            "the outside economy's balance must equal producer payments minus resident payments");
+        require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies, 1.0e-3,
+            "the faction treasuries' balance must equal taxes minus subsidies");
+        require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
+            "dividends paid by ships must equal dividends received by stations");
+        const auto& open = sim.universe().open_economy;
+        require(open.money_supply_days > 0.0 && open.station_credit_ceiling > open.station_credit_floor,
+            "open_economy.csv must enable the controller and a credit band");
+        require(std::abs(internal_supply / initial_supply - 1.0) < 0.25,
+            "the money-supply controller must hold stations + ships within 25% of the seeded money");
+        for (const auto& ship : snap.ships) {
+            require(ship.credits < 4.0 * open.ship_cash_reserve,
+                "ships must pay out cash far above their working reserve as dividends");
+        }
 
         // Trades must have happened and be internally consistent.
         require(!sim.recent_trades().empty(), "180 days of simulation must produce trades");

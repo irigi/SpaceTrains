@@ -323,8 +323,8 @@ void print_economy_audit(
         std::cout << "\n";
     }
 
-    // Money: per-entity balances and total supply. Total must equal the seeded
-    // amount exactly — every trade is a transfer, never a source or sink.
+    // Money: per-entity balances and total supply. Stations, ships and the external
+    // account must add up to the seeded amount exactly: every payment is a transfer.
     double initial_supply = 0.0;
     for (const auto& sd : universe.stations) {
         initial_supply += sd.initial_credits;
@@ -335,24 +335,51 @@ void print_economy_audit(
     double station_credits = 0.0;
     double ship_credits = 0.0;
     std::cout << "\n  [ECON AUDIT] Money:\n";
+    // A station's stock is worth the price curve integrated from zero up to it; trades along
+    // the curve move money and stock value in step, so this shows where money went into goods.
+    const auto stock_value = [&](const spacetrains::domain::StationDefinition& sd,
+                                 const spacetrains::domain::Inventory& inventory) {
+        double value = 0.0;
+        for (const auto& commodity : universe.commodities) {
+            const auto it = inventory.find(commodity.id);
+            const double stock = it == inventory.end() ? 0.0 : std::max(0.0, it->second);
+            value += economy.get_trade_value(sd, commodity.id, 0.0, stock, commodity.base_price);
+        }
+        return value;
+    };
+    std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s}\n",
+        "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock");
+    spacetrains::domain::StationLedger stations_total;
     for (const auto& ss : snap.stations) {
         station_credits += ss.credits;
+        const auto& l = ss.ledger;
+        stations_total.household_sales += l.household_sales;
+        stations_total.producer_purchases += l.producer_purchases;
+        stations_total.dividends += l.dividends;
+        stations_total.subsidies += l.subsidies;
+        stations_total.taxes += l.taxes;
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            std::cout << std::format("    {:30s}  {:>12.0f} cr\n", sd.name, ss.credits);
+            std::cout << std::format("    {:30s}  {:>12.0f} cr  {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:+9.0f}\n",
+                sd.name, ss.credits, l.household_sales, l.producer_purchases, l.dividends, l.subsidies, l.taxes,
+                stock_value(sd, ss.inventory) - stock_value(sd, sd.initial_inventory));
             break;
         }
     }
+    std::cout << std::format(
+        "    Stations: residents paid {:.0f}, producers were paid {:.0f}, dividends {:.0f}, subsidies {:.0f}, taxes {:.0f}\n",
+        stations_total.household_sales, stations_total.producer_purchases, stations_total.dividends,
+        stations_total.subsidies, stations_total.taxes);
     spacetrains::domain::ShipLedger fleet;
     int profitable = 0;
-    std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s} {:>6s}  {}\n",
-        "", "", "profit", "margin", "fuel", "wages", "capital", "prov", "refit", "class");
+    std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s} {:>6s} {:>7s}  {}\n",
+        "", "", "profit", "margin", "fuel", "wages", "capital", "prov", "refit", "divid", "class");
     for (const auto& ship : snap.ships) {
         ship_credits += ship.credits;
         const auto& l = ship.ledger;
-        std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f}  {}\n",
+        std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}\n",
             ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
-            l.fuel, l.wages, l.capital, l.provisions, l.refits, ship.class_id);
+            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id);
         fleet.cargo_revenue += l.cargo_revenue;
         fleet.cargo_purchases += l.cargo_purchases;
         fleet.fuel += l.fuel;
@@ -360,16 +387,31 @@ void print_economy_audit(
         fleet.capital += l.capital;
         fleet.provisions += l.provisions;
         fleet.refits += l.refits;
+        fleet.dividends += l.dividends;
         profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
     }
     std::cout << std::format(
         "    Fleet: cargo margin {:.0f} (sold {:.0f}, bought {:.0f})  fuel {:.0f}  wages {:.0f}  capital {:.0f}"
-        "  provisions {:.0f}  refits {:.0f}  -> {}/{} ships profitable\n",
+        "  provisions {:.0f}  refits {:.0f}  dividends {:.0f}  -> {}/{} ships profitable\n",
         fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
-        fleet.wages, fleet.capital, fleet.provisions, fleet.refits, profitable, snap.ships.size());
-    const double total_supply = station_credits + ship_credits;
-    std::cout << std::format("    Total supply: {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
-        total_supply, initial_supply, total_supply - initial_supply);
+        fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, snap.ships.size());
+    const double internal_supply = station_credits + ship_credits;
+    double treasuries = 0.0;
+    std::cout << "    Faction treasuries:";
+    for (const auto& faction : universe.factions) {
+        const auto it = snap.faction_treasuries.find(faction.id);
+        const double balance = it == snap.faction_treasuries.end() ? 0.0 : it->second;
+        treasuries += balance;
+        std::cout << std::format("  {} {:.0f}", faction.name, balance);
+    }
+    std::cout << " cr\n";
+    const double external = snap.outside_economy_credits + treasuries;
+    const double total_supply = internal_supply + external;
+    std::cout << std::format("    Money supply: stations {:.0f} + ships {:.0f} = {:.0f} cr  (initial {:.0f}, {:+.1f}%)\n",
+        station_credits, ship_credits, internal_supply, initial_supply,
+        initial_supply != 0.0 ? 100.0 * (internal_supply / initial_supply - 1.0) : 0.0);
+    std::cout << std::format("    External: residents and producers {:.0f} + treasuries {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
+        snap.outside_economy_credits, treasuries, total_supply, initial_supply, total_supply - initial_supply);
 
     // Per-commodity price spread across stations.
     std::cout << "\n  [ECON AUDIT] Prices (min/avg/max across stations):\n";

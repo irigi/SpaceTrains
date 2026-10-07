@@ -16,10 +16,10 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). (No ship purchasing exists in the code as of 2026-10; see fleet investment.)
 
-## Current Plan (updated 2026-10-06) — start here
+## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `ab6e782` population-scaled economy (v24), part C tank refits (v25).
+Last commits: `773443c` part C tank refits (v25), open economy (v26).
 
 ### Decisions so far
 
@@ -60,23 +60,29 @@ Last commits: `ab6e782` population-scaled economy (v24), part C tank refits (v25
 2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): done (v25). Every class
    has 50/100/150/200% tank variants on one hull; ships refit at their home base when the missions the
    neighbouring tank size opens repay a 20-day yard stay and a bill of 30% of the hardware change.
-   Mostly inner-system ships shrink their tanks. Consumer stations now bleed faster (LEO −458k), so the
-   open economy (step 5) is more urgent.
-3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
-   return for the routes that need serving.
-4. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
+   Mostly inner-system ships shrink their tanks. Consumer stations bled faster (LEO −458k), so the open
+   economy went next.
+3. **Open economy** (`docs/plans/open_economy.md`): done (v26), moved ahead of fleet investment. Residents
+   pay for consumed goods and stations pay local producers (at most the base price) against an external
+   account; ships pay cash above a 50k reserve to their home station; faction treasuries keep station
+   cash between 25k and 250k; a 60-day controller holds the money in stations and ships near the seeded
+   amount (v26: +16.7% at day 730, driven by food scarcity at Low Earth Logistics). Money drift 0.
+4. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
+   return for the routes that need serving. Faction treasuries can fund new ships. First target: the
+   food gap between Earth L1 and Low Earth Logistics (one 30-unit courier serves it; residents pay 15× base).
+5. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
    sites (candidates: Ceres and the outer ice moons for water-derived propellant, Venus for its chemical
    industry; not Earth), with depots at other stations only storing what tankers deliver. Needs very large
    tanker classes (from fleet investment) and **fuel-aware planning**: when the destination's forecast
    fuel (stock + deliveries by arrival) cannot cover the next leg, the planner picks a lower-Δv trajectory
    that arrives with the needed reserve still in the tank, and rejects the trip only when none exists.
-5. **Open economy** with an external account, subsidies/stashing and a slow money-supply controller.
 6. **Outer-system exports** bought by Earth's economy.
 7. Leftover trajectory items: theta branches, atlas time-optimality (see below).
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v25: 11/22 profitable, cargo margin 1.47M, fuel 92k cr, 4 laid up, 36 CRITICAL lines, run 2m55). Debug idle ships with
+(v26: 11/22 profitable, cargo margin 1.47M, fuel 92k cr, 4 laid up, 36 CRITICAL lines, money supply +16.7%,
+drift 0, run 2m57). Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)
@@ -134,12 +140,7 @@ Next fixes:
   routes. Owners should respond: sell or scrap ships laid up for long periods (salvage value), and commission
   new ships of the class with the best observed return on capital for the routes that need serving. Needs
   per-class, per-route earnings (the ship ledgers already hold most of it).
-- **Open economy with exact accounting.** Stations produce for free and consumers only spend, so consumer
-  stations bleed money (Lunar Gateway ended a 730-day run at -87k cr) while producers and home ports pile it up.
-  Add an explicit external account (Earth's economy and faction treasuries): population income, subsidies to
-  stations below a floor, taxes or stashing above a ceiling, and a slow controller that keeps the money supply
-  roughly constant. The audit keeps checking that every credit moves between named accounts (internal money +
-  external account = constant), so it still catches economy bugs.
+- **Open economy with exact accounting:** done (v26), see `docs/plans/open_economy.md`.
 - **Outer-system exports.** Give outer stations something worth shipping inward, not exotic matter.
   Candidates: platinum-group metals and other high-value metals from the Ceres belt; deuterium (heavy water)
   from Ganymede and Titan ice for fusion research and reactors; nitrogen and ammonia from Titan for the

@@ -73,6 +73,13 @@ private:
     void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
     void pay_home_station(domain::ShipState& ship, double amount);
+    // Open economy: residents pay their station for the goods the economy step used up, and
+    // the station pays local producers (and its fuel depot) for new output, along the same
+    // price curve as ship trades. The other side of every payment is the external account.
+    void settle_local_economy(const std::vector<domain::Inventory>& stocks_before);
+    // Dividends, the faction treasuries' subsidies and taxes, and the money-supply controller.
+    void step_treasuries(double dt_s);
+    [[nodiscard]] double internal_money_supply() const;
     void step_idle_ship(domain::ShipState& ship);
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.
@@ -127,6 +134,9 @@ private:
     std::unique_ptr<trajectory::KeplerTrajectoryPlanner> kepler_planner_;
     std::unique_ptr<trajectory::VariableIspTrajectoryPlanner> variable_isp_planner_;
     double game_time_s_ {0.0};
+    double outside_economy_credits_ {0.0};
+    std::unordered_map<std::string, double> faction_treasuries_;
+    double seeded_money_supply_ {0.0};
     double timewarp_factor_ {3600.0};
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;

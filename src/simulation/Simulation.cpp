@@ -153,10 +153,13 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     kepler_planner_ = std::make_unique<trajectory::KeplerTrajectoryPlanner>(universe_, mechanics_);
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
-        stations_.push_back({.station_id = station.id, .inventory = station.initial_inventory, .credits = station.initial_credits});
+        stations_.push_back({.station_id = station.id, .inventory = station.initial_inventory, .credits = station.initial_credits, .ledger = {}});
     }
     for (const auto& ship_class : universe_.ship_classes) {
         ship_classes_by_id_[ship_class.id] = &ship_class;
+    }
+    for (const auto& faction : universe_.factions) {
+        faction_treasuries_[faction.id] = 0.0;
     }
     for (const auto& seed : universe_.ship_seeds) {
         ships_.push_back({
@@ -179,6 +182,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .next_refit_review_s = 0.0,
         });
     }
+    seeded_money_supply_ = internal_money_supply();
     // Ships start with their full life-support endurance aboard, as if fresh from the yard.
     constexpr double INITIAL_PROVISION_DAYS = PROVISION_ENDURANCE_DAYS;
     for (auto& ship : ships_) {
@@ -1567,7 +1571,14 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
 void Simulation::step(double real_dt_s) {
     const double dt_s = real_dt_s * timewarp_factor_;
     game_time_s_ += dt_s;
+    std::vector<domain::Inventory> stocks_before;
+    stocks_before.reserve(stations_.size());
+    for (const auto& station : stations_) {
+        stocks_before.push_back(station.inventory);
+    }
     economy_.step(stations_, dt_s);
+    settle_local_economy(stocks_before);
+    step_treasuries(dt_s);
 
     for (auto& ship : ships_) {
         accrue_operating_costs(ship, dt_s);
@@ -1599,9 +1610,123 @@ void Simulation::step(double real_dt_s) {
     }
 }
 
+void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stocks_before) {
+    for (std::size_t i = 0; i < stations_.size(); ++i) {
+        auto& station = stations_[i];
+        const auto& definition = get_station_definition(station.station_id);
+        for (const auto& [commodity_id, after] : station.inventory) {
+            const auto before_it = stocks_before[i].find(commodity_id);
+            const double before = before_it == stocks_before[i].end() ? 0.0 : before_it->second;
+            const double delta = after - before;
+            if (delta == 0.0) {
+                continue;
+            }
+            const double base_price = get_commodity(commodity_id).base_price;
+            double value = economy_.get_trade_value(definition, commodity_id, before, delta, base_price);
+            if (delta > 0.0) {
+                // Local producers are paid at most the base price: the scarcity premium is
+                // for goods brought from elsewhere. Otherwise a producer short of its own
+                // output (a fresh start) pays its producers up to 16x for stock it never sells.
+                const double target = economy_.get_target_stock(definition, commodity_id);
+                const double below_target = std::max(0.0, std::min(after, target) - before);
+                if (below_target > 0.0) {
+                    value += base_price * below_target
+                        - economy_.get_trade_value(definition, commodity_id, before, below_target, base_price);
+                }
+            }
+            if (delta < 0.0) {
+                station.credits += value;
+                station.ledger.household_sales += value;
+                outside_economy_credits_ -= value;
+            } else {
+                station.credits -= value;
+                station.ledger.producer_purchases += value;
+                outside_economy_credits_ += value;
+            }
+        }
+    }
+}
+
+double Simulation::internal_money_supply() const {
+    double total = 0.0;
+    for (const auto& station : stations_) {
+        total += station.credits;
+    }
+    for (const auto& ship : ships_) {
+        total += ship.credits;
+    }
+    return total;
+}
+
+void Simulation::step_treasuries(double dt_s) {
+    const auto& open = universe_.open_economy;
+    const double dt_days = dt_s / 86400.0;
+
+    // Ships keep a working reserve; the rest goes to the owner, the home station.
+    if (open.ship_cash_reserve > 0.0) {
+        const double share = std::min(1.0, dt_days / open.dividend_days);
+        for (auto& ship : ships_) {
+            if (ship.credits <= open.ship_cash_reserve) {
+                continue;
+            }
+            const double dividend = (ship.credits - open.ship_cash_reserve) * share;
+            auto& home = get_station_state(ship.home_station_id);
+            ship.credits -= dividend;
+            ship.ledger.dividends += dividend;
+            home.credits += dividend;
+            home.ledger.dividends += dividend;
+        }
+    }
+
+    // The slow controller hands the money-supply gap to the stations per head of population,
+    // as subsidies (or taxes when there is too much money).
+    double per_capita = 0.0;
+    if (open.money_supply_days > 0.0) {
+        double population = 0.0;
+        for (const auto& definition : universe_.stations) {
+            population += static_cast<double>(definition.population);
+        }
+        if (population > 0.0) {
+            per_capita = (seeded_money_supply_ - internal_money_supply()) * std::min(1.0, dt_days / open.money_supply_days)
+                / population;
+        }
+    }
+
+    // Faction treasuries close the gap of stations outside the credit band.
+    const double band_share = std::min(1.0, dt_days / open.station_balance_days);
+    for (auto& station : stations_) {
+        const auto& definition = get_station_definition(station.station_id);
+        double transfer = 0.0;
+        if (station.credits < open.station_credit_floor) {
+            transfer = (open.station_credit_floor - station.credits) * band_share;
+        } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
+            transfer = -(station.credits - open.station_credit_ceiling) * band_share;
+        }
+        // The controller never pushes a station out of the band, or it would fight the band.
+        const double after_band = station.credits + transfer;
+        const double controller = per_capita * static_cast<double>(definition.population);
+        if (controller < 0.0) {
+            transfer -= std::min(-controller, std::max(0.0, after_band - open.station_credit_floor));
+        } else if (open.station_credit_ceiling > 0.0) {
+            transfer += std::min(controller, std::max(0.0, open.station_credit_ceiling - after_band));
+        } else {
+            transfer += controller;
+        }
+        station.credits += transfer;
+        faction_treasuries_[definition.faction_id] -= transfer;
+        if (transfer > 0.0) {
+            station.ledger.subsidies += transfer;
+        } else {
+            station.ledger.taxes -= transfer;
+        }
+    }
+}
+
 domain::SimulationSnapshot Simulation::snapshot() const {
     return {
         .game_time_s = game_time_s_,
+        .outside_economy_credits = outside_economy_credits_,
+        .faction_treasuries = faction_treasuries_,
         .stations = stations_,
         .ships = ships_,
         .recent_events = recent_events_,
@@ -1716,6 +1841,15 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         total_credits += ship.credits;
     }
     output << "\"total_credits\":" << total_credits << ",";
+    output << "\"outside_economy_credits\":" << outside_economy_credits_ << ",";
+    output << "\"faction_treasuries\":{";
+    for (std::size_t i = 0; i < universe_.factions.size(); ++i) {
+        const auto& faction_id = universe_.factions[i].id;
+        const auto it = faction_treasuries_.find(faction_id);
+        output << (i > 0 ? "," : "") << "\"" << json_escape(faction_id) << "\":"
+               << (it == faction_treasuries_.end() ? 0.0 : it->second);
+    }
+    output << "},";
 
     output << "\"recent_trades\":[";
     for (std::size_t i = 0; i < recent_trades_.size(); ++i) {

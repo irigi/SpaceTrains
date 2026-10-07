@@ -263,6 +263,10 @@ int main() {
         for (const auto& ship : snap.ships) {
             total += ship.credits;
         }
+        total += snap.outside_economy_credits;
+        for (const auto& [faction_id, balance] : snap.faction_treasuries) {
+            total += balance;
+        }
         return total;
     };
     for (int i = 0; i < 90; ++i) {
@@ -324,7 +328,7 @@ int main() {
 
     const auto after = sim.snapshot();
     require(after.game_time_s > before.game_time_s, "time should advance");
-    require_near(total_credits(after), total_credits(before), 1.0e-6, "trades, costs and refits should conserve money");
+    require_near(total_credits(after), total_credits(before), 1.0e-6, "trades, costs, refits and the open economy should conserve money");
     require(saw_refit, "the seeded fleet should refit at least one ship's tanks within 90 days");
     require(!after.recent_events.empty(), "simulation should emit events");
     const auto bridge_json = sim.build_bridge_snapshot_json(false, 1, 0.1);

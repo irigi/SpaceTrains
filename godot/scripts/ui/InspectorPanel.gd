@@ -106,7 +106,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         _faction_color(detail, context))
 
     var credits := float(detail.get("credits", 0.0))
-    _add_label("Treasury: " + UiTheme.format_credits(credits),
+    _add_label("Cash: " + UiTheme.format_credits(credits),
         UiTheme.CREDITS if credits >= 0.0 else UiTheme.ALERT)
 
     var capacity := float(detail.get("storage_capacity", 0.0))
