@@ -70,6 +70,11 @@ func _measure_smoothness(seconds: float, timewarp: float) -> void:
             stalled_frames += 1
             stall += delta
             longest_stall = maxf(longest_stall, stall)
+            if stall > 1.0 and stall - delta <= 1.0:
+                print("[ShotTour] stall >1 s at display day %.2f: last snapshot day %.2f (%.2f s ago), pace %.0f, seq %d" % [
+                    now / 86400.0, float(main.get("snapshot_game_time_s")) / 86400.0,
+                    main._wall_time_s() - float(main.get("snapshot_wall_s")), float(main.get("sim_pace")),
+                    int(main.get("current_snapshot_seq"))])
         else:
             stall = 0.0
         last_time = now

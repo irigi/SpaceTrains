@@ -677,10 +677,15 @@ func _advance_display_clock(delta: float) -> void:
     if target > display_time_s:
         next += rate * delta * brake
         next += (target - next) * clampf(delta * 3.0, 0.0, 1.0)
-    else:
+        next = minf(next, limit)
+    elif display_time_s < limit:
         var slow := clampf(1.0 - (display_time_s - target) / max_lead, 0.2, 1.0)
-        next += rate * delta * slow * brake
-    display_time_s = maxf(display_time_s, minf(next, limit))
+        next = minf(next + rate * delta * slow * brake, limit)
+    elif _wall_time_s() - snapshot_wall_s < 0.5:
+        # Past the limit (it shrinks when the simulation slows down after running fast):
+        # crawl while snapshots keep coming rather than freeze; stop only if they stop.
+        next += rate * delta * 0.2
+    display_time_s = maxf(display_time_s, next)
 
 func _cache_orbits() -> void:
     for body in bridge_state.get("bodies", []):

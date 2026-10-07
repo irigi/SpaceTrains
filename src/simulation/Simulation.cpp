@@ -2618,7 +2618,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     // Candidates are valued in order of their bound, so the early stop picks the same ship
     // as probing one by one. A candidate not probed yet in this review stops the scan: the
     // next batch is probed (this tick) and the purchase waits for a later tick.
-    constexpr std::size_t kProbeBatch = 4;
+    constexpr std::size_t kProbeBatch = 2;
     const auto probe_key = [](const Candidate& candidate) {
         return candidate.ship_class->id + "|" + candidate.yard->id;
     };

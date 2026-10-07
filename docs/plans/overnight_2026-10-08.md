@@ -202,10 +202,15 @@ outposts (design question).
   (each along its own good's stocks) less running costs once (save version 4). Four starts: unmet **50.5 +- 2.4%**
   (v38 52.8 +- 2.6), last fifth **31.3 +- 4.2** (33.4), holds 97,000 u (73,000), profitable 45.5/91 (51.5), money
   -1.4 +- 9.3%.
-- 01:4x **Four-start, 4-year comparison** (1460 days): v38 unmet 35.8 +- 0.5%, last ~290 days **17.6 +- 1.5%**,
+- 01:3x **Four-start, 4-year comparison** (1460 days): v38 unmet 35.8 +- 0.5%, last ~290 days **17.6 +- 1.5%**,
   79/95 profitable, money +0.5 +- 3.4%; v39a 34.4 +- 3.5%, last ~290 days **15.4 +- 5.9%**, 72/94 profitable, money
   -9.1 +- 7.7%. Within each other's noise; v39a kept (investment values ships the way dispatch flies them), with
   fewer profitable ships and less money as the price. Steady state: ~15-18% of demand unmet. Registry rows have
   tooltips (a ship's destination and hold, a station's shortages). The ramp-up in the first two years is limited
   by the treasuries' money (two of three factions hold ~55k after the first reviews), not by the 8-per-review cap
   (16 per review: identical results).
+- 01:4x **No more stalls at 5 days/s:** the display may lead by up to 3 s of real time; at 5 days/s that is 15
+  days, and when a fleet review slows the simulation the allowed lead shrank below where the display already was,
+  so it froze until the simulation caught up (diagnosed with the tour's stall report: display 3.3 days ahead). Now
+  it crawls at a fifth of the rate while snapshots keep coming. Reviews probe 2 candidates per tick. Measured in the
+  window at day 0-600: **5 days/s: 0.8% of frames stalled, longest 0.24 s** (was 13%, 3 s); 1 day/s: none.
