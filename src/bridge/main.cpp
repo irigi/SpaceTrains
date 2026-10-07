@@ -109,34 +109,55 @@ int main(int argc, char** argv) {
     const auto write_snapshot = [&]() {
         const auto now = std::chrono::steady_clock::now();
         const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
-        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused, snapshot_seq++, snapshot_real_time_s));
+        const auto seq = snapshot_seq++;
+        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s));
+        // The UI polls this small file every frame and reads the snapshot only when it changes.
+        write_text_file(config.snapshot_file + ".seq", std::to_string(seq));
     };
 
-    auto tick = [&]() {
+    // Game time follows real time x timewarp: each loop hands the simulation the real time
+    // since the last one, and it runs the whole ticks due. A slow tick (mission planning)
+    // delays the next snapshot but not the pace; the UI keeps the picture moving meanwhile.
+    constexpr double kMaxCatchUpS = 0.5;  // after a long stall, drop time rather than race
+    std::string last_command_text;
+    auto last_loop = std::chrono::steady_clock::now();
+    const auto tick = [&]() {
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsed_s = std::min(kMaxCatchUpS, std::chrono::duration<double>(now - last_loop).count());
+        last_loop = now;
+        bool changed = false;
         const std::string command_text = read_text_file(config.command_file);
-        if (!command_text.empty()) {
+        if (!command_text.empty() && command_text != last_command_text) {
+            last_command_text = command_text;
             paused = parse_bool_flag(command_text, "paused", paused);
             timewarp = parse_number_flag(command_text, "timewarp_factor", timewarp);
             simulation.set_timewarp(timewarp);
+            changed = true;
         }
-
         if (!paused) {
-            simulation.step(config.step_seconds);
+            const double before_s = simulation.game_time_s();
+            simulation.step(elapsed_s);
+            changed = changed || simulation.game_time_s() != before_s;
         }
-        write_snapshot();
+        if (changed) {
+            write_snapshot();
+        }
     };
 
-    // The first step dispatches the whole fleet at once (about half a minute of trajectory
+    // The first tick dispatches the whole fleet at once (a few seconds of trajectory
     // planning): show the starting state before it, so the UI does not wait on a blank screen.
     write_snapshot();
 
     if (config.once) {
-        tick();
+        simulation.step(config.step_seconds);
+        write_snapshot();
         return 0;
     }
 
+    const auto loop_period = std::chrono::duration<double>(std::min(config.step_seconds, 0.05));
     while (true) {
+        const auto loop_start = std::chrono::steady_clock::now();
         tick();
-        std::this_thread::sleep_for(std::chrono::duration<double>(config.step_seconds));
+        std::this_thread::sleep_until(loop_start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(loop_period));
     }
 }

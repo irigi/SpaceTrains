@@ -700,6 +700,7 @@ Simulation::LegEstimate Simulation::estimate_leg(
 }
 
 void Simulation::defer_plan(const std::string& key, DeferredPlan request) {
+    ++missing_plans_;
     if (deferred_keys_.insert(key).second) {
         deferred_plans_->push_back(std::move(request));
     }
@@ -714,6 +715,7 @@ Simulation::MissionChoice Simulation::choose_mission(
         std::vector<DeferredPlan> deferred;
         deferred_plans_ = &deferred;
         deferred_keys_.clear();
+        deferred_prefix_.clear();
         std::string trace_text;
         auto choice = choose_mission_pass(ship, ship_class, trace, earliest_departure_s, cargo_only, plans, trace_text);
         deferred_plans_ = nullptr;
@@ -727,6 +729,42 @@ Simulation::MissionChoice Simulation::choose_mission(
             deferred[i].commit(std::move(results[i]));
         }
     }
+}
+
+std::vector<Simulation::MissionChoice> Simulation::choose_missions(const std::vector<MissionRequest>& requests) {
+    const profiling::Scope profile_scope(profiling::Phase::ChooseMission);
+    std::vector<std::unordered_map<std::string, domain::TrajectoryPlan>> plans(requests.size());
+    std::vector<MissionChoice> choices(requests.size());
+    std::vector<bool> done(requests.size(), false);
+    for (bool all_done = requests.empty(); !all_done;) {
+        std::vector<DeferredPlan> deferred;
+        deferred_plans_ = &deferred;
+        deferred_keys_.clear();
+        all_done = true;
+        for (std::size_t r = 0; r < requests.size(); ++r) {
+            if (done[r]) {
+                continue;
+            }
+            const auto missing_before = missing_plans_;
+            deferred_prefix_ = std::format("{}#", r);
+            std::string trace_text;
+            const auto& request = requests[r];
+            choices[r] = choose_mission_pass(*request.ship, *request.ship_class, false, request.earliest_departure_s,
+                request.cargo_only, plans[r], trace_text);
+            // A pass that found every plan is final (a plan another request queued first in
+            // this pass still counts as missing).
+            done[r] = missing_plans_ == missing_before;
+            all_done = all_done && done[r];
+        }
+        deferred_plans_ = nullptr;
+        deferred_prefix_.clear();
+        std::vector<domain::TrajectoryPlan> results(deferred.size());
+        thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        for (std::size_t i = 0; i < deferred.size(); ++i) {
+            deferred[i].commit(std::move(results[i]));
+        }
+    }
+    return choices;
 }
 
 Simulation::MissionChoice Simulation::choose_mission_pass(
@@ -842,7 +880,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             plan.summary = "pending";
             return plan;
         }();
-        defer_plan("plan|" + key, {
+        defer_plan(deferred_prefix_ + "plan|" + key, {
             .compute = [&planner, &origin_def, &destination, &ship, &ship_class,
                            departure_s = std::max(game_time_s_, earliest_departure_s),
                            options = planning_options(cargo_bucket_kg)] {
@@ -1997,10 +2035,13 @@ void Simulation::step_fleet_investment() {
     }
     if (investment.review_days > 0.0 && game_time_s_ >= next_investment_review_s_) {
         next_investment_review_s_ += investment.review_days * 86400.0;
-        // Each purchase is a committed flow and keeps its yard busy, so the next one is
-        // valued against the demand still open.
-        for (int bought = 0; bought < static_cast<int>(investment.max_ships_per_review) && commission_best_ship(); ++bought) {
-        }
+        investment_purchases_left_ = static_cast<int>(investment.max_ships_per_review);
+    }
+    // One purchase per tick (each takes a second or two of probing), so a review never
+    // stalls the simulation for long. Each purchase is a committed flow and keeps its yard
+    // busy, so the next one is valued against the demand still open.
+    if (investment_purchases_left_ > 0) {
+        investment_purchases_left_ = commission_best_ship() ? investment_purchases_left_ - 1 : 0;
     }
 }
 
@@ -2250,10 +2291,7 @@ bool Simulation::commission_best_ship() {
         return margin / window_days;
     };
     const auto value_candidate = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
-                                     double return_bound) {
-        const auto probe = new_ship(ship_class, yard);
-        const auto probe_start = std::chrono::steady_clock::now();
-        const auto choice = choose_mission(probe, ship_class, false, game_time_s_ + investment.build_days * 86400.0, true);
+                                     double return_bound, const MissionChoice& choice) {
         const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id));
         Valuation valuation;
         valuation.label = "no cargo run";
@@ -2271,10 +2309,9 @@ bool Simulation::commission_best_ship() {
             }
         }
         if (trace) {
-            std::cerr << std::format("[invest day {:.0f}] {} at {}: {} of {} runs: {:.0f}%/yr (bound {:.0f}%) in {:.2f} s\n",
+            std::cerr << std::format("[invest day {:.0f}] {} at {}: {} of {} runs: {:.0f}%/yr (bound {:.0f}%)\n",
                 game_time_s_ / 86400.0, ship_class.id, yard.id, valuation.label, choice.cargo_options.size(),
-                100.0 * valuation.annual_return, 100.0 * return_bound,
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - probe_start).count());
+                100.0 * valuation.annual_return, 100.0 * return_bound);
         }
         return valuation;
     };
@@ -2283,17 +2320,38 @@ bool Simulation::commission_best_ship() {
     double best_return = investment.hurdle_return_per_year;
     Valuation best_valuation;
     int probes = 0;
-    for (const auto& candidate : candidates) {
-        if (candidate.return_bound <= best_return) {
+    // Probed in batches, planned together; valued in order, so the early stop picks the
+    // same ship as probing one by one (a batch may probe a few candidates for nothing).
+    constexpr std::size_t kProbeBatch = 8;
+    bool stop = false;
+    for (std::size_t first = 0; first < candidates.size() && !stop; first += kProbeBatch) {
+        if (candidates[first].return_bound <= best_return) {
             break;
         }
-        const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound);
-        ++probes;
-        if (valuation.annual_return > best_return) {
-            best_return = valuation.annual_return;
-            best_class = candidate.ship_class;
-            best_yard = candidate.yard;
-            best_valuation = valuation;
+        const std::size_t last = std::min(candidates.size(), first + kProbeBatch);
+        std::vector<domain::ShipState> probe_ships;
+        probe_ships.reserve(last - first);
+        std::vector<MissionRequest> requests;
+        for (std::size_t i = first; i < last; ++i) {
+            probe_ships.push_back(new_ship(*candidates[i].ship_class, *candidates[i].yard));
+            requests.push_back({.ship = &probe_ships.back(), .ship_class = candidates[i].ship_class,
+                .earliest_departure_s = game_time_s_ + investment.build_days * 86400.0, .cargo_only = true});
+        }
+        const auto choices = choose_missions(requests);
+        for (std::size_t i = first; i < last; ++i) {
+            const auto& candidate = candidates[i];
+            if (candidate.return_bound <= best_return) {
+                stop = true;
+                break;
+            }
+            const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound, choices[i - first]);
+            ++probes;
+            if (valuation.annual_return > best_return) {
+                best_return = valuation.annual_return;
+                best_class = candidate.ship_class;
+                best_yard = candidate.yard;
+                best_valuation = valuation;
+            }
         }
     }
     // The winning hull is built with the tanks that suit it best, judged like a refit (by
@@ -2301,18 +2359,28 @@ bool Simulation::commission_best_ship() {
     // go straight back into the yard.
     if (best_class != nullptr) {
         const auto* hull = best_class;
-        double best_score = -std::numeric_limits<double>::infinity();
+        std::vector<const domain::ShipClassDefinition*> variants;
+        std::vector<domain::ShipState> variant_ships;
         for (const auto& variant : universe_.ship_classes) {
-            if ((variant.hull_id.empty() ? variant.id : variant.hull_id) != hull->id
-                || variant.ship_value_cr + investment.working_capital > richest_treasury) {
-                continue;
+            if ((variant.hull_id.empty() ? variant.id : variant.hull_id) == hull->id
+                && variant.ship_value_cr + investment.working_capital <= richest_treasury) {
+                variants.push_back(&variant);
             }
-            const auto choice = choose_mission(
-                new_ship(variant, *best_yard), variant, false, game_time_s_ + investment.build_days * 86400.0);
+        }
+        variant_ships.reserve(variants.size());
+        std::vector<MissionRequest> requests;
+        for (const auto* variant : variants) {
+            variant_ships.push_back(new_ship(*variant, *best_yard));
+            requests.push_back({.ship = &variant_ships.back(), .ship_class = variant,
+                .earliest_departure_s = game_time_s_ + investment.build_days * 86400.0, .cargo_only = false});
+        }
+        const auto choices = choose_missions(requests);
+        double best_score = -std::numeric_limits<double>::infinity();
+        for (std::size_t i = 0; i < variants.size(); ++i) {
             ++probes;
-            if (choice.kind == MissionChoice::Kind::Mission && choice.score > best_score) {
-                best_score = choice.score;
-                best_class = &variant;
+            if (choices[i].kind == MissionChoice::Kind::Mission && choices[i].score > best_score) {
+                best_score = choices[i].score;
+                best_class = variants[i];
             }
         }
     }
@@ -2543,6 +2611,10 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"name\":\"" << json_escape(body.name) << "\","
                << "\"parent_id\":\"" << json_escape(body.orbit.parent_id) << "\","
                << "\"radius_m\":" << body.radius_m << ","
+               // Circular orbits: the UI places bodies at any time from these.
+               << "\"semi_major_axis_m\":" << body.orbit.semi_major_axis_m << ","
+               << "\"orbital_period_s\":" << body.orbit.orbital_period_s << ","
+               << "\"phase_at_epoch_rad\":" << body.orbit.phase_at_epoch_rad << ","
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","
                << "\"z\":" << position.z
@@ -2563,6 +2635,8 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"name\":\"" << json_escape(station.name) << "\","
                << "\"faction_id\":\"" << json_escape(station.faction_id) << "\","
                << "\"parent_body_id\":\"" << json_escape(station.parent_body_id) << "\","
+               << "\"altitude_m\":" << station.altitude_m << ","
+               << "\"theta_rad\":" << station.theta_rad << ","
                << "\"population\":" << station.population << ","
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","

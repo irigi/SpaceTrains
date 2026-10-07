@@ -26,3 +26,10 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
 - 00:10 **Lambert grid memo**: the Kepler planner's 30x10 Lambert grid depends only on the two bodies and the time,
   not on the payload or fuel; one mission choice plans the same pair many times. Cached (thread-safe, 2048 grids),
   identical reports. 60 days 11.5 -> 5.4 s, opening dispatch 3.3 s (was 50 s at the start of the night).
+- 00:40 **v34 baseline** (fixed tick, everything above), 730 days: run **42 s** (v33: 11m10), unmet demand 72.2%
+  (v33 72.9%), 18/41 profitable, exports 928k, money +5.5%, drift 0, 34 CRITICAL, trajectory audit 0 flagged.
+  The fleet investment review was then 29 of the 42 s, with single ticks up to 7 s.
+- 00:55 **Investment probes batched** (`choose_missions`: several probes planned together; identical 730-day report)
+  and **one purchase per tick** instead of up to 8 in one tick (**Decision**: a review's later purchases see a few
+  more hours of state; results at day 730 unchanged to the credit). 730 days 35 s; worst tick 2.1 s (one purchase),
+  opening dispatch 3.4 s.

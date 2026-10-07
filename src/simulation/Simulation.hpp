@@ -36,6 +36,7 @@ public:
     [[nodiscard]] const domain::UniverseDefinition& universe() const;
     [[nodiscard]] const economy::EconomySystem& economy_system() const;
     [[nodiscard]] domain::SimulationSnapshot snapshot() const;
+    [[nodiscard]] double game_time_s() const { return game_time_s_; }
     [[nodiscard]] std::string build_report() const;
     [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
     [[nodiscard]] double timewarp_factor() const;
@@ -131,6 +132,15 @@ private:
     [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
         bool cargo_only = false);
+    // choose_mission for several ships at once (fleet investment probes, refit variants):
+    // their plans are computed together, so the pool stays busy. Same results as one by one.
+    struct MissionRequest {
+        const domain::ShipState* ship {nullptr};
+        const domain::ShipClassDefinition* ship_class {nullptr};
+        double earliest_departure_s {0.0};
+        bool cargo_only {false};
+    };
+    [[nodiscard]] std::vector<MissionChoice> choose_missions(const std::vector<MissionRequest>& requests);
     // One pass of choose_mission. Plans it has no result for yet are queued in
     // deferred_plans_ and read as infeasible; choose_mission computes the queue in parallel
     // and repeats the pass until nothing is missing, so the last pass is exactly the
@@ -190,6 +200,7 @@ private:
     std::unordered_map<std::string, double> faction_treasuries_;
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};
+    int investment_purchases_left_ {0};   // of the current review, one per tick
     domain::FleetInvestmentLedger investment_ledger_;
     std::vector<domain::ShipState> sold_ships_;
     double timewarp_factor_ {3600.0};
@@ -204,6 +215,8 @@ private:
     // Plans the current choose_mission pass is missing (null outside choose_mission).
     std::vector<DeferredPlan>* deferred_plans_ {nullptr};
     std::unordered_set<std::string> deferred_keys_;
+    std::string deferred_prefix_;   // keeps one request's private plan keys apart from another's
+    std::size_t missing_plans_ {0};  // plans read as missing, queued now or by an earlier request
     std::unique_ptr<util::ThreadPool> thread_pool_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
