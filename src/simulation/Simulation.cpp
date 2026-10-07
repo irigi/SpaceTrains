@@ -2369,7 +2369,13 @@ Simulation::CommissionStep Simulation::commission_step() {
         const domain::ShipClassDefinition* ship_class {nullptr};
         const domain::StationDefinition* yard {nullptr};
         double return_bound {0.0};
+        double rank_bound {0.0};  // in the review's ranking: return per year, or profit per day
     };
+    // Far from the fleet limit the treasuries rank candidates by return on their price; from
+    // half the limit on, a place in the fleet is the scarce thing, so by profit per day (above
+    // the hurdle): a big hold beats a cheap 30 u courier.
+    const bool rank_by_profit = investment.max_fleet_size > 0.0
+        && static_cast<double>(ships_.size()) >= 0.5 * investment.max_fleet_size;
     std::vector<Candidate> candidates;
     // A yard builds one ship at a time. (Routes already served are discounted by the
     // committed flow, so a yard may build again as soon as it is free.)
@@ -2431,7 +2437,8 @@ Simulation::CommissionStep Simulation::commission_step() {
             const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, yard_state);
             const double return_bound = (margin_bound - running_cost) * 365.0 / ship_class.ship_value_cr;
             if (return_bound >= investment.hurdle_return_per_year) {
-                candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound});
+                candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound,
+                    .rank_bound = rank_by_profit ? margin_bound - running_cost : return_bound});
             }
         }
     }
@@ -2439,7 +2446,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     // found beats every remaining bound. Sale prices are forecast at arrival, where a starving
     // consumer's price can be a little above today's, so the bound is a heuristic.
     std::sort(candidates.begin(), candidates.end(),
-        [](const Candidate& a, const Candidate& b) { return a.return_bound > b.return_bound; });
+        [](const Candidate& a, const Candidate& b) { return a.rank_bound > b.rank_bound; });
     // Ships still committed to a route deliver to it; only the rest of the destination's
     // demand is open to a new ship.
     // Ships still in the yard have delivered nothing yet, so the observed imports miss them.
@@ -2559,6 +2566,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     const domain::ShipClassDefinition* best_class = nullptr;
     const domain::StationDefinition* best_yard = nullptr;
     double best_return = investment.hurdle_return_per_year;
+    double best_rank = rank_by_profit ? 0.0 : investment.hurdle_return_per_year;
     Valuation best_valuation;
     int probes = 0;
     // Candidates are valued in order of their bound, so the early stop picks the same ship
@@ -2571,7 +2579,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     std::vector<std::size_t> to_probe;
     for (std::size_t i = 0; i < candidates.size(); ++i) {
         const auto& candidate = candidates[i];
-        if (candidate.return_bound <= best_return) {
+        if (candidate.rank_bound <= best_rank) {
             break;
         }
         const auto probed = review_probes_.find(probe_key(candidate));
@@ -2591,7 +2599,11 @@ Simulation::CommissionStep Simulation::commission_step() {
         }
         const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound, choice);
         ++probes;
-        if (valuation.annual_return > best_return) {
+        const double rank = rank_by_profit
+            ? valuation.annual_return * candidate.ship_class->ship_value_cr / 365.0
+            : valuation.annual_return;
+        if (valuation.annual_return > investment.hurdle_return_per_year && rank > best_rank) {
+            best_rank = rank;
             best_return = valuation.annual_return;
             best_class = candidate.ship_class;
             best_yard = candidate.yard;

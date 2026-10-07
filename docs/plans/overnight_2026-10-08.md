@@ -130,3 +130,12 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   - **Ship cash reserve 50k -> 25k** (= a new ship's working capital): ninety ships keeping 50k each held up to
     2.25M above the money-supply target, and the controller can only tax stations. Money supply +23.9 -> +10.2 +-
     3.5%; unmet unchanged.
+- 00:2x **v37d: near the fleet limit, rank purchases by profit per day** (**Decision**, from half of
+  `max_fleet_size`; above the 30%/yr hurdle as before): a place in the fleet is the scarce thing, so a 2000 u bulker
+  beats a 30 u courier. Four starts: holds 37,300 -> **85,000 u**, unmet 61.6 -> **60.7 +- 1.2%**, last fifth 47.3 ->
+  **44.1 +- 4.5%**, money supply +10 -> **-14 +- 5%** (dearer hulls). Holds are no longer the limit.
+- 00:2x **Where the remaining shortfall is (v37d, by value):** Low Earth Logistics metals 90% and reactor fuel 65%,
+  Mars metals 94%, Mercury food/oxygen 90-94%, Ganymede/Titan ~94%, while 14,500 u of metals and 18,500 u of food sit
+  in stocks. Metals are made only at Mercury and Ceres; Mercury is hard to reach (no fuel for sale there: 74% of its
+  fuel demand unmet; nuclear-thermal ships lack the delta-v for a round trip) - 12 departures from Mercury in two
+  years. A design question for the user (see the scenario test below).
