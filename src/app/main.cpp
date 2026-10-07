@@ -174,7 +174,7 @@ void print_economy_summary(
     const spacetrains::economy::EconomySystem& economy) {
     std::cout << "\n=== Station Economy (net rates, units/day) ===\n";
     for (const auto& station : universe.stations) {
-        const auto rates = economy.get_profile_net_rates(station.economy_profile_id);
+        const auto rates = economy.get_station_net_rates(station);
         std::cout << std::format("  {:30s}  profile={}\n", station.name, station.economy_profile_id);
         for (const auto& [commodity, rate] : rates) {
             if (std::abs(rate) > 0.001) {
@@ -230,7 +230,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_profile_net_rates(sd.economy_profile_id);
+            const auto rates = economy.get_station_net_rates(sd);
             for (const auto& [c, amount] : ss.inventory) {
                 sys_stock[c] += amount;
             }
@@ -262,7 +262,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_profile_net_rates(sd.economy_profile_id);
+            const auto rates = economy.get_station_net_rates(sd);
             for (const auto& [c, rate] : rates) {
                 if (rate >= 0.0) continue;
                 const double stock = ss.inventory.count(c) ? ss.inventory.at(c) : 0.0;
@@ -377,7 +377,7 @@ void print_economy_audit(
             for (const auto& sd : universe.stations) {
                 if (sd.id != ss.station_id) continue;
                 const double stock = ss.inventory.count(commodity.id) ? ss.inventory.at(commodity.id) : 0.0;
-                const double price = economy.get_price(sd.economy_profile_id, commodity.id, stock, commodity.base_price);
+                const double price = economy.get_price(sd, commodity.id, stock, commodity.base_price);
                 min_price = std::min(min_price, price);
                 max_price = std::max(max_price, price);
                 sum_price += price;

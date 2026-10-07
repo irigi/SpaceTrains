@@ -209,6 +209,27 @@ destination, holds 250 t), and the Plasma Freighter at Ganymede and Titan (κ 1.
 from Titan; Ceres trips take 3,000-5,000 days). The Plasma Courier (κ 4.6) does leave the outer system.
 These are class sizing questions for fleet investment.
 
+## Cargo Holds and Market Scale (2026-10-07)
+
+Holds now rate about each freighter's dry mass of cargo (Light Freighter 200 u, Tanker 300, Plasma Freighter
+150, Deep Space 300, NTR Freighter 400; couriers 30). The plasma freighter's jet power went 9 -> 10 MW to keep
+α ≈ 290 W/kg with the heavier hold.
+
+Big holds exposed two economy problems (see the calibration log in `ship_operating_costs.md`, v20-v24):
+
+1. **Trade pricing.** A delivery was paid entirely at the station's pre-trade price, so 150 units into a
+   starving station all sold at the 16x scarcity price (Lunar Gateway -650k in v20). Trades now settle
+   along the price curve (exact integral), and dispatch scores part loads (1, 1/2, 1/4 of the hold).
+2. **Market size.** Total consumption was ~8 units/day for the whole system, so a 200-unit hold was 25 days
+   of everyone's demand. Recipe rates are now per 10,000 inhabitants and x10; storage and starting stocks
+   scale by population / 1000. System demand (~80 u/day) is now about the fleet's carrying capacity.
+3. **Forecasting.** Dispatch values a sale on the destination's stock at arrival (today's stock, cargo
+   already inbound, consumption meanwhile), so ships stop converging on the same starving port.
+
+Result (v24): cargo margin 929k against 565k of costs, 8/22 profitable, 4 laid up, 0 stranded, 36 CRITICAL;
+run time 2m07. Consumer stations still lose money (Lunar Gateway -115k): that is the open-economy step.
+Ships that never move are the outer-system and Mars classes noted under Pricing.
+
 ## Method
 
 1. Fix the era from the linopt range above (advanced non-torch fusion or plasma drives; liquid- or gas-core

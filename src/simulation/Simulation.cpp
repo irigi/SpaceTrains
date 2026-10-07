@@ -46,7 +46,7 @@ constexpr double IDLE_REVIEW_S = 6.0 * 3600.0;
 constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
 
 // Part loads dispatch scores: a full hold may be too heavy, and big lots move prices.
-constexpr std::array<double, 5> LOAD_FRACTIONS {1.0, 0.5, 0.25, 0.125, 0.0625};
+constexpr std::array<double, 3> LOAD_FRACTIONS {1.0, 0.5, 0.25};
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -330,7 +330,7 @@ double Simulation::station_price(const domain::StationState& state, const std::s
     const auto& definition = get_station_definition(state.station_id);
     const auto stock_it = state.inventory.find(commodity_id);
     const double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;
-    return economy_.get_price(definition.economy_profile_id, commodity_id, stock, get_commodity(commodity_id).base_price);
+    return economy_.get_price(definition, commodity_id, stock, get_commodity(commodity_id).base_price);
 }
 
 double Simulation::trade_value(
@@ -339,7 +339,31 @@ double Simulation::trade_value(
     const auto stock_it = state.inventory.find(commodity_id);
     const double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;
     return economy_.get_trade_value(
-        definition.economy_profile_id, commodity_id, stock, units_into_station, get_commodity(commodity_id).base_price);
+        definition, commodity_id, stock, units_into_station, get_commodity(commodity_id).base_price);
+}
+
+double Simulation::sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
+    double units, double days_ahead, const std::string& seller_ship_id) const {
+    // Forecast the stock the sale lands on: what the station holds, plus cargo of the
+    // same kind other ships are already bringing, plus its own net production meanwhile.
+    // Without the inbound cargo, every ship sent to a starving port expects its scarcity
+    // price and the late arrivals sell at a loss.
+    const auto& definition = get_station_definition(state.station_id);
+    const auto stock_it = state.inventory.find(commodity_id);
+    double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;
+    for (const auto& other : ships_) {
+        if (other.id != seller_ship_id
+            && (other.phase == domain::ShipMissionPhase::InTransit
+                || other.phase == domain::ShipMissionPhase::AwaitingDeparture)
+            && other.active_mission.destination_station_id == state.station_id
+            && other.active_mission.commodity_id == commodity_id) {
+            stock += other.active_mission.cargo_units;
+        }
+    }
+    const auto rates = economy_.get_station_net_rates(definition);
+    const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
+    stock = std::max(0.0, stock + rate * std::max(0.0, days_ahead));
+    return economy_.get_trade_value(definition, commodity_id, stock, units, get_commodity(commodity_id).base_price);
 }
 
 double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_class) const {
@@ -372,7 +396,7 @@ double sellable_reserve_units(
     const domain::StationDefinition& station_def,
     const std::string& commodity_id,
     bool departing) {
-    const auto rates = economy.get_profile_net_rates(station_def.economy_profile_id);
+    const auto rates = economy.get_station_net_rates(station_def);
     const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
     return departing ? 0.0 : (rate < 0.0 ? std::abs(rate) * 14.0 : 5.0);
 }
@@ -513,8 +537,7 @@ double Simulation::purchasable_propellant_kg(const domain::ShipState& ship) cons
     // Leave the station its own working reserve (it may consume fuel too) — except for a
     // nearly-dry ship, which may tap the reserve to get unstuck.
     const bool emergency = ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.05;
-    const auto station_rates = economy_.get_profile_net_rates(
-        get_station_definition(ship.current_station_id).economy_profile_id);
+    const auto station_rates = economy_.get_station_net_rates(get_station_definition(ship.current_station_id));
     const double station_fuel_rate = station_rates.contains("fuel") ? station_rates.at("fuel") : 0.0;
     const double station_reserve = (station_fuel_rate < 0.0 && !emergency)
         ? std::abs(station_fuel_rate) * 14.0 : 0.0;
@@ -740,12 +763,13 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         std::vector<FollowUp> options;
         const auto& dest_state = get_station_state(destination.id);
         const double arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg);
+        const double follow_days = (plan.wait_time_s + plan.travel_time_s) / 86400.0;
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
                 economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
         // Surplus left after the ships already docked there or inbound take their loads.
         // Each of them is assumed to fill its hold from the largest remaining surplus.
-        const auto dest_rates = economy_.get_profile_net_rates(destination.economy_profile_id);
+        const auto dest_rates = economy_.get_station_net_rates(destination);
         std::unordered_map<std::string, double> surplus_by_commodity;
         for (const auto& [commodity_id, stock] : dest_state.inventory) {
             const double rate = dest_rates.contains(commodity_id) ? dest_rates.at(commodity_id) : 0.0;
@@ -778,7 +802,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 if (next.id == destination.id) {
                     continue;
                 }
-                const auto next_rates = economy_.get_profile_net_rates(next.economy_profile_id);
+                const auto next_rates = economy_.get_station_net_rates(next);
                 const bool consumes = next_rates.contains(commodity_id) && next_rates.at(commodity_id) < 0.0;
                 const auto& next_state = get_station_state(next.id);
                 if (!consumes && station_price(next_state, commodity_id) <= get_commodity(commodity_id).base_price) {
@@ -798,8 +822,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                     if (!estimate.feasible) {
                         continue;
                     }
-                    const double lot_profit = trade_value(next_state, commodity_id,
-                            lot * std::pow(1.0 - decay_per_day, estimate.travel_days))
+                    const double lot_profit = sale_value_on_arrival(next_state, commodity_id,
+                            lot * std::pow(1.0 - decay_per_day, estimate.travel_days), follow_days + estimate.travel_days, ship.id)
                         - trade_value(dest_state, commodity_id, -lot)
                         - (estimate.propellant_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                         - time_cost_per_day * estimate.travel_days;
@@ -812,8 +836,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 if (!leg.feasible) {
                     continue;
                 }
-                const double revenue = trade_value(next_state, commodity_id,
-                    units * std::pow(1.0 - decay_per_day, leg.travel_days));
+                const double revenue = sale_value_on_arrival(next_state, commodity_id,
+                    units * std::pow(1.0 - decay_per_day, leg.travel_days), follow_days + leg.travel_days, ship.id);
                 const double cost = trade_value(dest_state, commodity_id, -units) + (leg.propellant_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                     + time_cost_per_day * leg.travel_days;
                 options.push_back({
@@ -859,7 +883,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         return best;
     };
 
-    const auto origin_rates = economy_.get_profile_net_rates(origin_def.economy_profile_id);
+    const auto origin_rates = economy_.get_station_net_rates(origin_def);
     for (const auto& [commodity_id, stock] : origin_state.inventory) {
         const double origin_rate = origin_rates.contains(commodity_id) ? origin_rates.at(commodity_id) : 0.0;
         if (origin_rate <= 0.0) {
@@ -878,7 +902,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             if (destination.id == origin_def.id) {
                 continue;
             }
-            const auto destination_rates = economy_.get_profile_net_rates(destination.economy_profile_id);
+            const auto destination_rates = economy_.get_station_net_rates(destination);
             const double destination_rate = destination_rates.contains(commodity_id) ? destination_rates.at(commodity_id) : 0.0;
             const auto& destination_state = get_station_state(destination.id);
             // Follow the price signal, not just the recipe: a station short of something it
@@ -941,7 +965,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                     continue;
                 }
                 const double surviving = cargo_units * std::pow(1.0 - decay_per_day, travel_days);
-                const double revenue = trade_value(destination_state, commodity_id, surviving);
+                const double revenue = sale_value_on_arrival(destination_state, commodity_id, surviving,
+                    plan.wait_time_s / 86400.0 + travel_days, ship.id);
                 const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price;
                 const double cost = trade_value(origin_state, commodity_id, -cargo_units) + fuel_cost
                     + time_cost_per_day * travel_days;
@@ -999,7 +1024,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         // served by the cargo loop's urgency weighting once a ship is loaded.
         const auto sourcing_score_for = [&](const domain::StationDefinition& station_def,
                                             const domain::StationState& station_state) {
-            const auto rates = economy_.get_profile_net_rates(station_def.economy_profile_id);
+            const auto rates = economy_.get_station_net_rates(station_def);
             double sourcing_score = 0.0;
             for (const auto& [commodity_id, rate] : rates) {
                 if (rate <= 0.0) continue;
@@ -1012,7 +1037,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 double system_urgency = 0.0;
                 for (const auto& other : universe_.stations) {
                     if (other.id == station_def.id) continue;
-                    const auto other_rates = economy_.get_profile_net_rates(other.economy_profile_id);
+                    const auto other_rates = economy_.get_station_net_rates(other);
                     const double other_rate = other_rates.count(commodity_id) ? other_rates.at(commodity_id) : 0.0;
                     if (other_rate >= 0.0) continue;
                     const auto& other_state = get_station_state(other.id);
@@ -1032,7 +1057,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         // must at least pay for itself out of that.
         const auto sourcing_value_cr = [&](const domain::StationDefinition& station_def,
                                            const domain::StationState& station_state) {
-            const auto rates = economy_.get_profile_net_rates(station_def.economy_profile_id);
+            const auto rates = economy_.get_station_net_rates(station_def);
             double best_value = 0.0;
             for (const auto& [commodity_id, rate] : rates) {
                 if (rate <= 0.0) continue;
@@ -1044,7 +1069,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 const double buy_cost = trade_value(station_state, commodity_id, -load);
                 for (const auto& other : universe_.stations) {
                     if (other.id == station_def.id) continue;
-                    const auto other_rates = economy_.get_profile_net_rates(other.economy_profile_id);
+                    const auto other_rates = economy_.get_station_net_rates(other);
                     const bool consumes = other_rates.contains(commodity_id) && other_rates.at(commodity_id) < 0.0;
                     const auto& other_state = get_station_state(other.id);
                     if (!consumes && station_price(other_state, commodity_id) <= get_commodity(commodity_id).base_price) continue;
@@ -1609,7 +1634,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         }
         output << "},"
                << "\"net_rates\":{";
-        const auto net_rates = economy_.get_profile_net_rates(station.economy_profile_id);
+        const auto net_rates = economy_.get_station_net_rates(station);
         bool first_rate = true;
         for (const auto& commodity : universe_.commodities) {
             const auto rate_it = net_rates.find(commodity.id);

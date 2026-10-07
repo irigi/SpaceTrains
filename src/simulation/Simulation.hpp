@@ -51,6 +51,9 @@ private:
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     // Value of moving units into (+) or out of (-) a station, along its price curve.
+    // Value of selling `units` at a station `days_ahead` from now, on its forecast stock.
+    [[nodiscard]] double sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
+        double units, double days_ahead, const std::string& seller_ship_id) const;
     [[nodiscard]] double trade_value(
         const domain::StationState& state, const std::string& commodity_id, double units_into_station) const;
     // Propellant the ship's current port will sell it (capped by free tank space).

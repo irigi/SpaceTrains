@@ -105,6 +105,8 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v20a | dispatch: other ships claim one commodity each, part loads when a full hold is infeasible | 799k | 141k | 78k | 274k | 8/22 | 4 | 29 |
 | v20 | + holds about each ship's dry mass (200-400 u freighters); sales still at the pre-trade price | 1.73M | 149k | 82k | 281k | 8/22 | 2 | 31 |
 | v22 | + trades priced along the price curve, lot size by score: markets too thin for big lots | 53k | 42k | 23k | 281k | 1/22 | 14 | 38 |
+| v23 | economy scaled with population: recipe rates per 10k inhabitants x10, storage and stocks x pop/1000 | 335k | 187k | 75k | 281k | 3/22 | 6 | 39 |
+| v24 | + sales valued on the destination's forecast stock (inbound cargo, consumption by arrival) | 929k | 185k | 88k | 281k | 8/22 | 4 (0 stranded) | 36 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).

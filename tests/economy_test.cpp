@@ -32,55 +32,62 @@ int main() {
     {
         // --- Price formula properties ---
         // Consumed commodities target a 21-day buffer of the data-defined rate.
-        const auto agri_rates = economy.get_profile_net_rates("agri_hub");
+        // earth_l1 runs the agri_hub profile; its rates scale with its population.
+        const auto& agri = universe.stations.front();
+        require(agri.id == "earth_l1" && agri.economy_profile_id == "agri_hub", "expected earth_l1 (agri_hub) first");
+        const auto agri_rates = economy.get_station_net_rates(agri);
         const double water_rate = agri_rates.at("water");
         require(water_rate < 0.0, "agri_hub must consume water");
-        const double target = economy.get_target_stock("agri_hub", "water");
+        const double target = economy.get_target_stock(agri, "water");
         require_near(target, std::abs(water_rate) * 21.0, 1.0e-9,
             "agri_hub water target must be 21-day consumption buffer");
 
         const double base = 4.0;
-        require_near(economy.get_price("agri_hub", "water", target, base), base, 1.0e-9,
+        require_near(economy.get_price(agri, "water", target, base), base, 1.0e-9,
             "price at target stock must equal base price");
-        require_near(economy.get_price("agri_hub", "water", 0.0, base), base * 16.0, 1.0e-9,
+        require_near(economy.get_price(agri, "water", 0.0, base), base * 16.0, 1.0e-9,
             "price at zero stock must clamp at 16x base");
-        require_near(economy.get_price("agri_hub", "water", 1.0e9, base), base * 0.25, 1.0e-9,
+        require_near(economy.get_price(agri, "water", 1.0e9, base), base * 0.25, 1.0e-9,
             "price at huge stock must clamp at 0.25x base");
 
         double previous = 1.0e18;
         for (double stock = 0.0; stock <= 200.0; stock += 1.0) {
-            const double price = economy.get_price("agri_hub", "water", stock, base);
+            const double price = economy.get_price(agri, "water", stock, base);
             require(price <= previous + 1.0e-12, "price must be non-increasing in stock");
             previous = price;
         }
 
         // Trades are valued along the price curve: a big delivery into a starving station
         // sells for less than its scarcity price, and buying back the same units costs the same.
-        const double delivered = economy.get_trade_value("agri_hub", "water", 0.0, 100.0, base);
-        require(delivered < 100.0 * economy.get_price("agri_hub", "water", 0.0, base),
+        const double delivered = economy.get_trade_value(agri, "water", 0.0, 100.0, base);
+        require(delivered < 100.0 * economy.get_price(agri, "water", 0.0, base),
             "a large delivery must not all sell at the scarcity price");
-        require(delivered > 100.0 * economy.get_price("agri_hub", "water", 100.0, base),
+        require(delivered > 100.0 * economy.get_price(agri, "water", 100.0, base),
             "a delivery must sell above the price after it");
-        require_near(economy.get_trade_value("agri_hub", "water", 100.0, -100.0, base), delivered, 1.0e-9,
+        require_near(economy.get_trade_value(agri, "water", 100.0, -100.0, base), delivered, 1.0e-9,
             "buying units back must cost what delivering them earned");
-        require_near(economy.get_trade_value("agri_hub", "water", 1.0e6, 10.0, base), 10.0 * base * 0.25, 1.0e-6,
+        require_near(economy.get_trade_value(agri, "water", 1.0e6, 10.0, base), 10.0 * base * 0.25, 1.0e-6,
             "trades on a flat (clamped) price must be units x price");
         for (const auto& [from, units] : {std::pair {0.0, 3.0}, std::pair {2.0, 40.0}, std::pair {60.0, -55.0}, std::pair {0.2, 500.0}}) {
             double riemann = 0.0;
             constexpr int STEPS = 200000;
             const double step = units / STEPS;
             for (int i = 0; i < STEPS; ++i) {
-                riemann += economy.get_price("agri_hub", "water", from + (i + 0.5) * step, base) * std::abs(step);
+                riemann += economy.get_price(agri, "water", from + (i + 0.5) * step, base) * std::abs(step);
             }
-            require_near(economy.get_trade_value("agri_hub", "water", from, units, base), riemann, 1.0e-4 * riemann,
+            require_near(economy.get_trade_value(agri, "water", from, units, base), riemann, 1.0e-4 * riemann,
                 "exact trade value must match the integrated price curve");
         }
 
-        // Producer target: agri_hub produces food at 8/day → target = 112 units.
-        require_near(economy.get_target_stock("agri_hub", "food"), 8.0 * 14.0, 1.0e-9,
+        // Producer target: a 14-day production buffer.
+        require(agri_rates.at("food") > 0.0, "agri_hub must produce food");
+        require_near(economy.get_target_stock(agri, "food"), agri_rates.at("food") * 14.0, 1.0e-9,
             "producer target must be 14-day production buffer");
+        require_near(agri_rates.at("food"),
+            economy.population_factor(agri) * universe.recipes.front().units_per_day, 1.0e-9,
+            "station rates must be recipe rates per 10,000 inhabitants");
         // Untraded commodity falls back to the flat target.
-        require_near(economy.get_target_stock("agri_hub", "reactor_fuel"), 20.0, 1.0e-9,
+        require_near(economy.get_target_stock(agri, "reactor_fuel"), 20.0, 1.0e-9,
             "untraded commodity target must be flat 20 units");
     }
 
@@ -108,15 +115,16 @@ int main() {
         const auto& fuel_supply = universe.fuel_supply;
         require(fuel_supply.depot_buffer_units > 0.0 && fuel_supply.depot_output_units_per_day > 0.0,
             "fuel_supply.csv must enable depots");
-        const auto& earth_l1 = universe.stations.front();
+        // Low Earth Logistics consumes fuel and produces none, so only the depot refills it.
+        const auto& leo = universe.stations.at(1);
+        require(leo.id == "earth_orbit", "expected earth_orbit second");
         std::vector<spacetrains::domain::StationState> stations;
-        stations.push_back({.station_id = earth_l1.id, .inventory = earth_l1.initial_inventory});
+        stations.push_back({.station_id = leo.id, .inventory = leo.initial_inventory});
         stations[0].inventory["fuel"] = 0.0;
         economy.step(stations, 86400.0);
-        // earth_l1 also produces fuel by recipe; the depot adds at most its output per day.
         const double one_day = stations[0].inventory["fuel"];
-        require(one_day >= fuel_supply.depot_output_units_per_day - 1.0e-6
-                && one_day <= fuel_supply.depot_output_units_per_day + 50.0,
+        require(one_day <= fuel_supply.depot_output_units_per_day + 1.0e-6
+                && one_day >= fuel_supply.depot_output_units_per_day + economy.get_station_net_rates(leo).at("fuel") - 1.0e-6,
             "an empty depot must refill at its output rate");
         for (int day = 0; day < 365; ++day) {
             economy.step(stations, 86400.0);
@@ -127,7 +135,7 @@ int main() {
             "forecast must count refills");
         require_near(economy.fuel_stock_after_days(0.0, 1.0e6), fuel_supply.depot_buffer_units, 1.0e-9,
             "forecast must stop at the buffer");
-        require_near(economy.get_price("agri_hub", "fuel", fuel_supply.depot_buffer_units, 8.0), 8.0, 1.0e-9,
+        require_near(economy.get_price(leo, "fuel", fuel_supply.depot_buffer_units, 8.0), 8.0, 1.0e-9,
             "a full depot must sell fuel at base price");
     }
 

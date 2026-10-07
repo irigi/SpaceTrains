@@ -1,10 +1,10 @@
 id,name,faction_id,parent_body_id,altitude_m,theta_rad,population,economy_profile_id,storage_capacity_units,initial_credits,initial_inventory
-earth_l1,Earth L1 Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,1600,100000,food:120;water:11;oxygen:80;metals:25;fuel:400;electronics:6;machinery:2;medicine:40;reactor_fuel:0
-earth_orbit,Low Earth Logistics,sol_fed,earth,500000,1.4,18000,industrial_hub,4000,100000,food:22;water:45;oxygen:45;metals:22;fuel:400;electronics:30;machinery:50;medicine:30;reactor_fuel:6
-venus_cloud,Venus Aerostat Exchange,independent,venus,900000,2.1,12000,chem_hub,1700,100000,food:300;water:55;oxygen:70;metals:6;fuel:100;electronics:3;machinery:3;medicine:30;reactor_fuel:3
-mercury_yard,Mercury Sunward Yard,independent,mercury,600000,2.9,8000,smelter_hub,3500,100000,food:22;water:11;oxygen:22;metals:140;fuel:400;electronics:6;machinery:60;medicine:3;reactor_fuel:0
-mars_transfer,Mars Transfer Port,mars_corp,mars,1200000,0.7,17000,frontier_hub,4200,100000,food:11;water:300;oxygen:6;metals:11;fuel:800;electronics:8;machinery:3;medicine:2;reactor_fuel:50
-ceres_depot,Ceres Deep Depot,independent,ceres,400000,1.8,9000,extractor_hub,4000,100000,food:11;water:35;oxygen:11;metals:160;fuel:800;electronics:6;machinery:6;medicine:3;reactor_fuel:0
-luna_base,Lunar Gateway,sol_fed,luna,200000,0.3,5000,frontier_hub,3600,100000,food:11;water:300;oxygen:6;metals:11;fuel:500;electronics:8;machinery:3;medicine:2;reactor_fuel:50
-ganymede_depot,Ganymede Deep Mine,independent,ganymede,500000,1.1,6000,extractor_hub,7500,100000,food:11;water:400;oxygen:11;metals:300;fuel:1000;electronics:6;machinery:6;medicine:3;reactor_fuel:0
-titan_works,Titan Atmo Works,independent,titan,800000,2.4,7000,chem_hub,4000,100000,food:1000;water:200;oxygen:300;metals:6;fuel:100;electronics:3;machinery:3;medicine:80;reactor_fuel:3
+earth_l1,Earth L1 Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,35200,100000,food:2640;water:242;oxygen:1760;metals:550;fuel:400;electronics:132;machinery:44;medicine:880;reactor_fuel:0
+earth_orbit,Low Earth Logistics,sol_fed,earth,500000,1.4,18000,industrial_hub,72000,100000,food:396;water:810;oxygen:810;metals:396;fuel:400;electronics:540;machinery:900;medicine:540;reactor_fuel:108
+venus_cloud,Venus Aerostat Exchange,independent,venus,900000,2.1,12000,chem_hub,20400,100000,food:3600;water:660;oxygen:840;metals:72;fuel:100;electronics:36;machinery:36;medicine:360;reactor_fuel:36
+mercury_yard,Mercury Sunward Yard,independent,mercury,600000,2.9,8000,smelter_hub,28000,100000,food:176;water:88;oxygen:176;metals:1120;fuel:400;electronics:48;machinery:480;medicine:24;reactor_fuel:0
+mars_transfer,Mars Transfer Port,mars_corp,mars,1200000,0.7,17000,frontier_hub,71400,100000,food:187;water:5100;oxygen:102;metals:187;fuel:800;electronics:136;machinery:51;medicine:34;reactor_fuel:850
+ceres_depot,Ceres Deep Depot,independent,ceres,400000,1.8,9000,extractor_hub,36000,100000,food:99;water:315;oxygen:99;metals:1440;fuel:800;electronics:54;machinery:54;medicine:27;reactor_fuel:0
+luna_base,Lunar Gateway,sol_fed,luna,200000,0.3,5000,frontier_hub,18000,100000,food:55;water:1500;oxygen:30;metals:55;fuel:500;electronics:40;machinery:15;medicine:10;reactor_fuel:250
+ganymede_depot,Ganymede Deep Mine,independent,ganymede,500000,1.1,6000,extractor_hub,45000,100000,food:66;water:2400;oxygen:66;metals:1800;fuel:1000;electronics:36;machinery:36;medicine:18;reactor_fuel:0
+titan_works,Titan Atmo Works,independent,titan,800000,2.4,7000,chem_hub,28000,100000,food:7000;water:1400;oxygen:2100;metals:42;fuel:100;electronics:21;machinery:21;medicine:560;reactor_fuel:21

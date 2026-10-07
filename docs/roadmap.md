@@ -55,7 +55,8 @@ Last commits: `0762a3a` part B, `8eb38ee` docs, `7195e47` two-leg scoring.
    era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
    price ships from the breakdown (naming already confirmed). Done so far: reference numbers, class
    rebuild (`7cdb236`), fuel depots (`dad132c`), pricing (`1808fe6`), renaming (propulsion types
-   `nuclear_thermal` / `variable_isp`, classes `plasma_freighter` / `plasma_courier`). Left: cargo hold sizes.
+   `nuclear_thermal` / `variable_isp`, classes `plasma_freighter` / `plasma_courier`), cargo holds with
+   price-curve trades and an economy scaled with population (v24). The tech review is complete.
 2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): tank size as a refit
    option at a base, with refit cost and time; depends on the tank masses from step 1.
 3. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
