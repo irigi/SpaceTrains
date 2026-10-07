@@ -407,6 +407,13 @@ double Simulation::trade_value(
 
 double Simulation::sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
     double units, double days_ahead, const std::string& seller_ship_id) const {
+    const auto& definition = get_station_definition(state.station_id);
+    return economy_.get_trade_value(definition, commodity_id,
+        forecast_stock_on_arrival(state, commodity_id, days_ahead, seller_ship_id), units, get_commodity(commodity_id).base_price);
+}
+
+double Simulation::forecast_stock_on_arrival(const domain::StationState& state, const std::string& commodity_id,
+    double days_ahead, const std::string& seller_ship_id) const {
     // Forecast the stock the sale lands on: today's stock run forward to this ship's
     // arrival at the station's net rate (never below empty), plus the cargo of the same
     // kind other ships deliver before then. Without the inbound cargo, every ship sent to a
@@ -439,8 +446,7 @@ double Simulation::sale_value_on_arrival(const domain::StationState& state, cons
         stock = std::max(0.0, stock + rate * std::max(0.0, delivery_s - time_s) / 86400.0) + delivered;
         time_s = std::max(time_s, delivery_s);
     }
-    stock = std::max(0.0, stock + rate * std::max(0.0, arrival_s - time_s) / 86400.0);
-    return economy_.get_trade_value(definition, commodity_id, stock, units, get_commodity(commodity_id).base_price);
+    return std::max(0.0, stock + rate * std::max(0.0, arrival_s - time_s) / 86400.0);
 }
 
 double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_class) const {
@@ -1271,6 +1277,178 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                     best_destination = &destination;
                     best_cargo = {{.commodity_id = commodity_id, .units = cargo_units}};
                     best_cargo_margin = revenue - trade_value(origin_state, commodity_id, -cargo_units) - fuel_cost;
+                    best_plan = &plan;
+                    best_carried_kg = fuel_plan.carried_kg;
+                    best_pickup_commodity = follow.commodity_id;
+                    best_pickup_units = follow.units;
+                }
+            }
+        }
+    }
+
+    // Mixed cargo (v37): a hold carries the goods the destination pays most for, chunk by
+    // chunk. Each chunk goes to the good whose next units earn the most along both stations'
+    // price curves (weighted by how short the destination is of it), so once fuel's price
+    // has fallen below food's the next chunk is food, and a big hold is not filled with one
+    // good that floods its price. Single-good runs are the candidates above.
+    if (!cargo_only) {
+        struct Offer {
+            std::string commodity_id;
+            double surplus {0.0};
+        };
+        std::vector<Offer> offers;
+        for (const auto& [commodity_id, stock] : origin_state.inventory) {
+            const double rate = origin_rates.contains(commodity_id) ? origin_rates.at(commodity_id) : 0.0;
+            const double surplus = rate > 0.0 ? std::max(0.0, stock - (8.0 + rate * 7.0)) : 0.0;
+            if (surplus > 1.0) {
+                offers.push_back({commodity_id, surplus});
+            }
+        }
+        for (const auto& destination : universe_.stations) {
+            if (offers.size() < 2) {
+                break;
+            }
+            if (destination.id == origin_def.id || !route_leg_allowed(origin_def.id, destination.id)) {
+                continue;
+            }
+            // The empty-hold transfer dates the forecasts (a laden one differs a little).
+            const auto& probe = plan_to(destination, 0.0);
+            if (!probe.feasible) {
+                continue;
+            }
+            const double days_ahead = delay_days + probe.travel_time_s / 86400.0;
+            const auto& destination_state = get_station_state(destination.id);
+            const auto destination_rates = economy_.get_station_net_rates(destination);
+            struct Good {
+                const Offer* offer {nullptr};
+                double stock_on_arrival {0.0};
+                double urgency {1.0};
+                double loaded {0.0};
+                double buy_cost {0.0};  // of `loaded`, along the origin's curve
+            };
+            std::vector<Good> goods;
+            for (const auto& offer : offers) {
+                const auto& commodity = get_commodity(offer.commodity_id);
+                const double rate = destination_rates.contains(offer.commodity_id) ? destination_rates.at(offer.commodity_id) : 0.0;
+                if (rate >= 0.0 && station_price(destination_state, offer.commodity_id) <= commodity.base_price) {
+                    continue;
+                }
+                const auto stock_it = destination_state.inventory.find(offer.commodity_id);
+                const double stock = stock_it == destination_state.inventory.end() ? 0.0 : stock_it->second;
+                const double days_left = rate < 0.0 && !economy_.is_export_market(destination, offer.commodity_id)
+                    ? stock / std::abs(rate) : std::numeric_limits<double>::infinity();
+                goods.push_back({
+                    .offer = &offer,
+                    .stock_on_arrival = forecast_stock_on_arrival(destination_state, offer.commodity_id, days_ahead, ship.id),
+                    .urgency = std::clamp(14.0 / std::max(days_left, 0.5), 1.0, 5.0),
+                });
+            }
+            if (goods.size() < 2) {
+                continue;
+            }
+            double hold_left = ship_class.cargo_capacity_units;
+            if (destination.storage_capacity_units > 0.0) {
+                hold_left = std::min(hold_left, std::max(0.0,
+                    destination.storage_capacity_units - economy_.storage_used_units(destination_state.inventory)));
+            }
+            double credits_left = spendable_credits;
+            const double chunk = std::max(1.0, ship_class.cargo_capacity_units / 40.0);
+            std::vector<std::pair<std::size_t, double>> picks;  // (good, units) in the order loaded
+            while (hold_left >= 0.5) {
+                std::size_t best_good = goods.size();
+                double best_gain = 0.0;
+                double best_units = 0.0;
+                double best_buy = 0.0;
+                for (std::size_t g = 0; g < goods.size(); ++g) {
+                    auto& good = goods[g];
+                    const double units = std::min({chunk, good.offer->surplus - good.loaded, hold_left});
+                    if (units < 0.5) {
+                        continue;
+                    }
+                    const auto& commodity = get_commodity(good.offer->commodity_id);
+                    const double sale = economy_.get_trade_value(destination, commodity.id,
+                        good.stock_on_arrival + good.loaded, units, commodity.base_price);
+                    const double buy = trade_value(origin_state, commodity.id, -(good.loaded + units)) - good.buy_cost;
+                    const double gain = good.urgency * (sale - buy) / units;
+                    if (sale > buy && gain > best_gain && buy <= credits_left) {
+                        best_good = g;
+                        best_gain = gain;
+                        best_units = units;
+                        best_buy = buy;
+                    }
+                }
+                if (best_good == goods.size()) {
+                    break;
+                }
+                goods[best_good].loaded += best_units;
+                goods[best_good].buy_cost += best_buy;
+                hold_left -= best_units;
+                credits_left -= best_buy;
+                picks.emplace_back(best_good, best_units);
+            }
+            // The whole manifest, and its first half and quarter: a full hold may be too heavy.
+            for (const double fraction : LOAD_FRACTIONS) {
+                const auto count = static_cast<std::size_t>(std::ceil(static_cast<double>(picks.size()) * fraction));
+                std::vector<double> units_by_good(goods.size(), 0.0);
+                for (std::size_t i = 0; i < count; ++i) {
+                    units_by_good[picks[i].first] += picks[i].second;
+                }
+                std::vector<domain::CargoLot> lots;
+                double cargo_kg = 0.0;
+                for (std::size_t g = 0; g < goods.size(); ++g) {
+                    if (units_by_good[g] > 0.0) {
+                        lots.push_back({.commodity_id = goods[g].offer->commodity_id, .units = units_by_good[g]});
+                        cargo_kg += units_by_good[g] * get_commodity(goods[g].offer->commodity_id).mass_per_unit_kg;
+                    }
+                }
+                if (lots.size() < 2) {
+                    continue;
+                }
+                const auto cargo_label = std::format("mixed {} -> {}", describe_cargo(lots), destination.id);
+                const auto fuel_plan = plan_with_return_fuel(destination, cargo_kg);
+                const auto& plan = *fuel_plan.plan;
+                if (!plan.feasible || !fuel_plan.feasible) {
+                    trace_line(cargo_label + ": no feasible trajectory, or no fuel to leave again");
+                    continue;
+                }
+                const double travel_days = plan.travel_time_s / 86400.0;
+                if (travel_days > max_mission_days) {
+                    continue;
+                }
+                const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
+                    + fuel_premium(plan, fuel_plan.carried_kg);
+                const double trip_cost = fuel_cost + time_cost_per_day * travel_days;
+                const double total_units = domain::total_units(lots);
+                double revenue = 0.0;
+                double purchases = 0.0;
+                double weighted = 0.0;
+                for (const auto& lot : lots) {
+                    const auto& commodity = get_commodity(lot.commodity_id);
+                    const double surviving = lot.units * std::pow(1.0 - commodity.decay_fraction_per_day, travel_days);
+                    const double lot_revenue = sale_value_on_arrival(destination_state, lot.commodity_id, surviving,
+                        delay_days + plan.wait_time_s / 86400.0 + travel_days, ship.id);
+                    const double lot_cost = trade_value(origin_state, lot.commodity_id, -lot.units);
+                    revenue += lot_revenue;
+                    purchases += lot_cost;
+                    // As for one good: its margin, less its share of the trip, weighted by urgency.
+                    double urgency = 1.0;
+                    for (const auto& good : goods) {
+                        if (good.offer->commodity_id == lot.commodity_id) {
+                            urgency = good.urgency;
+                        }
+                    }
+                    weighted += urgency * (lot_revenue - lot_cost - trip_cost * lot.units / total_units);
+                }
+                FollowUp follow;
+                const double score = two_leg_score(destination, plan, fuel_plan.carried_kg, weighted, travel_days, false, follow);
+                trace_line(std::format("{}: {:.0f} days revenue {:.0f} cost {:.0f} (trip {:.0f}), {}: score {:.1f}{}",
+                    cargo_label, travel_days, revenue, purchases + trip_cost, trip_cost, follow.label, score,
+                    score > best_score ? " (best so far)" : ""));
+                if (score > best_score) {
+                    best_score = score;
+                    best_destination = &destination;
+                    best_cargo = lots;
+                    best_cargo_margin = revenue - purchases - fuel_cost;
                     best_plan = &plan;
                     best_carried_kg = fuel_plan.carried_kg;
                     best_pickup_commodity = follow.commodity_id;

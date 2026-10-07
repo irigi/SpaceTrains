@@ -249,8 +249,9 @@ func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
         inbound.sort_custom(func(a, b): return float(a.get("arrival_time_s", 0.0)) < float(b.get("arrival_time_s", 0.0)))
         _add_label("INBOUND", UiTheme.ACCENT, 12)
         for ship in inbound:
-            var cargo := float(ship.get("cargo_units", 0.0))
-            var what := ("%.0f u %s" % [cargo, String(ship.get("commodity_id", ""))]) if cargo > 0.0 else "empty"
+            var what := _cargo_text(ship)
+            if what == "":
+                what = "empty"
             _add_label("%s · %s · in %.0f d" % [String(ship.get("name", "")), what,
                 maxf(float(ship.get("arrival_time_s", 0.0)) - game_time_s, 0.0) / 86400.0], UiTheme.TEXT_DIM, 12)
     if not docked.is_empty():
@@ -299,15 +300,26 @@ func _trajectory_label(trajectory_type: String) -> String:
         _:
             return "—"
 
+# "230 u food + 140 u medicine" from the snapshot's cargo list (largest lot first).
+func _cargo_text(detail: Dictionary) -> String:
+    var lots: Array = (detail.get("cargo", []) as Array).duplicate()
+    if lots.is_empty():
+        var units := float(detail.get("cargo_units", 0.0))
+        var commodity := String(detail.get("commodity_id", ""))
+        return "%.0f u %s" % [units, commodity] if units > 0.0 and commodity != "" else ""
+    lots.sort_custom(func(a, b): return float(a.get("units", 0.0)) > float(b.get("units", 0.0)))
+    var parts: Array[String] = []
+    for lot in lots:
+        parts.append("%.0f u %s" % [float(lot.get("units", 0.0)), String(lot.get("commodity_id", ""))])
+    return " + ".join(parts)
+
 # What the ship is doing, in words: "Carrying 120 u platinum to Earth L1 Terminal".
 func _mission_sentence(detail: Dictionary, context: Dictionary) -> String:
     var phase := String(detail.get("phase", "idle"))
     var game_time_s := float(context.get("game_time_s", 0.0))
     var here := _resolve_name(context, String(detail.get("current_station_id", "")))
     var destination := _resolve_name(context, String(detail.get("destination_station_id", "")))
-    var cargo := float(detail.get("cargo_units", 0.0))
-    var commodity := String(detail.get("commodity_id", ""))
-    var load := "%.0f u %s" % [cargo, commodity] if cargo > 0.0 and commodity != "" else ""
+    var load := _cargo_text(detail)
     match phase:
         "in_transit", "awaiting_departure":
             var text := ""

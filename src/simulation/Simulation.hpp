@@ -68,6 +68,10 @@ private:
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     // Value of moving units into (+) or out of (-) a station, along its price curve.
     // Value of selling `units` at a station `days_ahead` from now, on its forecast stock.
+    // The stock a delivery `days_ahead` from now lands on: today's run forward at the net
+    // rate, with the same good other ships deliver before then.
+    [[nodiscard]] double forecast_stock_on_arrival(const domain::StationState& state, const std::string& commodity_id,
+        double days_ahead, const std::string& seller_ship_id) const;
     [[nodiscard]] double sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
     [[nodiscard]] double trade_value(

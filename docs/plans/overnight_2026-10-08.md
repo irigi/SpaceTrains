@@ -70,7 +70,7 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   10.7, loaded back to 10.7, clock continued. The UI's "simulation busy" notice no longer fires while paused or at
   slow timewarps (no snapshot is due then).
 - 23:1x **v35 baseline** (ordered maps): 730 days 40 s, unmet 72.5%, 17/43 profitable, money +5.3%, drift 0.
-- 23:2x **Step 12 findings (the unmet-demand investigation).**
+- 23:1x **Step 12 findings (the unmet-demand investigation).**
   1. **Bug, fixed (v36a):** the stock forecast for a sale counted every inbound cargo of the good, whenever it would
      arrive. Three slow Venus ships carrying food to Low Earth Logistics made a hop of hours from Earth L1 (10,000 food,
      price 12) look worthless (300 u valued at 3,750 cr), so the station starved for 100+ days. Now the stock is run
@@ -91,12 +91,18 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   **Open for the user:** remote outposts import all their food/oxygen from Venus (217-932 days away); local life
   support production (greenhouses, electrolysis) at the outposts would cut the transport need by far more than any
   fleet could add. A game-design decision, not taken tonight.
-- 23:4x **Speed with 90 ships** (730 days had become 1m49, ticks up to 8.6 s): candidates are planned without a
+- 23:2x **Speed with 90 ships** (730 days had become 1m49, ticks up to 8.6 s): candidates are planned without a
   rendering path (`PlanningOptions::include_path`), the chosen mission is planned again with it. **Bug found and
   fixed:** `integrate_fixed_time` computed the last output time as dt x (n-1), which can round a hair above the
   transfer time; the loop then spun on zero-length RK45 steps until the 200,000-step budget threw (the worst
   integration took 73 ms instead of 7.6 ms; the windows it hit were silently rejected). v36e: 730 days 1m08, the
   same economics as v36c.
-- 23:5x **Step 13 stage 1 groundwork:** a mission's hold is a list of lots (`domain::CargoLot`, save version 2);
+- 23:3x **Step 13 stage 1 groundwork:** a mission's hold is a list of lots (`domain::CargoLot`, save version 2);
   departure, arrival (per-lot decay, storage, sale), the inbound forecast, events and the snapshot (`cargo` list) use
   it. Dispatch still loads one good per trip: results identical to v36e (only event wording differs).
+- 23:4x **Step 13 stage 1: mixed cargo (v37a).** Dispatch builds a manifest per destination: chunk by chunk (1/40 of
+  the hold) the next units go to the good whose next units earn the most along both stations' price curves, weighted
+  by the destination's urgency for it; the whole manifest, its half and its quarter are scored like single-good runs
+  (two-leg, follow-up). Single-good runs remain candidates. 730 days: **unmet 59.8% (last 146 days 40.6%)**, 49/93
+  profitable, fleet holds 41,400 u in 90 ships, fuel 1.09M (v36e 1.77M), money supply **+29.7%** (ships hold 2.4M
+  cr; to look at), drift 0, 2 trajectory flags (theta branches), 1m05. The inspector shows the full hold.
