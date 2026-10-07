@@ -825,6 +825,35 @@ Simulation::MissionChoice Simulation::choose_mission(
         return bought_kg / FUEL_UNITS_TO_KG * origin_fuel_premium;
     };
 
+    // A station's surplus left after the ships already docked there or inbound take their
+    // loads. Each of them is assumed to fill its hold from the largest remaining surplus.
+    const auto open_surplus = [&](const domain::StationDefinition& station_def, const domain::StationState& station_state) {
+        const auto rates = economy_.get_station_net_rates(station_def);
+        std::unordered_map<std::string, double> surplus_by_commodity;
+        for (const auto& [commodity_id, stock] : station_state.inventory) {
+            const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
+            if (rate > 0.0) {
+                surplus_by_commodity[commodity_id] = stock - (8.0 + rate * 7.0);
+            }
+        }
+        for (const auto& other : ships_) {
+            if (other.id == ship.id) {
+                continue;
+            }
+            const bool inbound = (other.phase == domain::ShipMissionPhase::InTransit
+                || other.phase == domain::ShipMissionPhase::AwaitingDeparture)
+                && other.active_mission.destination_station_id == station_def.id;
+            const bool docked = other.current_station_id == station_def.id
+                && (other.phase == domain::ShipMissionPhase::Idle || other.phase == domain::ShipMissionPhase::Refueling);
+            if ((inbound || docked) && !surplus_by_commodity.empty()) {
+                auto largest = std::max_element(surplus_by_commodity.begin(), surplus_by_commodity.end(),
+                    [](const auto& a, const auto& b) { return a.second < b.second; });
+                largest->second -= std::max(0.0, std::min(largest->second, get_ship_class(other.class_id).cargo_capacity_units));
+            }
+        }
+        return surplus_by_commodity;
+    };
+
     // Two-leg lookahead. A trip is only worth what the ship can do after it: a cargo run
     // into a port with nothing to carry away leaves the ship (and its costs) sitting
     // there. Every candidate leg is scored together with the best follow-up leg from its
@@ -850,31 +879,7 @@ Simulation::MissionChoice Simulation::choose_mission(
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
                 economy_, destination, dest_state, delay_days + plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
-        // Surplus left after the ships already docked there or inbound take their loads.
-        // Each of them is assumed to fill its hold from the largest remaining surplus.
-        const auto dest_rates = economy_.get_station_net_rates(destination);
-        std::unordered_map<std::string, double> surplus_by_commodity;
-        for (const auto& [commodity_id, stock] : dest_state.inventory) {
-            const double rate = dest_rates.contains(commodity_id) ? dest_rates.at(commodity_id) : 0.0;
-            if (rate > 0.0) {
-                surplus_by_commodity[commodity_id] = stock - (8.0 + rate * 7.0);
-            }
-        }
-        for (const auto& other : ships_) {
-            if (other.id == ship.id) {
-                continue;
-            }
-            const bool inbound = (other.phase == domain::ShipMissionPhase::InTransit
-                || other.phase == domain::ShipMissionPhase::AwaitingDeparture)
-                && other.active_mission.destination_station_id == destination.id;
-            const bool docked = other.current_station_id == destination.id
-                && (other.phase == domain::ShipMissionPhase::Idle || other.phase == domain::ShipMissionPhase::Refueling);
-            if ((inbound || docked) && !surplus_by_commodity.empty()) {
-                auto largest = std::max_element(surplus_by_commodity.begin(), surplus_by_commodity.end(),
-                    [](const auto& a, const auto& b) { return a.second < b.second; });
-                largest->second -= std::max(0.0, std::min(largest->second, get_ship_class(other.class_id).cargo_capacity_units));
-            }
-        }
+        auto surplus_by_commodity = open_surplus(destination, dest_state);
         for (const auto& [commodity_id, surplus] : surplus_by_commodity) {
             const double full_units = std::min(surplus, ship_class.cargo_capacity_units);
             if (full_units <= 1.0) {
@@ -1021,7 +1026,8 @@ Simulation::MissionChoice Simulation::choose_mission(
             // moves both stations' prices along their curves, so score each part load.
             const double dest_stock = destination_state.inventory.count(commodity_id)
                 ? destination_state.inventory.at(commodity_id) : 0.0;
-            const double dest_days_left = destination_rate < 0.0
+            // An export market never starves: Earth's economy takes what arrives.
+            const double dest_days_left = destination_rate < 0.0 && !economy_.is_export_market(destination, commodity_id)
                 ? dest_stock / std::abs(destination_rate)
                 : std::numeric_limits<double>::infinity();
             // The price clamp saturates, so a starving station cannot bid any higher;
@@ -1145,14 +1151,8 @@ Simulation::MissionChoice Simulation::choose_mission(
         // served by the cargo loop's urgency weighting once a ship is loaded.
         const auto sourcing_score_for = [&](const domain::StationDefinition& station_def,
                                             const domain::StationState& station_state) {
-            const auto rates = economy_.get_station_net_rates(station_def);
             double sourcing_score = 0.0;
-            for (const auto& [commodity_id, rate] : rates) {
-                if (rate <= 0.0) continue;
-                const double stock = station_state.inventory.count(commodity_id)
-                    ? station_state.inventory.at(commodity_id) : 0.0;
-                const double reserve = 8.0 + rate * 7.0;
-                const double surplus = std::max(0.0, stock - reserve);
+            for (const auto& [commodity_id, surplus] : open_surplus(station_def, station_state)) {
                 if (surplus <= 1.0) continue;
                 // Sum up how urgently this commodity is needed across the whole system.
                 double system_urgency = 0.0;
@@ -1164,7 +1164,8 @@ Simulation::MissionChoice Simulation::choose_mission(
                     const auto& other_state = get_station_state(other.id);
                     const double other_stock = other_state.inventory.count(commodity_id)
                         ? other_state.inventory.at(commodity_id) : 0.0;
-                    const double days_rem = other_stock > 0.0 ? other_stock / std::abs(other_rate) : 0.0;
+                    const double days_rem = economy_.is_export_market(other, commodity_id) ? 30.0
+                        : other_stock > 0.0 ? other_stock / std::abs(other_rate) : 0.0;
                     system_urgency += std::max(1.0, 30.0 / std::max(1.0, days_rem)) * std::abs(other_rate);
                 }
                 sourcing_score += std::min(surplus, ship_class.cargo_capacity_units) * system_urgency / 100.0;
@@ -1178,13 +1179,9 @@ Simulation::MissionChoice Simulation::choose_mission(
         // must at least pay for itself out of that.
         const auto sourcing_value_cr = [&](const domain::StationDefinition& station_def,
                                            const domain::StationState& station_state) {
-            const auto rates = economy_.get_station_net_rates(station_def);
+            // What the ships already there or on their way leave of it.
             double best_value = 0.0;
-            for (const auto& [commodity_id, rate] : rates) {
-                if (rate <= 0.0) continue;
-                const double stock = station_state.inventory.count(commodity_id)
-                    ? station_state.inventory.at(commodity_id) : 0.0;
-                const double surplus = std::max(0.0, stock - (8.0 + rate * 7.0));
+            for (const auto& [commodity_id, surplus] : open_surplus(station_def, station_state)) {
                 const double load = std::min(surplus, ship_class.cargo_capacity_units);
                 if (load <= 1.0) continue;
                 const double buy_cost = trade_value(station_state, commodity_id, -load);

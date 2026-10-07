@@ -1,0 +1,4 @@
+station_id,commodity_id,units_per_day
+ceres_depot,platinum,0.5
+ganymede_depot,deuterium,1
+titan_works,deuterium,1

@@ -15,6 +15,8 @@ constexpr double MACHINERY_WEAR_PER_DAY = 0.0005;
 // Produced commodities are capped at this many days of production to prevent
 // infinite accumulation when ships can't keep up with distribution.
 constexpr double PRODUCTION_CAP_DAYS = 90.0;
+// Export goods wait for ships that come by once in a year or two.
+constexpr double EXPORT_STOCKPILE_DAYS = 720.0;
 
 // Price elasticity: how sharply prices respond to stock deviating from target.
 constexpr double PRICE_ELASTICITY = 1.3;
@@ -25,9 +27,42 @@ constexpr double PRICE_MAX_MULTIPLIER = 16.0;
 }  // namespace
 
 EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : universe_(universe) {
-    for (const auto& recipe : universe_.recipes) {
-        recipes_by_profile_[recipe.profile_id].push_back(&recipe);
+    for (const auto& station : universe_.stations) {
+        auto& recipes = recipes_by_station_[station.id];
+        for (const auto& recipe : universe_.recipes) {
+            if (recipe.station_id.empty() ? recipe.profile_id == station.economy_profile_id : recipe.station_id == station.id) {
+                recipes.push_back(&recipe);
+            }
+        }
     }
+    for (const auto& market : universe_.export_markets) {
+        export_markets_[market.station_id][market.commodity_id] = market.units_per_day;
+        export_goods_.insert(market.commodity_id);
+    }
+}
+
+double EconomySystem::flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    if (!export_goods_.contains(commodity_id)) {
+        return 0.0;
+    }
+    if (is_export_market(station, commodity_id)) {
+        return 1.0;
+    }
+    const auto& recipes = recipes_of(station);
+    const bool made_here = std::any_of(recipes.begin(), recipes.end(),
+        [&](const domain::RecipeDefinition* recipe) { return recipe->commodity_id == commodity_id; });
+    return made_here ? 0.0 : PRICE_MIN_MULTIPLIER;
+}
+
+const std::vector<const domain::RecipeDefinition*>& EconomySystem::recipes_of(const domain::StationDefinition& station) const {
+    static const std::vector<const domain::RecipeDefinition*> none;
+    const auto it = recipes_by_station_.find(station.id);
+    return it == recipes_by_station_.end() ? none : it->second;
+}
+
+bool EconomySystem::is_export_market(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    const auto it = export_markets_.find(station.id);
+    return it != export_markets_.end() && it->second.contains(commodity_id);
 }
 
 void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_s) const {
@@ -41,10 +76,18 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             continue;
         }
 
-        const auto recipe_it = recipes_by_profile_.find(station_it->economy_profile_id);
-        if (recipe_it == recipes_by_profile_.end()) {
-            continue;
+        // Earth's economy takes everything delivered to its export markets.
+        if (const auto market_it = export_markets_.find(station.station_id); market_it != export_markets_.end()) {
+            for (const auto& [commodity_id, units_per_day] : market_it->second) {
+                double& stock = station.inventory[commodity_id];
+                if (stock > 0.0) {
+                    station.market_sold_units[commodity_id] += stock;
+                    stock = 0.0;
+                }
+            }
         }
+
+        const auto& recipes = recipes_of(*station_it);
 
         const double factor = population_factor(*station_it);
 
@@ -52,7 +95,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         // to 1.0 (inputs at 7-day buffer). Never drops to 0 — stations retain 10% productivity
         // via manual/emergency operations (fallback farming, improvised repairs, etc.).
         double efficiency = 1.0;
-        for (const auto* recipe : recipe_it->second) {
+        for (const auto* recipe : recipes) {
             if (recipe->units_per_day < 0.0) {
                 const double stock = station.inventory.count(recipe->commodity_id)
                     ? station.inventory.at(recipe->commodity_id) : 0.0;
@@ -71,7 +114,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         const double capacity = station_it->storage_capacity_units;
         const bool storage_full = capacity > 0.0 && storage_used_units(station.inventory) >= capacity * 0.85;
 
-        for (const auto* recipe : recipe_it->second) {
+        for (const auto* recipe : recipes) {
             const double units_per_day = recipe->units_per_day * factor;
             const double rate = (units_per_day > 0.0)
                 ? (storage_full ? 0.0 : units_per_day * efficiency)  // production scales with input availability
@@ -173,6 +216,9 @@ double EconomySystem::get_price(
     const std::string& commodity_id,
     double stock,
     double base_price) const {
+    if (const double flat = flat_price_multiplier(station, commodity_id); flat > 0.0) {
+        return base_price * flat;
+    }
     const double target = get_target_stock(station, commodity_id);
     const double ratio = target / std::max(stock, 0.5);
     const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
@@ -181,7 +227,8 @@ double EconomySystem::get_price(
 
 double EconomySystem::production_cap_units(
     const domain::StationDefinition& station, const std::string& commodity_id, double units_per_day) const {
-    return std::max(units_per_day * PRODUCTION_CAP_DAYS, commodity_id == FUEL_ID ? fuel_buffer_units(station) : 0.0);
+    const double days = export_goods_.contains(commodity_id) ? EXPORT_STOCKPILE_DAYS : PRODUCTION_CAP_DAYS;
+    return std::max(units_per_day * days, commodity_id == FUEL_ID ? fuel_buffer_units(station) : 0.0);
 }
 
 double EconomySystem::get_trade_value(
@@ -190,6 +237,9 @@ double EconomySystem::get_trade_value(
     double stock_before,
     double units_into_station,
     double base_price) const {
+    if (const double flat = flat_price_multiplier(station, commodity_id); flat > 0.0) {
+        return base_price * flat * std::abs(units_into_station);
+    }
     // Exact integral of get_price over the traded stock range. The multiplier is
     // (target / max(s, 0.5))^e clamped to [min, max]: constant below s = 0.5, at the
     // upper clamp up to s_hi, (target/s)^e up to s_lo, at the lower clamp beyond.
@@ -232,13 +282,14 @@ std::unordered_map<std::string, double> EconomySystem::get_station_net_rates(con
     if (const double output = fuel_factory_output(station); output > 0.0) {
         rates[FUEL_ID] += output;
     }
-    const auto it = recipes_by_profile_.find(station.economy_profile_id);
-    if (it == recipes_by_profile_.end()) {
-        return rates;
-    }
     const double factor = population_factor(station);
-    for (const auto* recipe : it->second) {
+    for (const auto* recipe : recipes_of(station)) {
         rates[recipe->commodity_id] += recipe->units_per_day * factor;
+    }
+    if (const auto it = export_markets_.find(station.id); it != export_markets_.end()) {
+        for (const auto& [commodity_id, units_per_day] : it->second) {
+            rates[commodity_id] -= units_per_day;
+        }
     }
     return rates;
 }

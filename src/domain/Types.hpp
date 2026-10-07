@@ -125,8 +125,20 @@ struct StationDefinition {
     Inventory initial_inventory;
 };
 
+// A recipe of an economy profile, or of one station (local resources such as Ceres's
+// platinum, data/recipes/station_recipes.csv), when station_id is set.
 struct RecipeDefinition {
     std::string profile_id;
+    std::string commodity_id;
+    double units_per_day {0.0};
+    std::string station_id {};
+};
+
+// Earth's economy (the outside account) buys any amount of an export good delivered to
+// this station at its base price (data/economy/export_markets.csv). Planners see the
+// market as a consumer of units_per_day.
+struct ExportMarketDefinition {
+    std::string station_id;
     std::string commodity_id;
     double units_per_day {0.0};
 };
@@ -149,6 +161,7 @@ struct UniverseDefinition {
     std::vector<ShipClassDefinition> ship_classes;
     std::vector<StationDefinition> stations;
     std::vector<RecipeDefinition> recipes;
+    std::vector<ExportMarketDefinition> export_markets;
     std::vector<ShipSeedDefinition> ship_seeds;
     ShipOperationsDefinition ship_operations;
     FuelSupplyDefinition fuel_supply;
@@ -286,6 +299,8 @@ struct StationState {
     // because the stock had run out.
     Inventory demand_units {};
     Inventory unmet_units {};
+    // Units an export market sold on to the outside economy since the start.
+    Inventory market_sold_units {};
 };
 
 struct SimulationSnapshot {

@@ -198,6 +198,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto ship_classes_path = root / "ship_classes" / "ship_classes.csv";
     const auto stations_path = root / "stations" / "stations.csv";
     const auto recipes_path = root / "recipes" / "recipes.csv";
+    const auto station_recipes_path = root / "recipes" / "station_recipes.csv";
+    const auto export_markets_path = root / "economy" / "export_markets.csv";
     const auto ships_path = root / "ships" / "ships.csv";
     const auto ship_operations_path = root / "economy" / "ship_operations.csv";
     const auto fuel_supply_path = root / "economy" / "fuel_supply.csv";
@@ -428,6 +430,54 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             if (!seen_keys.contains(required)) {
                 throw std::runtime_error(std::string("Missing key '") + required + "' in " + fuel_supply_path.string());
             }
+        }
+    }
+
+    const auto require_station = [&](const std::string& station_id, const std::filesystem::path& path) {
+        const bool known = std::any_of(universe.stations.begin(), universe.stations.end(),
+            [&](const domain::StationDefinition& station) { return station.id == station_id; });
+        if (!known) {
+            throw std::runtime_error("Unknown station '" + station_id + "' in " + path.string());
+        }
+    };
+    const auto require_commodity = [&](const std::string& commodity_id, const std::filesystem::path& path) {
+        const bool known = std::any_of(universe.commodities.begin(), universe.commodities.end(),
+            [&](const domain::CommodityDefinition& commodity) { return commodity.id == commodity_id; });
+        if (!known) {
+            throw std::runtime_error("Unknown commodity '" + commodity_id + "' in " + path.string());
+        }
+    };
+
+    {
+        const auto rows = read_csv_rows(station_recipes_path);
+        require_header(rows.front(), {"station_id", "commodity_id", "units_per_day"}, station_recipes_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 3, station_recipes_path, i + 1);
+            require_station(row[0], station_recipes_path);
+            require_commodity(row[1], station_recipes_path);
+            universe.recipes.push_back({
+                .profile_id = {},
+                .commodity_id = row[1],
+                .units_per_day = parse_double(row[2], station_recipes_path, i + 1, "units_per_day"),
+                .station_id = row[0],
+            });
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(export_markets_path);
+        require_header(rows.front(), {"station_id", "commodity_id", "units_per_day"}, export_markets_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 3, export_markets_path, i + 1);
+            require_station(row[0], export_markets_path);
+            require_commodity(row[1], export_markets_path);
+            const double units_per_day = parse_double(row[2], export_markets_path, i + 1, "units_per_day");
+            if (units_per_day <= 0.0) {
+                throw std::runtime_error("units_per_day must be positive in " + export_markets_path.string());
+            }
+            universe.export_markets.push_back({.station_id = row[0], .commodity_id = row[1], .units_per_day = units_per_day});
         }
     }
 

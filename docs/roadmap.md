@@ -19,7 +19,7 @@
 ## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32).
 
 ### Decisions so far
 
@@ -85,16 +85,21 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    the port's price (cis-lunar plasma spirals are now cost-aware). v29: fuel 690k cr (v28 135k), fleet
    profit 444k (871k), 14/32 profitable, 0 laid up, 0 stranded. Open: Mars runs dry by day 350 and
    Mercury is marginal (no tanker bought for them); Earth-orbit fuel costs 35-60 cr/u.
-6. **Investment rate**: buy every candidate above the hurdle each review (re-valued with the committed
-   flow after each purchase), so the fleet grows toward the demand the audit's "Unmet Demand" shows.
-7. **Outer-system exports** bought by Earth's economy.
+6. **Investment rate**: done (v31). A review buys until no candidate clears the hurdle (at most 8),
+   each valued against the flow of the ships already ordered. 19 ships bought (v30 10), fleet profit
+   981k, 19/41 profitable, treasuries end with 69k (v30 542k); unmet demand 71.4% (71.7%).
+7. **Outer-system exports** (`docs/plans/outer_exports.md`): first version (v32). Ceres mines
+   platinum, Ganymede and Titan deuterium; Earth's two stations buy any amount at the base price for
+   the outside economy. One 129-unit load reached Earth (387k); the platinum drew ships off inner
+   routes (730 d: unmet demand 74.3%, 12/36 profitable, fleet profit 768k), and the outer stations are
+   no better supplied within four years. Ganymede and Titan are out of reach (step 8). Open.
 8. Leftover trajectory items: theta branches, atlas time-optimality (see below); Titan -> Ganymede
    nuclear-thermal plans of about 9000 days.
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v30: 16/32 profitable, fleet profit 891k, cargo margin 1.99M, fuel 699k cr, 1 laid up, unmet demand 71.7%,
-34 CRITICAL lines, money supply +8.8%, drift 0, run 6m57). "Unmet demand" is the share of the stations'
+(v32: 12/36 profitable, fleet profit 768k, cargo margin 1.66M, fuel 473k cr, exports 387k, unmet demand
+74.3%, 33 CRITICAL lines, money supply +0.3%, drift 0, run 8m35; v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'
 consumption (by base value, over the whole run) that found no stock; CRITICAL lines only count the
 station goods with under 7 days of stock at the last day. Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.

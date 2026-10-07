@@ -111,6 +111,40 @@ int main() {
     }
 
     {
+        // --- Outer-system exports: local resources, and Earth markets that buy at base price ---
+        const auto station_by_id = [&](const std::string& id) -> const spacetrains::domain::StationDefinition& {
+            for (const auto& station : universe.stations) {
+                if (station.id == id) {
+                    return station;
+                }
+            }
+            throw std::runtime_error("missing station " + id);
+        };
+        const auto& ceres = station_by_id("ceres_depot");
+        const auto& ganymede = station_by_id("ganymede_depot");
+        require(economy.get_station_net_rates(ceres).contains("platinum")
+                && economy.get_station_net_rates(ceres).at("platinum") > 0.0,
+            "Ceres must mine platinum");
+        require(!economy.get_station_net_rates(ganymede).contains("platinum"),
+            "a station recipe must not reach other stations of the same profile");
+        const auto& leo = station_by_id("earth_orbit");
+        require(economy.is_export_market(leo, "platinum"), "Low Earth Logistics must buy platinum for Earth");
+        const double base = 3000.0;
+        require_near(economy.get_price(leo, "platinum", 0.0, base), base, 1.0e-9, "an export market pays the base price");
+        require_near(economy.get_trade_value(leo, "platinum", 0.0, 500.0, base), 500.0 * base, 1.0e-6,
+            "an export market's price does not move with the delivery");
+        require_near(economy.get_price(station_by_id("mars_transfer"), "platinum", 0.0, base), 0.25 * base, 1.0e-9,
+            "a station that neither makes nor exports platinum must not bid for it");
+        std::vector<spacetrains::domain::StationState> stations;
+        stations.push_back({.station_id = leo.id, .inventory = leo.initial_inventory});
+        stations[0].inventory["platinum"] = 120.0;
+        economy.step(stations, 3600.0);
+        require(stations[0].inventory["platinum"] == 0.0 && stations[0].market_sold_units["platinum"] == 120.0,
+            "an export market sells everything delivered on to the outside economy");
+        require(!stations[0].demand_units.contains("platinum"), "export markets are not consumer demand");
+    }
+
+    {
         // --- Fuel factories fill their depots; other depots hold what ships deliver ---
         const auto& fuel_supply = universe.fuel_supply;
         require(fuel_supply.depot_buffer_units > 0.0 && !fuel_supply.factory_output_units_per_day.empty(),

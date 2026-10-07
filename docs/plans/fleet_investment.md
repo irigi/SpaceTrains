@@ -36,7 +36,11 @@ up, and the faction treasuries buy new ships for the routes that pay best.
      criterion), and that choice holds for the refit payback period (180 days); otherwise new ships
      went straight back into the yard.
    - It is bought by the yard station's faction if its treasury holds the price plus the
-     `working_capital` (25k), otherwise by the richest faction. At most one ship per review.
+     `working_capital` (25k), otherwise by the richest faction.
+   - A review buys again until no candidate clears the hurdle, at most `max_ships_per_review` (8)
+     ships (v31; one per review before). Each purchase keeps its yard busy, and its route flow counts
+     at once against the destination's demand (on top of the observed imports, since a ship still in
+     the yard has delivered nothing), so the next ship is valued against the demand still open.
    - The treasury pays the hull to the outside economy and the working capital to the ship, and the
      money-supply target grows by that working capital. The ship spends `build_days` (30) in the yard
      (the `Refitting` phase) and then dispatches normally. Debug: `SPACETRAINS_TRACE_INVESTMENT=1`.
@@ -104,8 +108,16 @@ and the valuation above replaced the one-trip margin. Against v29 (same seed, sa
   delivered within the window, and only the loaded leg's fuel was counted; an Orbital Tanker bought
   for Lunar fuel to Earth L1 earned 66k of cargo margin and burned 96k of fuel (fleet profit 394k).
 
-**Open point: one ship per review.** The treasuries end with 542k they could not spend, while consumers
-go without 72% of their demand (by base value; the audit's "Unmet Demand" table). Mars, Mercury,
-Ceres, Ganymede and Titan get almost nothing; the production is there (the system makes 8-10x what
-the stations consume and producers hold large stocks). Buying every candidate above the hurdle each
-review, re-valued after each purchase with its committed flow, is the next lever.
+**Open point (v30): one ship per review.** The treasuries ended with 542k they could not spend, while
+consumers went without 72% of their demand (by base value; the audit's "Unmet Demand" table). Mars,
+Mercury, Ceres, Ganymede and Titan got almost nothing; the production is there (the system makes 8-10x
+what the stations consume and producers hold large stocks).
+
+## v31 result: several ships per review (730 days)
+
+- 19 ships bought (v30: 10), 4 sold; fleet 41. Fleet profit 981k (v30 891k), 19/41 profitable, cargo
+  margin 2.06M, fuel 662k, 2 laid up, money supply +6.2%. The treasuries end with 69k (v30 542k):
+  money, not the purchase rule, now limits the fleet's growth. Reviews take longer (run 9m14, v30 6m57).
+- Unmet demand 71.4% (v30 71.7%). The new ships still mostly serve Earth, the Moon and Venus; a few
+  carry electronics and medicine to Mars. A round trip to the outer system has nothing to carry back,
+  so it rarely clears the hurdle; outer-system exports (roadmap step 7) are the next lever.

@@ -1,0 +1,5 @@
+station_id,commodity_id,units_per_day
+earth_orbit,platinum,10
+earth_orbit,deuterium,10
+earth_l1,platinum,10
+earth_l1,deuterium,10

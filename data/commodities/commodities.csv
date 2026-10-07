@@ -8,3 +8,5 @@ electronics,Electronics,20,0.0,200
 machinery,Machinery,300,0.0,300
 medicine,Medicine,50,0.001,250
 reactor_fuel,Reactor Fuel,500,0.0,400
+platinum,Platinum Metals,10,0.0,3000
+deuterium,Deuterium,20,0.0,1500

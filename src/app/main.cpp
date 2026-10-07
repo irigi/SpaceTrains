@@ -264,7 +264,7 @@ void print_economy_audit(
             if (sd.id != ss.station_id) continue;
             const auto rates = economy.get_station_net_rates(sd);
             for (const auto& [c, rate] : rates) {
-                if (rate >= 0.0) continue;
+                if (rate >= 0.0 || economy.is_export_market(sd, c)) continue;
                 const double stock = ss.inventory.count(c) ? ss.inventory.at(c) : 0.0;
                 const double days_remaining = (std::abs(rate) > 0.0) ? stock / std::abs(rate) : 999.0;
                 if (days_remaining < 30.0) {
@@ -302,6 +302,19 @@ void print_economy_audit(
         }
         std::cout << std::format("    Unmet demand: {:.1f}% of {:.0f} cr consumed at base prices ({:.0f} cr unmet)\n",
             demand_value > 0.0 ? 100.0 * unmet_value / demand_value : 0.0, demand_value, unmet_value);
+
+        // Export markets: what Earth's economy bought from the outer system.
+        double market_value = 0.0;
+        std::cout << "\n  [ECON AUDIT] Export Markets (sold to the outside economy since start):\n";
+        for (const auto& ss : snap.stations) {
+            const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+                [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+            for (const auto& [c, units] : ss.market_sold_units) {
+                market_value += units * base_prices[c];
+                std::cout << std::format("    {:30s}  {:15s}  {:8.0f}u  {:10.0f} cr\n", name, c, units, units * base_prices[c]);
+            }
+        }
+        std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
     }
 
     // Ship utilization

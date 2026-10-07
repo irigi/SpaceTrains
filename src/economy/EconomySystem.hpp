@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "domain/Types.hpp"
@@ -34,12 +35,17 @@ public:
     // Fuel stock expected after `days` of factory output, ignoring other trade.
     [[nodiscard]] double fuel_stock_after_days(const domain::StationDefinition& station, double stock, double days) const;
 
+    // Earth's economy buys this good here at its base price, in any amount.
+    [[nodiscard]] bool is_export_market(const domain::StationDefinition& station, const std::string& commodity_id) const;
+
     // Stock level (units) at which the local price equals the commodity's base price.
     // Consumers target a 21-day buffer, producers a 14-day buffer, non-traders a flat 20 units.
     // Depot fuel targets the station's depot buffer.
     [[nodiscard]] double get_target_stock(const domain::StationDefinition& station, const std::string& commodity_id) const;
 
-    // Local unit price: base_price * (target/stock)^elasticity, clamped to [0.25x, 16x] base.
+    // Local unit price: base_price * (target/stock)^elasticity, clamped to [0.25x, 16x] base;
+    // the base price at an export market, and 0.25x base for an export good where it is
+    // neither made nor exported (nobody there needs platinum).
     [[nodiscard]] double get_price(
         const domain::StationDefinition& station,
         const std::string& commodity_id,
@@ -57,8 +63,17 @@ public:
         double base_price) const;
 
 private:
+    [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
+    // A price that does not move with the stock: the base price at an export market, the
+    // floor price for an export good anywhere that neither makes nor exports it (0 otherwise).
+    [[nodiscard]] double flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const;
+
     const domain::UniverseDefinition& universe_;
-    std::unordered_map<std::string, std::vector<const domain::RecipeDefinition*>> recipes_by_profile_;
+    // The profile's recipes and the station's own, by station id.
+    std::unordered_map<std::string, std::vector<const domain::RecipeDefinition*>> recipes_by_station_;
+    // Export goods by station id.
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> export_markets_;
+    std::unordered_set<std::string> export_goods_;
 };
 
 }  // namespace spacetrains::economy
