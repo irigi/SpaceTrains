@@ -106,6 +106,32 @@ func _station_alert(detail: Dictionary) -> bool:
             return true
     return false
 
+# Hover text: what a ship is doing, or which goods a station is short of.
+func _tooltip(entity_id: String, kind: String, detail: Dictionary) -> String:
+    if kind == "ship":
+        var phase := String(detail.get("phase", "idle"))
+        var lots: Array = detail.get("cargo", [])
+        var parts: Array[String] = []
+        for lot in lots:
+            parts.append("%.0f u %s" % [float(lot.get("units", 0.0)), String(lot.get("commodity_id", ""))])
+        var hold := " + ".join(parts) if not parts.is_empty() else "empty"
+        var destination_id := String(detail.get("destination_station_id", ""))
+        var destination := String((_last_details.get(destination_id, {}) as Dictionary).get("name", destination_id))
+        if phase == "in_transit" or phase == "awaiting_departure":
+            return "%s → %s (%s)" % ["waiting for its window" if phase == "awaiting_departure" else "in flight", destination, hold]
+        var here_id := String(detail.get("current_station_id", ""))
+        return "%s at %s" % [phase.replace("_", " "), String((_last_details.get(here_id, {}) as Dictionary).get("name", here_id))]
+    if kind == "station":
+        var short: Array[String] = []
+        var rates: Dictionary = detail.get("net_rates", {})
+        var inventory: Dictionary = detail.get("inventory", {})
+        for commodity_id in rates.keys():
+            var rate := float(rates[commodity_id])
+            if rate < 0.0 and float(inventory.get(commodity_id, 0.0)) / abs(rate) < 7.0:
+                short.append(String(commodity_id))
+        return "short of: " + ", ".join(short) if not short.is_empty() else "supplied"
+    return String(detail.get("name", entity_id))
+
 func _rebuild(force: bool) -> void:
     var kind: String = TAB_KINDS[_tab_bar.current_tab]
     var filter_text := _filter.text.to_lower()
@@ -136,8 +162,9 @@ func _rebuild(force: bool) -> void:
                 color = UiTheme.TEXT_PRIMARY
         else:
             glyph = "○"
-        rows.append({"id": entity_id, "text": "%s  %s" % [glyph, display_name], "color": color})
-        signature_parts.append("%s:%s:%s" % [entity_id, glyph, color.to_html(false)])
+        var tooltip := _tooltip(entity_id, kind, detail)
+        rows.append({"id": entity_id, "text": "%s  %s" % [glyph, display_name], "color": color, "tooltip": tooltip})
+        signature_parts.append("%s:%s:%s:%s" % [entity_id, glyph, color.to_html(false), tooltip])
 
     var signature := "|".join(signature_parts)
     if not force and signature == _current_signature:
@@ -149,6 +176,7 @@ func _rebuild(force: bool) -> void:
     for row in rows:
         var index := _list.add_item(row["text"])
         _list.set_item_custom_fg_color(index, row["color"])
+        _list.set_item_tooltip(index, row["tooltip"])
         _row_ids.append(row["id"])
     set_selected(_selected_id)
 
