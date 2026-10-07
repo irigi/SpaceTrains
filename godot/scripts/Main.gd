@@ -911,6 +911,9 @@ func _refresh_ui(force := false) -> void:
     last_ui_refresh_s = now_s
 
     _record_price_history()
+    _record_economy_history()
+    if economy_history.size() >= 2:
+        bridge_state["unmet_30d"] = _recent_unmet_share(30.0)
     top_bar.update_state(bridge_state, bool(bridge_state.get("paused", current_paused)), current_timewarp)
     entity_browser.update_entities(entity_details, entity_kinds, selected_id)
     event_ticker.update_events(bridge_state.get("recent_events", []))
@@ -922,6 +925,7 @@ func _refresh_ui(force := false) -> void:
         "faction_colors": faction_colors,
         "names": _entity_name_map(),
         "price_trends": _price_trends_for(selected_id) if selected_kind == "station" else {},
+        "ships": bridge_state.get("ships", []),
     })
 
 func _entity_name_map() -> Dictionary:
@@ -944,6 +948,31 @@ func _record_price_history() -> void:
     price_history.append({"day": day, "prices": sample})
     if price_history.size() > PRICE_HISTORY_MAX_SAMPLES:
         price_history.pop_front()
+
+# Cumulative demand and unmet demand (base value), sampled once per game day, for the
+# share that went short over a recent window.
+var economy_history: Array = []
+
+func _record_economy_history() -> void:
+    var economy: Dictionary = bridge_state.get("economy", {})
+    if economy.is_empty():
+        return
+    var day := float(bridge_state.get("game_time_days", 0.0))
+    if not economy_history.is_empty() and day - float(economy_history.back()["day"]) < 1.0:
+        return
+    economy_history.append({"day": day, "demand": float(economy.get("demand_value", 0.0)), "unmet": float(economy.get("unmet_value", 0.0))})
+    if economy_history.size() > 400:
+        economy_history.pop_front()
+
+func _recent_unmet_share(days: float) -> float:
+    var latest: Dictionary = economy_history.back()
+    var reference: Dictionary = economy_history.front()
+    for i in range(economy_history.size() - 1, -1, -1):
+        reference = economy_history[i]
+        if float(latest["day"]) - float(reference["day"]) >= days:
+            break
+    var demand := float(latest["demand"]) - float(reference["demand"])
+    return (float(latest["unmet"]) - float(reference["unmet"])) / demand if demand > 0.0 else 0.0
 
 func _price_trends_for(station_id: String) -> Dictionary:
     var trends := {}

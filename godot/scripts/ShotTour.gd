@@ -47,11 +47,18 @@ func _shoot(name: String) -> void:
     print("[ShotTour] saved %s" % name)
 
 func _run() -> void:
-    # Wait for the simulation to run a few days.
+    # Run the simulation a while (fast) so the panels have history, then back to 1 day/s.
+    var start_day := 3.0
+    for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-day="):
+            start_day = float(arg.trim_prefix("--shot-day="))
+    if start_day > 10.0:
+        main._on_timewarp_changed(432000.0)
     var waited := 0.0
-    while float(main.get("display_time_s")) < 3.0 * 86400.0 and waited < 60.0:
+    while float(main.get("display_time_s")) < start_day * 86400.0 and waited < 120.0:
         await get_tree().create_timer(0.5).timeout
         waited += 0.5
+    main._on_timewarp_changed(86400.0)
     var rig: Node3D = main.get("camera_rig")
     _apply_debug_flags()
     for stop in STOPS:
@@ -74,6 +81,11 @@ func _run() -> void:
             await get_tree().create_timer(0.6).timeout
             await _shoot("ship_in_transit")
             break
+    # The economy overview.
+    main.market_panel.toggle()
+    main._refresh_ui(true)
+    await get_tree().create_timer(0.6).timeout
+    await _shoot("market_panel")
     get_tree().quit()
 
 # Debug aid: meshes that cover a large part of the view (a glow or overlay out of scale).

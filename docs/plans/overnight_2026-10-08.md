@@ -33,7 +33,7 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   and **one purchase per tick** instead of up to 8 in one tick (**Decision**: a review's later purchases see a few
   more hours of state; results at day 730 unchanged to the credit). 730 days 35 s; worst tick 2.1 s (one purchase),
   opening dispatch 3.4 s.
-- 23:1x **9d/9e smooth display + 10a orbit fix** (Godot): a display clock runs at the timewarp rate between
+- 22:5x **9d/9e smooth display + 10a orbit fix** (Godot): a display clock runs at the timewarp rate between
   snapshots (up to 3 s of real time ahead of the last one, never backwards); bodies and stations are placed every
   frame from their orbital elements (same formula as `CelestialMechanics`), ships in flight along their planned
   paths, docked ships at their station. Positions are computed in double precision relative to the focus, then cast,
@@ -43,10 +43,20 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   opening tick before its clock starts and catches up stalls of up to 4 s instead of dropping time. Checked with a
   scripted screenshot tour (`godot4 --path godot -- --shot-tour=<dir>`, `godot/scripts/ShotTour.gd`): the Moon's and
   Earth's orbit lines pass through the bodies at the closest zoom; display clock 1.00 day/s, no stalls.
-- 23:2x **10b map look** (checked on screenshots, the user reviews in the morning): bodies at true radius with
+- 22:5x **10b map look** (checked on screenshots, the user reviews in the morning): bodies at true radius with
   smooth 128x64 spheres; minimum zoom stops outside the focused body; ship and station models a few tens of km
   (icons stand in from afar, as in KSP's map); screen-space name labels beside icons with overlap culling (bodies
   first, then stations, then ships in flight; docked ships unlabelled) instead of world-scaled 3D text; brighter
   sunlight (energy 16, gentler falloff) and a faint self-lit planet texture so night sides read; brighter planet
   icons; a larger, brighter, depth-tested Sun halo. **Bug fixed:** billboards (engine glows, Sun halo) ignored their
   node's scale and were always 0.05 AU wide: a plasma ship near Jupiter filled the screen with blue haze.
+- 23:0x **10c panels**: ship inspector says what the ship does in words ("Carrying 30 u food to Low Earth Logistics
+  to sell, then load 30 u electronics there."), with propellant (t, %), cargo, provisions (days), transit progress,
+  the trip's expected earnings, crew, home, route commitment, cash, lifetime profit and the ledger. Station
+  inspector: fuel factory / export market badges, market rows with the bar full at the target stock, days of cover
+  and the share of demand gone short, inbound ships (cargo, arrival) and docked ships, money since start. Market panel
+  (M) opens with an economy overview: unmet demand since start and over 30 days, money vs target, treasuries,
+  exports, fleet (bought/sold/laid up), the five shortest-supplied goods. The top bar shows unmet demand over 30 days.
+  **Leads for step 12 seen on the panels (day 66):** Earth L1 Terminal holds 10,000 food at price 12 while Low Earth
+  Logistics (same orbit, hours away) has none at price 800 and 33% of its food demand unmet; a Fast Courier flies a
+  93-day trip expected to lose 4,615 cr.

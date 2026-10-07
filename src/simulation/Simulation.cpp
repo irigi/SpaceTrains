@@ -2526,6 +2526,20 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
 
     std::ostringstream output;
     output << std::fixed << std::setprecision(6);
+    // {"commodity": units, ...} for the non-zero entries, in the commodity table's order.
+    const auto write_goods = [&](const domain::Inventory& goods) {
+        output << "{";
+        bool first = true;
+        for (const auto& commodity : universe_.commodities) {
+            const auto it = goods.find(commodity.id);
+            if (it == goods.end() || std::abs(it->second) < 1e-9) {
+                continue;
+            }
+            output << (first ? "" : ",") << "\"" << json_escape(commodity.id) << "\":" << it->second;
+            first = false;
+        }
+        output << "}";
+    };
     output << "{";
     output << "\"snapshot_seq\":" << snapshot_seq << ",";
     output << "\"snapshot_real_time_s\":" << snapshot_real_time_s << ",";
@@ -2681,7 +2695,41 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
             first_rate = false;
             output << "\"" << json_escape(commodity.id) << "\":" << rate_it->second;
         }
-        output << "}"
+        output << "},\"target_stock\":{";
+        bool first_target = true;
+        for (const auto& commodity : universe_.commodities) {
+            if (!net_rates.contains(commodity.id) && !(commodity.id == economy::FUEL_ID)) {
+                continue;
+            }
+            output << (first_target ? "" : ",") << "\"" << json_escape(commodity.id) << "\":"
+                   << economy_.get_target_stock(station, commodity.id);
+            first_target = false;
+        }
+        output << "},\"demand_units\":";
+        write_goods(station_state.demand_units);
+        output << ",\"unmet_units\":";
+        write_goods(station_state.unmet_units);
+        output << ",\"imports_per_day\":";
+        write_goods(station_state.import_units_per_day);
+        output << ",\"exports_per_day\":";
+        write_goods(station_state.export_units_per_day);
+        output << ",\"ship_fuel_per_day\":" << station_state.ship_fuel_units_per_day
+               << ",\"fuel_factory_per_day\":" << economy_.fuel_factory_output(station)
+               << ",\"export_market\":[";
+        bool first_export = true;
+        for (const auto& commodity : universe_.commodities) {
+            if (economy_.is_export_market(station, commodity.id)) {
+                output << (first_export ? "" : ",") << "\"" << json_escape(commodity.id) << "\"";
+                first_export = false;
+            }
+        }
+        output << "],\"ledger\":{"
+               << "\"household_sales\":" << station_state.ledger.household_sales << ","
+               << "\"producer_purchases\":" << station_state.ledger.producer_purchases << ","
+               << "\"dividends\":" << station_state.ledger.dividends << ","
+               << "\"subsidies\":" << station_state.ledger.subsidies << ","
+               << "\"taxes\":" << station_state.ledger.taxes
+               << "}"
                << "}";
     }
     output << "],";
@@ -2725,7 +2773,42 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"remaining_travel_time_s\":" << ship.active_mission.remaining_travel_time_s << ","
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","
-               << "\"z\":" << position.z;
+               << "\"z\":" << position.z << ","
+               << "\"class_name\":\"" << json_escape(ship_class.name) << "\","
+               << "\"hull_id\":\"" << json_escape(ship_class.hull_id.empty() ? ship_class.id : ship_class.hull_id) << "\","
+               << "\"crew_size\":" << ship_class.crew_size << ","
+               << "\"provision_days\":" << [&] {
+                      double days = std::numeric_limits<double>::infinity();
+                      for (const auto& [commodity_id, per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+                          const double need = ship_class.crew_size * per_crew_day;
+                          if (need > 0.0) {
+                              const auto it = ship.provisions.find(commodity_id);
+                              days = std::min(days, (it == ship.provisions.end() ? 0.0 : it->second) / need);
+                          }
+                      }
+                      return std::isfinite(days) ? days : 0.0;
+                  }() << ","
+               << "\"home_station_id\":\"" << json_escape(ship.home_station_id) << "\","
+               << "\"pickup_commodity_id\":\"" << json_escape(ship.active_mission.pickup_commodity_id) << "\","
+               << "\"pickup_units\":" << ship.active_mission.pickup_units << ","
+               << "\"expected_revenue\":" << ship.active_mission.expected_revenue << ","
+               << "\"purchase_cost\":" << ship.active_mission.purchase_cost << ","
+               << "\"route_destination_id\":\"" << json_escape(ship.route_destination_id) << "\","
+               << "\"route_commodity_id\":\"" << json_escape(ship.route_commodity_id) << "\","
+               << "\"route_until_s\":" << ship.route_until_s << ","
+               << "\"refit_class_id\":\"" << json_escape(ship.refit_class_id) << "\","
+               << "\"refit_done_s\":" << ship.refit_done_s << ","
+               << "\"commissioned_s\":" << ship.commissioned_s << ","
+               << "\"ledger\":{"
+               << "\"cargo_revenue\":" << ship.ledger.cargo_revenue << ","
+               << "\"cargo_purchases\":" << ship.ledger.cargo_purchases << ","
+               << "\"fuel\":" << ship.ledger.fuel << ","
+               << "\"wages\":" << ship.ledger.wages << ","
+               << "\"capital\":" << ship.ledger.capital << ","
+               << "\"provisions\":" << ship.ledger.provisions << ","
+               << "\"refits\":" << ship.ledger.refits << ","
+               << "\"dividends\":" << ship.ledger.dividends
+               << "}";
         if (ship.phase == domain::ShipMissionPhase::InTransit || ship.phase == domain::ShipMissionPhase::AwaitingDeparture) {
             output << ",\"trajectory_path\":[";
             for (std::size_t path_index = 0; path_index < ship.active_mission.sampled_path.size(); ++path_index) {
@@ -2759,6 +2842,32 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     }
     output << "],";
 
+    {
+        // Economy overview: consumption that found no stock (cumulative, at base prices),
+        // exports to the outside economy, the fleet's trade in ships.
+        double demand_value = 0.0;
+        double unmet_value = 0.0;
+        double exports_value = 0.0;
+        for (const auto& station : stations_) {
+            for (const auto& [commodity_id, units] : station.demand_units) {
+                demand_value += units * get_commodity(commodity_id).base_price;
+            }
+            for (const auto& [commodity_id, units] : station.unmet_units) {
+                unmet_value += units * get_commodity(commodity_id).base_price;
+            }
+            for (const auto& [commodity_id, units] : station.market_sold_units) {
+                exports_value += units * get_commodity(commodity_id).base_price;
+            }
+        }
+        output << "\"economy\":{"
+               << "\"demand_value\":" << demand_value << ","
+               << "\"unmet_value\":" << unmet_value << ","
+               << "\"exports_value\":" << exports_value << ","
+               << "\"money_supply_target\":" << seeded_money_supply_ << ","
+               << "\"ships_commissioned\":" << investment_ledger_.ships_commissioned << ","
+               << "\"ships_sold\":" << investment_ledger_.ships_sold
+               << "},";
+    }
     output << "\"recent_events\":[";
     for (std::size_t i = 0; i < recent_events_.size(); ++i) {
         const auto& event = recent_events_[i];

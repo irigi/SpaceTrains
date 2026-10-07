@@ -111,3 +111,7 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
         "font_color", UiTheme.ALERT if stranded > 0 else UiTheme.TEXT_DIM)
 
     _money_label.text = "Σ " + UiTheme.format_credits(float(state.get("total_credits", 0.0)))
+    # Share of the stations' consumption that found no stock over the last 30 days
+    # (Main adds it to the state from its own history of the cumulative totals).
+    if state.has("unmet_30d"):
+        _money_label.text = "Unmet 30d %d%%   %s" % [int(round(100.0 * float(state["unmet_30d"]))), _money_label.text]
