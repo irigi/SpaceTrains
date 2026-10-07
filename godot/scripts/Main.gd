@@ -7,6 +7,10 @@ const STATION_MIN_MODEL_SCALE := 0.00012
 const SHIP_MASS_SCALE := 0.00012
 const STATION_POPULATION_SCALE := 0.00016
 const BRIDGE_STEP_SECONDS := 0.1
+# The simulation advances in ticks of 0.1 day (Simulation::TICK_S). Between snapshots the
+# display clock runs on at the timewarp rate, at most this far ahead of the last snapshot.
+const SIM_TICK_S := 8640.0
+const DISPLAY_MAX_LEAD_REAL_S := 3.0
 # Some simulation steps plan many trajectories at once (the opening dispatch, fleet reviews):
 # say so when no snapshot has come for this long, rather than look frozen.
 const BRIDGE_BUSY_NOTICE_S := 2.0
@@ -66,7 +70,18 @@ var snapshot_path := ""
 var command_path := ""
 var repo_root := ""
 var executable_path := ""
-var snapshot_blend := 1.0
+# Display clock (game seconds): bodies, stations and ships are placed at this time each
+# frame, from orbital elements and planned paths, so the picture moves smoothly even when
+# a simulation tick is slow.
+var display_time_s := -1.0
+var snapshot_game_time_s := 0.0
+var snapshot_wall_s := 0.0
+var body_orbits: Dictionary = {}     # body_id -> {parent, a, period, phase}
+var station_orbits: Dictionary = {}  # station_id -> {body, r, theta}
+var ship_paths: Dictionary = {}      # ship_id -> {sig, t: PackedFloat64Array, p: PackedFloat64Array (x,y,z,...)}
+var frame_positions_m: Dictionary = {}  # per-frame cache: entity_id -> PackedFloat64Array [x, y, z] in metres
+var origin_m := PackedFloat64Array([0.0, 0.0, 0.0])  # the focus; entities are drawn relative to it
+var entity_root: Node3D
 var current_snapshot_seq := -1
 var previous_snapshot_arrival_s := 0.0
 var current_snapshot_arrival_s := 0.0
@@ -79,7 +94,6 @@ var focused_id := ""
 var focused_kind := ""
 var bridge_state: Dictionary = {}
 var entity_nodes: Dictionary = {}
-var entity_previous_targets: Dictionary = {}
 var entity_targets: Dictionary = {}
 var entity_details: Dictionary = {}
 var entity_kinds: Dictionary = {}
@@ -155,12 +169,20 @@ func _ready() -> void:
     command_path = ProjectSettings.globalize_path("user://spacetrains_commands_%s.json" % session_id)
     _write_bridge_commands()
     _start_bridge()
+    # Entities are placed relative to the focus (in double precision, then cast), so a
+    # planet seen up close does not jitter; world_root holds the absolute-frame lines.
+    entity_root = Node3D.new()
+    entity_root.name = "EntityRoot"
+    add_child(entity_root)
     _create_debug_guides()
     _setup_scene_lighting()
     _setup_map_icon_layer()
     _setup_ui()
     if "--debug-map" in OS.get_cmdline_user_args():
         debug_map_enabled = true
+    for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-tour="):
+            add_child(load("res://scripts/ShotTour.gd").new())
     if bridge_started:
         _set_status("Starting bridge…\n%s" % executable_path)
 
@@ -254,7 +276,7 @@ func select_entity(entity_id: String, kind: String, focus := false) -> void:
 func _exit_tree() -> void:
     if bridge_pid > 0:
         OS.kill(bridge_pid)
-    for path in [snapshot_path, snapshot_path + ".tmp", command_path]:
+    for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp", command_path]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
 
@@ -262,7 +284,7 @@ func _process(delta: float) -> void:
     debug_frame += 1
     _read_snapshot()
     _update_bridge_status()
-    snapshot_blend = _current_snapshot_alpha()
+    _advance_display_clock(delta)
     _update_nodes(delta)
     _update_camera_focus()
     _update_map_icons()
@@ -344,6 +366,10 @@ func _write_bridge_commands() -> void:
     file.store_string(JSON.stringify(payload))
 
 func _read_snapshot() -> void:
+    # The bridge bumps a small sequence file with every snapshot: parse only new ones.
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
+    if seq_text != "" and int(seq_text) == current_snapshot_seq:
+        return
     if not FileAccess.file_exists(snapshot_path):
         return
     var file := FileAccess.open(snapshot_path, FileAccess.READ)
@@ -379,24 +405,20 @@ func _read_snapshot() -> void:
     else:
         snapshot_interval_s = BRIDGE_STEP_SECONDS
     bridge_state = json.data
+    snapshot_game_time_s = new_game_time_s
+    snapshot_wall_s = arrival_now_s
+    if display_time_s < 0.0:
+        display_time_s = new_game_time_s
     _apply_snapshot()
-    snapshot_blend = 0.0
 
 func _apply_snapshot() -> void:
     var seen_ids := {}
     var ids_changed := false
-    station_positions.clear()
-    body_positions.clear()
-    body_display_radii.clear()
-
+    _cache_orbits()
     for body in bridge_state.get("bodies", []):
-        var body_id := String(body["id"])
-        body_positions[body_id] = _scaled_position(body)
-        body_display_radii[body_id] = _body_scale_from_radius(float(body.get("radius_m", 0.0)))
-
-    for station in bridge_state.get("stations", []):
-        var station_id := String(station["id"])
-        station_positions[station_id] = _station_display_position(station)
+        body_display_radii[String(body["id"])] = _body_scale_from_radius(float(body.get("radius_m", 0.0)))
+    for ship in bridge_state.get("ships", []):
+        _cache_ship_path(String(ship["id"]), ship)
 
     for body in bridge_state.get("bodies", []):
         _upsert_entity(body, "body")
@@ -412,7 +434,6 @@ func _apply_snapshot() -> void:
         if not seen_ids.has(entity_id):
             entity_nodes[entity_id].queue_free()
             entity_nodes.erase(entity_id)
-            entity_previous_targets.erase(entity_id)
             entity_targets.erase(entity_id)
             entity_details.erase(entity_id)
             entity_kinds.erase(entity_id)
@@ -436,9 +457,10 @@ func _apply_snapshot() -> void:
     if ids_changed and selected_id != "" and not entity_details.has(selected_id):
         selected_id = ""
         selected_kind = ""
+    for ship_id in ship_paths.keys():
+        if not seen_ids.has(ship_id):
+            ship_paths.erase(ship_id)
     _update_faction_colors()
-    if space_env != null:
-        space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
     _update_ship_trails()
     if not has_auto_focused:
         _hide_debug_guides()
@@ -461,9 +483,8 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
     if not entity_nodes.has(entity_id):
         var container: Node3D = EntityVisualsScript.make_entity(kind, data)
         container.name = entity_id
-        world_root.add_child(container)
+        entity_root.add_child(container)
         entity_nodes[entity_id] = container
-        entity_previous_targets[entity_id] = Vector3.ZERO
         entity_targets[entity_id] = Vector3.ZERO
         entity_visual_signatures[entity_id] = ""
         _attach_entity_label(container, kind, data)
@@ -480,32 +501,39 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         EntityVisualsScript.update_engine_glow(
             entity_nodes[entity_id], data, float(bridge_state.get("game_time_s", 0.0)),
             _world_size_for_pixels(entity_nodes[entity_id], 28.0))
-    var new_target := _display_position(data, kind)
-    if entity_nodes.has(entity_id):
-        entity_previous_targets[entity_id] = (entity_nodes[entity_id] as Node3D).position
-    else:
-        entity_previous_targets[entity_id] = entity_targets.get(entity_id, new_target)
-    entity_targets[entity_id] = new_target
+    # Positions are computed every frame (_update_nodes); this marks the entity as placeable.
+    entity_targets[entity_id] = _scaled_position(data)
 
 func _update_nodes(delta: float) -> void:
-    var focus_position := Vector3.ZERO
+    if display_time_s < 0.0:
+        return
+    frame_positions_m.clear()
+    if focused_id != "" and entity_kinds.has(focused_id):
+        origin_m = _entity_m(focused_id)
+    else:
+        origin_m = PackedFloat64Array([0.0, 0.0, 0.0])
+    last_render_origin = render_origin
+    render_origin = _abs_render(origin_m)
+    # world_root holds absolute-frame geometry (orbit rings, planned paths, trails).
+    world_root.position = -render_origin
+    body_positions.clear()
+    station_positions.clear()
+    for body_id in body_orbits.keys():
+        body_positions[body_id] = _abs_render(_body_m(body_id))
+    for station_id in station_orbits.keys():
+        station_positions[station_id] = _abs_render(_station_m(station_id))
     for entity_id in entity_nodes.keys():
         var node: Node3D = entity_nodes[entity_id]
-        var previous_target: Vector3 = entity_previous_targets.get(entity_id, entity_targets[entity_id])
-        var target: Vector3 = entity_targets[entity_id]
-        var display_position: Vector3 = previous_target.lerp(target, snapshot_blend)
-        node.position = display_position
-        if entity_kinds.get(entity_id, "") == "ship":
-            _orient_ship(node, entity_id, target - previous_target)
-        if entity_id == focused_id:
-            focus_position = display_position
+        var kind: String = entity_kinds.get(entity_id, "")
+        node.position = _to_render(_entity_m(entity_id))
+        if kind == "ship":
+            if String((entity_details.get(entity_id, {}) as Dictionary).get("phase", "idle")) != "in_transit":
+                node.position += _docked_ship_offset(entity_id)
+            _orient_ship(node, entity_id, _ship_heading(entity_id))
     _update_history_trails(delta)
-    last_render_origin = render_origin
-    if focused_id != "" and entity_nodes.has(focused_id):
-        render_origin = focus_position
-    else:
-        render_origin = Vector3.ZERO
-    world_root.position = -render_origin
+    if space_env != null:
+        space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
+    _update_fine_rings()
     if sun_light != null and entity_nodes.has("sun"):
         var sun_node: Node3D = entity_nodes["sun"]
         sun_light.global_position = sun_node.global_position
@@ -516,9 +544,239 @@ func _update_nodes(delta: float) -> void:
         space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
 
+# --- Display clock and positions ----------------------------------------------
+
+func _advance_display_clock(delta: float) -> void:
+    if display_time_s < 0.0:
+        return
+    # The starting state is shown before the opening dispatch (a few seconds of planning):
+    # the clock starts with the first simulated tick.
+    var paused := bool(bridge_state.get("paused", current_paused)) or snapshot_game_time_s <= 0.0
+    var rate := 0.0 if paused else float(bridge_state.get("timewarp_factor", current_timewarp))
+    # Where the simulation should be by now; a slow tick lets the display run ahead a
+    # little (ships follow their planned paths meanwhile), never backwards.
+    var target := snapshot_game_time_s + rate * (_wall_time_s() - snapshot_wall_s)
+    target = minf(target, snapshot_game_time_s + maxf(SIM_TICK_S * 1.5, rate * DISPLAY_MAX_LEAD_REAL_S))
+    var next := display_time_s + rate * delta
+    next += (target - next) * clampf(delta * 3.0, 0.0, 1.0)
+    display_time_s = maxf(display_time_s, next)
+
+func _cache_orbits() -> void:
+    for body in bridge_state.get("bodies", []):
+        body_orbits[String(body["id"])] = {
+            "parent": String(body.get("parent_id", "")),
+            "a": float(body.get("semi_major_axis_m", 0.0)),
+            "period": float(body.get("orbital_period_s", 0.0)),
+            "phase": float(body.get("phase_at_epoch_rad", 0.0)),
+            "radius": float(body.get("radius_m", 0.0)),
+        }
+    for station in bridge_state.get("stations", []):
+        var body_id := String(station.get("parent_body_id", ""))
+        var body_radius := float((body_orbits.get(body_id, {}) as Dictionary).get("radius", 0.0))
+        station_orbits[String(station["id"])] = {
+            "body": body_id,
+            "r": body_radius + float(station.get("altitude_m", 0.0)),
+            "theta": float(station.get("theta_rad", 0.0)),
+        }
+
+# Planned paths as flat arrays, rebuilt only when a ship's plan changes.
+func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
+    var path: Array = ship.get("trajectory_path", [])
+    if path.size() < 2:
+        ship_paths.erase(ship_id)
+        return
+    var signature := _trajectory_path_signature(path)
+    if ship_paths.has(ship_id) and String(ship_paths[ship_id]["sig"]) == signature:
+        return
+    var times := PackedFloat64Array()
+    var points := PackedFloat64Array()
+    times.resize(path.size())
+    points.resize(path.size() * 3)
+    for i in range(path.size()):
+        var point: Dictionary = path[i]
+        times[i] = float(point.get("t_s", 0.0))
+        points[3 * i] = float(point.get("x", 0.0))
+        points[3 * i + 1] = float(point.get("y", 0.0))
+        points[3 * i + 2] = float(point.get("z", 0.0))
+    ship_paths[ship_id] = {"sig": signature, "t": times, "p": points}
+
+# Same formula as CelestialMechanics::get_body_position (circular, coplanar orbits).
+func _body_m(body_id: String) -> PackedFloat64Array:
+    if frame_positions_m.has(body_id):
+        return frame_positions_m[body_id]
+    var result := PackedFloat64Array([0.0, 0.0, 0.0])
+    var orbit: Dictionary = body_orbits.get(body_id, {})
+    var parent_id := String(orbit.get("parent", ""))
+    if parent_id != "":
+        var base := _body_m(parent_id)
+        var period := float(orbit["period"])
+        result = base
+        if period > 0.0:
+            var angle := float(orbit["phase"]) + (display_time_s / period) * TAU
+            var a := float(orbit["a"])
+            result = PackedFloat64Array([base[0] + cos(angle) * a, base[1], base[2] + sin(angle) * a])
+    frame_positions_m[body_id] = result
+    return result
+
+func _station_m(station_id: String) -> PackedFloat64Array:
+    var key := "station:" + station_id
+    if frame_positions_m.has(key):
+        return frame_positions_m[key]
+    var orbit: Dictionary = station_orbits.get(station_id, {})
+    var result := PackedFloat64Array([0.0, 0.0, 0.0])
+    if not orbit.is_empty():
+        var base := _body_m(String(orbit["body"]))
+        var r := float(orbit["r"])
+        var theta := float(orbit["theta"])
+        result = PackedFloat64Array([base[0] + cos(theta) * r, base[1], base[2] + sin(theta) * r])
+    frame_positions_m[key] = result
+    return result
+
+# A ship in transit flies its planned path; otherwise it is at its station.
+func _ship_m(ship_id: String) -> PackedFloat64Array:
+    var detail: Dictionary = entity_details.get(ship_id, {})
+    if String(detail.get("phase", "idle")) == "in_transit" and ship_paths.has(ship_id):
+        var sample := _path_sample(ship_id, display_time_s)
+        return PackedFloat64Array([sample[0], sample[1], sample[2]])
+    var station_id := String(detail.get("current_station_id", ""))
+    if station_orbits.has(station_id):
+        return _station_m(station_id)
+    return PackedFloat64Array([float(detail.get("x", 0.0)), float(detail.get("y", 0.0)), float(detail.get("z", 0.0))])
+
+# Position [x, y, z] and segment direction [dx, dy, dz] on a ship's path at time t.
+func _path_sample(ship_id: String, t: float) -> PackedFloat64Array:
+    var path: Dictionary = ship_paths[ship_id]
+    var times: PackedFloat64Array = path["t"]
+    var points: PackedFloat64Array = path["p"]
+    var count := times.size()
+    var i := clampi(times.bsearch(t, true) - 1, 0, count - 2)
+    var span := times[i + 1] - times[i]
+    var f := clampf((t - times[i]) / span, 0.0, 1.0) if span > 0.0 else 1.0
+    var out := PackedFloat64Array()
+    out.resize(6)
+    for axis in range(3):
+        var a := points[3 * i + axis]
+        var b := points[3 * (i + 1) + axis]
+        out[axis] = a + (b - a) * f
+        out[3 + axis] = b - a
+    return out
+
+func _ship_heading(ship_id: String) -> Vector3:
+    if not ship_paths.has(ship_id):
+        return Vector3.ZERO
+    var sample := _path_sample(ship_id, display_time_s)
+    return Vector3(sample[3], sample[4], sample[5])
+
+func _entity_m(entity_id: String) -> PackedFloat64Array:
+    match String(entity_kinds.get(entity_id, "")):
+        "body":
+            return _body_m(entity_id)
+        "station":
+            return _station_m(entity_id)
+        "ship":
+            return _ship_m(entity_id)
+    return PackedFloat64Array([0.0, 0.0, 0.0])
+
+# Relative to the focus, subtracted in double precision before the cast to float.
+func _to_render(p: PackedFloat64Array) -> Vector3:
+    return Vector3((p[0] - origin_m[0]) * POSITION_SCALE, (p[1] - origin_m[1]) * POSITION_SCALE, (p[2] - origin_m[2]) * POSITION_SCALE)
+
+func _abs_render(p: PackedFloat64Array) -> Vector3:
+    return Vector3(p[0] * POSITION_SCALE, p[1] * POSITION_SCALE, p[2] * POSITION_SCALE)
+
+# Docked ships sit in a small ring around their station, so several stay pickable.
+func _docked_ship_offset(ship_id: String) -> Vector3:
+    var detail: Dictionary = entity_details.get(ship_id, {})
+    var index: int = abs(ship_id.hash()) % 7
+    var angle := float(index) * 0.8975979
+    var spacing := _ship_display_scale(detail) * 6.0
+    return Vector3(cos(angle), 0.15 + float(index % 3) * 0.08, sin(angle)).normalized() * spacing
+
+# --- Orbit rings near the focus -----------------------------------------------
+
+# A fixed polygon looks like one up close, and the planet sits on the true circle. Rings
+# that pass near the focus are redrawn each frame, densest where the camera is, in
+# focus-relative double precision; the coarse ring is hidden meanwhile.
+var fine_rings: Dictionary = {}  # body_id -> MeshInstance3D
+const FINE_RING_POINTS := 720
+
+func _update_fine_rings() -> void:
+    if space_env == null:
+        return
+    var camera_distance_m := float(camera_rig.get("distance")) / POSITION_SCALE
+    var active := {}
+    for body_id in body_orbits.keys():
+        var orbit: Dictionary = body_orbits[body_id]
+        var parent_id := String(orbit["parent"])
+        var a := float(orbit["a"])
+        if parent_id == "" or a <= 0.0:
+            continue
+        var center := _body_m(parent_id)
+        var dx := origin_m[0] - center[0]
+        var dz := origin_m[2] - center[2]
+        var d := sqrt(dx * dx + dz * dz)
+        # Only rings the camera is close to, compared with their size.
+        if absf(d - a) > 0.02 * a or camera_distance_m > 0.2 * a:
+            continue
+        active[body_id] = true
+        var ring := _ensure_fine_ring(String(body_id))
+        var theta_c := atan2(dz, dx)
+        # Points every ~1/300 of the camera distance at the focus, coarser away from it:
+        # theta = theta_c + pi sinh(k u) / sinh(k), u uniform in [-1, 1].
+        var du := 2.0 / float(FINE_RING_POINTS)
+        var wanted := clampf(camera_distance_m / 300.0 / a, 1.0e-12, PI * du)
+        var k := _sinh_stretch(wanted / (PI * du))
+        var sinh_k := sinh(k)
+        var mesh := ImmediateMesh.new()
+        mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+        for i in range(FINE_RING_POINTS + 1):
+            var u := -1.0 + float(i) * du
+            var theta := theta_c + PI * (sinh(k * u) / sinh_k if k > 1.0e-4 else u)
+            mesh.surface_add_vertex(_to_render(PackedFloat64Array([center[0] + cos(theta) * a, center[1], center[2] + sin(theta) * a])))
+        mesh.surface_end()
+        ring.mesh = mesh
+        ring.visible = true
+    for body_id in fine_rings.keys():
+        if not active.has(body_id):
+            (fine_rings[body_id] as MeshInstance3D).visible = false
+    for body_id in body_orbits.keys():
+        space_env.set_ring_visible(String(body_id), not active.has(body_id))
+
+# k with k / sinh(k) = ratio (0 < ratio <= 1), by bisection.
+func _sinh_stretch(ratio: float) -> float:
+    if ratio >= 1.0:
+        return 0.0
+    var lo := 0.0
+    var hi := 60.0
+    for _i in range(50):
+        var mid := 0.5 * (lo + hi)
+        if mid / sinh(mid) > ratio:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+func _ensure_fine_ring(body_id: String) -> MeshInstance3D:
+    if fine_rings.has(body_id):
+        return fine_rings[body_id]
+    var instance := MeshInstance3D.new()
+    instance.name = "%s_fine_orbit" % body_id
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    var color: Color = BODY_ICON_COLOR.get(body_id, Color(0.6, 0.65, 0.7))
+    material.albedo_color = Color(color.r, color.g, color.b, space_env.ORBIT_RING_ALPHA)
+    instance.material_override = material
+    instance.extra_cull_margin = 16384.0
+    entity_root.add_child(instance)
+    fine_rings[body_id] = instance
+    return instance
+
 func _orient_ship(node: Node3D, ship_id: String, motion: Vector3) -> void:
     var detail: Dictionary = entity_details.get(ship_id, {})
     if String(detail.get("phase", "idle")) != "in_transit":
+        return
+    if not node.is_inside_tree():
         return
     if motion.length_squared() < 1.0e-16:
         return
@@ -544,7 +802,7 @@ func _update_history_trails(delta: float) -> void:
                     (history_trail_nodes[entity_id] as MeshInstance3D).visible = false
             continue
         var history: Array = ship_trail_history.get(entity_id, [])
-        history.append((entity_nodes[entity_id] as Node3D).position)
+        history.append(_abs_render(_ship_m(entity_id)))
         if history.size() > TRAIL_MAX_POINTS:
             history.pop_front()
         ship_trail_history[entity_id] = history
@@ -584,31 +842,6 @@ func _scaled_position(data: Dictionary) -> Vector3:
         float(data.get("y", 0.0)) * POSITION_SCALE,
         float(data["z"]) * POSITION_SCALE
     )
-
-func _display_position(data: Dictionary, kind: String) -> Vector3:
-    var base := _scaled_position(data)
-    if kind == "station":
-        return station_positions.get(String(data["id"]), base)
-    if kind != "ship":
-        return base
-
-    var ship_id := String(data["id"])
-    var station_id := String(data.get("current_station_id", ""))
-    var phase := String(data.get("phase", "idle"))
-    var index: int = abs(ship_id.hash()) % 7
-    var angle := float(index) * 0.8975979
-    var local_spacing: float = max(_ship_display_scale(data) * 6.0, 0.0006)
-    var ring_offset := Vector3(cos(angle), 0.15 + float(index % 3) * 0.08, sin(angle)).normalized() * local_spacing
-
-    if phase == "idle" or phase == "refueling" or phase == "stranded" or phase == "awaiting_departure":
-        if station_positions.has(station_id):
-            return station_positions[station_id] + ring_offset
-        return base + ring_offset
-
-    if phase == "in_transit":
-        return base
-
-    return base
 
 func _body_scale_from_radius(radius_m: float) -> float:
     if radius_m <= 0.0:
@@ -976,11 +1209,11 @@ func _debug_vec(v: Vector3) -> String:
 func _debug_map_state(reason: String) -> void:
     var origin_delta := render_origin.distance_to(last_render_origin)
     var camera_distance := float(camera_rig.get("distance")) if camera_rig != null else 0.0
-    print("[MapDebug] reason=%s frame=%d seq=%d blend=%.3f focused=%s/%s selected=%s/%s camera_distance=%.6f render_origin=%s origin_delta=%.6f world_root=%s pivot=%s" % [
+    print("[MapDebug] reason=%s frame=%d seq=%d display_day=%.3f focused=%s/%s selected=%s/%s camera_distance=%.6f render_origin=%s origin_delta=%.6f world_root=%s pivot=%s" % [
         reason,
         debug_frame,
         current_snapshot_seq,
-        snapshot_blend,
+        display_time_s / 86400.0,
         focused_kind,
         focused_id,
         selected_kind,
@@ -1025,12 +1258,6 @@ func _debug_map_state(reason: String) -> void:
 
 func _wall_time_s() -> float:
     return float(Time.get_ticks_usec()) / 1000000.0
-
-func _current_snapshot_alpha() -> float:
-    if current_snapshot_arrival_s <= 0.0:
-        return 1.0
-    return clamp((_wall_time_s() - current_snapshot_arrival_s) / max(snapshot_interval_s, 0.001), 0.0, 1.0)
-
 
 func _step_timewarp(direction: int) -> void:
     var best_index := 0
@@ -1204,7 +1431,7 @@ func _ensure_selected_ship_overlay() -> MeshInstance3D:
     selected_ship_overlay.material_override = material
     selected_ship_overlay.scale = Vector3.ONE * SHIP_MIN_MODEL_SCALE * 3.0
     selected_ship_overlay.visible = false
-    world_root.add_child(selected_ship_overlay)
+    entity_root.add_child(selected_ship_overlay)
     return selected_ship_overlay
 
 func _ensure_destination_body_ghost() -> MeshInstance3D:
@@ -1269,23 +1496,3 @@ func _update_camera_focus() -> void:
         focused_kind = ""
         return
     camera_rig.focus_point(entity_nodes[focused_id].global_position)
-
-func _station_display_position(data: Dictionary) -> Vector3:
-    var station_id := String(data["id"])
-    var body_id := String(data.get("parent_body_id", ""))
-    if not body_positions.has(body_id):
-        return _scaled_position(data)
-
-    var body_center: Vector3 = body_positions[body_id]
-    var physical_position: Vector3 = _scaled_position(data)
-    var radial: Vector3 = physical_position - body_center
-    if radial.length() <= 0.0001:
-        radial = Vector3.UP
-    else:
-        radial = radial.normalized()
-
-    var body_radius := float(body_display_radii.get(body_id, BODY_MIN_MODEL_SCALE))
-    var station_scale := _station_display_scale(data)
-    var clearance: float = max(station_scale * 5.0, body_radius * 0.22)
-    var angle_jitter := float(abs(station_id.hash()) % 5) * station_scale * 1.5
-    return body_center + radial * (body_radius + clearance + angle_jitter)

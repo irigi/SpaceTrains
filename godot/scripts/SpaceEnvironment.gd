@@ -5,7 +5,7 @@ extends Node3D
 const STAR_COUNT := 3800
 const STARFIELD_RADIUS := 3000.0
 const MILKY_WAY_BAND_DEG := 14.0
-const ORBIT_RING_SEGMENTS := 160
+const ORBIT_RING_SEGMENTS := 360
 const ORBIT_RING_ALPHA := 0.13
 
 var starfield: Node3D
@@ -182,6 +182,11 @@ func update_orbit_rings(world_parent: Node3D, bodies: Array, positions: Dictiona
         var ring_node: MeshInstance3D = _orbit_rings[body_id]
         ring_node.position = parent_position
         ring_node.scale = Vector3.ONE * radius
+
+# Main.gd draws rings near the camera itself (finer, focus-relative) and hides these.
+func set_ring_visible(body_id: String, visible_flag: bool) -> void:
+    if _orbit_rings.has(body_id):
+        (_orbit_rings[body_id] as MeshInstance3D).visible = visible_flag
 
 # --- Saturn ring -------------------------------------------------------------
 

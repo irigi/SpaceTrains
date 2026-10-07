@@ -118,7 +118,10 @@ int main(int argc, char** argv) {
     // Game time follows real time x timewarp: each loop hands the simulation the real time
     // since the last one, and it runs the whole ticks due. A slow tick (mission planning)
     // delays the next snapshot but not the pace; the UI keeps the picture moving meanwhile.
-    constexpr double kMaxCatchUpS = 0.5;  // after a long stall, drop time rather than race
+    // A slow tick (a ship purchase, a few seconds at most) is caught up in the next loop:
+    // the UI runs a few seconds ahead meanwhile and should not have to wait for dropped time.
+    // Longer stalls (a debugger, a suspended laptop) drop time rather than race.
+    constexpr double kMaxCatchUpS = 4.0;
     std::string last_command_text;
     auto last_loop = std::chrono::steady_clock::now();
     const auto tick = [&]() {
@@ -145,14 +148,15 @@ int main(int argc, char** argv) {
     };
 
     // The first tick dispatches the whole fleet at once (a few seconds of trajectory
-    // planning): show the starting state before it, so the UI does not wait on a blank screen.
+    // planning): show the starting state before it, so the UI does not wait on a blank
+    // screen, and start the clock after it, so its planning time is not caught up later.
     write_snapshot();
-
+    simulation.step(spacetrains::simulation::Simulation::TICK_S / simulation.timewarp_factor());
+    write_snapshot();
     if (config.once) {
-        simulation.step(config.step_seconds);
-        write_snapshot();
         return 0;
     }
+    last_loop = std::chrono::steady_clock::now();
 
     const auto loop_period = std::chrono::duration<double>(std::min(config.step_seconds, 0.05));
     while (true) {
