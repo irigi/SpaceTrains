@@ -139,3 +139,10 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   in stocks. Metals are made only at Mercury and Ceres; Mercury is hard to reach (no fuel for sale there: 74% of its
   fuel demand unmet; nuclear-thermal ships lack the delta-v for a round trip) - 12 departures from Mercury in two
   years. A design question for the user (see the scenario test below).
+- 00:3x **Map scenarios (data copies, four starts each)** against v37d (unmet 60.7 +- 1.2%, last fifth 44.1 +- 4.5):
+  A fuel factory at Mercury (200 u/day: solar power, polar ice) 58.4 +- 1.2% / 40.6 +- 7.7; B metals at Lunar
+  Gateway (16 u/day per 10k inhabitants = 8 u/day: regolith mining) 55.3 +- 1.2% / 39.7 +- 2.3; **A+B 52.8 +- 2.6% /
+  33.4 +- 2.8**. **Decision (to review, a separate data-only commit, `git revert` undoes it):** A+B applied.
+- 00:3x UI: station panel lists its **orders** (wanted up to its target stock, cargo already on the way, the price it
+  pays now) - the user's "station orders" made visible. Audit: variable-Isp spirals may sweep 2 turns (inward
+  Venus -> Mercury spirals sweep 1.3-1.4 turns; physics, not a sampling fault).
