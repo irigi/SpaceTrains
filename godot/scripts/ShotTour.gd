@@ -46,6 +46,35 @@ func _shoot(name: String) -> void:
     image.save_png(out_dir.path_join(name + ".png"))
     print("[ShotTour] saved %s" % name)
 
+# Smoothness check: run at a timewarp for a while and count frames where the display clock
+# did not move (a stall the player would see), and the longest one.
+func _measure_smoothness(seconds: float, timewarp: float) -> void:
+    main._on_timewarp_changed(timewarp)
+    var stalled_frames := 0
+    var frames := 0
+    var longest_stall := 0.0
+    var stall := 0.0
+    var last_time := float(main.get("display_time_s"))
+    var elapsed := 0.0
+    var slow_frames := 0
+    while elapsed < seconds:
+        await get_tree().process_frame
+        var delta := get_process_delta_time()
+        elapsed += delta
+        frames += 1
+        if delta > 0.05:
+            slow_frames += 1
+        var now := float(main.get("display_time_s"))
+        if now <= last_time:
+            stalled_frames += 1
+            stall += delta
+            longest_stall = maxf(longest_stall, stall)
+        else:
+            stall = 0.0
+        last_time = now
+    print("[ShotTour] smoothness at %.0fx: %d frames in %.0f s, %d stalled, longest stall %.2f s, %d frames over 50 ms, day %.1f" % [
+        timewarp, frames, seconds, stalled_frames, longest_stall, slow_frames, last_time / 86400.0])
+
 func _run() -> void:
     # Run the simulation a while (fast) so the panels have history, then back to 1 day/s.
     var start_day := 3.0
@@ -61,6 +90,12 @@ func _run() -> void:
     main._on_timewarp_changed(86400.0)
     var rig: Node3D = main.get("camera_rig")
     _apply_debug_flags()
+    for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-smooth="):
+            await _measure_smoothness(float(arg.trim_prefix("--shot-smooth=")), 432000.0)
+            await _measure_smoothness(20.0, 86400.0)
+            get_tree().quit()
+            return
     for stop in STOPS:
         if not main.entity_nodes.has(stop["id"]):
             print("[ShotTour] skip %s (no %s)" % [stop["name"], stop["id"]])

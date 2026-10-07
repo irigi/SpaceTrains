@@ -2564,7 +2564,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     // Candidates are valued in order of their bound, so the early stop picks the same ship
     // as probing one by one. A candidate not probed yet in this review stops the scan: the
     // next batch is probed (this tick) and the purchase waits for a later tick.
-    constexpr std::size_t kProbeBatch = 8;
+    constexpr std::size_t kProbeBatch = 4;
     const auto probe_key = [](const Candidate& candidate) {
         return candidate.ship_class->id + "|" + candidate.yard->id;
     };
@@ -2781,7 +2781,71 @@ math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) 
     return origin_position * (1.0 - progress) + destination_position * progress;
 }
 
-std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const {
+std::string Simulation::bridge_path_id(const domain::ShipState& ship) const {
+    const auto& mission = ship.active_mission;
+    return std::format("{}|{}|{:.3f}|{}", mission.destination_station_id, mission.trajectory_type, mission.departure_time_s,
+        mission.sampled_path.size());
+}
+
+void Simulation::write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const {
+    output << "\"trajectory_path\":[";
+    for (std::size_t path_index = 0; path_index < ship.active_mission.sampled_path.size(); ++path_index) {
+        const auto& point = ship.active_mission.sampled_path[path_index];
+        if (path_index > 0) {
+            output << ",";
+        }
+        output << "{"
+               << "\"t_s\":" << (path_index < ship.active_mission.sampled_times_s.size() ? ship.active_mission.sampled_times_s[path_index] : 0.0) << ","
+               << "\"x\":" << point.x << ","
+               << "\"y\":" << point.y << ","
+               << "\"z\":" << point.z
+               << "}";
+    }
+    output << "]";
+    if (!ship.active_mission.destination_station_id.empty()) {
+        const auto& destination_station = get_station_definition(ship.active_mission.destination_station_id);
+        const auto& destination_body = get_body_definition(destination_station.parent_body_id);
+        const auto destination_body_position = mechanics_.get_body_position(destination_body.id, ship.active_mission.arrival_time_s);
+        output << ",\"destination_body_at_arrival\":{"
+               << "\"id\":\"" << json_escape(destination_body.id) << "\","
+               << "\"name\":\"" << json_escape(destination_body.name) << "\","
+               << "\"radius_m\":" << destination_body.radius_m << ","
+               << "\"x\":" << destination_body_position.x << ","
+               << "\"y\":" << destination_body_position.y << ","
+               << "\"z\":" << destination_body_position.z
+               << "}";
+    }
+}
+
+std::string Simulation::bridge_paths_signature() const {
+    std::string signature;
+    for (const auto& ship : ships_) {
+        if (ship.phase == domain::ShipMissionPhase::InTransit || ship.phase == domain::ShipMissionPhase::AwaitingDeparture) {
+            signature += ship.id + "=" + bridge_path_id(ship) + ";";
+        }
+    }
+    return signature;
+}
+
+std::string Simulation::build_bridge_paths_json() const {
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(6);
+    output << "{\"paths\":{";
+    bool first = true;
+    for (const auto& ship : ships_) {
+        if (ship.phase != domain::ShipMissionPhase::InTransit && ship.phase != domain::ShipMissionPhase::AwaitingDeparture) {
+            continue;
+        }
+        output << (first ? "" : ",") << "\"" << json_escape(ship.id) << "\":{\"path_id\":\"" << json_escape(bridge_path_id(ship)) << "\",";
+        write_ship_path_json(output, ship);
+        output << "}";
+        first = false;
+    }
+    output << "}}";
+    return output.str();
+}
+
+std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s, bool with_paths) const {
     const profiling::Scope profile_scope(profiling::Phase::Snapshot);
     auto inventory_value = [](const domain::Inventory& inventory, const std::string& commodity_id) {
         const auto it = inventory.find(commodity_id);
@@ -3079,32 +3143,10 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"dividends\":" << ship.ledger.dividends
                << "}";
         if (ship.phase == domain::ShipMissionPhase::InTransit || ship.phase == domain::ShipMissionPhase::AwaitingDeparture) {
-            output << ",\"trajectory_path\":[";
-            for (std::size_t path_index = 0; path_index < ship.active_mission.sampled_path.size(); ++path_index) {
-                const auto& point = ship.active_mission.sampled_path[path_index];
-                if (path_index > 0) {
-                    output << ",";
-                }
-                output << "{"
-                       << "\"t_s\":" << (path_index < ship.active_mission.sampled_times_s.size() ? ship.active_mission.sampled_times_s[path_index] : 0.0) << ","
-                       << "\"x\":" << point.x << ","
-                       << "\"y\":" << point.y << ","
-                       << "\"z\":" << point.z
-                       << "}";
-            }
-            output << "]";
-            if (!ship.active_mission.destination_station_id.empty()) {
-                const auto& destination_station = get_station_definition(ship.active_mission.destination_station_id);
-                const auto& destination_body = get_body_definition(destination_station.parent_body_id);
-                const auto destination_body_position = mechanics_.get_body_position(destination_body.id, ship.active_mission.arrival_time_s);
-                output << ",\"destination_body_at_arrival\":{"
-                       << "\"id\":\"" << json_escape(destination_body.id) << "\","
-                       << "\"name\":\"" << json_escape(destination_body.name) << "\","
-                       << "\"radius_m\":" << destination_body.radius_m << ","
-                       << "\"x\":" << destination_body_position.x << ","
-                       << "\"y\":" << destination_body_position.y << ","
-                       << "\"z\":" << destination_body_position.z
-                       << "}";
+            output << ",\"path_id\":\"" << json_escape(bridge_path_id(ship)) << "\"";
+            if (with_paths) {
+                output << ",";
+                write_ship_path_json(output, ship);
             }
         }
         output << "}";

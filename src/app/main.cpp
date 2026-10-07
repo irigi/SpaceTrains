@@ -880,6 +880,7 @@ int main(int argc, char** argv) {
     std::string load_path;
     std::string save_path;
     double start_day = 0.0;
+    std::string snapshot_json_path;
     int save_at_day = -1;
 
     // Parse arguments
@@ -893,6 +894,8 @@ int main(int argc, char** argv) {
             verbose = true;
         } else if (args[i] == "--econ-audit") {
             econ_audit = true;
+        } else if (args[i] == "--snapshot-json" && i + 1 < args.size()) {
+            snapshot_json_path = args[++i];
         } else if (args[i] == "--start-day" && i + 1 < args.size()) {
             start_day = std::stod(args[++i]);
         } else if (args[i] == "--load" && i + 1 < args.size()) {
@@ -1046,6 +1049,11 @@ int main(int argc, char** argv) {
                 pct(0.5), pct(0.9), pct(0.99), 1000.0 * sorted.back(), 1000.0 * step_wall_s.front(), over_50ms);
         }
         std::cout << spacetrains::profiling::report();
+    }
+
+    if (!snapshot_json_path.empty()) {
+        std::ofstream file(snapshot_json_path, std::ios::binary | std::ios::trunc);
+        file << sim.build_bridge_snapshot_json(false, 0, 0.0);
     }
 
     std::cout << "\n=== Final Report ===\n";

@@ -83,6 +83,9 @@ var executable_path := ""
 var display_time_s := -1.0
 var snapshot_game_time_s := 0.0
 var snapshot_wall_s := 0.0
+# The simulation's measured pace (game seconds per real second), smoothed: the display clock
+# runs at it, so a slow stretch slows the picture down instead of freezing it.
+var sim_pace := 0.0
 var body_orbits: Dictionary = {}     # body_id -> {parent, a, period, phase}
 var station_orbits: Dictionary = {}  # station_id -> {body, r, theta}
 var ship_paths: Dictionary = {}      # ship_id -> {sig, t: PackedFloat64Array, p: PackedFloat64Array (x,y,z,...)}
@@ -291,19 +294,47 @@ func select_entity(entity_id: String, kind: String, focus := false) -> void:
 func _exit_tree() -> void:
     if bridge_pid > 0:
         OS.kill(bridge_pid)
-    for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp", command_path]:
+    for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp",
+            snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp", command_path]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
 
+# Debug aid: SPACETRAINS_GODOT_PROFILE=1 prints where frame time goes, every 10 s.
+var _profile_enabled := OS.has_environment("SPACETRAINS_GODOT_PROFILE")
+var _profile_totals: Dictionary = {}
+var _profile_worst: Dictionary = {}
+var _profile_since_s := 0.0
+
+func _profiled(name: String, started_usec: int) -> void:
+    var ms := float(Time.get_ticks_usec() - started_usec) / 1000.0
+    _profile_totals[name] = float(_profile_totals.get(name, 0.0)) + ms
+    _profile_worst[name] = maxf(float(_profile_worst.get(name, 0.0)), ms)
+
 func _process(delta: float) -> void:
     debug_frame += 1
+    var t := Time.get_ticks_usec()
     _read_snapshot()
+    if _profile_enabled: _profiled("read+apply snapshot", t)
     _update_bridge_status()
     _advance_display_clock(delta)
+    t = Time.get_ticks_usec()
     _update_nodes(delta)
+    if _profile_enabled: _profiled("update nodes", t)
     _update_camera_focus()
+    t = Time.get_ticks_usec()
     _update_map_icons()
+    if _profile_enabled: _profiled("map icons", t)
     _update_map_debug(delta)
+    if _profile_enabled:
+        _profile_since_s += delta
+        if _profile_since_s >= 10.0:
+            var parts: Array[String] = []
+            for key in _profile_totals.keys():
+                parts.append("%s %.1f ms/s (worst %.1f)" % [key, float(_profile_totals[key]) / _profile_since_s, float(_profile_worst[key])])
+            print("[GodotProfile] " + ", ".join(parts))
+            _profile_totals.clear()
+            _profile_worst.clear()
+            _profile_since_s = 0.0
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo:
@@ -411,7 +442,23 @@ func _write_bridge_commands() -> void:
     }
     file.store_string(JSON.stringify(payload))
 
+# Planned paths by ship id ({path_id, trajectory_path, destination_body_at_arrival}), from
+# the bridge's paths file, which changes only when a ship gets a new plan.
+var bridge_paths: Dictionary = {}
+var paths_seq := -1
+
+func _read_paths() -> void:
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".paths.seq")
+    if seq_text == "" or int(seq_text) == paths_seq:
+        return
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".paths")) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return
+    paths_seq = int(seq_text)
+    bridge_paths = json.data.get("paths", {})
+
 func _read_snapshot() -> void:
+    _read_paths()
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
     if seq_text != "" and int(seq_text) == current_snapshot_seq:
@@ -461,6 +508,20 @@ func _read_snapshot() -> void:
     else:
         snapshot_interval_s = BRIDGE_STEP_SECONDS
     bridge_state = json.data
+    # Ships in flight carry only a path id; attach the planned path from the paths file.
+    for ship in bridge_state.get("ships", []):
+        var path_id := String(ship.get("path_id", ""))
+        if path_id == "":
+            continue
+        var cached: Dictionary = bridge_paths.get(String(ship.get("id", "")), {})
+        if String(cached.get("path_id", "")) == path_id:
+            ship["trajectory_path"] = cached.get("trajectory_path", [])
+            if cached.has("destination_body_at_arrival"):
+                ship["destination_body_at_arrival"] = cached["destination_body_at_arrival"]
+    if snapshot_wall_s > 0.0 and arrival_now_s > snapshot_wall_s and new_game_time_s >= snapshot_game_time_s:
+        var interval := arrival_now_s - snapshot_wall_s
+        var sample := (new_game_time_s - snapshot_game_time_s) / interval
+        sim_pace += (sample - sim_pace) * clampf(interval / 1.5, 0.0, 1.0)
     snapshot_game_time_s = new_game_time_s
     snapshot_wall_s = arrival_now_s
     if display_time_s < 0.0:
@@ -608,14 +669,28 @@ func _advance_display_clock(delta: float) -> void:
     # The starting state is shown before the opening dispatch (a few seconds of planning):
     # the clock starts with the first simulated tick.
     var paused := bool(bridge_state.get("paused", current_paused)) or snapshot_game_time_s <= 0.0
-    var rate := 0.0 if paused else float(bridge_state.get("timewarp_factor", current_timewarp))
+    var requested := 0.0 if paused else float(bridge_state.get("timewarp_factor", current_timewarp))
+    # The clock runs at the simulation's measured pace (at most the requested timewarp): when
+    # ticks run slow the picture slows down rather than freezing, and after a timewarp change
+    # it follows within a second or two.
+    var rate := minf(requested, maxf(sim_pace, requested * 0.1)) if requested > 0.0 else 0.0
     # Where the simulation should be by now; a slow tick lets the display run ahead a
     # little (ships follow their planned paths meanwhile), never backwards.
-    var target := snapshot_game_time_s + rate * (_wall_time_s() - snapshot_wall_s)
-    target = minf(target, snapshot_game_time_s + maxf(SIM_TICK_S * 1.5, rate * DISPLAY_MAX_LEAD_REAL_S))
-    var next := display_time_s + rate * delta
-    next += (target - next) * clampf(delta * 3.0, 0.0, 1.0)
-    display_time_s = maxf(display_time_s, next)
+    var max_lead := maxf(SIM_TICK_S * 1.5, rate * DISPLAY_MAX_LEAD_REAL_S)
+    var limit := snapshot_game_time_s + max_lead
+    var target := minf(snapshot_game_time_s + rate * (_wall_time_s() - snapshot_wall_s), limit)
+    # Behind the target: catch up (eased). Ahead of it: slow down (to a fifth when a whole
+    # lead ahead), and brake through the last half of the lead window instead of stopping
+    # dead at its end; never step back.
+    var brake := clampf((limit - display_time_s) / (0.5 * max_lead), 0.0, 1.0)
+    var next := display_time_s
+    if target > display_time_s:
+        next += rate * delta * brake
+        next += (target - next) * clampf(delta * 3.0, 0.0, 1.0)
+    else:
+        var slow := clampf(1.0 - (display_time_s - target) / max_lead, 0.2, 1.0)
+        next += rate * delta * slow * brake
+    display_time_s = maxf(display_time_s, minf(next, limit))
 
 func _cache_orbits() -> void:
     for body in bridge_state.get("bodies", []):
@@ -957,7 +1032,11 @@ func _refresh_ui(force := false) -> void:
     if not force and now_s - last_ui_refresh_s < UI_REFRESH_INTERVAL_S:
         return
     last_ui_refresh_s = now_s
+    var t := Time.get_ticks_usec()
+    _refresh_ui_now()
+    if _profile_enabled: _profiled("ui refresh", t)
 
+func _refresh_ui_now() -> void:
     _record_price_history()
     _record_economy_history()
     if economy_history.size() >= 2:
@@ -999,6 +1078,8 @@ func _record_price_history() -> void:
 
 func _reset_timeline() -> void:
     display_time_s = -1.0
+    sim_pace = 0.0
+    snapshot_wall_s = 0.0
     ship_paths.clear()
     economy_history.clear()
     price_history.clear()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <string>
@@ -49,7 +50,13 @@ public:
     void load_state_json(const std::string& text);
     [[nodiscard]] std::string data_fingerprint() const;
     [[nodiscard]] std::string build_report() const;
-    [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
+    // The UI snapshot. Without paths, ships in flight carry only a "path_id"; their planned
+    // paths are in build_bridge_paths_json(), which the bridge writes when
+    // bridge_paths_signature() changes (paths were 70% of a 600 KB snapshot at 90 ships).
+    [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s,
+        bool with_paths = true) const;
+    [[nodiscard]] std::string build_bridge_paths_json() const;
+    [[nodiscard]] std::string bridge_paths_signature() const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
     [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return recent_trades_; }
@@ -68,6 +75,8 @@ private:
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
     [[nodiscard]] const domain::StationState& get_station_state(const std::string& station_id) const;
     [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
+    [[nodiscard]] std::string bridge_path_id(const domain::ShipState& ship) const;
+    void write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     // Value of moving units into (+) or out of (-) a station, along its price curve.

@@ -100,16 +100,25 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
 - 23:3x **Step 13 stage 1 groundwork:** a mission's hold is a list of lots (`domain::CargoLot`, save version 2);
   departure, arrival (per-lot decay, storage, sale), the inbound forecast, events and the snapshot (`cargo` list) use
   it. Dispatch still loads one good per trip: results identical to v36e (only event wording differs).
-- 23:4x **Step 13 stage 1: mixed cargo (v37a).** Dispatch builds a manifest per destination: chunk by chunk (1/40 of
+- 23:3x **Step 13 stage 1: mixed cargo (v37a).** Dispatch builds a manifest per destination: chunk by chunk (1/40 of
   the hold) the next units go to the good whose next units earn the most along both stations' price curves, weighted
   by the destination's urgency for it; the whole manifest, its half and its quarter are scored like single-good runs
   (two-leg, follow-up). Single-good runs remain candidates. 730 days: **unmet 59.8% (last 146 days 40.6%)**, 49/93
   profitable, fleet holds 41,400 u in 90 ships, fuel 1.09M (v36e 1.77M), money supply **+29.7%** (ships hold 2.4M
   cr; to look at), drift 0, 2 trajectory flags (theta branches), 1m05. The inspector shows the full hold.
-- 23:5x **Fleet reviews spread over ticks (v37b):** a review keeps its probes (cargo runs of each hull at each
+- 23:3x **Fleet reviews spread over ticks (v37b):** a review keeps its probes (cargo runs of each hull at each
   yard, `review_probes_`, saved with the game; save version 3) and each tick does one batch of 8 probes or one
   purchase. Worst investment tick 0.9 s (was 2-6 s), 730 days 52 s.
-- 00:0x **Benchmark over several starts** (`tools/benchmark.py`, headless `--start-day`): one run is a poor judge
+- 23:4x **Benchmark over several starts** (`tools/benchmark.py`, headless `--start-day`): one run is a poor judge
   (v37a and v37b differ by 12 points in the last fifth though v37b only moves purchases by hours). Four starts
   (day 0/90/180/270) in parallel, mean ± sd. v37b: unmet **63.3 ± 2.2%**, last fifth **49.8 ± 5.3%**, 52.8/91.5
   profitable, holds 42,800 ± 8,500 u, 1.5 trajectory flags per run. **From here on, compare versions with it.**
+- 23:5x **GUI smoothness with 90 ships**, measured in the real window (`--shot-smooth=SECONDS` in the tour counts frames
+  where the display clock stands still). Found and fixed: (1) the bridge ran a whole backlog of ticks in one loop
+  without snapshots (a review: "37 ticks took 3.7 s") - it now ticks one at a time with at most 100 ms of work per
+  snapshot and carries the rest over; (2) the display clock follows the simulation's measured pace and only slows
+  down when ahead (it pulled itself back and froze); (3) reviews probe 4 candidates per tick; (4) planned paths
+  (450 of 626 KB per snapshot at 90 ships) go to a separate `.paths` file written only when a plan changes; (5) at
+  most 10 snapshots a second. Result at day 300-620: **1 day/s: 0 stalled frames** in 20 s; 5 days/s: 4-7% of
+  frames stalled, the longest 2.3 s during fleet reviews (open). Godot spends ~16% of the frame budget on
+  snapshots, node placement and icons (`SPACETRAINS_GODOT_PROFILE=1`); bridge slow loops: `SPACETRAINS_BRIDGE_LOG=1`.

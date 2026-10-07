@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -123,11 +124,20 @@ int main(int argc, char** argv) {
     // drops what it remembered of the old timeline).
     int epoch = 0;
     std::string command_status;
+    std::string paths_signature = "-";
+    std::uint64_t paths_seq = 0;
     const auto write_snapshot = [&]() {
         const auto now = std::chrono::steady_clock::now();
         const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
         const auto seq = snapshot_seq++;
-        auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s);
+        // Planned paths change only when a ship gets a mission: they go to their own file,
+        // written before the snapshot that refers to them.
+        if (auto signature = simulation.bridge_paths_signature(); signature != paths_signature) {
+            paths_signature = std::move(signature);
+            write_text_file(config.snapshot_file + ".paths", simulation.build_bridge_paths_json());
+            write_text_file(config.snapshot_file + ".paths.seq", std::to_string(paths_seq++));
+        }
+        auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s, false);
         json.pop_back();  // the closing brace
         json += std::format(",\"bridge\":{{\"epoch\":{},\"status\":\"{}\"}}}}", epoch, command_status);
         write_text_file(config.snapshot_file, json);
@@ -144,6 +154,9 @@ int main(int argc, char** argv) {
     constexpr double kMaxCatchUpS = 4.0;
     std::string last_command_text;
     double last_request = -1.0;
+    auto last_snapshot = std::chrono::steady_clock::now();
+    bool dirty = false;  // a change not yet in a snapshot
+    double owed_real_s = 0.0;  // real time the simulation has not caught up yet
     auto last_loop = std::chrono::steady_clock::now();
     const auto tick = [&]() {
         const auto now = std::chrono::steady_clock::now();
@@ -185,12 +198,34 @@ int main(int argc, char** argv) {
             }
         }
         if (!paused) {
+            // Ticks one at a time, for at most 100 ms of work per loop: when the simulation
+            // runs slower than the timewarp asks (a fleet review), snapshots keep coming and
+            // the UI slows down smoothly; the rest of the time is carried over (up to
+            // kMaxCatchUpS) instead of being run in one long burst.
+            owed_real_s = std::min(kMaxCatchUpS, owed_real_s + elapsed_s);
+            const double tick_real_s = spacetrains::simulation::Simulation::TICK_S / std::max(1.0, timewarp);
             const double before_s = simulation.game_time_s();
-            simulation.step(elapsed_s);
+            const auto work_start = std::chrono::steady_clock::now();
+            while (owed_real_s >= tick_real_s - 1e-9
+                && std::chrono::steady_clock::now() - work_start < std::chrono::milliseconds(100)) {
+                simulation.step(tick_real_s);
+                owed_real_s -= tick_real_s;
+            }
             changed = changed || simulation.game_time_s() != before_s;
+            // Debug aid: SPACETRAINS_BRIDGE_LOG=1 reports slow loops (stderr).
+            static const bool log_slow = std::getenv("SPACETRAINS_BRIDGE_LOG") != nullptr;
+            const double work_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - work_start).count();
+            if (log_slow && work_s > 0.3) {
+                std::cerr << std::format("[bridge] day {:.2f}: {:.0f} ticks took {:.2f} s (timewarp {:.0f}, {:.2f} s owed)\n",
+                    simulation.game_time_s() / 86400.0, (simulation.game_time_s() - before_s) / spacetrains::simulation::Simulation::TICK_S,
+                    work_s, timewarp, owed_real_s);
+            }
         }
-        if (changed) {
+        dirty = dirty || changed;
+        if (dirty && (now - last_snapshot >= std::chrono::milliseconds(100) || paused)) {
             write_snapshot();
+            last_snapshot = now;
+            dirty = false;
         }
     };
 
