@@ -729,7 +729,12 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
                 summary.accepted_steps += 1;
 
                 while (next_sample_index < sample_count) {
-                    const double sample_time = dt_output * static_cast<double>(next_sample_index);
+                    // The last sample is exactly the end: dt_output x (n - 1) can round to a
+                    // hair above it, and the loop then spun on zero-length steps until the
+                    // step budget threw (it did for some sample counts, e.g. 600).
+                    const double sample_time = next_sample_index + 1 == sample_count
+                        ? transfer_time_s
+                        : std::min(transfer_time_s, dt_output * static_cast<double>(next_sample_index));
                     if (sample_time > time_s + 1e-12) {
                         break;
                     }

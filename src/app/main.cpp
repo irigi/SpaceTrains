@@ -243,8 +243,8 @@ void print_economy_audit(
         }
     }
     for (const auto& ship : snap.ships) {
-        if (!ship.active_mission.commodity_id.empty() && ship.active_mission.cargo_units > 0.0) {
-            in_transit[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
+        for (const auto& lot : ship.active_mission.cargo) {
+            in_transit[lot.commodity_id] += lot.units;
         }
     }
 
@@ -325,9 +325,11 @@ void print_economy_audit(
     for (const auto& ship : snap.ships) {
         switch (ship.phase) {
             case spacetrains::domain::ShipMissionPhase::InTransit:
-                if (ship.active_mission.cargo_units > 0.0) {
+                if (!ship.active_mission.cargo.empty()) {
                     ++ships_with_cargo;
-                    cargo_by_commodity[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
+                    for (const auto& lot : ship.active_mission.cargo) {
+                        cargo_by_commodity[lot.commodity_id] += lot.units;
+                    }
                 } else {
                     ++ships_repositioning;
                 }

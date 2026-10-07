@@ -112,11 +112,13 @@ private:
         // Reposition: sourcing urgency, not credits.
         double score {0.0};
         const domain::StationDefinition* destination {nullptr};
-        std::string commodity_id;
-        double cargo_units {0.0};
+        std::vector<domain::CargoLot> cargo;   // empty: an empty leg or repositioning
         // Cargo runs: sale value minus purchase and fuel, without urgency or time costs.
         double cargo_margin {0.0};
         domain::TrajectoryPlan plan;
+        // What `plan` was planned with (without its path; step_idle_ship plans it again with it).
+        trajectory::PlanningOptions plan_options {};
+        double plan_departure_s {0.0};
         // Fuel-aware planning: return fuel loaded on top of the plan's load, for a port that
         // cannot refuel the ship.
         double carried_propellant_kg {0.0};

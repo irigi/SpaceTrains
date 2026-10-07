@@ -200,11 +200,35 @@ struct TradeEntry {
     double total {0.0};
 };
 
+// One good in a ship's hold.
+struct CargoLot {
+    std::string commodity_id;
+    double units {0.0};
+};
+
+[[nodiscard]] inline double total_units(const std::vector<CargoLot>& cargo) {
+    double total = 0.0;
+    for (const auto& lot : cargo) {
+        total += lot.units;
+    }
+    return total;
+}
+
+[[nodiscard]] inline double units_of(const std::vector<CargoLot>& cargo, const std::string& commodity_id) {
+    double total = 0.0;
+    for (const auto& lot : cargo) {
+        if (lot.commodity_id == commodity_id) {
+            total += lot.units;
+        }
+    }
+    return total;
+}
+
 struct MissionAssignment {
     std::string origin_station_id;
     std::string destination_station_id;
-    std::string commodity_id;
-    double cargo_units {0.0};
+    // The hold: several goods for the destination (v37 mixed cargo); empty when flying empty.
+    std::vector<CargoLot> cargo;
     double departure_time_s {0.0};
     double arrival_time_s {0.0};
     double wait_time_s {0.0};
@@ -359,6 +383,8 @@ struct TrajectoryPlan {
     std::string summary;
     std::string trajectory_type;  // keplerian_local | keplerian_lambert | keplerian_hohmann | variable_isp
     TrajectoryDiagnostics diagnostics;
+    // False when planned without a rendering path (PlanningOptions::include_path off).
+    bool has_render_path {true};
 };
 
 }  // namespace spacetrains::domain

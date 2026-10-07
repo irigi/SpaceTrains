@@ -54,6 +54,10 @@ struct PlanningOptions {
     double purchasable_propellant_kg {0.0};
     // Propellant kept unburned on arrival, as a fraction of the burn.
     double reserve_fraction {0.0};
+    // Off when only the numbers matter (scoring candidates): no rendering path is built, and
+    // the variable-Isp check integration is coarser. The chosen mission is planned again
+    // with its path.
+    bool include_path {true};
 };
 
 // Effective exhaust velocity of a nuclear-thermal class, from its rated full-tank Δv

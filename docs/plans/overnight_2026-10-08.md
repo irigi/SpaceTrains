@@ -91,3 +91,12 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   **Open for the user:** remote outposts import all their food/oxygen from Venus (217-932 days away); local life
   support production (greenhouses, electrolysis) at the outposts would cut the transport need by far more than any
   fleet could add. A game-design decision, not taken tonight.
+- 23:4x **Speed with 90 ships** (730 days had become 1m49, ticks up to 8.6 s): candidates are planned without a
+  rendering path (`PlanningOptions::include_path`), the chosen mission is planned again with it. **Bug found and
+  fixed:** `integrate_fixed_time` computed the last output time as dt x (n-1), which can round a hair above the
+  transfer time; the loop then spun on zero-length RK45 steps until the 200,000-step budget threw (the worst
+  integration took 73 ms instead of 7.6 ms; the windows it hit were silently rejected). v36e: 730 days 1m08, the
+  same economics as v36c.
+- 23:5x **Step 13 stage 1 groundwork:** a mission's hold is a list of lots (`domain::CargoLot`, save version 2);
+  departure, arrival (per-lot decay, storage, sale), the inbound forecast, events and the snapshot (`cargo` list) use
+  it. Dispatch still loads one good per trip: results identical to v36e (only event wording differs).

@@ -621,6 +621,14 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     plan.propellant_required_kg = loading.burn_kg(delta_v);
     plan.feasible = loading.feasible(delta_v);
 
+    plan.trajectory_type = best_from_lambert ? "keplerian_lambert" : "keplerian_hohmann";
+    if (!options.include_path) {
+        plan.has_render_path = false;
+        plan.summary = std::format("Kepler transfer {} -> {} in {:.1f} days plus {:.1f} days wait, propellant {:.0f} kg ({})",
+            origin.name, destination.name, plan.coast_time_s / 86400.0, plan.wait_time_s / 86400.0,
+            plan.propellant_required_kg, plan.feasible ? "feasible" : "insufficient fuel");
+        return plan;
+    }
     const auto start = mechanics_.get_station_position(origin, plan.departure_time_s);
     const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);
     const double start_angle = std::atan2(start.z, start.x);

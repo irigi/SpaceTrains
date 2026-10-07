@@ -29,6 +29,6 @@ data files.
 
 ## Format
 
-Version 1: `version`, `data_fingerprint`, game time and the tick remainder, timewarp, outside-economy credits,
+Version 2 (mixed cargo: a mission's hold is a list of lots): `version`, `data_fingerprint`, game time and the tick remainder, timewarp, outside-economy credits,
 treasuries, money-supply target, investment state, stations, ships (with their missions and planned paths), sold
 ships, recent events and trades. About 140 KB at day 45.

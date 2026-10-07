@@ -465,7 +465,9 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     // Dense enough that even a 0.1 AU perihelion on a multi-year transfer turns
                     // only a few degrees per sample before thinning.
                     const profiling::Scope path_scope(profiling::Phase::VariableIspPath);
-                    auto full = integrator_.integrate_fixed_time(refined.seed, config, 4000);
+                    // Without a path (scoring), fewer samples: the end mass is the same, the
+                    // perihelion check a little coarser.
+                    auto full = integrator_.integrate_fixed_time(refined.seed, config, options.include_path ? 4000 : 600);
                     if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
                         fuel_limited = true;
                         continue;
@@ -498,7 +500,10 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     // Thin the dense integration by curvature for rendering: tight perihelion passes keep
     // many points, long flat spirals few (see PathSampling.hpp).
     std::vector<variable_isp::TrajectorySample> samples;
-    {
+    if (!options.include_path) {
+        samples = {result.samples.front(), result.samples.back()};
+        plan.has_render_path = false;
+    } else {
         std::vector<math::Vec3d> dense;
         dense.reserve(result.samples.size());
         for (const auto& sample : result.samples) {
