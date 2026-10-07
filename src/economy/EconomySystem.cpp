@@ -169,21 +169,26 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
 
         const double factor = population_factor(*station_it);
 
-        // Production gating: production efficiency scales smoothly from 0.1 (inputs at zero)
-        // to 1.0 (inputs at 7-day buffer). Never drops to 0 — stations retain 10% productivity
-        // via manual/emergency operations (fallback farming, improvised repairs, etc.).
-        double efficiency = 1.0;
+        // Production gating: each input's availability scales from 0.1 (none in stock) to 1.0
+        // (a 7-day buffer); production runs at their average weighted by the inputs' value
+        // (rate x base price). Never below 10%: stations keep some output through manual and
+        // emergency operations. (Until v37 it was the minimum over the inputs: one minor
+        // shortage, say electronics at the Mercury smelter, cut its metals to 10%, which starved
+        // Lunar Gateway's water output, which starved Earth L1: shortages cascaded.)
+        double weighted_availability = 0.0;
+        double input_weight = 0.0;
         for (const auto* recipe : recipes) {
             if (recipe->units_per_day < 0.0) {
                 const double stock = station.inventory.count(recipe->commodity_id)
                     ? station.inventory.at(recipe->commodity_id) : 0.0;
                 const double buffer = std::abs(recipe->units_per_day * factor) * 7.0;
-                // Linear ramp: 0.1 at stock=0, 1.0 at stock≥buffer
                 const double ratio = stock / std::max(0.001, buffer);
-                const double input_efficiency = 0.1 + 0.9 * std::min(1.0, ratio);
-                efficiency = std::min(efficiency, input_efficiency);
+                const double weight = std::abs(recipe->units_per_day) * commodity_base_price(recipe->commodity_id);
+                weighted_availability += weight * (0.1 + 0.9 * std::min(1.0, ratio));
+                input_weight += weight;
             }
         }
+        const double efficiency = input_weight > 0.0 ? weighted_availability / input_weight : 1.0;
 
         // Storage cap: a full station halts production of new units (consumption continues),
         // so gluts back up the supply chain instead of accumulating without consequence.
@@ -274,6 +279,15 @@ double EconomySystem::fuel_stock_after_days(const domain::StationDefinition& sta
         return stock;
     }
     return std::min(buffer, std::max(0.0, stock) + output * std::max(0.0, days));
+}
+
+double EconomySystem::commodity_base_price(const std::string& commodity_id) const {
+    for (const auto& commodity : universe_.commodities) {
+        if (commodity.id == commodity_id) {
+            return commodity.base_price;
+        }
+    }
+    return 1.0;
 }
 
 double EconomySystem::get_target_stock(const domain::StationDefinition& station, const std::string& commodity_id) const {

@@ -66,6 +66,7 @@ public:
 
 private:
     void compute_cover_days();
+    [[nodiscard]] double commodity_base_price(const std::string& commodity_id) const;
     [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
     // A price that does not move with the stock: the base price at an export market, the
     // floor price for an export good anywhere that neither makes nor exports it (0 otherwise).

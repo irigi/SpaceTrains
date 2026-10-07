@@ -2,6 +2,6 @@ key,value
 station_credit_floor,25000
 station_credit_ceiling,250000
 station_balance_days,30
-ship_cash_reserve,50000
+ship_cash_reserve,25000
 dividend_days,30
 money_supply_days,60

@@ -122,3 +122,11 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   most 10 snapshots a second. Result at day 300-620: **1 day/s: 0 stalled frames** in 20 s; 5 days/s: 4-7% of
   frames stalled, the longest 2.3 s during fleet reviews (open). Godot spends ~16% of the frame budget on
   snapshots, node placement and icons (`SPACETRAINS_GODOT_PROFILE=1`); bridge slow loops: `SPACETRAINS_BRIDGE_LOG=1`.
+- 00:1x **v37c, two balance decisions (to review), benchmarked over four starts:**
+  - **Production gating** was the *minimum* availability over a station's inputs (10% floor): one minor shortage
+    (electronics at the Mercury smelter) cut its metals to 10%, which starved Lunar Gateway, whose water output
+    fell, which left Earth L1 83% short of water: shortages cascaded. Now the value-weighted *average* of the inputs'
+    availability. Unmet 63.3 -> 61.7 +- 1.8% (last fifth 49.8 -> 47.4).
+  - **Ship cash reserve 50k -> 25k** (= a new ship's working capital): ninety ships keeping 50k each held up to
+    2.25M above the money-supply target, and the controller can only tax stations. Money supply +23.9 -> +10.2 +-
+    3.5%; unmet unchanged.
