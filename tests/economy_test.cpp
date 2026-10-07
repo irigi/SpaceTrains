@@ -173,6 +173,11 @@ int main() {
             final_supply += ship.credits;
             ship_dividends += ship.ledger.dividends;
         }
+        for (const auto& ship : snap.sold_ships) {
+            require(ship.credits == 0.0, "a sold ship's cash must go to its home station");
+            ship_dividends += ship.ledger.dividends;
+        }
+        const auto& investment = snap.fleet_investment;
         const double internal_supply = final_supply;
         double treasuries = 0.0;
         for (const auto& [faction_id, balance] : snap.faction_treasuries) {
@@ -186,16 +191,21 @@ int main() {
         require(stations_ledger.household_sales > 0.0 && stations_ledger.producer_purchases > 0.0,
             "residents must pay for consumed goods and stations must pay local producers");
         require_near(snap.outside_economy_credits,
-            stations_ledger.producer_purchases - stations_ledger.household_sales, 1.0e-3,
-            "the outside economy's balance must equal producer payments minus resident payments");
-        require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies, 1.0e-3,
-            "the faction treasuries' balance must equal taxes minus subsidies");
+            stations_ledger.producer_purchases - stations_ledger.household_sales
+                + investment.hulls_bought - investment.salvage, 1.0e-3,
+            "the outside economy's balance must equal producer payments minus resident payments,"
+            " plus ships sold to the treasuries minus salvage bought back");
+        require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies
+                - investment.hulls_bought - investment.working_capital + investment.salvage, 1.0e-3,
+            "the faction treasuries' balance must equal taxes minus subsidies and their ship trade");
         require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
             "dividends paid by ships must equal dividends received by stations");
         const auto& open = sim.universe().open_economy;
         require(open.money_supply_days > 0.0 && open.station_credit_ceiling > open.station_credit_floor,
             "open_economy.csv must enable the controller and a credit band");
-        require(std::abs(internal_supply / initial_supply - 1.0) < 0.25,
+        require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,
+            "the money-supply target must grow by the working capital of new ships");
+        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < 0.25,
             "the money-supply controller must hold stations + ships within 25% of the seeded money");
         for (const auto& ship : snap.ships) {
             require(ship.credits < 4.0 * open.ship_cash_reserve,

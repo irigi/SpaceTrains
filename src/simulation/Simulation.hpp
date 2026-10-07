@@ -80,6 +80,11 @@ private:
     // Dividends, the faction treasuries' subsidies and taxes, and the money-supply controller.
     void step_treasuries(double dt_s);
     [[nodiscard]] double internal_money_supply() const;
+    // Fleet investment (docs/plans/fleet_investment.md): owners sell ships laid up for long,
+    // and every review the treasuries commission the ship with the best expected return.
+    void step_fleet_investment();
+    void sell_ship(std::size_t index);
+    void commission_best_ship();
     void step_idle_ship(domain::ShipState& ship);
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.
@@ -92,10 +97,14 @@ private:
         const domain::StationDefinition* destination {nullptr};
         std::string commodity_id;
         double cargo_units {0.0};
+        // Cargo runs: sale value minus purchase and fuel, without urgency or time costs.
+        double cargo_margin {0.0};
         domain::TrajectoryPlan plan;
     };
+    // `cargo_only`: only cargo runs from the ship's port (no empty legs, no repositioning).
     [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,
-        const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s);
+        const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
+        bool cargo_only = false);
     // Part C: at its home base a ship may refit to another tank variant of its hull when
     // the missions that opens repay the yard bill. Returns true if the ship went into the yard.
     bool consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace);
@@ -136,7 +145,10 @@ private:
     double game_time_s_ {0.0};
     double outside_economy_credits_ {0.0};
     std::unordered_map<std::string, double> faction_treasuries_;
-    double seeded_money_supply_ {0.0};
+    double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
+    double next_investment_review_s_ {0.0};
+    domain::FleetInvestmentLedger investment_ledger_;
+    std::vector<domain::ShipState> sold_ships_;
     double timewarp_factor_ {3600.0};
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;

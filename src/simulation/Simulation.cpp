@@ -1,6 +1,7 @@
 #include "simulation/Simulation.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -52,6 +53,9 @@ constexpr std::array<double, 3> LOAD_FRACTIONS {1.0, 0.5, 0.25};
 // refits when the better missions repay the yard within the payback period.
 constexpr double REFIT_REVIEW_DAYS = 90.0;
 constexpr double REFIT_PAYBACK_DAYS = 180.0;
+// A station with a ship commissioned this recently gets no other: the first one must show
+// its effect on the market before the treasuries judge the gap again.
+constexpr double COMMISSION_SETTLE_REVIEWS = 2.0;
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -180,9 +184,12 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .refit_class_id = {},
             .refit_done_s = 0.0,
             .next_refit_review_s = 0.0,
+            .laid_up_since_s = 0.0,
+            .commissioned_s = 0.0,
         });
     }
     seeded_money_supply_ = internal_money_supply();
+    next_investment_review_s_ = universe_.fleet_investment.review_days * 86400.0;
     // Ships start with their full life-support endurance aboard, as if fresh from the yard.
     constexpr double INITIAL_PROVISION_DAYS = PROVISION_ENDURANCE_DAYS;
     for (auto& ship : ships_) {
@@ -537,6 +544,7 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     // ship could never leave (starving consumer stations became traps). Lay it off instead.
     if (ship.phase == domain::ShipMissionPhase::Idle && reserve_breached) {
         ship.phase = domain::ShipMissionPhase::LaidUp;
+        ship.laid_up_since_s = game_time_s_;
         ship.next_review_s = game_time_s_ + LAYUP_REVIEW_DAYS * 86400.0;
         add_event(std::format("{} laid up at {} (port cannot provision the crew)",
             ship.name, get_station_definition(ship.current_station_id).name), "alert");
@@ -656,7 +664,7 @@ Simulation::LegEstimate Simulation::estimate_leg(
 
 Simulation::MissionChoice Simulation::choose_mission(
     const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, bool trace,
-    double earliest_departure_s) {
+    double earliest_departure_s, bool cargo_only) {
     // Plans start at the earliest departure; forecasts of stocks count from now.
     const double delay_days = std::max(0.0, earliest_departure_s - game_time_s_) / 86400.0;
     const auto trace_line = [&](const std::string& text) {
@@ -678,6 +686,7 @@ Simulation::MissionChoice Simulation::choose_mission(
     const domain::StationDefinition* best_destination = nullptr;
     std::string best_commodity;
     double best_cargo_units = 0.0;
+    double best_cargo_margin = 0.0;
 
     // Every day of a mission (waiting for the window included) costs capital,
     // wages and provisions; missions are compared on profit after that cost.
@@ -975,7 +984,11 @@ Simulation::MissionChoice Simulation::choose_mission(
                 const double cost = trade_value(origin_state, commodity_id, -cargo_units) + fuel_cost
                     + time_cost_per_day * travel_days;
                 std::string follow_label;
-                const double score = two_leg_score(destination, plan, urgency * (revenue - cost), travel_days, false, follow_label);
+                // Cargo-only probes (fleet investment) value the run on its own and skip the
+                // follow-up forecast, the expensive part of a dispatch pass.
+                const double score = cargo_only
+                    ? urgency * (revenue - cost) / std::max(1.0, travel_days)
+                    : two_leg_score(destination, plan, urgency * (revenue - cost), travel_days, false, follow_label);
                 trace_line(std::format("{}: {:.0f} days revenue {:.0f} cost {:.0f} (time {:.0f}), {}: score {:.1f}{}",
                     cargo_label, travel_days, revenue, cost, time_cost_per_day * travel_days, follow_label, score,
                     score > best_score ? " (best so far)" : ""));
@@ -984,6 +997,7 @@ Simulation::MissionChoice Simulation::choose_mission(
                     best_destination = &destination;
                     best_commodity = commodity_id;
                     best_cargo_units = cargo_units;
+                    best_cargo_margin = revenue - trade_value(origin_state, commodity_id, -cargo_units) - fuel_cost;
                 }
             }
         }
@@ -991,7 +1005,7 @@ Simulation::MissionChoice Simulation::choose_mission(
 
     // Empty legs toward a better pickup compete with cargo runs on the same two-leg terms.
     for (const auto& destination : universe_.stations) {
-        if (destination.id == origin_def.id) {
+        if (cargo_only || destination.id == origin_def.id) {
             continue;
         }
         const auto& plan = plan_to(destination, 0.0);
@@ -1016,11 +1030,12 @@ Simulation::MissionChoice Simulation::choose_mission(
             best_destination = &destination;
             best_commodity.clear();
             best_cargo_units = 0.0;
+            best_cargo_margin = 0.0;
         }
     }
 
     bool repositioning = false;
-    if (best_destination == nullptr) {
+    if (best_destination == nullptr && !cargo_only) {
         repositioning = true;
         best_score = 0.0;  // repositioning scores are in urgency units, not credits/day
 
@@ -1148,6 +1163,7 @@ Simulation::MissionChoice Simulation::choose_mission(
                 best_destination = &destination;
                 best_commodity.clear();
                 best_cargo_units = 0.0;
+                best_cargo_margin = 0.0;
             }
         }
     }
@@ -1161,6 +1177,7 @@ Simulation::MissionChoice Simulation::choose_mission(
     choice.destination = best_destination;
     choice.commodity_id = best_commodity;
     choice.cargo_units = best_cargo_units;
+    choice.cargo_margin = best_cargo_margin;
     choice.plan = plan_to(*best_destination,
         best_commodity.empty() ? 0.0 : best_cargo_units * get_commodity(best_commodity).mass_per_unit_kg);
     return choice;
@@ -1196,6 +1213,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             && (ship.credits < 0.0 || game_time_s_ - ship.idle_since_s > IDLE_LAYUP_DAYS * 86400.0)) {
             // Nothing worth flying and either in debt or idle for a month: stop paying the crew.
             ship.phase = domain::ShipMissionPhase::LaidUp;
+            ship.laid_up_since_s = game_time_s_;
             ship.next_review_s = game_time_s_ + LAYUP_REVIEW_DAYS * 86400.0;
             add_event(ship.credits < 0.0
                 ? std::format("{} laid up at {} ({:.0f} cr in debt)", ship.name, origin_def.name, -ship.credits)
@@ -1579,6 +1597,7 @@ void Simulation::step(double real_dt_s) {
     economy_.step(stations_, dt_s);
     settle_local_economy(stocks_before);
     step_treasuries(dt_s);
+    step_fleet_investment();
 
     for (auto& ship : ships_) {
         accrue_operating_costs(ship, dt_s);
@@ -1722,13 +1741,306 @@ void Simulation::step_treasuries(double dt_s) {
     }
 }
 
+void Simulation::step_fleet_investment() {
+    const auto& investment = universe_.fleet_investment;
+    if (investment.layup_sale_days > 0.0) {
+        for (std::size_t i = ships_.size(); i-- > 0;) {
+            const auto& ship = ships_[i];
+            if (ship.phase == domain::ShipMissionPhase::LaidUp
+                && game_time_s_ - ship.laid_up_since_s >= investment.layup_sale_days * 86400.0) {
+                sell_ship(i);
+            }
+        }
+    }
+    if (investment.review_days > 0.0 && game_time_s_ >= next_investment_review_s_) {
+        next_investment_review_s_ += investment.review_days * 86400.0;
+        commission_best_ship();
+    }
+}
+
+void Simulation::sell_ship(std::size_t index) {
+    auto& ship = ships_[index];
+    const auto& ship_class = get_ship_class(ship.class_id);
+    // The outside economy buys the hull (with what is left in its tanks and stores) for its
+    // salvage value, paid to the owner's treasury. The ship's cash, or its debt, goes to the
+    // home station, like its dividends.
+    const double salvage = universe_.fleet_investment.salvage_fraction * ship_class.ship_value_cr;
+    outside_economy_credits_ -= salvage;
+    faction_treasuries_[ship.faction_id] += salvage;
+    investment_ledger_.salvage += salvage;
+    ++investment_ledger_.ships_sold;
+    auto& home = get_station_state(ship.home_station_id);
+    home.credits += ship.credits;
+    home.ledger.dividends += ship.credits;
+    ship.ledger.dividends += ship.credits;
+    ship.credits = 0.0;
+    add_event(std::format("{} sold for salvage at {} ({:.0f} cr) after {:.0f} days laid up",
+        ship.name, get_station_definition(ship.current_station_id).name, salvage,
+        (game_time_s_ - ship.laid_up_since_s) / 86400.0), "alert");
+    sold_ships_.push_back(std::move(ship));
+    ships_.erase(ships_.begin() + static_cast<std::ptrdiff_t>(index));
+}
+
+void Simulation::commission_best_ship() {
+    const auto& investment = universe_.fleet_investment;
+    // Debug aid: SPACETRAINS_TRACE_INVESTMENT=1 logs every candidate and the review's time (stderr).
+    static const bool trace = std::getenv("SPACETRAINS_TRACE_INVESTMENT") != nullptr;
+    const auto review_start = std::chrono::steady_clock::now();
+    const auto new_ship = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard) {
+        domain::ShipState ship {
+            .id = "probe",
+            .name = "probe",
+            .faction_id = yard.faction_id,
+            .class_id = ship_class.id,
+            .home_station_id = yard.id,
+            .current_station_id = yard.id,
+            .phase = domain::ShipMissionPhase::Idle,
+            .propellant_kg = 0.0,
+            .credits = investment.working_capital,
+            .lifetime_profit = 0.0,
+            .active_mission = {},
+            .provisions = {},
+            .ledger = {},
+            .next_review_s = game_time_s_,
+            .idle_since_s = game_time_s_,
+            .refit_class_id = {},
+            .refit_done_s = 0.0,
+            .next_refit_review_s = 0.0,
+            .laid_up_since_s = 0.0,
+            .commissioned_s = game_time_s_,
+        };
+        // New ships leave the yard with their full life-support endurance, like the starting fleet.
+        for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+            ship.provisions[commodity_id] = ship_class.crew_size * units_per_crew_day * PROVISION_ENDURANCE_DAYS;
+        }
+        return ship;
+    };
+
+    // Candidates: every hull in its standard tanks, built at every station; the winner's tank
+    // variants are compared at the end. Dispatch's score is a one-shot rate (a 0.1-day hop with a one-off
+    // price gap scores thousands of credits per day), so a candidate is valued by the flow it
+    // can keep up: the margin per unit of its best cargo run from the yard, times the units it
+    // moves per day, at most what the destination consumes, minus its daily running costs.
+    double richest_treasury = 0.0;
+    for (const auto& [faction_id, balance] : faction_treasuries_) {
+        richest_treasury = std::max(richest_treasury, balance);
+    }
+    const auto consumption_rate = [&](const domain::StationDefinition& station, const std::string& commodity_id) {
+        const auto rates = economy_.get_station_net_rates(station);
+        const auto it = rates.find(commodity_id);
+        return it == rates.end() ? 0.0 : std::max(0.0, -it->second);
+    };
+    struct Candidate {
+        const domain::ShipClassDefinition* ship_class {nullptr};
+        const domain::StationDefinition* yard {nullptr};
+        double return_bound {0.0};
+    };
+    std::vector<Candidate> candidates;
+    const double settle_s = COMMISSION_SETTLE_REVIEWS * investment.review_days * 86400.0;
+    for (const auto& yard : universe_.stations) {
+        bool recently_served = false;
+        for (const auto& ship : ships_) {
+            recently_served = recently_served
+                || (ship.home_station_id == yard.id && ship.commissioned_s > 0.0
+                    && game_time_s_ - ship.commissioned_s < settle_s);
+        }
+        if (recently_served) {
+            continue;
+        }
+        // Margin per day each surplus good of the yard could make at its consumers' current
+        // prices and consumption rates, a cheap upper bound on any ship's earnings.
+        const auto& yard_state = get_station_state(yard.id);
+        const auto yard_rates = economy_.get_station_net_rates(yard);
+        struct Outlet {
+            double unit_margin;
+            double rate;
+        };
+        std::vector<Outlet> outlets;
+        for (const auto& [commodity_id, stock] : yard_state.inventory) {
+            const auto rate_it = yard_rates.find(commodity_id);
+            if (rate_it == yard_rates.end() || rate_it->second <= 0.0 || stock - (8.0 + rate_it->second * 7.0) <= 1.0) {
+                continue;
+            }
+            const double buy_price = station_price(yard_state, commodity_id);
+            for (const auto& destination : universe_.stations) {
+                const double unit_margin = station_price(get_station_state(destination.id), commodity_id) - buy_price;
+                const double rate = consumption_rate(destination, commodity_id);
+                if (unit_margin > 0.0 && rate > 0.0) {
+                    outlets.push_back({unit_margin, rate});
+                }
+            }
+        }
+        for (const auto& ship_class : universe_.ship_classes) {
+            if ((!ship_class.hull_id.empty() && ship_class.hull_id != ship_class.id) || ship_class.ship_value_cr <= 0.0
+                || ship_class.ship_value_cr + investment.working_capital > richest_treasury) {
+                continue;
+            }
+            // A ship of this hull docked idle or laid up here could already take the work.
+            bool idle_here = false;
+            for (const auto& ship : ships_) {
+                const auto& other_class = get_ship_class(ship.class_id);
+                const bool same_hull = (other_class.hull_id.empty() ? other_class.id : other_class.hull_id) == ship_class.id;
+                idle_here = idle_here
+                    || (same_hull && ship.current_station_id == yard.id
+                        && (ship.phase == domain::ShipMissionPhase::Idle || ship.phase == domain::ShipMissionPhase::LaidUp));
+            }
+            if (idle_here) {
+                continue;
+            }
+            // A trip takes at least a day, so a ship moves at most a hold per day.
+            double margin_bound = 0.0;
+            for (const auto& outlet : outlets) {
+                margin_bound = std::max(margin_bound, outlet.unit_margin * std::min(outlet.rate, ship_class.cargo_capacity_units));
+            }
+            const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, yard_state);
+            const double return_bound = (margin_bound - running_cost) * 365.0 / ship_class.ship_value_cr;
+            if (return_bound >= investment.hurdle_return_per_year) {
+                candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound});
+            }
+        }
+    }
+    // Probe the most promising first (plasma probes take seconds); stop once the best return
+    // found beats every remaining bound. Sale prices are forecast at arrival, where a starving
+    // consumer's price can be a little above today's, so the bound is a heuristic.
+    std::sort(candidates.begin(), candidates.end(),
+        [](const Candidate& a, const Candidate& b) { return a.return_bound > b.return_bound; });
+    struct Valuation {
+        double annual_return {-std::numeric_limits<double>::infinity()};
+        std::string label;
+    };
+    const auto value_candidate = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
+                                     double return_bound) {
+        const auto probe = new_ship(ship_class, yard);
+        const auto probe_start = std::chrono::steady_clock::now();
+        const auto choice = choose_mission(probe, ship_class, false, game_time_s_ + investment.build_days * 86400.0, true);
+        Valuation valuation;
+        if (choice.kind != MissionChoice::Kind::Mission || choice.cargo_units <= 0.0) {
+            valuation.label = "no cargo run";
+        } else {
+            // Out loaded, back empty (the follow-up is only a forecast), at least a day a trip.
+            const double cycle_days = std::max(1.0,
+                2.0 * choice.plan.travel_time_s / 86400.0 + choice.plan.wait_time_s / 86400.0);
+            const double units_per_day = std::min(choice.cargo_units / cycle_days,
+                consumption_rate(*choice.destination, choice.commodity_id));
+            const double profit_per_day = choice.cargo_margin / choice.cargo_units * units_per_day
+                - (daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id)));
+            valuation.annual_return = profit_per_day * 365.0 / ship_class.ship_value_cr;
+            valuation.label = std::format("{:.0f}u {} -> {} in {:.1f} d", choice.cargo_units, choice.commodity_id,
+                choice.destination->name, choice.plan.travel_time_s / 86400.0);
+        }
+        if (trace) {
+            std::cerr << std::format("[invest day {:.0f}] {} at {}: {}, margin {:.0f}: {:.0f}%/yr (bound {:.0f}%) in {:.2f} s\n",
+                game_time_s_ / 86400.0, ship_class.id, yard.id, valuation.label, choice.cargo_margin,
+                100.0 * valuation.annual_return, 100.0 * return_bound,
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - probe_start).count());
+        }
+        return valuation;
+    };
+    const domain::ShipClassDefinition* best_class = nullptr;
+    const domain::StationDefinition* best_yard = nullptr;
+    double best_return = investment.hurdle_return_per_year;
+    std::string best_label;
+    int probes = 0;
+    for (const auto& candidate : candidates) {
+        if (candidate.return_bound <= best_return) {
+            break;
+        }
+        const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound);
+        ++probes;
+        if (valuation.annual_return > best_return) {
+            best_return = valuation.annual_return;
+            best_class = candidate.ship_class;
+            best_yard = candidate.yard;
+            best_label = valuation.label;
+        }
+    }
+    // The winning hull is built with the tanks that suit it best, judged like a refit (by
+    // dispatch's full score, which carries each variant's capital charge); otherwise it would
+    // go straight back into the yard.
+    if (best_class != nullptr) {
+        const auto* hull = best_class;
+        double best_score = -std::numeric_limits<double>::infinity();
+        for (const auto& variant : universe_.ship_classes) {
+            if ((variant.hull_id.empty() ? variant.id : variant.hull_id) != hull->id
+                || variant.ship_value_cr + investment.working_capital > richest_treasury) {
+                continue;
+            }
+            const auto choice = choose_mission(
+                new_ship(variant, *best_yard), variant, false, game_time_s_ + investment.build_days * 86400.0);
+            ++probes;
+            if (choice.kind == MissionChoice::Kind::Mission && choice.score > best_score) {
+                best_score = choice.score;
+                best_class = &variant;
+            }
+        }
+    }
+    if (trace) {
+        std::cerr << std::format("[invest day {:.0f}] review: {} candidates, {} probed in {:.1f} s\n",
+            game_time_s_ / 86400.0, candidates.size(), probes,
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count());
+    }
+    if (best_class == nullptr) {
+        return;
+    }
+
+    // The yard's own faction invests if it can pay for the ship and its working capital,
+    // otherwise the richest faction (which can: candidates are priced against it).
+    const double price = best_class->ship_value_cr + investment.working_capital;
+    std::string investor = best_yard->faction_id;
+    if (faction_treasuries_[investor] < price) {
+        for (const auto& [faction_id, balance] : faction_treasuries_) {
+            if (balance >= faction_treasuries_[investor]) {
+                investor = faction_id;
+            }
+        }
+    }
+    // The treasury buys the hull from the outside economy and gives the ship its working
+    // capital, which raises the money supply the controller holds.
+    faction_treasuries_[investor] -= price;
+    outside_economy_credits_ += best_class->ship_value_cr;
+    seeded_money_supply_ += investment.working_capital;
+    investment_ledger_.hulls_bought += best_class->ship_value_cr;
+    investment_ledger_.working_capital += investment.working_capital;
+    const int number = ++investment_ledger_.ships_commissioned;
+
+    std::string initials;
+    for (const auto& faction : universe_.factions) {
+        if (faction.id != investor) {
+            continue;
+        }
+        bool word_start = true;
+        for (const char ch : faction.name) {
+            if (word_start && ch != ' ') {
+                initials += ch;
+            }
+            word_start = ch == ' ';
+        }
+    }
+    auto ship = new_ship(*best_class, *best_yard);
+    ship.id = std::format("commissioned_{:03d}", number);
+    ship.name = std::format("{} {} {}", initials, get_ship_class(best_class->hull_id.empty() ? best_class->id : best_class->hull_id).name, number);
+    ship.faction_id = investor;
+    // Built in the home yard: the refit machinery launches it when the build is done.
+    ship.phase = domain::ShipMissionPhase::Refitting;
+    ship.refit_class_id = ship.class_id;
+    ship.refit_done_s = game_time_s_ + investment.build_days * 86400.0;
+    // Like a refit, the tank choice holds for the payback period before it is reconsidered.
+    ship.next_refit_review_s = ship.refit_done_s + REFIT_PAYBACK_DAYS * 86400.0;
+    add_event(std::format("{} ordered at {} for {:.0f} cr: {:.0f}%/yr expected ({})",
+        ship.name, best_yard->name, best_class->ship_value_cr, 100.0 * best_return, best_label), "mission");
+    ships_.push_back(std::move(ship));
+}
+
 domain::SimulationSnapshot Simulation::snapshot() const {
     return {
         .game_time_s = game_time_s_,
         .outside_economy_credits = outside_economy_credits_,
         .faction_treasuries = faction_treasuries_,
+        .money_supply_target = seeded_money_supply_,
+        .fleet_investment = investment_ledger_,
         .stations = stations_,
         .ships = ships_,
+        .sold_ships = sold_ships_,
         .recent_events = recent_events_,
     };
 }

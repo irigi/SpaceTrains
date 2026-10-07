@@ -1,0 +1,7 @@
+key,value
+review_days,60
+hurdle_return_per_year,0.3
+working_capital,25000
+build_days,30
+layup_sale_days,180
+salvage_fraction,0.4

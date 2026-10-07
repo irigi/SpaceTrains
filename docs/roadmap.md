@@ -14,12 +14,12 @@
 - Bridge snapshots carry `trajectory_path`, destination ghost, and snapshot timing for smooth interpolation.
 - Procedural sci-fi HUD (top bar, entity browser, inspector, market panel, event ticker).
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
-- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). (No ship purchasing exists in the code as of 2026-10; see fleet investment.)
+- Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27): treasuries buy ships, long-laid-up ships are sold.
 
 ## Current Plan (updated 2026-10-07) — start here
 
 Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), open economy (v26).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27).
 
 ### Decisions so far
 
@@ -67,9 +67,12 @@ Last commits: `773443c` part C tank refits (v25), open economy (v26).
    account; ships pay cash above a 50k reserve to their home station; faction treasuries keep station
    cash between 25k and 250k; a 60-day controller holds the money in stations and ships near the seeded
    amount (v26: +16.7% at day 730, driven by food scarcity at Low Earth Logistics). Money drift 0.
-4. **Fleet investment:** owners sell or scrap long-laid-up ships and commission the class with the best
-   return for the routes that need serving. Faction treasuries can fund new ships. First target: the
-   food gap between Earth L1 and Low Earth Logistics (one 30-unit courier serves it; residents pay 15× base).
+4. **Fleet investment** (`docs/plans/fleet_investment.md`): done (v27). Ships laid up for 180 days are
+   sold for 40% salvage to their treasury; every 60 days the treasuries buy the one ship (hull, tank
+   variant, yard) with the best sustained return (margin per unit × min(hold per round trip, the
+   destination's consumption), minus running costs; hurdle 30%/yr). v27: 7 bought, 4 sold, 15/29
+   profitable, Low Earth Logistics food no longer critical, money +7.0%. Open: new ships drift off
+   their route once its price gap closes; Low Earth Logistics metals stay short.
 5. **Fuel factories and bulk tankers:** replace the everywhere-depots with fuel factories at chosen
    sites (candidates: Ceres and the outer ice moons for water-derived propellant, Venus for its chemical
    industry; not Earth), with depots at other stations only storing what tankers deliver. Needs very large
@@ -81,8 +84,8 @@ Last commits: `773443c` part C tank refits (v25), open economy (v26).
 
 Checks after each step: the three test suites, `spacetrains_headless --days 730 --report-interval 730
 --econ-audit` and `--trajectory-audit`; compare with the calibration log in `ship_operating_costs.md`
-(v26: 11/22 profitable, cargo margin 1.47M, fuel 92k cr, 4 laid up, 36 CRITICAL lines, money supply +16.7%,
-drift 0, run 2m57). Debug idle ships with
+(v27: 15/29 profitable, cargo margin 1.39M, fuel 119k cr, 0 laid up, 34 CRITICAL lines, money supply +7.0%,
+drift 0, run 3m54). Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)
@@ -136,10 +139,7 @@ Next fixes:
   rocket equation -> C modular tanks and refits. See `docs/plans/ship_operating_costs.md`.
 - **Technology plausibility review** of all ship classes (one consistent near-future tech level). See
   `docs/plans/tech_plausibility_review.md`. Do it with or before part B.
-- **Fleet investment.** The starting fleet is not final, and some classes may simply be uneconomic on some
-  routes. Owners should respond: sell or scrap ships laid up for long periods (salvage value), and commission
-  new ships of the class with the best observed return on capital for the routes that need serving. Needs
-  per-class, per-route earnings (the ship ledgers already hold most of it).
+- **Fleet investment:** done (v27), see `docs/plans/fleet_investment.md`.
 - **Open economy with exact accounting:** done (v26), see `docs/plans/open_economy.md`.
 - **Outer-system exports.** Give outer stations something worth shipping inward, not exotic matter.
   Candidates: platinum-group metals and other high-value metals from the Ceres belt; deuterium (heavy water)

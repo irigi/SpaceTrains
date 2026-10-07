@@ -374,12 +374,23 @@ void print_economy_audit(
     int profitable = 0;
     std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s} {:>6s} {:>7s}  {}\n",
         "", "", "profit", "margin", "fuel", "wages", "capital", "prov", "refit", "divid", "class");
+    // Sold ships keep their lifetime ledger; their cash went to the home station.
+    std::vector<std::pair<const spacetrains::domain::ShipState*, bool>> all_ships;
     for (const auto& ship : snap.ships) {
+        all_ships.emplace_back(&ship, false);
+    }
+    for (const auto& ship : snap.sold_ships) {
+        all_ships.emplace_back(&ship, true);
+    }
+    for (const auto& [ship_ptr, sold] : all_ships) {
+        const auto& ship = *ship_ptr;
         ship_credits += ship.credits;
         const auto& l = ship.ledger;
-        std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}\n",
+        std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}{}{}\n",
             ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
-            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id);
+            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id,
+            ship.commissioned_s > 0.0 ? std::format("  (new day {:.0f})", ship.commissioned_s / 86400.0) : "",
+            sold ? "  (sold)" : "");
         fleet.cargo_revenue += l.cargo_revenue;
         fleet.cargo_purchases += l.cargo_purchases;
         fleet.fuel += l.fuel;
@@ -394,7 +405,7 @@ void print_economy_audit(
         "    Fleet: cargo margin {:.0f} (sold {:.0f}, bought {:.0f})  fuel {:.0f}  wages {:.0f}  capital {:.0f}"
         "  provisions {:.0f}  refits {:.0f}  dividends {:.0f}  -> {}/{} ships profitable\n",
         fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
-        fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, snap.ships.size());
+        fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, all_ships.size());
     const double internal_supply = station_credits + ship_credits;
     double treasuries = 0.0;
     std::cout << "    Faction treasuries:";
@@ -405,11 +416,17 @@ void print_economy_audit(
         std::cout << std::format("  {} {:.0f}", faction.name, balance);
     }
     std::cout << " cr\n";
+    const auto& investment = snap.fleet_investment;
+    std::cout << std::format("    Fleet investment: {} ships commissioned (hulls {:.0f}, working capital {:.0f}), {} sold (salvage {:.0f})\n",
+        investment.ships_commissioned, investment.hulls_bought, investment.working_capital,
+        investment.ships_sold, investment.salvage);
     const double external = snap.outside_economy_credits + treasuries;
     const double total_supply = internal_supply + external;
-    std::cout << std::format("    Money supply: stations {:.0f} + ships {:.0f} = {:.0f} cr  (initial {:.0f}, {:+.1f}%)\n",
-        station_credits, ship_credits, internal_supply, initial_supply,
-        initial_supply != 0.0 ? 100.0 * (internal_supply / initial_supply - 1.0) : 0.0);
+    // The target is the seeded money plus the working capital the treasuries gave new ships.
+    const double target = snap.money_supply_target;
+    std::cout << std::format("    Money supply: stations {:.0f} + ships {:.0f} = {:.0f} cr  (target {:.0f}, {:+.1f}%)\n",
+        station_credits, ship_credits, internal_supply, target,
+        target != 0.0 ? 100.0 * (internal_supply / target - 1.0) : 0.0);
     std::cout << std::format("    External: residents and producers {:.0f} + treasuries {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
         snap.outside_economy_credits, treasuries, total_supply, initial_supply, total_supply - initial_supply);
 

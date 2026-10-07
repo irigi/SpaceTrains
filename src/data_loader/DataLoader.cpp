@@ -202,6 +202,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto ship_operations_path = root / "economy" / "ship_operations.csv";
     const auto fuel_supply_path = root / "economy" / "fuel_supply.csv";
     const auto open_economy_path = root / "economy" / "open_economy.csv";
+    const auto fleet_investment_path = root / "economy" / "fleet_investment.csv";
 
     {
         const auto rows = read_csv_rows(bodies_path);
@@ -467,6 +468,43 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         if (open_economy.station_credit_ceiling > 0.0
             && open_economy.station_credit_ceiling < open_economy.station_credit_floor) {
             throw std::runtime_error("station_credit_ceiling must not be below the floor in " + open_economy_path.string());
+        }
+    }
+
+    {
+        const auto rows = read_csv_rows(fleet_investment_path);
+        require_header(rows.front(), {"key", "value"}, fleet_investment_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& investment = universe.fleet_investment;
+        const std::unordered_map<std::string, double*> fields {
+            {"review_days", &investment.review_days},
+            {"hurdle_return_per_year", &investment.hurdle_return_per_year},
+            {"working_capital", &investment.working_capital},
+            {"build_days", &investment.build_days},
+            {"layup_sale_days", &investment.layup_sale_days},
+            {"salvage_fraction", &investment.salvage_fraction},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, fleet_investment_path, i + 1);
+            require_unique_id(row[0], seen_keys, fleet_investment_path, i + 1);
+            const double value = parse_double(row[1], fleet_investment_path, i + 1, row[0].c_str());
+            if (value < 0.0) {
+                throw std::runtime_error("'" + row[0] + "' must not be negative in " + fleet_investment_path.string());
+            }
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + fleet_investment_path.string());
+            }
+            *field->second = value;
+        }
+        for (const auto& [key, field] : fields) {
+            if (!seen_keys.contains(key)) {
+                throw std::runtime_error("Missing key '" + key + "' in " + fleet_investment_path.string());
+            }
+        }
+        if (investment.salvage_fraction > 1.0) {
+            throw std::runtime_error("salvage_fraction must not exceed 1 in " + fleet_investment_path.string());
         }
     }
 

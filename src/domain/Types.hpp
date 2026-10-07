@@ -96,6 +96,18 @@ struct OpenEconomyDefinition {
     double money_supply_days {0.0};        // controller time constant; 0 = no controller
 };
 
+// Fleet investment (data/economy/fleet_investment.csv). Faction treasuries buy new ships
+// from the outside economy for the routes that pay best, and owners sell ships that have
+// been laid up for long back to it for their salvage value.
+struct FleetInvestmentDefinition {
+    double review_days {0.0};              // between commissioning reviews; 0 = no new ships
+    double hurdle_return_per_year {0.0};   // expected profit after costs / ship price
+    double working_capital {0.0};          // cash a new ship starts with, from its treasury
+    double build_days {0.0};               // in the yard before its first mission
+    double layup_sale_days {0.0};          // laid up this long: sold; 0 = never
+    double salvage_fraction {0.0};         // of the ship's value, paid to its treasury
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -138,6 +150,7 @@ struct UniverseDefinition {
     ShipOperationsDefinition ship_operations;
     FuelSupplyDefinition fuel_supply;
     OpenEconomyDefinition open_economy;
+    FleetInvestmentDefinition fleet_investment;
 };
 
 enum class ShipMissionPhase {
@@ -221,6 +234,8 @@ struct ShipState {
     std::string refit_class_id;
     double refit_done_s {0.0};
     double next_refit_review_s {0.0};
+    double laid_up_since_s {0.0};      // when the ship was last laid up
+    double commissioned_s {0.0};       // 0 for the starting fleet
 };
 
 // A station's money flows with the world outside the simulated trade (the open economy),
@@ -231,6 +246,16 @@ struct StationLedger {
     double dividends {0.0};             // paid in by the ships it owns
     double subsidies {0.0};             // from the faction treasury (band floor and money-supply controller)
     double taxes {0.0};                 // to the faction treasury (band ceiling and money-supply controller)
+};
+
+// The treasuries' trade in ships with the outside economy (fleet investment), all amounts
+// positive, in credits.
+struct FleetInvestmentLedger {
+    int ships_commissioned {0};
+    int ships_sold {0};
+    double hulls_bought {0.0};      // treasuries -> outside economy
+    double working_capital {0.0};   // treasuries -> new ships
+    double salvage {0.0};           // outside economy -> treasuries
 };
 
 struct StationState {
@@ -247,8 +272,13 @@ struct SimulationSnapshot {
     // credits always equal the seeded money.
     double outside_economy_credits {0.0};
     std::unordered_map<std::string, double> faction_treasuries;
+    // What the money-supply controller holds stations + ships at: the seeded money plus the
+    // working capital the treasuries gave new ships.
+    double money_supply_target {0.0};
+    FleetInvestmentLedger fleet_investment;
     std::vector<StationState> stations;
     std::vector<ShipState> ships;
+    std::vector<ShipState> sold_ships;   // as they were when sold, for the audit
     std::vector<EventEntry> recent_events;
 };
 
