@@ -260,7 +260,15 @@ int main(int argc, char** argv) {
         simulation.step(spacetrains::simulation::Simulation::TICK_S / simulation.timewarp_factor());
         if (!opening_path.empty()) {
             std::error_code error;
-            std::filesystem::create_directories(std::filesystem::path(opening_path).parent_path(), error);
+            const auto directory = std::filesystem::path(opening_path).parent_path();
+            std::filesystem::create_directories(directory, error);
+            // Openings of older builds or data are stale: keep only this one.
+            for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
+                const auto name = entry.path().filename().string();
+                if (name.starts_with("opening_") && entry.path() != std::filesystem::path(opening_path)) {
+                    std::filesystem::remove(entry.path(), error);
+                }
+            }
             write_text_file(opening_path, simulation.save_state_json());
         }
     }
