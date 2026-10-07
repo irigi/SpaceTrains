@@ -2,6 +2,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "data_loader/DataLoader.hpp"
 #include "economy/EconomySystem.hpp"
@@ -51,6 +52,28 @@ int main() {
             const double price = economy.get_price("agri_hub", "water", stock, base);
             require(price <= previous + 1.0e-12, "price must be non-increasing in stock");
             previous = price;
+        }
+
+        // Trades are valued along the price curve: a big delivery into a starving station
+        // sells for less than its scarcity price, and buying back the same units costs the same.
+        const double delivered = economy.get_trade_value("agri_hub", "water", 0.0, 100.0, base);
+        require(delivered < 100.0 * economy.get_price("agri_hub", "water", 0.0, base),
+            "a large delivery must not all sell at the scarcity price");
+        require(delivered > 100.0 * economy.get_price("agri_hub", "water", 100.0, base),
+            "a delivery must sell above the price after it");
+        require_near(economy.get_trade_value("agri_hub", "water", 100.0, -100.0, base), delivered, 1.0e-9,
+            "buying units back must cost what delivering them earned");
+        require_near(economy.get_trade_value("agri_hub", "water", 1.0e6, 10.0, base), 10.0 * base * 0.25, 1.0e-6,
+            "trades on a flat (clamped) price must be units x price");
+        for (const auto& [from, units] : {std::pair {0.0, 3.0}, std::pair {2.0, 40.0}, std::pair {60.0, -55.0}, std::pair {0.2, 500.0}}) {
+            double riemann = 0.0;
+            constexpr int STEPS = 200000;
+            const double step = units / STEPS;
+            for (int i = 0; i < STEPS; ++i) {
+                riemann += economy.get_price("agri_hub", "water", from + (i + 0.5) * step, base) * std::abs(step);
+            }
+            require_near(economy.get_trade_value("agri_hub", "water", from, units, base), riemann, 1.0e-4 * riemann,
+                "exact trade value must match the integrated price curve");
         }
 
         // Producer target: agri_hub produces food at 8/day → target = 112 units.

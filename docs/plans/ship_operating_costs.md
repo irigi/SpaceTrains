@@ -102,6 +102,9 @@ are low next to the fuel cost of moving 100 kg between planets), then fuel price
 | v17 | tech review: classes rebuilt bottom-up (heavier, NTR Δv halved), ship values unchanged | 324k | 3.6k | 38k | 274k | 7/22 | 13 (+3 stranded) | 43 |
 | v18 | fuel depots at every station (refill to 3000 u at 200 u/day, outside cargo storage); fuel at base price | 648k | 168k | 70k | 274k | 8/22 | 7 (0 stranded) | 35 |
 | v19 | ships priced from the hardware breakdown (fleet total kept); plasma 90k -> 40k, liquid-core NTR dearer | 790k | 171k | 71k | 274k | 9/22 | 6 (0 stranded) | 31 |
+| v20a | dispatch: other ships claim one commodity each, part loads when a full hold is infeasible | 799k | 141k | 78k | 274k | 8/22 | 4 | 29 |
+| v20 | + holds about each ship's dry mass (200-400 u freighters); sales still at the pre-trade price | 1.73M | 149k | 82k | 281k | 8/22 | 2 | 31 |
+| v22 | + trades priced along the price curve, lot size by score: markets too thin for big lots | 53k | 42k | 23k | 281k | 1/22 | 14 | 38 |
 
 Mechanisms found on the way (each fixed in the code):
 - Earth <-> Moon hops were heliocentric Hohmann transfers (183 days); now planet-system transfers (commit 760e080).

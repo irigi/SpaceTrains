@@ -1,6 +1,7 @@
 #include "simulation/Simulation.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -43,6 +44,9 @@ constexpr double LAYUP_REVIEW_DAYS = 5.0;
 constexpr double IDLE_REVIEW_S = 6.0 * 3600.0;
 // Ships load the propellant a mission burns plus this reserve, not a full tank.
 constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
+
+// Part loads dispatch scores: a full hold may be too heavy, and big lots move prices.
+constexpr std::array<double, 5> LOAD_FRACTIONS {1.0, 0.5, 0.25, 0.125, 0.0625};
 
 math::Vec3d interpolate_sampled_path(const std::vector<math::Vec3d>& path, double progress) {
     if (path.empty()) {
@@ -329,6 +333,15 @@ double Simulation::station_price(const domain::StationState& state, const std::s
     return economy_.get_price(definition.economy_profile_id, commodity_id, stock, get_commodity(commodity_id).base_price);
 }
 
+double Simulation::trade_value(
+    const domain::StationState& state, const std::string& commodity_id, double units_into_station) const {
+    const auto& definition = get_station_definition(state.station_id);
+    const auto stock_it = state.inventory.find(commodity_id);
+    const double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;
+    return economy_.get_trade_value(
+        definition.economy_profile_id, commodity_id, stock, units_into_station, get_commodity(commodity_id).base_price);
+}
+
 double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_class) const {
     const auto& operations = universe_.ship_operations;
     return ship_class.ship_value_cr
@@ -528,8 +541,8 @@ void Simulation::buy_propellant(domain::ShipState& ship, double kg) {
     const double transferred_units = transferable_kg / FUEL_UNITS_TO_KG;
     // Price the fuel on the stock before the transfer. Ships may go into debt for fuel
     // (but not for cargo) so an empty wallet never permanently strands a ship.
-    const double fuel_unit_price = station_price(station, "fuel");
-    const double fuel_bill = transferred_units * fuel_unit_price;
+    const double fuel_bill = trade_value(station, "fuel", -transferred_units);
+    const double fuel_unit_price = fuel_bill / transferred_units;
     station.inventory["fuel"] -= transferred_units;
     ship.propellant_kg += transferable_kg;
     ship.credits -= fuel_bill;
@@ -730,8 +743,16 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
                 economy_, destination, dest_state, plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
-        // Loads that other ships already docked there or inbound will take first.
-        double claimed_units = 0.0;
+        // Surplus left after the ships already docked there or inbound take their loads.
+        // Each of them is assumed to fill its hold from the largest remaining surplus.
+        const auto dest_rates = economy_.get_profile_net_rates(destination.economy_profile_id);
+        std::unordered_map<std::string, double> surplus_by_commodity;
+        for (const auto& [commodity_id, stock] : dest_state.inventory) {
+            const double rate = dest_rates.contains(commodity_id) ? dest_rates.at(commodity_id) : 0.0;
+            if (rate > 0.0) {
+                surplus_by_commodity[commodity_id] = stock - (8.0 + rate * 7.0);
+            }
+        }
         for (const auto& other : ships_) {
             if (other.id == ship.id) {
                 continue;
@@ -741,22 +762,17 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 && other.active_mission.destination_station_id == destination.id;
             const bool docked = other.current_station_id == destination.id
                 && (other.phase == domain::ShipMissionPhase::Idle || other.phase == domain::ShipMissionPhase::Refueling);
-            if (inbound || docked) {
-                claimed_units += get_ship_class(other.class_id).cargo_capacity_units;
+            if ((inbound || docked) && !surplus_by_commodity.empty()) {
+                auto largest = std::max_element(surplus_by_commodity.begin(), surplus_by_commodity.end(),
+                    [](const auto& a, const auto& b) { return a.second < b.second; });
+                largest->second -= std::max(0.0, std::min(largest->second, get_ship_class(other.class_id).cargo_capacity_units));
             }
         }
-        const auto dest_rates = economy_.get_profile_net_rates(destination.economy_profile_id);
-        for (const auto& [commodity_id, stock] : dest_state.inventory) {
-            const double rate = dest_rates.contains(commodity_id) ? dest_rates.at(commodity_id) : 0.0;
-            if (rate <= 0.0) {
+        for (const auto& [commodity_id, surplus] : surplus_by_commodity) {
+            const double full_units = std::min(surplus, ship_class.cargo_capacity_units);
+            if (full_units <= 1.0) {
                 continue;
             }
-            const double surplus = stock - (8.0 + rate * 7.0) - claimed_units;
-            const double units = std::min(surplus, ship_class.cargo_capacity_units);
-            if (units <= 1.0) {
-                continue;
-            }
-            const double buy_price = station_price(dest_state, commodity_id);
             const double decay_per_day = get_commodity(commodity_id).decay_fraction_per_day;
             for (const auto& next : universe_.stations) {
                 if (next.id == destination.id) {
@@ -764,17 +780,41 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 }
                 const auto next_rates = economy_.get_profile_net_rates(next.economy_profile_id);
                 const bool consumes = next_rates.contains(commodity_id) && next_rates.at(commodity_id) < 0.0;
-                const double sell_price = station_price(get_station_state(next.id), commodity_id);
-                if (!consumes && sell_price <= get_commodity(commodity_id).base_price) {
+                const auto& next_state = get_station_state(next.id);
+                if (!consumes && station_price(next_state, commodity_id) <= get_commodity(commodity_id).base_price) {
                     continue;
                 }
-                const auto leg = estimate_leg(ship_class, destination, next, plan.arrival_time_s, departure_kg,
-                    provisions_kg + units * get_commodity(commodity_id).mass_per_unit_kg);
+                // Best part load: a full hold may be too heavy, and big lots move prices.
+                double units = 0.0;
+                double best_profit = -std::numeric_limits<double>::infinity();
+                LegEstimate leg;
+                for (const double fraction : LOAD_FRACTIONS) {
+                    const double lot = full_units * fraction;
+                    if (lot <= 1.0) {
+                        break;
+                    }
+                    const auto estimate = estimate_leg(ship_class, destination, next, plan.arrival_time_s, departure_kg,
+                        provisions_kg + lot * get_commodity(commodity_id).mass_per_unit_kg);
+                    if (!estimate.feasible) {
+                        continue;
+                    }
+                    const double lot_profit = trade_value(next_state, commodity_id,
+                            lot * std::pow(1.0 - decay_per_day, estimate.travel_days))
+                        - trade_value(dest_state, commodity_id, -lot)
+                        - (estimate.propellant_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
+                        - time_cost_per_day * estimate.travel_days;
+                    if (lot_profit > best_profit) {
+                        best_profit = lot_profit;
+                        units = lot;
+                        leg = estimate;
+                    }
+                }
                 if (!leg.feasible) {
                     continue;
                 }
-                const double revenue = units * std::pow(1.0 - decay_per_day, leg.travel_days) * sell_price;
-                const double cost = units * buy_price + (leg.propellant_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
+                const double revenue = trade_value(next_state, commodity_id,
+                    units * std::pow(1.0 - decay_per_day, leg.travel_days));
+                const double cost = trade_value(dest_state, commodity_id, -units) + (leg.propellant_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                     + time_cost_per_day * leg.travel_days;
                 options.push_back({
                     .profit = revenue - cost,
@@ -856,54 +896,66 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                     destination.storage_capacity_units - economy_.storage_used_units(destination_state.inventory));
             }
             const double affordable = origin_price > 0.0 ? spendable_credits / origin_price : surplus;
-            const double cargo_units = std::min({ship_class.cargo_capacity_units, surplus, affordable, free_capacity});
-            if (cargo_units <= 1.0) {
+            double full_units = std::min({ship_class.cargo_capacity_units, surplus, affordable, free_capacity});
+            // Buying moves the price up the curve; shrink the lot until it fits the credit.
+            for (int i = 0; i < 3 && full_units > 1.0; ++i) {
+                const double lot_cost = trade_value(origin_state, commodity_id, -full_units);
+                if (lot_cost <= spendable_credits) {
+                    break;
+                }
+                full_units *= 0.98 * spendable_credits / lot_cost;
+            }
+            if (full_units <= 1.0) {
                 continue;
             }
 
-            const double cargo_kg = cargo_units * get_commodity(commodity_id).mass_per_unit_kg;
-            const auto& plan = plan_to(destination, cargo_kg);
-            const auto cargo_label = std::format("cargo {:.0f}u {} -> {}", cargo_units, commodity_id, destination.id);
-            if (!plan.feasible) {
-                trace_line(cargo_label + ": no feasible trajectory (" + plan.summary + ")");
-                continue;
-            }
-
-            // Expected profit per day. A starving destination prices the commodity at the
-            // 4x scarcity clamp, so urgency is embedded in the price spread.
-            const double travel_days = plan.travel_time_s / 86400.0;
-            if (travel_days > max_mission_days) {
-                trace_line(std::format("{}: {:.0f} days exceeds provisionable {:.0f}", cargo_label, travel_days, max_mission_days));
-                continue;
-            }
-            if (commodity_id != "fuel" && !can_leave_again(destination, plan, cargo_kg)) {
-                trace_line(cargo_label + ": could not refuel to leave again");
-                continue;
-            }
-            const double surviving = cargo_units * std::pow(1.0 - decay_per_day, travel_days);
-            const double revenue = surviving * station_price(destination_state, commodity_id);
-            const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price;
-            const double cost = cargo_units * origin_price + fuel_cost + time_cost_per_day * travel_days;
-
-            // The 4x price clamp saturates, so a starving station cannot bid any
-            // higher; weight the score by how few days of stock the destination
-            // has left (this is what gets fuel hauled to fuel-dry stations).
+            // Lot size: a full hold may be too heavy to fly or to leave again, and a big lot
+            // moves both stations' prices along their curves, so score each part load.
             const double dest_stock = destination_state.inventory.count(commodity_id)
                 ? destination_state.inventory.at(commodity_id) : 0.0;
             const double dest_days_left = destination_rate < 0.0
                 ? dest_stock / std::abs(destination_rate)
                 : std::numeric_limits<double>::infinity();
+            // The price clamp saturates, so a starving station cannot bid any higher;
+            // weight the score by how few days of stock the destination has left.
             const double urgency = std::clamp(14.0 / std::max(dest_days_left, 0.5), 1.0, 5.0);
-            std::string follow_label;
-            const double score = two_leg_score(destination, plan, urgency * (revenue - cost), travel_days, false, follow_label);
-            trace_line(std::format("{}: {:.0f} days revenue {:.0f} cost {:.0f} (time {:.0f}), {}: score {:.1f}{}",
-                cargo_label, travel_days, revenue, cost, time_cost_per_day * travel_days, follow_label, score,
-                score > best_score ? " (best so far)" : ""));
-            if (score > best_score) {
-                best_score = score;
-                best_destination = &destination;
-                best_commodity = commodity_id;
-                best_cargo_units = cargo_units;
+            for (const double fraction : LOAD_FRACTIONS) {
+                const double cargo_units = full_units * fraction;
+                if (cargo_units <= 1.0) {
+                    break;
+                }
+                const double cargo_kg = cargo_units * get_commodity(commodity_id).mass_per_unit_kg;
+                const auto& plan = plan_to(destination, cargo_kg);
+                const auto cargo_label = std::format("cargo {:.0f}u {} -> {}", cargo_units, commodity_id, destination.id);
+                if (!plan.feasible) {
+                    trace_line(cargo_label + ": no feasible trajectory (" + plan.summary + ")");
+                    continue;
+                }
+                if (commodity_id != "fuel" && !can_leave_again(destination, plan, cargo_kg)) {
+                    trace_line(cargo_label + ": could not refuel to leave again");
+                    continue;
+                }
+                const double travel_days = plan.travel_time_s / 86400.0;
+                if (travel_days > max_mission_days) {
+                    trace_line(std::format("{}: {:.0f} days exceeds provisionable {:.0f}", cargo_label, travel_days, max_mission_days));
+                    continue;
+                }
+                const double surviving = cargo_units * std::pow(1.0 - decay_per_day, travel_days);
+                const double revenue = trade_value(destination_state, commodity_id, surviving);
+                const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price;
+                const double cost = trade_value(origin_state, commodity_id, -cargo_units) + fuel_cost
+                    + time_cost_per_day * travel_days;
+                std::string follow_label;
+                const double score = two_leg_score(destination, plan, urgency * (revenue - cost), travel_days, false, follow_label);
+                trace_line(std::format("{}: {:.0f} days revenue {:.0f} cost {:.0f} (time {:.0f}), {}: score {:.1f}{}",
+                    cargo_label, travel_days, revenue, cost, time_cost_per_day * travel_days, follow_label, score,
+                    score > best_score ? " (best so far)" : ""));
+                if (score > best_score) {
+                    best_score = score;
+                    best_destination = &destination;
+                    best_commodity = commodity_id;
+                    best_cargo_units = cargo_units;
+                }
             }
         }
     }
@@ -989,15 +1041,14 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 const double surplus = std::max(0.0, stock - (8.0 + rate * 7.0));
                 const double load = std::min(surplus, ship_class.cargo_capacity_units);
                 if (load <= 1.0) continue;
-                const double buy_price = station_price(station_state, commodity_id);
+                const double buy_cost = trade_value(station_state, commodity_id, -load);
                 for (const auto& other : universe_.stations) {
                     if (other.id == station_def.id) continue;
                     const auto other_rates = economy_.get_profile_net_rates(other.economy_profile_id);
                     const bool consumes = other_rates.contains(commodity_id) && other_rates.at(commodity_id) < 0.0;
-                    const double other_price = station_price(get_station_state(other.id), commodity_id);
-                    if (!consumes && other_price <= get_commodity(commodity_id).base_price) continue;
-                    const double spread = other_price - buy_price;
-                    best_value = std::max(best_value, load * spread);
+                    const auto& other_state = get_station_state(other.id);
+                    if (!consumes && station_price(other_state, commodity_id) <= get_commodity(commodity_id).base_price) continue;
+                    best_value = std::max(best_value, trade_value(other_state, commodity_id, load) - buy_cost);
                 }
             }
             return best_value;
@@ -1113,9 +1164,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     double purchase_cost = 0.0;
     double expected_revenue = 0.0;
     if (best_cargo_units > 0.0 && !best_commodity.empty()) {
-        // Buy at origin: price on the stock before the cargo is reserved.
-        const double unit_price = station_price(origin_state, best_commodity);
-        purchase_cost = best_cargo_units * unit_price;
+        // Buy at origin along the price curve as the stock falls.
+        purchase_cost = trade_value(origin_state, best_commodity, -best_cargo_units);
+        const double unit_price = purchase_cost / best_cargo_units;
         origin_state.inventory[best_commodity] -= best_cargo_units;
         ship.credits -= purchase_cost;
         ship.lifetime_profit -= purchase_cost;
@@ -1132,7 +1183,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             .total = purchase_cost,
         });
         const auto& destination_state = get_station_state(best_destination->id);
-        expected_revenue = best_cargo_units * station_price(destination_state, best_commodity);
+        expected_revenue = trade_value(destination_state, best_commodity, best_cargo_units);
     }
     // Nuclear-thermal ships: deduct propellant at mission start (instantaneous burns).
     // Variable-Isp ships: propellant is consumed continuously during transit and
@@ -1278,9 +1329,9 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             }
         }
 
-        // Sell at arrival: price on the stock before the delivery lands.
-        const double unit_price = station_price(destination, ship.active_mission.commodity_id);
-        const double revenue = arrived * unit_price;
+        // Sell at arrival along the price curve as the delivery lands.
+        const double revenue = trade_value(destination, ship.active_mission.commodity_id, arrived);
+        const double unit_price = arrived > 0.0 ? revenue / arrived : 0.0;
         destination.inventory[ship.active_mission.commodity_id] += arrived;
         destination.credits -= revenue;
         ship.credits += revenue;

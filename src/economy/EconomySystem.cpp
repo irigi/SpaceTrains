@@ -167,6 +167,45 @@ double EconomySystem::get_price(
     return base_price * multiplier;
 }
 
+double EconomySystem::get_trade_value(
+    const std::string& profile_id,
+    const std::string& commodity_id,
+    double stock_before,
+    double units_into_station,
+    double base_price) const {
+    // Exact integral of get_price over the traded stock range. The multiplier is
+    // (target / max(s, 0.5))^e clamped to [min, max]: constant below s = 0.5, at the
+    // upper clamp up to s_hi, (target/s)^e up to s_lo, at the lower clamp beyond.
+    const double target = get_target_stock(profile_id, commodity_id);
+    const double e = PRICE_ELASTICITY;
+    const auto clamp_multiplier = [&](double stock) {
+        return std::clamp(std::pow(target / std::max(stock, 0.5), e), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
+    };
+    const double s_hi = std::max(0.5, target * std::pow(PRICE_MAX_MULTIPLIER, -1.0 / e));
+    const double s_lo = std::max(0.5, target * std::pow(PRICE_MIN_MULTIPLIER, -1.0 / e));
+    const auto power_integral = [&](double a, double b) {  // ∫ (target/s)^e ds over [a, b]
+        return std::pow(target, e) * (std::pow(b, 1.0 - e) - std::pow(a, 1.0 - e)) / (1.0 - e);
+    };
+    // ∫ multiplier ds over [0, x].
+    const auto cumulative = [&](double x) {
+        x = std::max(0.0, x);
+        double total = clamp_multiplier(0.0) * std::min(x, 0.5);
+        if (x > 0.5) {
+            total += PRICE_MAX_MULTIPLIER * (std::min(x, s_hi) - 0.5);
+        }
+        if (x > s_hi) {
+            total += power_integral(s_hi, std::min(x, s_lo));
+        }
+        if (x > s_lo) {
+            total += PRICE_MIN_MULTIPLIER * (x - s_lo);
+        }
+        return total;
+    };
+    const double a = stock_before;
+    const double b = stock_before + units_into_station;
+    return base_price * std::abs(cumulative(b) - cumulative(a));
+}
+
 std::unordered_map<std::string, double> EconomySystem::get_profile_net_rates(const std::string& profile_id) const {
     std::unordered_map<std::string, double> rates;
     const auto it = recipes_by_profile_.find(profile_id);

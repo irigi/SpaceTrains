@@ -34,6 +34,16 @@ public:
         double stock,
         double base_price) const;
 
+    // Value of moving `units_into_station` units (negative: bought from the station) at a
+    // station holding `stock_before`: the price integrated over the stock as it changes,
+    // so a large delivery into a starving station does not all sell at the scarcity price.
+    [[nodiscard]] double get_trade_value(
+        const std::string& profile_id,
+        const std::string& commodity_id,
+        double stock_before,
+        double units_into_station,
+        double base_price) const;
+
 private:
     const domain::UniverseDefinition& universe_;
     std::unordered_map<std::string, std::vector<const domain::RecipeDefinition*>> recipes_by_profile_;

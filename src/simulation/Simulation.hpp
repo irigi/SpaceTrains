@@ -50,6 +50,9 @@ private:
     [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
+    // Value of moving units into (+) or out of (-) a station, along its price curve.
+    [[nodiscard]] double trade_value(
+        const domain::StationState& state, const std::string& commodity_id, double units_into_station) const;
     // Propellant the ship's current port will sell it (capped by free tank space).
     [[nodiscard]] double purchasable_propellant_kg(const domain::ShipState& ship) const;
     [[nodiscard]] double provisions_mass_kg(const domain::ShipState& ship) const;

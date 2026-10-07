@@ -76,23 +76,23 @@ class ClassSpec:
     jet_power_w: float = 0.0       # plasma: jet power, sizes engine + radiators
 
 
-# Cargo holds keep their old sizes in this step; dispatch counts whole holds when it
-# reserves cargo, so larger holds are a separate economy change.
+# Holds: freighters rate about their own dry mass of cargo (at 200 kg/unit), couriers
+# 15-25% of theirs. A full hold cuts Δv a lot; dispatch takes part loads when it must.
 CLASSES = [
     ClassSpec("light_freighter", "Light Freighter", "solid_core", crew=3, habitat="long",
-              cargo_units=40, propellant_kg=90_000, accel_full_mps2=0.5),
+              cargo_units=200, propellant_kg=90_000, accel_full_mps2=0.5),
     ClassSpec("tanker", "Orbital Tanker", "solid_core", crew=3, habitat="long",
-              cargo_units=60, propellant_kg=90_000, accel_full_mps2=0.5),
+              cargo_units=300, propellant_kg=90_000, accel_full_mps2=0.5),
     ClassSpec("fast_courier", "Fast Courier", "liquid_core", crew=2, habitat="long",
-              cargo_units=15, propellant_kg=90_000, accel_full_mps2=0.5),
+              cargo_units=30, propellant_kg=90_000, accel_full_mps2=0.5),
     ClassSpec("plasma_freighter", "Plasma Freighter", "plasma", crew=3, habitat="long",
-              cargo_units=20, propellant_kg=30_000, jet_power_w=9.0e6),
+              cargo_units=150, propellant_kg=30_000, jet_power_w=10.0e6),
     ClassSpec("plasma_courier", "Plasma Courier", "plasma", crew=2, habitat="long",
-              cargo_units=8, propellant_kg=30_000, jet_power_w=18.0e6),
+              cargo_units=30, propellant_kg=30_000, jet_power_w=18.0e6),
     ClassSpec("deep_space_freighter", "Deep Space Freighter", "liquid_core", crew=4, habitat="long",
-              cargo_units=20, propellant_kg=180_000, accel_full_mps2=0.3),
+              cargo_units=300, propellant_kg=180_000, accel_full_mps2=0.3),
     ClassSpec("ntr_freighter", "NTR Freighter", "liquid_core", crew=4, habitat="long",
-              cargo_units=30, propellant_kg=250_000, accel_full_mps2=0.3),
+              cargo_units=400, propellant_kg=250_000, accel_full_mps2=0.3),
 ]
 
 
