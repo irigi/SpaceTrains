@@ -745,6 +745,42 @@ int main() {
         require(feasible >= 20, "most Earth L1 ion freighter plans in the grid should be feasible");
     }
 
+    // --- Save and load: a game continued after a load plays exactly as one that never
+    // stopped (state compared as saved JSON, which holds every mutable field). ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        auto straight = spacetrains::simulation::Simulation::from_data_root(data_root);
+        straight.set_timewarp(86400.0);
+        auto first_half = spacetrains::simulation::Simulation::from_data_root(data_root);
+        first_half.set_timewarp(86400.0);
+        constexpr int kHalfDays = 45;
+        for (int day = 0; day < kHalfDays; ++day) {
+            straight.step(1.0);
+            first_half.step(1.0);
+        }
+        const auto saved = first_half.save_state_json();
+        auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
+        resumed.load_state_json(saved);
+        require(resumed.save_state_json() == saved, "a loaded game should save back to the same JSON");
+        for (int day = 0; day < kHalfDays; ++day) {
+            straight.step(1.0);
+            resumed.step(1.0);
+        }
+        require(resumed.save_state_json() == straight.save_state_json(),
+            "a game saved, loaded and continued should equal one that never stopped");
+        require(resumed.build_report() == straight.build_report(), "reports after a load should match");
+        bool rejected = false;
+        try {
+            resumed.load_state_json("{\"version\":999}");
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        require(rejected, "a save of an unknown version should be rejected");
+        require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
+        std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
+            saved.size() / 1024, kHalfDays, kHalfDays);
+    }
+
     std::cout << "All SpaceTrains tests passed.\n";
     return 0;
 }

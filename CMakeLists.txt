@@ -27,6 +27,8 @@ add_library(spacetrains_core
     src/simulation/Simulation.cpp
     src/util/Profiling.cpp
     src/util/ThreadPool.cpp
+    src/persistence/Json.cpp
+    src/persistence/SimulationPersistence.cpp
 )
 
 target_include_directories(spacetrains_core PUBLIC src)

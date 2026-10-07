@@ -37,6 +37,13 @@ public:
     [[nodiscard]] const economy::EconomySystem& economy_system() const;
     [[nodiscard]] domain::SimulationSnapshot snapshot() const;
     [[nodiscard]] double game_time_s() const { return game_time_s_; }
+
+    // Save games (src/persistence/SimulationPersistence.cpp): the mutable state as JSON.
+    // load_state_json() expects a Simulation built from the same data files (checked by
+    // fingerprint) and throws, leaving the simulation unchanged, on a bad or foreign save.
+    [[nodiscard]] std::string save_state_json() const;
+    void load_state_json(const std::string& text);
+    [[nodiscard]] std::string data_fingerprint() const;
     [[nodiscard]] std::string build_report() const;
     [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
     [[nodiscard]] double timewarp_factor() const;
@@ -197,7 +204,7 @@ private:
     double untimed_s_ {0.0};   // game time step() was given that no tick has used yet
     void tick();
     double outside_economy_credits_ {0.0};
-    std::unordered_map<std::string, double> faction_treasuries_;
+    std::map<std::string, double> faction_treasuries_;
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};
     int investment_purchases_left_ {0};   // of the current review, one per tick

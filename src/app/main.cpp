@@ -803,6 +803,9 @@ int main(int argc, char** argv) {
     int sweep_step_days = 0;
     bool profile = false;
     double step_days = 1.0;
+    std::string load_path;
+    std::string save_path;
+    int save_at_day = -1;
 
     // Parse arguments
     std::vector<std::string> args(argv + 1, argv + argc);
@@ -815,6 +818,11 @@ int main(int argc, char** argv) {
             verbose = true;
         } else if (args[i] == "--econ-audit") {
             econ_audit = true;
+        } else if (args[i] == "--load" && i + 1 < args.size()) {
+            load_path = args[++i];
+        } else if (args[i] == "--save-at" && i + 2 < args.size()) {
+            save_at_day = std::stoi(args[++i]);
+            save_path = args[++i];
         } else if (args[i] == "--profile") {
             profile = true;
         } else if (args[i] == "--step-days" && i + 1 < args.size()) {
@@ -845,6 +853,15 @@ int main(int argc, char** argv) {
     const auto load_start = std::chrono::steady_clock::now();
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
     const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
+    if (!load_path.empty()) {
+        std::ifstream file(load_path, std::ios::binary);
+        if (!file) {
+            std::cerr << "Cannot read save " << load_path << "\n";
+            return 1;
+        }
+        sim.load_state_json(std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()));
+        std::cout << std::format("Loaded {} (day {:.1f}); simulating {} more days\n", load_path, sim.game_time_s() / kDayS, sim_days);
+    }
     sim.set_trajectory_audit_enabled(trajectory_audit);
     if (sweep_step_days > 0) {
         spacetrains::celestial::CelestialMechanics sweep_mechanics(sim.universe());
@@ -887,6 +904,11 @@ int main(int argc, char** argv) {
         }
 
         const double game_day = sim.snapshot().game_time_s / kDayS;
+        if (save_at_day >= 0 && step + 1 == save_at_day) {
+            std::ofstream file(save_path, std::ios::binary | std::ios::trunc);
+            file << sim.save_state_json();
+            std::cout << std::format("Saved day {:.1f} to {}\n", game_day, save_path);
+        }
 
         if (trajectory_audit) {
             const auto& records = sim.trajectory_audit_records();

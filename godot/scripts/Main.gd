@@ -121,6 +121,13 @@ const TRAJECTORY_COLORS := {
 var selected_ship_overlay: MeshInstance3D
 var destination_body_ghost: MeshInstance3D
 var current_paused := false
+# Save/load requests to the bridge (F5 quick save, F9 quick load).
+var command_request := 0
+var command_save_path := ""
+var command_load_path := ""
+var bridge_epoch := 0
+var bridge_status_text := ""
+var bridge_status_until_s := 0.0
 var current_timewarp := DEFAULT_TIMEWARP
 var has_auto_focused := false
 var bridge_started := false
@@ -322,7 +329,11 @@ func _unhandled_input(event: InputEvent) -> void:
             market_panel.toggle()
             if market_panel.visible:
                 market_panel.update_market(bridge_state)
+        elif event.keycode == KEY_F5:
+            _request_save_or_load(true)
         elif event.keycode == KEY_F9:
+            _request_save_or_load(false)
+        elif event.keycode == KEY_F11:
             debug_map_enabled = not debug_map_enabled
             _debug_map_state("toggle")
         elif event.keycode == KEY_F10:
@@ -359,9 +370,33 @@ func _update_bridge_status() -> void:
         return
     if current_snapshot_seq < 0:
         return
+    if bridge_status_text != "" and _wall_time_s() > bridge_status_until_s:
+        bridge_status_text = ""
+        _set_status("")
+    # The bridge writes a snapshot per tick (0.1 day): while paused, or at a slow timewarp,
+    # none is due for a while.
+    if current_paused:
+        return
+    var tick_interval_s: float = SIM_TICK_S / maxf(current_timewarp, 1.0)
     var waited_s := _wall_time_s() - current_snapshot_arrival_s
-    if waited_s > BRIDGE_BUSY_NOTICE_S:
+    if waited_s > maxf(BRIDGE_BUSY_NOTICE_S, 2.0 * tick_interval_s):
         _set_status("Simulation busy: planning ship missions… %d s" % int(waited_s))
+
+func _quicksave_path() -> String:
+    DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://saves"))
+    return ProjectSettings.globalize_path("user://saves/quicksave.json")
+
+func _request_save_or_load(save: bool) -> void:
+    command_request += 1
+    command_save_path = _quicksave_path() if save else ""
+    command_load_path = "" if save else _quicksave_path()
+    _write_bridge_commands()
+    _show_notice("Saving…" if save else "Loading…")
+
+func _show_notice(text: String) -> void:
+    bridge_status_text = text
+    bridge_status_until_s = _wall_time_s() + 3.0
+    _set_status(text)
 
 func _write_bridge_commands() -> void:
     var file := FileAccess.open(command_path, FileAccess.WRITE)
@@ -369,7 +404,10 @@ func _write_bridge_commands() -> void:
         return
     var payload := {
         "paused": current_paused,
-        "timewarp_factor": current_timewarp
+        "timewarp_factor": current_timewarp,
+        "request": command_request,
+        "save_path": command_save_path,
+        "load_path": command_load_path,
     }
     file.store_string(JSON.stringify(payload))
 
@@ -392,6 +430,16 @@ func _read_snapshot() -> void:
         return
     var new_game_time_s := float(json.data.get("game_time_s", 0.0))
     var current_game_time_s := float(bridge_state.get("game_time_s", -1.0))
+    var bridge_info: Dictionary = json.data.get("bridge", {})
+    var status := String(bridge_info.get("status", ""))
+    if status != "" and status != String(bridge_state.get("bridge", {}).get("status", "")):
+        _show_notice(status)
+    var epoch := int(bridge_info.get("epoch", 0))
+    if epoch != bridge_epoch:
+        # A loaded game: a new timeline, possibly earlier. Forget the old one.
+        bridge_epoch = epoch
+        _reset_timeline()
+        current_game_time_s = -1.0
     if current_game_time_s >= 0.0 and new_game_time_s + 0.001 < current_game_time_s:
         if debug_map_enabled:
             print("[MapDebugReject] seq=%d current_seq=%d new_game_day=%.3f current_game_day=%.3f" % [new_seq, current_snapshot_seq, new_game_time_s / 86400.0, current_game_time_s / 86400.0])
@@ -476,7 +524,7 @@ func _apply_snapshot() -> void:
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
-    if status_label != null and status_label.visible:
+    if status_label != null and status_label.visible and _wall_time_s() > bridge_status_until_s:
         _set_status("")
     _refresh_ui(false)
 
@@ -948,6 +996,14 @@ func _record_price_history() -> void:
     price_history.append({"day": day, "prices": sample})
     if price_history.size() > PRICE_HISTORY_MAX_SAMPLES:
         price_history.pop_front()
+
+func _reset_timeline() -> void:
+    display_time_s = -1.0
+    ship_paths.clear()
+    economy_history.clear()
+    price_history.clear()
+    ship_trail_history.clear()
+    trail_path_signatures.clear()
 
 # Cumulative demand and unmet demand (base value), sampled once per game day, for the
 # share that went short over a recent window.

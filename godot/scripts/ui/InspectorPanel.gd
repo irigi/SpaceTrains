@@ -77,7 +77,7 @@ func _show_help() -> void:
     _add_label("INSPECTOR", UiTheme.ACCENT, 14)
     _add_separator()
     _add_label("Click an entity in the scene or pick one from the registry.", UiTheme.TEXT_DIM)
-    _add_label("RMB rotate · MMB pan · wheel zoom\nF focus · Space pause · , . warp\nM market overview", UiTheme.TEXT_DIM, 12)
+    _add_label("RMB rotate · MMB pan · wheel zoom\nF focus · Space pause · , . warp\nM economy and markets\nF5 quick save · F9 quick load", UiTheme.TEXT_DIM, 12)
 
 # context keys: game_time_s, faction_colors (Dictionary), names (id -> display name),
 # price_trends (commodity_id -> -1/0/1 for the selected station)

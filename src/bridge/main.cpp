@@ -1,5 +1,6 @@
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -78,6 +79,18 @@ bool parse_bool_flag(const std::string& text, const std::string& key, bool fallb
     return fallback;
 }
 
+// "key":"value" (the UI writes paths without quotes or backslashes).
+std::string parse_string_flag(const std::string& text, const std::string& key) {
+    const auto marker = "\"" + key + "\":\"";
+    const auto index = text.find(marker);
+    if (index == std::string::npos) {
+        return {};
+    }
+    const auto start = index + marker.size();
+    const auto end = text.find('"', start);
+    return end == std::string::npos ? std::string {} : text.substr(start, end - start);
+}
+
 double parse_number_flag(const std::string& text, const std::string& key, double fallback) {
     const auto marker = "\"" + key + "\":";
     const auto index = text.find(marker);
@@ -106,11 +119,18 @@ int main(int argc, char** argv) {
         simulation.step(config.step_seconds);
     }
 
+    // Save/load results for the UI, and an epoch that changes with every load (the UI then
+    // drops what it remembered of the old timeline).
+    int epoch = 0;
+    std::string command_status;
     const auto write_snapshot = [&]() {
         const auto now = std::chrono::steady_clock::now();
         const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
         const auto seq = snapshot_seq++;
-        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s));
+        auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s);
+        json.pop_back();  // the closing brace
+        json += std::format(",\"bridge\":{{\"epoch\":{},\"status\":\"{}\"}}}}", epoch, command_status);
+        write_text_file(config.snapshot_file, json);
         // The UI polls this small file every frame and reads the snapshot only when it changes.
         write_text_file(config.snapshot_file + ".seq", std::to_string(seq));
     };
@@ -123,6 +143,7 @@ int main(int argc, char** argv) {
     // Longer stalls (a debugger, a suspended laptop) drop time rather than race.
     constexpr double kMaxCatchUpS = 4.0;
     std::string last_command_text;
+    double last_request = -1.0;
     auto last_loop = std::chrono::steady_clock::now();
     const auto tick = [&]() {
         const auto now = std::chrono::steady_clock::now();
@@ -136,6 +157,32 @@ int main(int argc, char** argv) {
             timewarp = parse_number_flag(command_text, "timewarp_factor", timewarp);
             simulation.set_timewarp(timewarp);
             changed = true;
+            // Save and load requests carry a request number, so the same path can be used again.
+            const double request = parse_number_flag(command_text, "request", -1.0);
+            if (request > last_request) {
+                last_request = request;
+                if (const auto path = parse_string_flag(command_text, "save_path"); !path.empty()) {
+                    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+                    file << simulation.save_state_json();
+                    command_status = file ? std::format("Saved day {:.1f}", simulation.game_time_s() / 86400.0) : "Save failed";
+                } else if (const auto path = parse_string_flag(command_text, "load_path"); !path.empty()) {
+                    const auto text = read_text_file(path);
+                    try {
+                        if (text.empty()) {
+                            throw std::runtime_error("no save file");
+                        }
+                        simulation.load_state_json(text);
+                        simulation.set_timewarp(timewarp);
+                        ++epoch;
+                        command_status = std::format("Loaded day {:.1f}", simulation.game_time_s() / 86400.0);
+                    } catch (const std::exception& error) {
+                        command_status = std::string("Load failed: ") + error.what();
+                        for (auto& ch : command_status) {
+                            ch = ch == '"' || ch == '\\' ? '\'' : ch;
+                        }
+                    }
+                }
+            }
         }
         if (!paused) {
             const double before_s = simulation.game_time_s();

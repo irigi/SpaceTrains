@@ -81,6 +81,16 @@ func _run() -> void:
             await get_tree().create_timer(0.6).timeout
             await _shoot("ship_in_transit")
             break
+    # Quick save, run on, quick load: the clock must come back to the saved day.
+    if OS.get_cmdline_user_args().has("--shot-saveload"):
+        var saved_day := float(main.get("display_time_s")) / 86400.0
+        main._request_save_or_load(true)
+        await get_tree().create_timer(3.0).timeout
+        main._request_save_or_load(false)
+        await get_tree().create_timer(2.0).timeout
+        print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
+            saved_day, float(main.get("display_time_s")) / 86400.0, String(main.get("bridge_status_text"))])
+        await _shoot("after_load")
     # The economy overview.
     main.market_panel.toggle()
     main._refresh_ui(true)

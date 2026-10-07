@@ -60,3 +60,12 @@ Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Deci
   **Leads for step 12 seen on the panels (day 66):** Earth L1 Terminal holds 10,000 food at price 12 while Low Earth
   Logistics (same orbit, hours away) has none at price 800 and 33% of its food demand unmet; a Fast Courier flies a
   93-day trip expected to lose 4,615 cr.
+- 23:0x **11 save/load** (`docs/modules/persistence.md`): the whole mutable state as JSON (~140 KB). **Decision:**
+  a small own JSON module (`src/persistence/Json.*`, exact double round trip) instead of vendoring nlohmann/json
+  (not installed, a 900 KB download). **Decision:** `Inventory` and the faction treasuries are now `std::map`: an
+  `unordered_map` iterates in an order that depends on insertion history, so a loaded game could choose
+  differently; this changes tie-breaking slightly (new baseline below). Test: 45 days + save/load + 45 days equals
+  90 days straight, compared as saved JSON. Headless `--save-at DAY FILE` / `--load FILE`; bridge save/load
+  commands; UI F5 quick save / F9 quick load (debug map toggle moved to F11), checked in the GUI: saved at day
+  10.7, loaded back to 10.7, clock continued. The UI's "simulation busy" notice no longer fires while paused or at
+  slow timewarps (no snapshot is due then).

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -9,7 +10,9 @@
 
 namespace spacetrains::domain {
 
-using Inventory = std::unordered_map<std::string, double>;
+// Ordered, so iteration (and every choice that depends on it) does not depend on insertion
+// history: a game continued after a load plays exactly as one that never stopped.
+using Inventory = std::map<std::string, double>;
 
 struct OrbitDefinition {
     std::string parent_id;
@@ -313,7 +316,7 @@ struct SimulationSnapshot {
     // economy is negative) and the faction treasuries. Station + ship + outside + treasury
     // credits always equal the seeded money.
     double outside_economy_credits {0.0};
-    std::unordered_map<std::string, double> faction_treasuries;
+    std::map<std::string, double> faction_treasuries;
     // What the money-supply controller holds stations + ships at: the seeded money plus the
     // working capital the treasuries gave new ships.
     double money_supply_target {0.0};
