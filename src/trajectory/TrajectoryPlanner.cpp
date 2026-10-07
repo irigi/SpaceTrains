@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 #include <iostream>
 #include <limits>
@@ -709,7 +710,9 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     // Newton's law verification: for every 6th interior Lambert arc sample, log
     // implied velocity, gravitational acceleration, and specific orbital energy.
     // Specific energy E = 0.5*v² − mu/r must be constant on a Keplerian orbit.
-    if (best_from_lambert) {
+    // Debug aid, on with SPACETRAINS_DEBUG_LAMBERT=1 (stderr).
+    static const bool debug_lambert = std::getenv("SPACETRAINS_DEBUG_LAMBERT") != nullptr;
+    if (best_from_lambert && debug_lambert) {
         const int n = static_cast<int>(plan.sampled_path.size());
         std::cerr << std::format("[Lambert dbg] arc {:.0f}d  ecc≈ r1={:.3e}m r2={:.3e}m\n",
             plan.coast_time_s / 86400.0, best_r1_pos.length(), best_r2_pos.length());

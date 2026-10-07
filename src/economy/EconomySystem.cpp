@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 #include <iostream>
 
@@ -137,7 +138,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             if (stock < 0.0) {
                 if (recipe->units_per_day < 0.0) {
                     station.unmet_units[recipe->commodity_id] -= stock;
-                    std::cerr << std::format(
+                    // Debug aid, on with SPACETRAINS_TRACE_STARVED=1 (the audit's
+                    // "Unmet Demand" table sums the same shortfalls).
+                    static const bool trace_starved = std::getenv("SPACETRAINS_TRACE_STARVED") != nullptr;
+                    if (trace_starved) std::cerr << std::format(
                         "[STARVED] station={} commodity={} shortfall={:.2f}u\n",
                         station.station_id,
                         recipe->commodity_id,

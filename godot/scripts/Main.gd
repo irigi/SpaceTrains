@@ -7,6 +7,9 @@ const STATION_MIN_MODEL_SCALE := 0.00012
 const SHIP_MASS_SCALE := 0.00012
 const STATION_POPULATION_SCALE := 0.00016
 const BRIDGE_STEP_SECONDS := 0.1
+# Some simulation steps plan many trajectories at once (the opening dispatch, fleet reviews):
+# say so when no snapshot has come for this long, rather than look frozen.
+const BRIDGE_BUSY_NOTICE_S := 2.0
 const DEFAULT_TIMEWARP := 86400.0
 const TIMEWARP_STEPS := [600.0, 3600.0, 21600.0, 86400.0, 432000.0]
 
@@ -251,10 +254,14 @@ func select_entity(entity_id: String, kind: String, focus := false) -> void:
 func _exit_tree() -> void:
     if bridge_pid > 0:
         OS.kill(bridge_pid)
+    for path in [snapshot_path, snapshot_path + ".tmp", command_path]:
+        if FileAccess.file_exists(path):
+            DirAccess.remove_absolute(path)
 
 func _process(delta: float) -> void:
     debug_frame += 1
     _read_snapshot()
+    _update_bridge_status()
     snapshot_blend = _current_snapshot_alpha()
     _update_nodes(delta)
     _update_camera_focus()
@@ -312,6 +319,19 @@ func _start_bridge() -> void:
         bridge_started = false
     else:
         bridge_started = true
+
+func _update_bridge_status() -> void:
+    if not bridge_started:
+        return
+    if not OS.is_process_running(bridge_pid):
+        bridge_started = false
+        _set_status("The simulation bridge stopped.\nSee the terminal for its output.")
+        return
+    if current_snapshot_seq < 0:
+        return
+    var waited_s := _wall_time_s() - current_snapshot_arrival_s
+    if waited_s > BRIDGE_BUSY_NOTICE_S:
+        _set_status("Simulation busy: planning ship missions… %d s" % int(waited_s))
 
 func _write_bridge_commands() -> void:
     var file := FileAccess.open(command_path, FileAccess.WRITE)

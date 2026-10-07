@@ -44,8 +44,14 @@ BridgeConfig parse_args(int argc, char** argv) {
 }
 
 void write_text_file(const std::string& path, const std::string& contents) {
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    file << contents;
+    // Write aside and rename, so the UI never reads a half-written snapshot.
+    const std::string temp_path = path + ".tmp";
+    {
+        std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
+        file << contents;
+    }
+    std::error_code error;
+    std::filesystem::rename(temp_path, path, error);
 }
 
 std::string read_text_file(const std::string& path) {
@@ -100,6 +106,12 @@ int main(int argc, char** argv) {
         simulation.step(config.step_seconds);
     }
 
+    const auto write_snapshot = [&]() {
+        const auto now = std::chrono::steady_clock::now();
+        const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
+        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused, snapshot_seq++, snapshot_real_time_s));
+    };
+
     auto tick = [&]() {
         const std::string command_text = read_text_file(config.command_file);
         if (!command_text.empty()) {
@@ -111,10 +123,12 @@ int main(int argc, char** argv) {
         if (!paused) {
             simulation.step(config.step_seconds);
         }
-        const auto now = std::chrono::steady_clock::now();
-        const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
-        write_text_file(config.snapshot_file, simulation.build_bridge_snapshot_json(paused, snapshot_seq++, snapshot_real_time_s));
+        write_snapshot();
     };
+
+    // The first step dispatches the whole fleet at once (about half a minute of trajectory
+    // planning): show the starting state before it, so the UI does not wait on a blank screen.
+    write_snapshot();
 
     if (config.once) {
         tick();
