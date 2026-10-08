@@ -28,7 +28,8 @@
   double precision relative to the focused entity (`entity_root`), then cast, so close-ups do not jitter;
   `world_root` holds the absolute-frame lines (orbit rings, planned paths, trails).
 - **Orbit rings:** a 360-segment ring per body, and, for rings passing near the focus, a ring redrawn each frame with
-  points concentrated at the camera (sinh spacing) in focus-relative coordinates: exact at any zoom.
+  points concentrated at the camera (sinh spacing) in focus-relative coordinates: exact at any zoom. A moon's ring
+  fades out when it is only a few pixels across.
 - **Map look (KSP-like):** bodies at true radius (smooth spheres, faint self-lit texture for the night side), the
   camera stops outside the focused body; ship and station models a few tens of km, a map icon stands in when a model
   is a few pixels; screen-space labels beside icons (bodies, then stations, then ships in flight; overlap culling);
@@ -56,7 +57,7 @@ SimulationBridge snapshot/query -> UI widgets and 3D nodes -> player observation
 
 ## Deferred Work
 
-- Moon orbit rings fading with zoom; trajectory progress as a shader instead of rebuilt lines
+- Trajectory progress as a shader instead of rebuilt lines
 - Filtering and search
 - Visual effects and camera modes beyond map-first viewing
 

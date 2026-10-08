@@ -184,6 +184,16 @@ func update_orbit_rings(world_parent: Node3D, bodies: Array, positions: Dictiona
         ring_node.position = parent_position
         ring_node.scale = Vector3.ONE * radius
 
+# A moon's ring fades out when it is only a few pixels across (KSP's map does the same).
+func set_ring_fade(body_id: String, fade: float) -> void:
+    if not _orbit_rings.has(body_id):
+        return
+    var ring: MeshInstance3D = _orbit_rings[body_id]
+    var material := ring.material_override as StandardMaterial3D
+    if material != null:
+        material.albedo_color.a = ORBIT_RING_ALPHA * fade
+    ring.visible = ring.visible and fade > 0.01
+
 # Main.gd draws rings near the camera itself (finer, focus-relative) and hides these.
 func set_ring_visible(body_id: String, visible_flag: bool) -> void:
     if _orbit_rings.has(body_id):

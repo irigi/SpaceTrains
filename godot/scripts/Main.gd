@@ -873,8 +873,19 @@ func _update_fine_rings() -> void:
     for body_id in fine_rings.keys():
         if not active.has(body_id):
             (fine_rings[body_id] as MeshInstance3D).visible = false
+    var viewport_height: float = maxf(float(get_viewport().get_visible_rect().size.y), 1.0)
+    var focal: float = viewport_height / (2.0 * tan(deg_to_rad(camera.fov) * 0.5))
     for body_id in body_orbits.keys():
         space_env.set_ring_visible(String(body_id), not active.has(body_id))
+        var orbit: Dictionary = body_orbits[body_id]
+        var parent_id := String(orbit["parent"])
+        if parent_id == "" or parent_id == "sun" or not body_positions.has(parent_id):
+            continue
+        # Moons: fade the ring between 6 and 30 pixels of radius on screen.
+        var parent_screen: Vector3 = body_positions[parent_id] - render_origin
+        var distance := maxf(camera.global_position.distance_to(parent_screen), 1.0e-9)
+        var radius_px := float(orbit["a"]) * POSITION_SCALE / distance * focal
+        space_env.set_ring_fade(String(body_id), clampf((radius_px - 6.0) / 24.0, 0.0, 1.0))
 
 # k with k / sinh(k) = ratio (0 < ratio <= 1), by bisection.
 func _sinh_stretch(ratio: float) -> float:
