@@ -393,6 +393,8 @@ struct StationState {
     // in force, and each output's run rate (upkeep included).
     double upkeep_multiplier {1.0};
     Inventory output_factor {};
+    std::map<std::string, std::string> output_limited_by {};  // the input that limits each output, if any
+    Inventory upkeep_availability {};                         // stock over a 7-day buffer, per upkeep good
     // The share of its curve the station can offer ships now (step 17; 1 = all of it).
     double affordability {1.0};
 };

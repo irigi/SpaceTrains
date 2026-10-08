@@ -189,6 +189,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         };
         std::unordered_map<std::string, double> availability;
         double upkeep = 1.0;
+        station.upkeep_availability.clear();
         for (const auto* recipe : recipes) {
             if (recipe->units_per_day >= 0.0) {
                 continue;
@@ -197,6 +198,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             const double available = std::clamp(stock_of(recipe->commodity_id) / std::max(0.001, buffer), 0.0, 1.0);
             availability[recipe->commodity_id] = available;
             if (recipe->role == domain::RecipeRole::Upkeep) {
+                station.upkeep_availability[recipe->commodity_id] = available;
                 const auto penalty = universe_.upkeep_penalties.find(recipe->commodity_id);
                 if (penalty != universe_.upkeep_penalties.end()) {
                     upkeep *= 1.0 - (1.0 - penalty->second) * (1.0 - available);
@@ -239,9 +241,13 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         }
         station.upkeep_multiplier = upkeep;
         station.output_factor.clear();
+        station.output_limited_by.clear();
         for (auto& [commodity_id, run] : runs) {
             run.run = ceiling * run.limit;
             station.output_factor[commodity_id] = run.run;
+            if (run.limit < 1.0) {
+                station.output_limited_by[commodity_id] = run.limited_by;
+            }
         }
 
         for (const auto* recipe : recipes) {

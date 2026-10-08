@@ -93,6 +93,19 @@ func _economy_summary(state: Dictionary, commodities: Array, stations: Array) ->
     lines.append("Money in stations and ships %s (%+.1f%% of target) · treasuries %s · exported to Earth's economy %s" % [
         UiTheme.format_credits(money), 100.0 * (money / target - 1.0) if target > 0.0 else 0.0,
         UiTheme.format_credits(treasuries), UiTheme.format_credits(float(economy.get("exports_value", 0.0)))])
+    # Faction debt against what each may borrow (step 17), and emergencies (step 14).
+    var limits: Dictionary = state.get("faction_credit_limits", {})
+    var debts: Array[String] = []
+    for faction_id in (state.get("faction_treasuries", {}) as Dictionary).keys():
+        var balance := float(state["faction_treasuries"][faction_id])
+        if balance < 0.0:
+            debts.append("%s owes %s of %s" % [String(faction_id), UiTheme.format_credits(-balance),
+                UiTheme.format_credits(float(limits.get(faction_id, 0.0)))])
+    if not debts.is_empty():
+        lines.append("Faction debt: " + " · ".join(debts) + " · interest paid %s" % UiTheme.format_credits(
+            float(economy.get("faction_interest_paid", 0.0))))
+    lines.append("Emergency deliveries: %d since start, %s paid by the factions" % [
+        int(economy.get("emergencies_opened", 0)), UiTheme.format_credits(float(economy.get("emergency_paid", 0.0)))])
     var ships: Array = state.get("ships", [])
     var laid_up := 0
     for ship in ships:

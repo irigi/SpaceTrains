@@ -3452,6 +3452,11 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         output << (i > 0 ? "," : "") << "\"" << json_escape(faction_id) << "\":"
                << (it == faction_treasuries_.end() ? 0.0 : it->second);
     }
+    output << "},\"faction_credit_limits\":{";
+    for (std::size_t i = 0; i < universe_.factions.size(); ++i) {
+        const auto& faction_id = universe_.factions[i].id;
+        output << (i > 0 ? "," : "") << "\"" << json_escape(faction_id) << "\":" << faction_credit_limit(faction_id);
+    }
     output << "},";
 
     output << "\"recent_trades\":[";
@@ -3583,6 +3588,50 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                 first_export = false;
             }
         }
+        // Step 14-17 state: reference prices of what it consumes, what limits its outputs, its
+        // upkeep, its import costs, what it can pay and its open emergencies.
+        output << "],\"reference_prices\":{";
+        bool first_reference = true;
+        for (const auto& commodity : universe_.commodities) {
+            const auto rate_it = net_rates.find(commodity.id);
+            if (rate_it == net_rates.end() || rate_it->second >= 0.0) {
+                continue;
+            }
+            output << (first_reference ? "" : ",") << "\"" << json_escape(commodity.id) << "\":"
+                   << economy_.reference_price(station, commodity.id);
+            first_reference = false;
+        }
+        output << "},\"output_factor\":";
+        write_goods(station_state.output_factor);
+        output << ",\"output_limited_by\":{";
+        bool first_limit = true;
+        for (const auto& [output_id, input_id] : station_state.output_limited_by) {
+            output << (first_limit ? "" : ",") << "\"" << json_escape(output_id) << "\":\"" << json_escape(input_id) << "\"";
+            first_limit = false;
+        }
+        output << "},\"upkeep_multiplier\":" << station_state.upkeep_multiplier
+               << ",\"upkeep_availability\":{";
+        bool first_upkeep = true;  // zeros included: those are the shortages
+        for (const auto& commodity : universe_.commodities) {
+            if (const auto it = station_state.upkeep_availability.find(commodity.id); it != station_state.upkeep_availability.end()) {
+                output << (first_upkeep ? "" : ",") << "\"" << json_escape(commodity.id) << "\":" << it->second;
+                first_upkeep = false;
+            }
+        }
+        output << "},\"import_unit_cost\":";
+        write_goods(station_state.import_unit_cost);
+        output << ",\"affordability\":" << station_state.affordability << ",\"emergencies\":[";
+        bool first_emergency = true;
+        for (const auto& emergency : emergencies_) {
+            if (emergency.station_id != station.id) {
+                continue;
+            }
+            output << (first_emergency ? "" : ",") << "{\"commodity_id\":\"" << json_escape(emergency.commodity_id)
+                   << "\",\"premium\":" << emergency.premium << ",\"units_open\":" << emergency.units_open
+                   << ",\"days\":" << (game_time_s_ - emergency.opened_s) / 86400.0
+                   << ",\"faction_paid\":" << emergency.faction_paid << "}";
+            first_emergency = false;
+        }
         output << "],\"ledger\":{"
                << "\"household_sales\":" << station_state.ledger.household_sales << ","
                << "\"producer_purchases\":" << station_state.ledger.producer_purchases << ","
@@ -3704,7 +3753,10 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"exports_value\":" << exports_value << ","
                << "\"money_supply_target\":" << seeded_money_supply_ << ","
                << "\"ships_commissioned\":" << investment_ledger_.ships_commissioned << ","
-               << "\"ships_sold\":" << investment_ledger_.ships_sold
+               << "\"ships_sold\":" << investment_ledger_.ships_sold << ","
+               << "\"emergencies_opened\":" << emergencies_opened_ << ","
+               << "\"emergency_paid\":" << emergency_paid_ << ","
+               << "\"faction_interest_paid\":" << faction_interest_paid_
                << "},";
     }
     output << "\"recent_events\":[";

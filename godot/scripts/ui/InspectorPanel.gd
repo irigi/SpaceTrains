@@ -117,6 +117,12 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
     _add_label("Cash: " + UiTheme.format_credits(credits),
         UiTheme.CREDITS if credits >= 0.0 else UiTheme.ALERT)
 
+    # Emergency deliveries the faction pays for (step 14).
+    for emergency in detail.get("emergencies", []):
+        _add_label("EMERGENCY: %s running out · %s pays %.1fx the reference price · %.0f u still open · %.0f days" % [
+            String(emergency.get("commodity_id", "")), faction, float(emergency.get("premium", 0.0)),
+            float(emergency.get("units_open", 0.0)), float(emergency.get("days", 0.0))], UiTheme.ALERT, 12)
+
     var capacity := float(detail.get("storage_capacity", 0.0))
     var used := float(detail.get("storage_used", 0.0))
     if capacity > 0.0:
@@ -216,6 +222,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
             cover_label.add_theme_color_override("font_color", bar_color if short < 0.01 else UiTheme.ALERT)
         row.add_child(cover_label)
 
+    _add_station_production(detail)
     _add_station_orders(detail, context)
     _add_station_ships(detail, context)
 
@@ -223,13 +230,38 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
     if not ledger.is_empty():
         _add_separator()
         _add_label("MONEY SINCE START", UiTheme.ACCENT, 12)
-        _add_label("Residents paid %s · producers paid %s" % [
-            UiTheme.format_credits(float(ledger.get("household_sales", 0.0))),
-            UiTheme.format_credits(float(ledger.get("producer_purchases", 0.0)))], UiTheme.TEXT_DIM, 12)
+        _add_label("Residents paid %s (for what they used, at the station's import cost)" % [
+            UiTheme.format_credits(float(ledger.get("household_sales", 0.0)))], UiTheme.TEXT_DIM, 12)
         _add_label("Ship dividends %s · subsidies %s · taxes %s" % [
             UiTheme.format_credits(float(ledger.get("dividends", 0.0))),
             UiTheme.format_credits(float(ledger.get("subsidies", 0.0))),
             UiTheme.format_credits(float(ledger.get("taxes", 0.0)))], UiTheme.TEXT_DIM, 12)
+
+# How its outputs run (step 14): each at the lowest availability of its own inputs, times the
+# product of the upkeep penalties (life support, maintenance, power) in force.
+func _add_station_production(detail: Dictionary) -> void:
+    var factors: Dictionary = detail.get("output_factor", {})
+    if factors.is_empty():
+        return
+    var limited: Dictionary = detail.get("output_limited_by", {})
+    var upkeep := float(detail.get("upkeep_multiplier", 1.0))
+    _add_separator()
+    _add_label("PRODUCTION   %d%% of capacity after upkeep" % int(round(100.0 * upkeep)),
+        UiTheme.ACCENT if upkeep >= 0.9 else (UiTheme.WARN if upkeep >= 0.5 else UiTheme.ALERT), 12)
+    var outputs: Array[String] = []
+    for output_id in factors.keys():
+        var text := "%s %d%%" % [String(output_id), int(round(100.0 * float(factors[output_id])))]
+        if limited.has(output_id):
+            text += " (short of %s)" % String(limited[output_id])
+        outputs.append(text)
+    _add_label("Outputs: " + " · ".join(outputs), UiTheme.TEXT_DIM, 12)
+    var short: Array[String] = []
+    var availability: Dictionary = detail.get("upkeep_availability", {})
+    for good in availability.keys():
+        if float(availability[good]) < 0.999:
+            short.append("%s %d%%" % [String(good), int(round(100.0 * float(availability[good])))])
+    if not short.is_empty():
+        _add_label("Upkeep short (stock vs a week's use): " + " · ".join(short), UiTheme.WARN, 12)
 
 # What the station still wants of each good it consumes: up to its target stock (which
 # covers its resupply time), less its stock and the cargo already on the way. These are the
@@ -240,6 +272,7 @@ func _add_station_orders(detail: Dictionary, context: Dictionary) -> void:
     var targets: Dictionary = detail.get("target_stock", {})
     var rates: Dictionary = detail.get("net_rates", {})
     var prices: Dictionary = detail.get("prices", {})
+    var references: Dictionary = detail.get("reference_prices", {})
     var inbound := {}
     for ship in context.get("ships", []):
         var phase := String(ship.get("phase", ""))
@@ -255,15 +288,18 @@ func _add_station_orders(detail: Dictionary, context: Dictionary) -> void:
         var coming := float(inbound.get(commodity_id, 0.0))
         var wanted := float(targets[commodity_id]) - stock - coming
         if wanted >= 1.0:
-            orders.append({"id": commodity_id, "wanted": wanted, "coming": coming, "price": float(prices.get(commodity_id, 0.0))})
+            orders.append({"id": commodity_id, "wanted": wanted, "coming": coming, "price": float(prices.get(commodity_id, 0.0)),
+                "reference": float(references.get(commodity_id, 0.0))})
     if orders.is_empty():
         return
     orders.sort_custom(func(a, b): return float(a["wanted"]) * float(a["price"]) > float(b["wanted"]) * float(b["price"]))
     _add_separator()
-    _add_label("ORDERS   wanted up to target · on the way · paying now", UiTheme.ACCENT, 12)
+    _add_label("ORDERS   wanted up to target · on the way · paying now (landed cost)", UiTheme.ACCENT, 12)
     for order in orders:
-        _add_label("%s: %.0f u wanted · %.0f u on the way · %.0f cr/u" % [order["id"], order["wanted"], order["coming"], order["price"]],
-            UiTheme.TEXT_DIM, 12)
+        var text := "%s: %.0f u wanted · %.0f u on the way · %.0f cr/u" % [order["id"], order["wanted"], order["coming"], order["price"]]
+        if float(order["reference"]) > 0.0:
+            text += " (%.0f)" % float(order["reference"])
+        _add_label(text, UiTheme.TEXT_DIM, 12)
 
 # Ships on their way here (with cargo and arrival) and ships docked here.
 func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
