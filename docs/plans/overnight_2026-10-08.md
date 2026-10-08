@@ -37,7 +37,8 @@ departure.
 1. Consumers' target stock covers their resupply time (`EconomySystem::cover_days`).
 2. Mixed cargo by marginal value; contracts with prices agreed at departure.
 3. Fleet limit `max_fleet_size` 90; near it, new ships are ranked by profit per day (bigger holds).
-4. Production runs at the weighted average of its inputs' availability, not the scarcest one.
+4. Production runs at the weighted average of its inputs' availability, not the scarcest one. **Rejected by the user;
+   replaced by step 14 (per-output dependencies and upkeep penalties), planned.**
 5. Ship cash reserve 50k -> 25k.
 6. **Map data (commit `934baa8`, data only):** a fuel factory at Mercury, metals from Lunar Gateway.
 7. Look: true-size planets, screen-space labels, sunlight energy 7.
@@ -54,10 +55,7 @@ departure.
   A higher cap for remote outposts (up to 64x, tested over 4 years) made things worse: unmet 38.8 +- 2.4% (32.3),
   money +55%: ships chase the remote premiums. Faction subsidies for outpost supply would be the next idea to try.
 - Exports at 730 days are lower than in v33 (domestic supply now pays better); over four years 1.84M.
-- **Git history:** commit `f18bb94` accidentally contains a profiling build directory (`build-prof/`, ~80 MB of
-  binaries, removed in a later commit; now ignored). Before pushing you may want to purge it:
-  `git filter-branch --index-filter 'git rm -r --cached --ignore-unmatch build-prof' -- origin/feature/opus5_5_return..HEAD`
-  (then `git for-each-ref --format='%(refname)' refs/original/ | xargs -n1 git update-ref -d` and `git gc --prune=now`).
+- **Git history:** purged 2026-10-08 (`build-prof/` removed from the unpushed commits; trees verified identical otherwise).
 - Old snapshot files from earlier sessions in `~/.local/share/godot/app_userdata/SpaceTrains/` (safe to delete).
 - Atlas time-optimality (regenerate the atlas) not started.
 

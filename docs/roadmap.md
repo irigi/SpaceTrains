@@ -117,6 +117,11 @@ Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorit
 13. **Orders and mixed cargo:** done. Mixed cargo by marginal value (v37), investment values mixed holds and
     ranks by profit per day near the fleet limit (v37d, v39a), contracts with prices agreed at departure (v39c);
     station panels show orders and contracts.
+14. **Production dependencies and upkeep penalties** (planned, user-approved 2026-10-08, not started;
+    `docs/plans/production_dependencies.md`): replaces v37's weighted-average production gating, which the user
+    rejected as unphysical. Each output depends only on its own material inputs (hard, minimum rule); life-support
+    and crew goods are upkeep with explicit per-condition penalties on the whole station. Needs a role column in
+    `recipes.csv` and penalty sizes (placeholders in the plan) confirmed by the user.
 
 Checks after each step: the three test suites, `tools/benchmark.py` (four starting dates, mean and spread; one
 run is too noisy to judge a change) and `--trajectory-audit`. v39d (2026-10-08, four starts): 730 days unmet
