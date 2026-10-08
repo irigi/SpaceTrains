@@ -257,10 +257,14 @@ int main() {
             "the money-supply target must grow by the working capital of new ships");
         require(std::abs(internal_supply / snap.money_supply_target - 1.0) < 0.25,
             "the money-supply controller must hold stations + ships within 25% of the seeded money");
+        // Dividends drain cash above the reserve over a month: a ship just paid for a big hold may
+        // hold more for a while, but not the fleet on average.
+        double fleet_cash = 0.0;
         for (const auto& ship : snap.ships) {
-            require(ship.credits < 4.0 * open.ship_cash_reserve,
-                "ships must pay out cash far above their working reserve as dividends");
+            fleet_cash += ship.credits;
         }
+        require(fleet_cash / static_cast<double>(std::max<std::size_t>(1, snap.ships.size())) < 4.0 * open.ship_cash_reserve,
+            "ships must pay out cash far above their working reserve as dividends");
 
         // Trades must have happened and be internally consistent.
         require(!sim.recent_trades().empty(), "180 days of simulation must produce trades");

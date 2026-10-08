@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 4;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs
+constexpr int kSaveVersion = 5;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -91,6 +91,7 @@ Json mission_to_json(const domain::MissionAssignment& m) {
         auto entry = Json::object();
         entry.set("commodity_id", lot.commodity_id);
         entry.set("units", lot.units);
+        entry.set("contract_value", lot.contract_value);
         cargo.push(std::move(entry));
     }
     out.set("cargo", std::move(cargo));
@@ -120,7 +121,8 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     m.origin_station_id = j.get("origin_station_id").string();
     m.destination_station_id = j.get("destination_station_id").string();
     for (const auto& entry : j.get("cargo").items()) {
-        m.cargo.push_back({.commodity_id = entry.get("commodity_id").string(), .units = entry.get("units").number()});
+        m.cargo.push_back({.commodity_id = entry.get("commodity_id").string(), .units = entry.get("units").number(),
+            .contract_value = entry.get("contract_value").number()});
     }
     m.departure_time_s = j.get("departure_time_s").number();
     m.arrival_time_s = j.get("arrival_time_s").number();

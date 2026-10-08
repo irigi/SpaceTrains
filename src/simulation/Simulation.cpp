@@ -226,7 +226,8 @@ std::string largest_lot(const std::vector<domain::CargoLot>& cargo) {
 std::string cargo_json(const std::vector<domain::CargoLot>& cargo) {
     std::string text = "[";
     for (const auto& lot : cargo) {
-        text += std::format("{}{{\"commodity_id\":\"{}\",\"units\":{:.6f}}}", text.size() > 1 ? "," : "", json_escape(lot.commodity_id), lot.units);
+        text += std::format("{}{{\"commodity_id\":\"{}\",\"units\":{:.6f},\"contract_value\":{:.2f}}}", text.size() > 1 ? "," : "",
+            json_escape(lot.commodity_id), lot.units, lot.contract_value);
     }
     return text + "]";
 }
@@ -911,7 +912,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         const double dest_fuel_kg = station_price(dest_state, "fuel") > TANKERING_PRICE_RATIO * planning_fuel_price
             ? 0.0
             : fuel_for_sale_on_arrival_kg(economy_, destination, dest_state,
-                  delay_days + plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0);
+                  delay_days + plan.travel_time_s / 86400.0);
         double needed_kg = plan.propellant_required_kg;
         if (ship_class.propulsion_type != "variable_isp" && exhaust_velocity_mps > 0.0) {
             const double planned_mass_kg = ship_class.dry_mass_kg + payload_kg + plan.propellant_load_kg;
@@ -1076,10 +1077,12 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         std::vector<FollowUp> options;
         const auto& dest_state = get_station_state(destination.id);
         const double arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg) + carried_kg;
-        const double follow_days = delay_days + (plan.wait_time_s + plan.travel_time_s) / 86400.0;
+        // A plan's travel time includes its wait for the launch window (until 2026-10-08 the wait
+        // was added a second time to every arrival forecast).
+        const double follow_days = delay_days + plan.travel_time_s / 86400.0;
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
-                economy_, destination, dest_state, delay_days + plan.wait_time_s / 86400.0 + plan.travel_time_s / 86400.0));
+                economy_, destination, dest_state, delay_days + plan.travel_time_s / 86400.0));
         auto surplus_by_commodity = open_surplus(destination, dest_state, follow_days);
         for (const auto& [commodity_id, surplus] : surplus_by_commodity) {
             const double full_units = std::min(surplus, ship_class.cargo_capacity_units);
@@ -1262,7 +1265,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 }
                 const double surviving = cargo_units * std::pow(1.0 - decay_per_day, travel_days);
                 const double revenue = sale_value_on_arrival(destination_state, commodity_id, surviving,
-                    delay_days + plan.wait_time_s / 86400.0 + travel_days, ship.id);
+                    delay_days + travel_days, ship.id);
                 const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                     + fuel_premium(plan, fuel_plan.carried_kg);
                 const double cost = trade_value(origin_state, commodity_id, -cargo_units) + fuel_cost
@@ -1447,7 +1450,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                     const auto& commodity = get_commodity(lot.commodity_id);
                     const double surviving = lot.units * std::pow(1.0 - commodity.decay_fraction_per_day, travel_days);
                     const double lot_revenue = sale_value_on_arrival(destination_state, lot.commodity_id, surviving,
-                        delay_days + plan.wait_time_s / 86400.0 + travel_days, ship.id);
+                        delay_days + travel_days, ship.id);
                     const double lot_cost = trade_value(origin_state, lot.commodity_id, -lot.units);
                     revenue += lot_revenue;
                     purchases += lot_cost;
@@ -1620,7 +1623,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 trace_line(std::format("reposition -> {}: could not refuel to leave again nor carry the fuel (burns {:.0f} of {:.0f} kg, port sells {:.0f} kg)",
                     destination.id, plan.propellant_required_kg, plan.propellant_load_kg,
                     fuel_for_sale_on_arrival_kg(economy_, destination, get_station_state(destination.id),
-                        delay_days + plan.wait_time_s / 86400.0 + reposition_days)));
+                        delay_days + reposition_days)));
                 continue;
             }
             const double reposition_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
@@ -1770,6 +1773,16 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     double purchase_cost = 0.0;
     double expected_revenue = 0.0;
     const auto& destination_state = get_station_state(best_destination->id);
+    // Contracts: each lot's price is agreed now, from the destination's forecast stock on
+    // arrival (other ships' earlier deliveries included), for the units that will survive the
+    // trip. The ship knows what it will earn; the station bears the forecast's error.
+    auto contracted_cargo = cargo;
+    const double arrival_days = std::max(0.0, plan.arrival_time_s - game_time_s_) / 86400.0;
+    for (auto& lot : contracted_cargo) {
+        const double surviving = lot.units
+            * std::pow(1.0 - get_commodity(lot.commodity_id).decay_fraction_per_day, plan.travel_time_s / 86400.0);
+        lot.contract_value = sale_value_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
+    }
     for (const auto& lot : cargo) {
         // Buy at origin along the price curve as the stock falls.
         const double cost = trade_value(origin_state, lot.commodity_id, -lot.units);
@@ -1790,7 +1803,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             .unit_price = cost / lot.units,
             .total = cost,
         });
-        expected_revenue += trade_value(destination_state, lot.commodity_id, lot.units);
+    }
+    for (const auto& lot : contracted_cargo) {
+        expected_revenue += lot.contract_value;
     }
     // Nuclear-thermal ships: deduct propellant at mission start (instantaneous burns).
     // Variable-Isp ships: propellant is consumed continuously during transit and
@@ -1804,7 +1819,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     ship.active_mission = {
         .origin_station_id = origin_def.id,
         .destination_station_id = best_destination->id,
-        .cargo = cargo,
+        .cargo = contracted_cargo,
         .departure_time_s = plan.departure_time_s,
         .arrival_time_s = plan.arrival_time_s,
         .wait_time_s = plan.wait_time_s,
@@ -2049,8 +2064,12 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
                 arrived = free_capacity;
             }
             free_capacity -= arrived;
-            // Sell along the price curve as the delivery lands.
-            const double revenue = trade_value(destination, lot.commodity_id, arrived);
+            // The agreed price for what arrives (less if storage forced a jettison), or, without a
+            // contract, the market's along the price curve as the delivery lands.
+            const double expected_units = lot.units * surviving;
+            const double revenue = lot.contract_value > 0.0 && expected_units > 0.0
+                ? lot.contract_value * std::min(1.0, arrived / expected_units)
+                : trade_value(destination, lot.commodity_id, arrived);
             destination.inventory[lot.commodity_id] += arrived;
             destination.import_units_per_day[lot.commodity_id] += arrived / TRADE_FLOW_DAYS;
             destination.credits -= revenue;

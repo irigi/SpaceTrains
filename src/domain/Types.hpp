@@ -204,6 +204,10 @@ struct TradeEntry {
 struct CargoLot {
     std::string commodity_id;
     double units {0.0};
+    // The price agreed at departure for this lot as it will arrive (after spoilage): the
+    // destination's forecast price along its curve, the same forecast dispatch planned with.
+    // The station pays it on arrival whatever the market did meanwhile (0: sold at market).
+    double contract_value {0.0};
 };
 
 [[nodiscard]] inline double total_units(const std::vector<CargoLot>& cargo) {

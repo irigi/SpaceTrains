@@ -282,13 +282,19 @@ func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
     _add_separator()
     if not inbound.is_empty():
         inbound.sort_custom(func(a, b): return float(a.get("arrival_time_s", 0.0)) < float(b.get("arrival_time_s", 0.0)))
-        _add_label("INBOUND", UiTheme.ACCENT, 12)
+        _add_label("INBOUND   contracts: cargo · arrival · price agreed at departure", UiTheme.ACCENT, 12)
         for ship in inbound:
             var what := _cargo_text(ship)
             if what == "":
                 what = "empty"
-            _add_label("%s · %s · in %.0f d" % [String(ship.get("name", "")), what,
-                maxf(float(ship.get("arrival_time_s", 0.0)) - game_time_s, 0.0) / 86400.0], UiTheme.TEXT_DIM, 12)
+            var agreed := 0.0
+            for lot in ship.get("cargo", []):
+                agreed += float(lot.get("contract_value", 0.0))
+            var line := "%s · %s · in %.0f d" % [String(ship.get("name", "")), what,
+                maxf(float(ship.get("arrival_time_s", 0.0)) - game_time_s, 0.0) / 86400.0]
+            if agreed > 0.0:
+                line += " · %s" % UiTheme.format_credits(agreed)
+            _add_label(line, UiTheme.TEXT_DIM, 12)
     if not docked.is_empty():
         _add_label("DOCKED", UiTheme.ACCENT, 12)
         var names: Array[String] = []
@@ -423,7 +429,7 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
 
     var mission_value := float(detail.get("mission_value", 0.0))
     if (phase == "in_transit" or phase == "awaiting_departure") and absf(mission_value) > 0.5:
-        _add_label("Trip expected to earn %+.0f cr (sale %s, cargo %s)" % [mission_value,
+        _add_label("Trip expected to earn %+.0f cr (contracted sale %s, cargo %s)" % [mission_value,
             UiTheme.format_credits(float(detail.get("expected_revenue", 0.0))),
             UiTheme.format_credits(float(detail.get("purchase_cost", 0.0)))],
             UiTheme.GOOD if mission_value > 0.0 else UiTheme.WARN, 12)

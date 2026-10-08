@@ -56,7 +56,11 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 - **Mixed cargo** (dispatch, `Simulation::choose_mission_pass`): per destination, the hold is filled chunk by chunk
   (1/40 of it) with the good whose next units earn the most along both stations' curves, weighted by how short the
   destination is of it; the whole manifest, its half and its quarter are scored like single-good runs. Fleet
-  investment still values a new ship by its best single-good run.
+  investment values a new ship by its best run, a mixed hold valued lot by lot (v39a).
+- **Contracts** (v39c): at departure each lot's price is agreed from the destination's forecast on arrival (the
+  forecast dispatch planned with, for the units that survive the trip); the station pays it on arrival whatever the
+  market did meanwhile (pro rata if storage forced a jettison). Ships earn what they planned; stations bear the
+  forecast error. The station panel lists inbound contracts and the goods it still wants (orders).
 - **Transport capacity** (`--econ-audit`): steady supply of every consumer from its nearest producer needs about
   45,000 u of holds in transit (104,000 with the export markets); the fleet is capped at `max_fleet_size` (90).
 
