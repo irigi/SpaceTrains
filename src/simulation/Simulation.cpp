@@ -178,7 +178,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     kepler_planner_ = std::make_unique<trajectory::KeplerTrajectoryPlanner>(universe_, mechanics_);
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
-        stations_.push_back({.station_id = station.id, .inventory = station.initial_inventory, .credits = station.initial_credits, .ledger = {}});
+        stations_.push_back({.station_id = station.id, .inventory = starting_inventory(station), .credits = station.initial_credits, .ledger = {}});
     }
     for (const auto& ship_class : universe_.ship_classes) {
         ship_classes_by_id_[ship_class.id] = &ship_class;
@@ -415,6 +415,38 @@ const domain::CommodityDefinition& Simulation::get_commodity(const std::string& 
         throw std::runtime_error("Unknown commodity: " + commodity_id);
     }
     return *it;
+}
+
+domain::Inventory Simulation::starting_inventory(const domain::StationDefinition& station) const {
+    // A station starts with what it would hold if it had been supplied all along: each good it
+    // consumes at least at its target stock (its resupply cover: three weeks, or 1.4x the
+    // transfer from the nearest producer, at most a year). With the few weeks of the data
+    // files, Ceres and Ganymede ran out of oxygen on day 20 and the outposts' first emergencies
+    // stayed open for 450-660 days while the first freighters were on their way. The raise is
+    // scaled down to fit 85% of the station's storage.
+    domain::Inventory inventory = station.initial_inventory;
+    domain::Inventory raises;
+    for (const auto& [commodity_id, rate] : economy_.get_station_net_rates(station)) {
+        if (rate >= 0.0 || economy_.is_export_market(station, commodity_id)) {
+            continue;
+        }
+        const double stock = inventory.contains(commodity_id) ? inventory.at(commodity_id) : 0.0;
+        const double raise = economy_.get_target_stock(station, commodity_id) - stock;
+        if (raise > 0.0) {
+            raises[commodity_id] = raise;
+        }
+    }
+    double raised_storage = 0.0;
+    for (const auto& [commodity_id, raise] : raises) {
+        raised_storage += economy_.storage_used_units({{commodity_id, raise}});
+    }
+    const double room = 0.85 * station.storage_capacity_units - economy_.storage_used_units(inventory);
+    const double scale = station.storage_capacity_units > 0.0 && raised_storage > room
+        ? std::max(0.0, room) / raised_storage : 1.0;
+    for (const auto& [commodity_id, raise] : raises) {
+        inventory[commodity_id] += raise * scale;
+    }
+    return inventory;
 }
 
 std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() const {

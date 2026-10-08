@@ -97,6 +97,9 @@ private:
     void write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] std::string faction_name(const std::string& faction_id) const;
+    // What a station starts with (step 18): its data inventory, raised to its target stock for
+    // every good it consumes, within 85% of its storage.
+    [[nodiscard]] domain::Inventory starting_inventory(const domain::StationDefinition& station) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     // Value of moving units into (+) or out of (-) a station, along its price curve.
     // Value of selling `units` at a station `days_ahead` from now, on its forecast stock.

@@ -249,6 +249,26 @@ int main() {
     }
 
     {
+        // --- Starting stocks (step 18): every consumed good at least at its target stock,
+        // unless the station's storage (85%) cannot hold it. ---
+        const auto start = spacetrains::simulation::Simulation::from_data_root("data").snapshot();
+        for (const auto& state : start.stations) {
+            const auto& station = *std::find_if(universe.stations.begin(), universe.stations.end(),
+                [&](const auto& s) { return s.id == state.station_id; });
+            const bool storage_bound = station.storage_capacity_units > 0.0
+                && economy.storage_used_units(state.inventory) >= 0.85 * station.storage_capacity_units - 1.0e-6;
+            for (const auto& [commodity_id, rate] : economy.get_station_net_rates(station)) {
+                if (rate >= 0.0 || economy.is_export_market(station, commodity_id) || storage_bound) {
+                    continue;
+                }
+                const double stock = state.inventory.contains(commodity_id) ? state.inventory.at(commodity_id) : 0.0;
+                require(stock >= economy.get_target_stock(station, commodity_id) - 1.0e-6,
+                    "a station must start with its target stock of every good it consumes");
+            }
+        }
+    }
+
+    {
         // --- Money conservation and trade settlement over 180 simulated days ---
         auto sim = spacetrains::simulation::Simulation::from_data_root("data");
         sim.set_timewarp(86400.0);
