@@ -415,7 +415,7 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         _add_gauge("Cargo", cargo, cargo_capacity, "%.0f / %.0f u" % [cargo, cargo_capacity], UiTheme.GOOD)
 
     var provision_days := float(detail.get("provision_days", 0.0))
-    _add_gauge("Provisions", provision_days, 730.0, "%.0f days" % provision_days,
+    _add_gauge("Provisions", provision_days, maxf(730.0, provision_days), "%.0f days" % provision_days,
         UiTheme.ALERT if provision_days < 60.0 else UiTheme.ACCENT)
 
     if phase == "in_transit":
