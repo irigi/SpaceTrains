@@ -297,25 +297,28 @@ int main() {
             "money must be conserved: stations, ships and the external account only transfer credits");
 
         // The open economy: every external payment is booked on a station ledger.
-        require(stations_ledger.household_sales > 0.0 && stations_ledger.producer_purchases > 0.0,
-            "residents must pay for consumed goods and stations must pay local producers");
+        require(stations_ledger.household_sales > 0.0 && stations_ledger.producer_purchases == 0.0,
+            "residents must pay for consumed goods; local production is free (step 17)");
         require_near(snap.outside_economy_credits,
             stations_ledger.producer_purchases - stations_ledger.household_sales
-                + investment.hulls_bought - investment.salvage, 1.0e-3,
+                + investment.hulls_bought - investment.salvage + snap.faction_interest_paid, 1.0e-3,
             "the outside economy's balance must equal producer payments minus resident payments,"
-            " plus ships sold to the treasuries minus salvage bought back");
+            " plus ships sold to the treasuries minus salvage bought back, plus interest");
         require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies
-                - investment.hulls_bought - investment.working_capital + investment.salvage - snap.emergency_paid, 1.0e-3,
+                - investment.hulls_bought - investment.working_capital + investment.salvage - snap.emergency_paid
+                - snap.faction_interest_paid, 1.0e-3,
             "the faction treasuries' balance must equal taxes minus subsidies, their ship trade and emergency premiums");
         require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
             "dividends paid by ships must equal dividends received by stations");
         const auto& open = sim.universe().open_economy;
-        require(open.money_supply_days > 0.0 && open.station_credit_ceiling > open.station_credit_floor,
-            "open_economy.csv must enable the controller and a credit band");
+        require(open.station_credit_ceiling > open.station_credit_floor, "open_economy.csv must enable a credit band");
         require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,
             "the money-supply target must grow by the working capital of new ships");
-        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < 0.25,
-            "the money-supply controller must hold stations + ships within 25% of the seeded money");
+        // Since step 17 the controller only measures (money_supply_days 0): money enters and
+        // leaves through reasons (residents' wages at reference prices, Earth's purchases, hulls,
+        // interest), and must still not run away.
+        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < (open.money_supply_days > 0.0 ? 0.25 : 0.5),
+            "stations + ships must stay near the seeded money");
         // Dividends drain cash above the reserve over a month: a ship just paid for a big hold may
         // hold more for a while, but not the fleet on average.
         double fleet_cash = 0.0;

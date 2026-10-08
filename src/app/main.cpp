@@ -329,8 +329,9 @@ void print_economy_audit(
                 slow += std::format(" {}={:.0f}%", c, 100.0 * run);
             }
         }
-        if (!slow.empty() || ss.upkeep_multiplier < 0.99) {
-            std::cout << std::format("    {:30s}  upkeep {:5.1f}% {}\n", name, 100.0 * ss.upkeep_multiplier, slow);
+        if (!slow.empty() || ss.upkeep_multiplier < 0.99 || ss.affordability < 0.99) {
+            std::cout << std::format("    {:30s}  upkeep {:5.1f}%  can pay {:5.1f}% {}\n", name, 100.0 * ss.upkeep_multiplier,
+                100.0 * ss.affordability, slow);
         }
     }
     std::cout << std::format("    Emergencies: {} opened, {} open now, {:.0f} cr paid by the factions\n",
@@ -484,6 +485,18 @@ void print_economy_audit(
         std::cout << std::format("  {} {:.0f}", faction.name, balance);
     }
     std::cout << " cr\n";
+    int over_limit = 0;
+    std::cout << "    Faction credit (may borrow):";
+    for (const auto& faction : universe.factions) {
+        const auto it = snap.faction_credit_limits.find(faction.id);
+        const double limit = it == snap.faction_credit_limits.end() ? 0.0 : it->second;
+        const auto balance = snap.faction_treasuries.find(faction.id);
+        if (balance != snap.faction_treasuries.end() && -balance->second > limit) {
+            ++over_limit;
+        }
+        std::cout << std::format("  {} {:.0f}", faction.name, limit);
+    }
+    std::cout << std::format(" cr; interest paid {:.0f} cr; factions over their limit: {}\n", snap.faction_interest_paid, over_limit);
     const auto& investment = snap.fleet_investment;
     std::cout << std::format("    Fleet investment: {} ships commissioned (hulls {:.0f}, working capital {:.0f}), {} sold (salvage {:.0f})\n",
         investment.ships_commissioned, investment.hulls_bought, investment.working_capital,

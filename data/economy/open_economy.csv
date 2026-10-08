@@ -5,3 +5,8 @@ station_balance_days,30
 ship_cash_reserve,25000
 dividend_days,30
 money_supply_days,60
+core_crew_fraction,0.3
+station_credit_days,90
+affordability_days,0
+faction_loan_to_value,0.5
+faction_tax_years,2

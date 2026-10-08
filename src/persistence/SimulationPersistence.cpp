@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 6;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies
+constexpr int kSaveVersion = 7;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -240,6 +240,7 @@ Json station_to_json(const domain::StationState& s) {
     out.set("demand_units", goods_to_json(s.demand_units));
     out.set("unmet_units", goods_to_json(s.unmet_units));
     out.set("market_sold_units", goods_to_json(s.market_sold_units));
+    out.set("import_unit_cost", goods_to_json(s.import_unit_cost));
     return out;
 }
 
@@ -260,6 +261,7 @@ domain::StationState station_from_json(const Json& j) {
     s.demand_units = goods_from_json(j.get("demand_units"));
     s.unmet_units = goods_from_json(j.get("unmet_units"));
     s.market_sold_units = goods_from_json(j.get("market_sold_units"));
+    s.import_unit_cost = goods_from_json(j.get("import_unit_cost"));
     return s;
 }
 
@@ -306,6 +308,12 @@ std::string Simulation::save_state_json() const {
         treasuries.set(faction_id, balance);
     }
     root.set("faction_treasuries", std::move(treasuries));
+    auto taxes = Json::object();
+    for (const auto& [faction_id, per_day] : faction_tax_per_day_) {
+        taxes.set(faction_id, per_day);
+    }
+    root.set("faction_tax_per_day", std::move(taxes));
+    root.set("faction_interest_paid", faction_interest_paid_);
     root.set("seeded_money_supply", seeded_money_supply_);
     root.set("next_investment_review_s", next_investment_review_s_);
     root.set("investment_purchases_left", investment_purchases_left_);
@@ -424,6 +432,10 @@ void Simulation::load_state_json(const std::string& text) {
     for (const auto& [faction_id, balance] : root.get("faction_treasuries").fields()) {
         treasuries[faction_id] = balance.number();
     }
+    std::map<std::string, double> tax_per_day;
+    for (const auto& [faction_id, per_day] : root.get("faction_tax_per_day").fields()) {
+        tax_per_day[faction_id] = per_day.number();
+    }
     std::vector<domain::EventEntry> events;
     for (const auto& item : root.get("recent_events").items()) {
         events.push_back({.time_s = item.get("time_s").number(), .text = item.get("text").string(), .category = item.get("category").string()});
@@ -477,6 +489,8 @@ void Simulation::load_state_json(const std::string& text) {
     timewarp_factor_ = root.get("timewarp_factor").number();
     outside_economy_credits_ = root.get("outside_economy_credits").number();
     faction_treasuries_ = std::move(treasuries);
+    faction_tax_per_day_ = std::move(tax_per_day);
+    faction_interest_paid_ = root.get("faction_interest_paid").number();
     seeded_money_supply_ = root.get("seeded_money_supply").number();
     next_investment_review_s_ = root.get("next_investment_review_s").number();
     investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());

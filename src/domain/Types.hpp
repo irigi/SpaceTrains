@@ -99,6 +99,12 @@ struct OpenEconomyDefinition {
     double ship_cash_reserve {0.0};        // dividends take the excess above this; 0 = no dividends
     double dividend_days {30.0};
     double money_supply_days {0.0};        // controller time constant; 0 = no controller
+    // Station money (step 17).
+    double core_crew_fraction {0.0};       // of the population whose upkeep the faction guarantees
+    double station_credit_days {0.0};      // a station's credit line: days of its consumption at reference prices
+    double affordability_days {0.0};       // a station offers full price while it can pay this many days of imports
+    double faction_loan_to_value {0.0};    // factions borrow this share of their fleet's hull value...
+    double faction_tax_years {0.0};        // ...plus this many years of their tax income
 };
 
 // Fleet investment (data/economy/fleet_investment.csv). Faction treasuries buy new ships
@@ -345,10 +351,10 @@ struct ShipState {
 // A station's money flows with the world outside the simulated trade (the open economy),
 // all amounts positive, in credits.
 struct StationLedger {
-    double household_sales {0.0};       // residents and local industry paid for goods they used up
+    double household_sales {0.0};       // residents paid for goods they used up, at what the station paid (step 17)
     double producer_purchases {0.0};    // the market paid local producers and its depot for new output
     double dividends {0.0};             // paid in by the ships it owns
-    double subsidies {0.0};             // from the faction treasury (band floor and money-supply controller)
+    double subsidies {0.0};             // from the faction treasury (core-crew top-up and money-supply controller)
     double taxes {0.0};                 // to the faction treasury (band ceiling and money-supply controller)
 };
 
@@ -380,10 +386,15 @@ struct StationState {
     Inventory unmet_units {};
     // Units an export market sold on to the outside economy since the start.
     Inventory market_sold_units {};
+    // What the station paid ships per unit, averaged over about 30 days of its use (step 17):
+    // its residents pay this for what they use up (the reference price until a delivery).
+    Inventory import_unit_cost {};
     // Diagnostics of the last economy step (not saved): the product of the upkeep penalties
     // in force, and each output's run rate (upkeep included).
     double upkeep_multiplier {1.0};
     Inventory output_factor {};
+    // The share of its curve the station can offer ships now (step 17; 1 = all of it).
+    double affordability {1.0};
 };
 
 struct SimulationSnapshot {
@@ -393,6 +404,9 @@ struct SimulationSnapshot {
     // credits always equal the seeded money.
     double outside_economy_credits {0.0};
     std::map<std::string, double> faction_treasuries;
+    // What each faction may borrow (negative treasury) and has paid in interest (step 17).
+    std::map<std::string, double> faction_credit_limits;
+    double faction_interest_paid {0.0};
     // What the money-supply controller holds stations + ships at: the seeded money plus the
     // working capital the treasuries gave new ships.
     double money_supply_target {0.0};

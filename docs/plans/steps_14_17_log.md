@@ -99,3 +99,63 @@ and step 16 after it.
 10. **The reference trip is a full hold out and back empty in the cheapest hull**, two nearest producers, median
     over 6 dates. Carriage is cheap per unit in big holds: most outposts' references are only 10–40% above base;
     Mercury's are high because full holds cannot reach it.
+
+## Step 17: station money (done before step 16)
+
+### What was built
+
+- **Station and residents are one account.** Local production costs the station nothing. Residents pay for
+  what they use up, with income from outside like wages, at **what their station paid ships for it**
+  (`StationState::import_unit_cost`: deliveries averaged over about 30 days of use; the reference price until the
+  first delivery). Earth's export markets work as before (the outside pays for exports at their flat price).
+- **Faction credit.** A faction may borrow (negative treasury) up to 50% of its fleet's hull value plus two years
+  of its tax income (365-day average), and pays 5%/yr interest to the outside on its debt. Fleet investment buys
+  with treasury plus credit; a faction over its limit buys no ships. The audit shows each faction's limit, the
+  interest paid and how many factions are over their limit.
+- **Core-crew subsidy.** A station below the 25k floor is topped up by at most the upkeep of 30% of its
+  population per day (at reference prices). The 250k ceiling tax stays.
+- **Station budget gate** (`affordability_days`), built and then switched off (see decision 13): a station's cash
+  plus a 90-day credit line, less the contracts on their way (in full when due within 90 days, in proportion
+  90/days when later), scales what it offers ships.
+- Money-supply controller kept at 60 days (decision 14).
+
+### Results (730 days, four starts)
+
+| Variant | unmet | last fifth | profitable | holds | money | ship cash | interest |
+|---|---|---|---|---|---|---|---|
+| v39d | 49.8 ± 1.0% | 32.5 ± 1.6% | 50.8/91 | 99,000 u | +1.3 ± 7.4% | ~75% | – |
+| 15 alone | 56.3 ± 1.2% | 51.7 ± 3.8% | 30/54 | 33,500 u | +6.6% | – | – |
+| 17a: residents at reference, gate counts all contracts, no controller | 65.5 ± 1.7% | 58.0 ± 6.1% | 33/89 | 69,000 u | −16.8% | 40% | 281k |
+| 17b: gate counts contracts due within 90 days | 50.5 ± 4.3% | 39.0 ± 2.7% | 42/90 | 83,300 u | −79.1% | – | 291k |
+| 17c: + controller 180 days | 49.4 ± 3.0% | 33.3 ± 2.3% | 42/90 | 85,200 u | −54.9% | 34% | 322k |
+| 17d: gate weights later contracts 90/days | 54.8 ± 2.7% | 45.2 ± 4.6% | 38.5/90 | 76,900 u | −30.1% | 38% | 308k |
+| 17e: residents pay the import cost | 54.4 ± 2.7% | 43.3 ± 4.3% | 38.5/90 | 77,800 u | −15.1% | 27% | 294k |
+| 17g: + local production free, gate off | 47.6 ± 2.3% | 30.0 ± 8.2% | 50/90 | 98,400 u | −47.6% | 59% | 121k |
+| **17h: + controller 60 days (final)** | **47.6 ± 2.3%** | **30.0 ± 8.2%** | **50/90** | **98,400 u** | **−32.2 ± 10%** | **45%** | **127k** |
+
+- 17a: Low Earth Logistics could not pay for food from Earth L1 (0.1 days away): freighters from Ganymede were
+  booked to arrive in years and their contracts used up its budget. 1 Earth-pair hop in 400 days (v39d: 25).
+- 17b: Mars, 200 days from its suppliers, ordered 1.3M cr of goods it could not pay for (−498k cash).
+- 17d/17e: the gate swung stations between 0 and 100%: Venus with 212k cash offered nothing because reactor-fuel
+  freighters from Ceres were contracted at the 4x cap; Mercury, Mars, Ceres and Ganymede at 0% for months.
+- 17e: until then the station still paid the outside for its own new output, and a producer selling its glut to
+  ships for less went broke.
+
+### Decisions to review
+
+11. **Residents pay the station's import cost**, not the reference price (the plan) and not the scarcity curve
+    (before). With the reference price every chronically short station lost money on each import; with the
+    import cost a station breaks even on average, and new money matches what ships were actually paid (bounded
+    by the 4x cap), not a hypothetical 16x price.
+12. **Earth stations are not pinned to the outside account** (the plan's "outside-backed" flag was not built).
+    Earth's stations sell the colonies far more (food, electronics, machinery) than they buy back, so a money
+    supply fed only by trade with Earth would have drained in months; residents' wages are the money source.
+13. **The station budget gate is off** (`affordability_days` 0; the code stays). Every version of it starved
+    stations (unmet +5 to +18 points) while the ships' contracts kept paying; station cash is a measure again,
+    as before step 17. Revisit with a smoother gate (for example, limit only non-upkeep goods) if wanted.
+14. **The money-supply controller stays at 60 days**, as the plan's fallback allowed (money −79% without it). Money
+    still ends at −32% of its target, because the target includes the 25k working capital of every new ship
+    (1.7M by day 730), which the factions now borrow.
+15. **Faction credit:** 50% of fleet hull value + 2 years of taxes, interest 5%/yr. Mars Corporation (one station,
+    a small fleet) ends over its limit in every run and stops buying ships: the debt-and-austerity story.
+16. **Core-crew subsidy:** at most 30% of the population's upkeep per day.

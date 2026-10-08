@@ -140,12 +140,25 @@ private:
     void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
     void pay_home_station(domain::ShipState& ship, double amount);
-    // Open economy: residents pay their station for the goods the economy step used up, and
-    // the station pays local producers (and its fuel depot) for new output, along the same
-    // price curve as ship trades. The other side of every payment is the external account.
+    // Open economy: residents pay their station for the goods the economy step used up, at what
+    // the station paid ships for them; local production is free (step 17). The other side of
+    // every payment is the external account.
     void settle_local_economy(const std::vector<domain::Inventory>& stocks_before);
-    // Dividends, the faction treasuries' subsidies and taxes, and the money-supply controller.
+    // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
+    // Station money (step 17). Consumption per day of a station's goods at reference prices:
+    // its upkeep goods only (for the core-crew subsidy), or every consumed good (its import bill).
+    [[nodiscard]] double consumption_value_per_day(const domain::StationDefinition& station, bool upkeep_only) const;
+    // What a faction may still spend on ships: its treasury plus what it may borrow.
+    [[nodiscard]] double faction_credit_limit(const std::string& faction_id) const;
+    [[nodiscard]] double faction_spendable(const std::string& faction_id) const;
+    // Each station's cash plus credit line, less the contracts on their way to it; refreshed
+    // every tick and lowered as contracts are made. A station that cannot pay offers less.
+    void refresh_station_payable();
+    // The share of a contract due at this time that reserves its station's money now.
+    [[nodiscard]] double contract_reserve_share(double arrival_time_s) const;
+    [[nodiscard]] double station_affordability(const domain::StationDefinition& station) const;
+    void record_affordability();
     [[nodiscard]] double internal_money_supply() const;
     // Fleet investment (docs/plans/fleet_investment.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
@@ -278,6 +291,11 @@ private:
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;
+    // Step 17: taxes each faction collects per day (365-day average), interest paid on debt,
+    // and what each station can still pay for (not saved: recomputed every tick).
+    std::map<std::string, double> faction_tax_per_day_;
+    double faction_interest_paid_ {0.0};
+    std::unordered_map<std::string, double> station_payable_;
     // Emergency deliveries open now, and the totals since the start.
     std::vector<domain::Emergency> emergencies_;
     int emergencies_opened_ {0};

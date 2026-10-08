@@ -596,6 +596,11 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"ship_cash_reserve", &open_economy.ship_cash_reserve},
             {"dividend_days", &open_economy.dividend_days},
             {"money_supply_days", &open_economy.money_supply_days},
+            {"core_crew_fraction", &open_economy.core_crew_fraction},
+            {"station_credit_days", &open_economy.station_credit_days},
+            {"affordability_days", &open_economy.affordability_days},
+            {"faction_loan_to_value", &open_economy.faction_loan_to_value},
+            {"faction_tax_years", &open_economy.faction_tax_years},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];

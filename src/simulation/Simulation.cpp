@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <array>
+#include <tuple>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -54,6 +55,8 @@ constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
 // ship takes a delivery: a small station's month of water is worth little at 3x, less than
 // a trip to it costs, so the offer grows until a ship comes (Mercury's water stayed short for
 // two years at 8x; doubling to 96x paid 2M cr in two years).
+// A station's import cost (what its residents pay) averages deliveries over this many days of its use.
+constexpr double IMPORT_COST_DAYS = 30.0;
 constexpr double EMERGENCY_HORIZON_DAYS = 21.0;
 constexpr double EMERGENCY_CLOSE_DAYS = 14.0;
 constexpr double EMERGENCY_COVER_DAYS = 30.0;
@@ -644,6 +647,10 @@ const domain::Emergency* Simulation::find_emergency(const std::string& station_i
 Simulation::SaleSplit Simulation::sale_split(const domain::StationDefinition& station, const std::string& commodity_id,
     double stock, double units) const {
     SaleSplit split {.total = economy_.get_trade_value(station, commodity_id, stock, units, get_commodity(commodity_id).base_price)};
+    // A station that cannot pay offers less (step 17); Earth's export markets always pay.
+    if (units > 0.0 && !economy_.is_export_market(station, commodity_id)) {
+        split.total *= station_affordability(station);
+    }
     const auto* emergency = units > 0.0 ? find_emergency(station.id, commodity_id) : nullptr;
     if (emergency == nullptr) {
         return split;
@@ -2083,6 +2090,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const auto split = sale_split_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
         lot.contract_value = split.total;
         lot.emergency_premium = split.faction;
+        station_payable_[best_destination->id] -= contract_reserve_share(plan.arrival_time_s) * (split.total - split.faction);
         if (split.faction > 0.0) {
             for (auto& emergency : emergencies_) {
                 if (emergency.station_id == best_destination->id && emergency.commodity_id == lot.commodity_id) {
@@ -2394,6 +2402,17 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
                     }
                 }
             }
+            // The station's import cost: what it paid per unit, averaged over about 30 days of its use.
+            if (arrived > 0.0 && !economy_.is_export_market(destination_def, lot.commodity_id)) {
+                const auto rates = economy_.get_station_net_rates(destination_def);
+                const auto rate = rates.find(lot.commodity_id);
+                const double history = rate == rates.end() ? 0.0 : std::max(0.0, -rate->second) * IMPORT_COST_DAYS;
+                const auto known = destination.import_unit_cost.find(lot.commodity_id);
+                const double previous = known == destination.import_unit_cost.end()
+                    ? economy_.reference_price(destination_def, lot.commodity_id) : known->second;
+                destination.import_unit_cost[lot.commodity_id] =
+                    (previous * history + (revenue - faction_share)) / (history + arrived);
+            }
             destination.inventory[lot.commodity_id] += arrived;
             destination.import_units_per_day[lot.commodity_id] += arrived / TRADE_FLOW_DAYS;
             destination.credits -= revenue - faction_share;
@@ -2461,6 +2480,8 @@ void Simulation::tick() {
     settle_local_economy(stocks_before);
     step_treasuries(dt_s);
     step_emergencies();
+    refresh_station_payable();
+    record_affordability();
     step_fleet_investment();
 
     for (auto& ship : ships_) {
@@ -2494,38 +2515,30 @@ void Simulation::tick() {
 }
 
 void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stocks_before) {
+    // A station and its residents are one account (step 17): local production costs the station
+    // nothing (before, it paid local producers up to the base price for new output, and a
+    // producer such as Venus that sold its glut to ships for less went broke). Residents pay for
+    // what they use up, with income from outside like wages, at what their station paid ships
+    // for it (the reference price until a delivery): before step 17 they paid the scarcity
+    // curve, up to 16x for goods nobody had delivered, the main source of new money; paying
+    // only the reference price left every chronically short station losing money on each import.
     for (std::size_t i = 0; i < stations_.size(); ++i) {
         auto& station = stations_[i];
         const auto& definition = get_station_definition(station.station_id);
         for (const auto& [commodity_id, after] : station.inventory) {
             const auto before_it = stocks_before[i].find(commodity_id);
             const double before = before_it == stocks_before[i].end() ? 0.0 : before_it->second;
-            const double delta = after - before;
-            if (delta == 0.0) {
+            const double used = before - after;
+            if (used <= 0.0) {
                 continue;
             }
-            const double base_price = get_commodity(commodity_id).base_price;
-            double value = economy_.get_trade_value(definition, commodity_id, before, delta, base_price);
-            if (delta > 0.0) {
-                // Local producers are paid at most the base price: the scarcity premium is
-                // for goods brought from elsewhere. Otherwise a producer short of its own
-                // output (a fresh start) pays its producers up to 16x for stock it never sells.
-                const double target = economy_.get_target_stock(definition, commodity_id);
-                const double below_target = std::max(0.0, std::min(after, target) - before);
-                if (below_target > 0.0) {
-                    value += base_price * below_target
-                        - economy_.get_trade_value(definition, commodity_id, before, below_target, base_price);
-                }
-            }
-            if (delta < 0.0) {
-                station.credits += value;
-                station.ledger.household_sales += value;
-                outside_economy_credits_ -= value;
-            } else {
-                station.credits -= value;
-                station.ledger.producer_purchases += value;
-                outside_economy_credits_ += value;
-            }
+            const auto cost = station.import_unit_cost.find(commodity_id);
+            const double retail = cost == station.import_unit_cost.end()
+                ? economy_.reference_price(definition, commodity_id) : cost->second;
+            const double value = retail * used;
+            station.credits += value;
+            station.ledger.household_sales += value;
+            outside_economy_credits_ -= value;
         }
     }
 }
@@ -2576,13 +2589,23 @@ void Simulation::step_treasuries(double dt_s) {
         }
     }
 
-    // Faction treasuries close the gap of stations outside the credit band.
+    // Faction treasuries close the gap of stations outside the credit band: they tax the excess
+    // above the ceiling, and top up a station below the floor by at most the upkeep of its core
+    // crew (step 17), so a station that cannot pay its way gets less than it spends.
     const double band_share = std::min(1.0, dt_days / open.station_balance_days);
+    const double tax_decay = std::exp(-dt_days / 365.0);
+    for (auto& [faction_id, per_day] : faction_tax_per_day_) {
+        per_day *= tax_decay;
+    }
     for (auto& station : stations_) {
         const auto& definition = get_station_definition(station.station_id);
         double transfer = 0.0;
         if (station.credits < open.station_credit_floor) {
             transfer = (open.station_credit_floor - station.credits) * band_share;
+            if (open.core_crew_fraction > 0.0) {
+                transfer = std::min(transfer,
+                    open.core_crew_fraction * consumption_value_per_day(definition, true) * dt_days);
+            }
         } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
             transfer = -(station.credits - open.station_credit_ceiling) * band_share;
         }
@@ -2602,8 +2625,95 @@ void Simulation::step_treasuries(double dt_s) {
             station.ledger.subsidies += transfer;
         } else {
             station.ledger.taxes -= transfer;
+            faction_tax_per_day_[definition.faction_id] += -transfer / 365.0;
         }
     }
+
+    // A faction in debt pays interest to the outside economy (Earth's lenders).
+    const double rate = universe_.ship_operations.interest_rate_per_year;
+    for (auto& [faction_id, balance] : faction_treasuries_) {
+        if (balance < 0.0 && rate > 0.0) {
+            const double interest = -balance * rate * dt_days / 365.0;
+            balance -= interest;
+            outside_economy_credits_ += interest;
+            faction_interest_paid_ += interest;
+        }
+    }
+}
+
+double Simulation::consumption_value_per_day(const domain::StationDefinition& station, bool upkeep_only) const {
+    double value = 0.0;
+    for (const auto& [commodity_id, rate] : economy_.get_station_net_rates(station)) {
+        if (rate < 0.0 && !economy_.is_export_market(station, commodity_id)
+            && (!upkeep_only || economy_.is_upkeep(station, commodity_id))) {
+            value += -rate * economy_.reference_price(station, commodity_id);
+        }
+    }
+    return value;
+}
+
+double Simulation::faction_credit_limit(const std::string& faction_id) const {
+    const auto& open = universe_.open_economy;
+    double fleet_value = 0.0;
+    for (const auto& ship : ships_) {
+        if (ship.faction_id == faction_id) {
+            fleet_value += get_ship_class(ship.class_id).ship_value_cr;
+        }
+    }
+    const auto tax = faction_tax_per_day_.find(faction_id);
+    return open.faction_loan_to_value * fleet_value
+        + open.faction_tax_years * 365.0 * (tax == faction_tax_per_day_.end() ? 0.0 : tax->second);
+}
+
+double Simulation::faction_spendable(const std::string& faction_id) const {
+    const auto it = faction_treasuries_.find(faction_id);
+    return (it == faction_treasuries_.end() ? 0.0 : it->second) + faction_credit_limit(faction_id);
+}
+
+void Simulation::refresh_station_payable() {
+    const auto& open = universe_.open_economy;
+    station_payable_.clear();
+    for (const auto& station : stations_) {
+        const auto& definition = get_station_definition(station.station_id);
+        station_payable_[station.station_id] = station.credits
+            + open.station_credit_days * consumption_value_per_day(definition, false);
+    }
+    // Contracts on their way reserve the station's money in full when due within the credit
+    // window, and in proportion (window / days to arrival) when later: those are paid partly
+    // out of the income until then. (Counting every contract in full left Low Earth Logistics
+    // unable to pay for food from Earth L1, 0.1 days away, because freighters from Ganymede
+    // were booked to arrive in years; counting only those due within the window let Mars,
+    // 200 days from its suppliers, order 1.3M cr of goods it could not pay for.)
+    for (const auto& ship : ships_) {
+        if (ship.phase != domain::ShipMissionPhase::InTransit && ship.phase != domain::ShipMissionPhase::AwaitingDeparture) {
+            continue;
+        }
+        const double share = contract_reserve_share(ship.active_mission.arrival_time_s);
+        for (const auto& lot : ship.active_mission.cargo) {
+            station_payable_[ship.active_mission.destination_station_id] -= share * (lot.contract_value - lot.emergency_premium);
+        }
+    }
+}
+
+void Simulation::record_affordability() {
+    for (auto& station : stations_) {
+        station.affordability = station_affordability(get_station_definition(station.station_id));
+    }
+}
+
+double Simulation::contract_reserve_share(double arrival_time_s) const {
+    const double window_days = universe_.open_economy.station_credit_days;
+    const double days = (arrival_time_s - game_time_s_) / 86400.0;
+    return days <= window_days ? 1.0 : window_days / days;
+}
+
+double Simulation::station_affordability(const domain::StationDefinition& station) const {
+    const double need = universe_.open_economy.affordability_days * consumption_value_per_day(station, false);
+    const auto it = station_payable_.find(station.id);
+    if (need <= 0.0 || it == station_payable_.end()) {
+        return 1.0;
+    }
+    return std::clamp(it->second / need, 0.0, 1.0);
 }
 
 void Simulation::step_fleet_investment() {
@@ -2717,9 +2827,10 @@ Simulation::CommissionStep Simulation::commission_step() {
     // price gap scores thousands of credits per day), so a candidate is valued by what its best
     // cargo run from the yard earns per day over the route commitment (sustained_profit_per_day),
     // minus its daily running costs.
+    // Treasuries pay for hulls with their cash and what they may borrow (step 17).
     double richest_treasury = 0.0;
     for (const auto& [faction_id, balance] : faction_treasuries_) {
-        richest_treasury = std::max(richest_treasury, balance);
+        richest_treasury = std::max(richest_treasury, faction_spendable(faction_id));
     }
     // A depot's fuel is also bought by ships.
     const auto consumption_rate = [&](const domain::StationDefinition& station, const std::string& commodity_id) {
@@ -3066,13 +3177,14 @@ Simulation::CommissionStep Simulation::commission_step() {
         return CommissionStep::NothingToBuy;
     }
 
-    // The yard's own faction invests if it can pay for the ship and its working capital,
-    // otherwise the richest faction (which can: candidates are priced against it).
+    // The yard's own faction invests if it can pay for the ship and its working capital (with
+    // what it may borrow), otherwise the faction that can spend most (which can: candidates
+    // are priced against it).
     const double price = best_class->ship_value_cr + investment.working_capital;
     std::string investor = best_yard->faction_id;
-    if (faction_treasuries_[investor] < price) {
+    if (faction_spendable(investor) < price) {
         for (const auto& [faction_id, balance] : faction_treasuries_) {
-            if (balance >= faction_treasuries_[investor]) {
+            if (faction_spendable(faction_id) >= faction_spendable(investor)) {
                 investor = faction_id;
             }
         }
@@ -3125,6 +3237,14 @@ domain::SimulationSnapshot Simulation::snapshot() const {
         .game_time_s = game_time_s_,
         .outside_economy_credits = outside_economy_credits_,
         .faction_treasuries = faction_treasuries_,
+        .faction_credit_limits = [&] {
+            std::map<std::string, double> limits;
+            for (const auto& faction : universe_.factions) {
+                limits[faction.id] = faction_credit_limit(faction.id);
+            }
+            return limits;
+        }(),
+        .faction_interest_paid = faction_interest_paid_,
         .money_supply_target = seeded_money_supply_,
         .fleet_investment = investment_ledger_,
         .stations = stations_,

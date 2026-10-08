@@ -90,6 +90,17 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
   with `spacetrains_headless --write-reference-prices data/economy/reference_prices.csv`. Producers, fuel and export
   markets keep the base price. The curve is clamped to [0.25, `price_cap`] x its centre (`pricing.csv`, 4).
 
+## Station money (step 17)
+
+- A station and its residents are one account: local production is free; residents pay for what they use up at
+  the station's **import cost** (`StationState::import_unit_cost`, deliveries averaged over about 30 days of use;
+  the reference price before any delivery), with money from the outside account (`Simulation::settle_local_economy`).
+- Faction treasuries tax station cash above 250k, top up stations below 25k by at most the upkeep of 30% of
+  their population per day, may **borrow** down to minus (50% of their fleet's hull value + 2 years of taxes),
+  pay 5%/yr interest on debt, and buy ships with cash plus credit (`open_economy.csv`).
+- A station budget gate (`affordability_days`, off) can scale what a station offers ships by what it can pay.
+- Details and the variants tried: `docs/plans/steps_14_17_log.md`.
+
 ## Deferred Work
 
 - More detailed production chains
