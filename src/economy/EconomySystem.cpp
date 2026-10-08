@@ -44,6 +44,26 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     compute_cover_days();
     reference_prices_ = universe_.pricing.reference_prices;
     compute_price_caps();
+    for (const auto& event : universe_.events) {
+        events_by_id_[event.id] = &event;
+    }
+}
+
+double EconomySystem::event_factor(const domain::StationState& station, const domain::RecipeDefinition& recipe) const {
+    double factor = 1.0;
+    for (const auto& active : station.events) {
+        const auto it = events_by_id_.find(active.event_id);
+        if (it == events_by_id_.end() || it->second->commodity_id != recipe.commodity_id) {
+            continue;
+        }
+        const auto kind = it->second->kind;
+        const bool output = recipe.units_per_day > 0.0;
+        if ((output && (kind == domain::EventKind::Outage || kind == domain::EventKind::Boom))
+            || (!output && kind == domain::EventKind::DemandSpike)) {
+            factor *= it->second->magnitude;
+        }
+    }
+    return factor;
 }
 
 // Step 24: an input's cap is what a unit of it makes, input_value_share of the value of the
@@ -294,7 +314,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         }
 
         for (const auto* recipe : recipes) {
-            const double units_per_day = recipe->units_per_day * factor;
+            const double units_per_day = recipe->units_per_day * factor * event_factor(station, *recipe);
             double rate = units_per_day;
             // Lost consumption that is a shortage, not a choice: the part of an input's use its own
             // stock-out took from the outputs it limits.
@@ -321,7 +341,8 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             // Inventory cap for produced commodities: prevents unbounded accumulation when
             // ships can't distribute fast enough.
             if (recipe->units_per_day > 0.0) {
-                const double cap = production_cap_units(*station_it, recipe->commodity_id, units_per_day);
+                // On the normal rate: an outage must not throw away the stock it lives on.
+                const double cap = production_cap_units(*station_it, recipe->commodity_id, recipe->units_per_day * factor);
                 if (stock > cap) {
                     stock = cap;
                 }

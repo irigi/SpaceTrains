@@ -961,6 +961,38 @@ int main() {
             earth_seed, population("earth_l1"), mars_seed, population("mars_transfer"));
     }
 
+    // --- Events (step 28): the same seed strikes the same events; each runs its drawn
+    // duration and then ends. ---
+    {
+        const auto run = [&] {
+            auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+            sim.set_timewarp(86400.0);
+            for (int day = 0; day < 400; ++day) {
+                sim.step(1.0);
+                const auto snap = sim.snapshot();
+                for (const auto& station : snap.stations) {
+                    for (const auto& active : station.events) {
+                        require(active.end_s > snap.game_time_s, "an event should end when due");
+                        const auto& events = sim.universe().events;
+                        const auto it = std::find_if(events.begin(), events.end(), [&](const auto& e) { return e.id == active.event_id; });
+                        require(it != events.end(), "a running event should be defined");
+                        const double days = (active.end_s - active.start_s) / 86400.0;
+                        require(days >= it->min_days - 1.0e-9 && days <= it->max_days + 1.0e-9, "an event should last its drawn duration");
+                    }
+                }
+            }
+            return sim.snapshot().events_started;
+        };
+        const auto first = run();
+        int total = 0;
+        for (const auto& [event_id, count] : first) {
+            total += count;
+        }
+        require(total > 0, "events should strike within 400 days");
+        require(first == run(), "the same seed should strike the same events");
+        std::cout << std::format("Events: {} struck in 400 days\n", total);
+    }
+
     std::cout << "All SpaceTrains tests passed.\n";
     return 0;
 }

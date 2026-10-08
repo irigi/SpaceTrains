@@ -418,6 +418,34 @@ int main() {
         }
     }
 
+    {
+        // --- Events (step 28): an outage stops the output it hits; a demand spike multiplies use. ---
+        const auto& events = universe.events;
+        const auto storm = std::find_if(events.begin(), events.end(), [](const auto& e) { return e.id == "mercury_storm"; });
+        const auto epidemic = std::find_if(events.begin(), events.end(), [](const auto& e) { return e.id == "mars_epidemic"; });
+        require(storm != events.end() && epidemic != events.end(), "the data should define mercury_storm and mars_epidemic");
+        const auto run_day = [&](const std::string& station_id, const std::string& commodity_id, const char* event_id) {
+            spacetrains::domain::StationState state {.station_id = station_id};
+            for (const auto& commodity : universe.commodities) {
+                state.inventory[commodity.id] = 200.0;
+            }
+            if (event_id != nullptr) {
+                state.events.push_back({.event_id = event_id, .start_s = 0.0, .end_s = 1.0e9});
+            }
+            std::vector<spacetrains::domain::StationState> states {state};
+            economy.step(states, 86400.0);
+            return states.front().inventory[commodity_id] - 200.0;
+        };
+        const double normal = run_day("mercury_yard", "metals", nullptr);
+        require(normal > 1.0, "Mercury should make metals on a normal day");
+        require(std::abs(run_day("mercury_yard", "metals", "mercury_storm")) < 1.0e-9,
+            "a solar storm should halt Mercury's metals output");
+        const double use = run_day("mars_transfer", "medicine", nullptr);
+        require(use < 0.0, "Mars should use medicine");
+        require_near(run_day("mars_transfer", "medicine", "mars_epidemic"), use * epidemic->magnitude, 1.0e-9,
+            "an epidemic should multiply Mars's medicine use");
+    }
+
     std::cout << "All economy tests passed.\n";
     return 0;
 }

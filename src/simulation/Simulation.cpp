@@ -185,6 +185,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     for (const auto& ship_class : universe_.ship_classes) {
         ship_classes_by_id_[ship_class.id] = &ship_class;
     }
+    event_rng_.seed(universe_.event_seed);
     for (const auto& faction : universe_.factions) {
         faction_treasuries_[faction.id] = 0.0;
     }
@@ -292,6 +293,7 @@ Simulation Simulation::from_data_root(const std::string& data_root) {
 
 void Simulation::start_at(double time_s) {
     game_time_s_ = time_s;
+    event_rng_.seed(universe_.event_seed ^ static_cast<std::uint64_t>(time_s));
     next_investment_review_s_ = time_s;
     for (auto& ship : ships_) {
         ship.next_review_s = time_s;
@@ -2546,6 +2548,7 @@ void Simulation::tick() {
     }
     settle_local_economy(stocks_before);
     step_population(dt_s);
+    step_events(dt_s);
     step_treasuries(dt_s);
     step_emergencies();
     refresh_station_payable();
@@ -2647,6 +2650,53 @@ void Simulation::step_population(double dt_s) {
                 "news");
             station.population_announced = station.population;
         }
+    }
+}
+
+// Step 28: events end when due, and each idle one strikes its station with probability
+// rate x dt (one draw per event per tick, so the sequence depends only on the seed).
+void Simulation::step_events(double dt_s) {
+    for (auto& station : stations_) {
+        std::erase_if(station.events, [&](const domain::ActiveEvent& active) {
+            if (active.end_s > game_time_s_) {
+                return false;
+            }
+            const auto it = std::find_if(universe_.events.begin(), universe_.events.end(),
+                [&](const auto& event) { return event.id == active.event_id; });
+            if (it != universe_.events.end() && !it->end_headline.empty()) {
+                add_event(it->end_headline, "news");
+            }
+            return true;
+        });
+    }
+    if (!events_enabled_) {
+        return;
+    }
+    const double dt_years = dt_s / 86400.0 / 365.25;
+    std::uniform_real_distribution<double> uniform(0.0, 1.0);
+    for (const auto& event : universe_.events) {
+        const double roll = uniform(event_rng_);
+        const double length = uniform(event_rng_);
+        if (roll >= event.rate_per_year * dt_years) {
+            continue;
+        }
+        auto& station = get_station_state(event.station_id);
+        if (std::any_of(station.events.begin(), station.events.end(),
+                [&](const auto& active) { return active.event_id == event.id; })) {
+            continue;
+        }
+        ++events_started_[event.id];
+        add_event(event.headline, "news");
+        if (event.kind == domain::EventKind::Migration) {
+            const auto& definition = get_station_definition(station.station_id);
+            station.population = std::min(station.population * (1.0 + event.magnitude),
+                universe_.growth.max_population_factor * static_cast<double>(definition.population));
+            station.population_announced = station.population;
+            economy_.set_population(station.station_id, station.population);
+            continue;
+        }
+        const double days = event.min_days + (event.max_days - event.min_days) * length;
+        station.events.push_back({.event_id = event.id, .start_s = game_time_s_, .end_s = game_time_s_ + days * 86400.0});
     }
 }
 
@@ -3411,6 +3461,7 @@ domain::SimulationSnapshot Simulation::snapshot() const {
         .recent_events = recent_events_,
         .emergencies = emergencies_,
         .emergencies_opened = emergencies_opened_,
+        .events_started = events_started_,
         .emergency_paid = emergency_paid_,
     };
 }
@@ -3677,6 +3728,19 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"population\":" << std::llround(get_station_state(station.id).population) << ","
                << "\"seeded_population\":" << station.population << ","
                << "\"supply_index\":" << get_station_state(station.id).supply_index << ","
+               << "\"events\":" << [&] {
+                      std::string list = "[";
+                      for (const auto& active : get_station_state(station.id).events) {
+                          const auto it = std::find_if(universe_.events.begin(), universe_.events.end(),
+                              [&](const auto& event) { return event.id == active.event_id; });
+                          if (it == universe_.events.end()) {
+                              continue;
+                          }
+                          list += std::format("{}{{\"headline\":\"{}\",\"days_left\":{:.1f}}}", list.size() > 1 ? "," : "",
+                              json_escape(it->headline), (active.end_s - game_time_s_) / 86400.0);
+                      }
+                      return list + "]";
+                  }() << ","
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","
                << "\"z\":" << position.z << ","

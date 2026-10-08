@@ -336,6 +336,21 @@ void print_economy_audit(
     }
     std::cout << std::format("    Emergencies: {} opened, {} open now, {:.0f} cr paid by the factions\n",
         snap.emergencies_opened, snap.emergencies.size(), snap.emergency_paid);
+    {
+        int total = 0;
+        std::string listed;
+        for (const auto& [event_id, count] : snap.events_started) {
+            total += count;
+            listed += std::format(" {}={}", event_id, count);
+        }
+        std::cout << std::format("    Events: {} struck{}\n", total, listed);
+        for (const auto& station : snap.stations) {
+            for (const auto& active : station.events) {
+                std::cout << std::format("      running: {} at {} for {:.0f} more days\n", active.event_id,
+                    station.station_id, (active.end_s - snap.game_time_s) / 86400.0);
+            }
+        }
+    }
     for (const auto& emergency : snap.emergencies) {
         std::cout << std::format("      open: {} {} for {:.0f} days at {:.0f}x\n", emergency.station_id,
             emergency.commodity_id, (snap.game_time_s - emergency.opened_s) / 86400.0, emergency.premium);
@@ -930,6 +945,7 @@ int main(int argc, char** argv) {
     std::string save_path;
     double start_day = 0.0;
     std::string snapshot_json_path;
+    bool no_events = false;
     int save_at_day = -1;
     std::string write_reference_prices_path;
 
@@ -942,6 +958,8 @@ int main(int argc, char** argv) {
             report_interval_days = std::stoi(args[++i]);
         } else if (args[i] == "--verbose" || args[i] == "-v") {
             verbose = true;
+        } else if (args[i] == "--no-events") {
+            no_events = true;
         } else if (args[i] == "--econ-audit") {
             econ_audit = true;
         } else if (args[i] == "--snapshot-json" && i + 1 < args.size()) {
@@ -984,6 +1002,7 @@ int main(int argc, char** argv) {
     }
     const auto load_start = std::chrono::steady_clock::now();
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
+    sim.set_events_enabled(!no_events);
     if (!write_reference_prices_path.empty()) {
         // Plans the reference trips (step 15) and writes data/economy/reference_prices.csv.
         const auto prices = sim.compute_reference_prices();

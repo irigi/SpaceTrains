@@ -55,6 +55,9 @@ def run_one(binary, days, start, threads, extra):
         if m:
             result["emergencies"] = int(m.group(1))
             result["emergency_cr"] = float(m.group(3))
+        m = re.search(r"Events: (\d+) struck", line)
+        if m:
+            result["events"] = int(m.group(1))
         m = re.search(r"interest paid (\d+) cr; factions over their limit: (\d+)", line)
         if m:
             result["interest"] = float(m.group(1))
@@ -78,8 +81,11 @@ def main():
     parser.add_argument("--days", type=int, default=730)
     parser.add_argument("--starts", default="0,90,180,270")
     parser.add_argument("--threads", type=int, default=0, help="per run (default: cores / runs)")
+    parser.add_argument("--no-events", action="store_true", help="switch random events off (step 28)")
     parser.add_argument("extra", nargs="*", help="more arguments for the binary")
     args = parser.parse_args()
+    if args.no_events:
+        args.extra.append("--no-events")
     starts = [float(x) for x in args.starts.split(",")]
     threads = args.threads or max(1, (os.cpu_count() or 4) // len(starts))
     with ThreadPoolExecutor(max_workers=len(starts)) as pool:
@@ -88,7 +94,7 @@ def main():
     columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("profitable", "profitable"), ("ships", "ships"),
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
                ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("ship_cash", "ship cash %"),
-               ("interest", "interest"), ("over_limit", "over limit"), ("seconds", "run s")]
+               ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"), ("seconds", "run s")]
     print(f"{'start day':>10}" + "".join(f"{title:>12}" for _, title in columns))
     for result in results:
         print(f"{result['start']:>10.0f}" + "".join(

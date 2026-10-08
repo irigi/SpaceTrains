@@ -799,6 +799,75 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
     }
 
+    {
+        // Random events (step 28).
+        const auto settings_path = root / "events" / "settings.csv";
+        const auto settings = read_csv_rows(settings_path);
+        require_header(settings.front(), {"key", "value"}, settings_path);
+        for (std::size_t i = 1; i < settings.size(); ++i) {
+            require_field_count(settings[i], 2, settings_path, i + 1);
+            if (settings[i][0] != "seed") {
+                throw std::runtime_error("Unknown key '" + settings[i][0] + "' in " + settings_path.string());
+            }
+            universe.event_seed = std::stoull(settings[i][1]);
+        }
+        const auto events_path = root / "events" / "events.csv";
+        const auto rows = read_csv_rows(events_path);
+        require_header(rows.front(), {"id", "kind", "station_id", "commodity_id", "rate_per_year", "min_days", "max_days",
+            "magnitude", "headline", "end_headline"}, events_path);
+        std::unordered_set<std::string> seen_ids;
+        const std::unordered_map<std::string, domain::EventKind> kinds {
+            {"outage", domain::EventKind::Outage},
+            {"boom", domain::EventKind::Boom},
+            {"demand_spike", domain::EventKind::DemandSpike},
+            {"migration", domain::EventKind::Migration},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 10, events_path, i + 1);
+            require_unique_id(row[0], seen_ids, events_path, i + 1);
+            const auto kind = kinds.find(row[1]);
+            if (kind == kinds.end()) {
+                throw std::runtime_error("Unknown event kind '" + row[1] + "' in " + events_path.string());
+            }
+            require_station(row[2], events_path);
+            domain::EventDefinition event {
+                .id = row[0],
+                .kind = kind->second,
+                .station_id = row[2],
+                .commodity_id = row[3],
+                .rate_per_year = parse_double(row[4], events_path, i + 1, "rate_per_year"),
+                .min_days = parse_double(row[5], events_path, i + 1, "min_days"),
+                .max_days = parse_double(row[6], events_path, i + 1, "max_days"),
+                .magnitude = parse_double(row[7], events_path, i + 1, "magnitude"),
+                .headline = row[8],
+                .end_headline = row[9],
+            };
+            if (event.rate_per_year < 0.0 || event.min_days < 0.0 || event.max_days < event.min_days || event.magnitude < 0.0) {
+                throw std::runtime_error("Event '" + event.id + "' needs rate >= 0, 0 <= min_days <= max_days and magnitude >= 0 in "
+                    + events_path.string());
+            }
+            if (event.kind != domain::EventKind::Migration) {
+                require_commodity(event.commodity_id, events_path);
+                // The station must make (outage, boom) or use (demand spike) the good.
+                const auto& station = *std::find_if(universe.stations.begin(), universe.stations.end(),
+                    [&](const auto& s) { return s.id == event.station_id; });
+                const bool wants_output = event.kind != domain::EventKind::DemandSpike;
+                const bool has_recipe = std::any_of(universe.recipes.begin(), universe.recipes.end(), [&](const auto& recipe) {
+                    const bool here = recipe.station_id.empty() ? recipe.profile_id == station.economy_profile_id
+                                                                : recipe.station_id == station.id;
+                    return here && recipe.commodity_id == event.commodity_id
+                        && (wants_output ? recipe.units_per_day > 0.0 : recipe.units_per_day < 0.0);
+                });
+                if (!has_recipe) {
+                    throw std::runtime_error("Event '" + event.id + "': " + event.station_id + (wants_output ? " makes" : " uses")
+                        + " no " + event.commodity_id + " in " + events_path.string());
+                }
+            }
+            universe.events.push_back(std::move(event));
+        }
+    }
+
     for (const auto& body : universe.bodies) {
         if (!body.orbit.parent_id.empty() && !contains_id(universe.bodies, body.orbit.parent_id)) {
             throw std::runtime_error("Body '" + body.id + "' references unknown parent body '" + body.orbit.parent_id + "'");

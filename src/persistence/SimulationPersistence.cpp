@@ -7,6 +7,7 @@
 #include "simulation/Simulation.hpp"
 
 #include <format>
+#include <sstream>
 #include <stdexcept>
 
 namespace spacetrains::simulation {
@@ -15,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 9;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations
+constexpr int kSaveVersion = 10;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -246,6 +247,15 @@ Json station_to_json(const domain::StationState& s) {
     out.set("population", s.population);
     out.set("supply_index", s.supply_index);
     out.set("population_announced", s.population_announced);
+    auto events = Json::array();
+    for (const auto& active : s.events) {
+        auto entry = Json::object();
+        entry.set("event_id", active.event_id);
+        entry.set("start_s", active.start_s);
+        entry.set("end_s", active.end_s);
+        events.push(std::move(entry));
+    }
+    out.set("events", std::move(events));
     return out;
 }
 
@@ -270,6 +280,13 @@ domain::StationState station_from_json(const Json& j) {
     s.population = j.get("population").number();
     s.supply_index = j.get("supply_index").number();
     s.population_announced = j.get("population_announced").number();
+    for (const auto& entry : j.get("events").items()) {
+        s.events.push_back({
+            .event_id = entry.get("event_id").string(),
+            .start_s = entry.get("start_s").number(),
+            .end_s = entry.get("end_s").number(),
+        });
+    }
     return s;
 }
 
@@ -363,6 +380,16 @@ std::string Simulation::save_state_json() const {
     }
     root.set("emergencies", std::move(emergencies));
     root.set("emergencies_opened", emergencies_opened_);
+    {
+        std::ostringstream rng;
+        rng << event_rng_;
+        root.set("event_rng", rng.str());
+        auto started = Json::object();
+        for (const auto& [event_id, count] : events_started_) {
+            started.set(event_id, count);
+        }
+        root.set("events_started", std::move(started));
+    }
     root.set("emergency_paid", emergency_paid_);
     auto stations = Json::array();
     for (const auto& station : stations_) {
@@ -475,6 +502,18 @@ void Simulation::load_state_json(const std::string& text) {
         });
         (void)get_station_definition(emergencies.back().station_id);  // throws on an unknown station
     }
+    std::mt19937_64 event_rng;
+    {
+        std::istringstream rng(root.get("event_rng").string());
+        rng >> event_rng;
+        if (rng.fail()) {
+            throw std::runtime_error("save: bad event_rng");
+        }
+    }
+    std::map<std::string, int> events_started;
+    for (const auto& [event_id, count] : root.get("events_started").fields()) {
+        events_started[event_id] = static_cast<int>(count.number());
+    }
     std::map<std::string, std::vector<ProbedRun>> review_probes;
     for (const auto& [key, list] : root.get("review_probes").fields()) {
         auto& runs = review_probes[key];
@@ -505,6 +544,8 @@ void Simulation::load_state_json(const std::string& text) {
     review_probes_ = std::move(review_probes);
     emergencies_ = std::move(emergencies);
     emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());
+    event_rng_ = event_rng;
+    events_started_ = std::move(events_started);
     emergency_paid_ = root.get("emergency_paid").number();
     investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());
     investment_ledger_.ships_sold = static_cast<int>(investment.get("ships_sold").number());

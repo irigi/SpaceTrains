@@ -4,6 +4,7 @@
 #include <iosfwd>
 #include <map>
 #include <memory>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -42,6 +43,8 @@ public:
     // economy in a different geometry, for benchmarks over several starts. Call before the
     // first step.
     void start_at(double time_s);
+    // Random events (step 28) are on unless switched off, e.g. to compare economies.
+    void set_events_enabled(bool enabled) { events_enabled_ = enabled; }
 
     // Save games (src/persistence/SimulationPersistence.cpp): the mutable state as JSON.
     // load_state_json() expects a Simulation built from the same data files (checked by
@@ -150,6 +153,7 @@ private:
     // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
     void step_population(double dt_s);
+    void step_events(double dt_s);
     // Station money (step 17). Consumption per day of a station's goods at reference prices:
     // its upkeep goods only (for the core-crew subsidy), or every consumed good (its import bill).
     [[nodiscard]] double consumption_value_per_day(const domain::StationDefinition& station, bool upkeep_only) const;
@@ -310,6 +314,11 @@ private:
     // Emergency deliveries open now, and the totals since the start.
     std::vector<domain::Emergency> emergencies_;
     int emergencies_opened_ {0};
+    // Random events (step 28): the generator (seeded from the data and the start date) and
+    // how many of each event have struck.
+    std::mt19937_64 event_rng_ {0};
+    bool events_enabled_ {true};
+    std::map<std::string, int> events_started_;
     double emergency_paid_ {0.0};   // by the faction treasuries, in premiums
     std::vector<domain::ShipState> sold_ships_;
     double timewarp_factor_ {3600.0};

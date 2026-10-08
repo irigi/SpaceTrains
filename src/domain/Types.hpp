@@ -137,6 +137,29 @@ struct GrowthDefinition {
     double decline_below {0.7};
 };
 
+// Random events (data/events/events.csv, step 28). Each may strike its station at random,
+// rate_per_year on average, while it is not already running there, for a duration drawn
+// between min_days and max_days:
+//   outage        the station's output of the good runs at `magnitude` (0 = halted);
+//   boom          its output of the good runs at `magnitude` x;
+//   demand_spike  its use of the good runs at `magnitude` x;
+//   migration     its population grows by `magnitude` (a share) at once.
+// Prices, emergencies and ships react through the market; nothing else special-cases them.
+enum class EventKind { Outage, Boom, DemandSpike, Migration };
+
+struct EventDefinition {
+    std::string id;
+    EventKind kind {EventKind::Outage};
+    std::string station_id;
+    std::string commodity_id;  // empty for migration
+    double rate_per_year {0.0};
+    double min_days {0.0};
+    double max_days {0.0};
+    double magnitude {1.0};
+    std::string headline;
+    std::string end_headline;
+};
+
 // Prices (data/economy/pricing.csv and reference_prices.csv, step 15).
 struct PricingDefinition {
     double price_cap {16.0};            // a curve's highest multiple of its centre (empty stock)
@@ -226,6 +249,8 @@ struct UniverseDefinition {
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
     GrowthDefinition growth;
+    std::vector<EventDefinition> events;
+    std::uint64_t event_seed {0};
     // Scheduled liners (data/economy/liners.csv, step 22): seed ship id -> the stations of its
     // loop, in order. A liner flies only to the stop after the one it is at, forever.
     std::unordered_map<std::string, std::vector<std::string>> liners;
@@ -399,6 +424,12 @@ struct FleetInvestmentLedger {
     double salvage {0.0};           // outside economy -> treasuries
 };
 
+struct ActiveEvent {
+    std::string event_id;
+    double start_s {0.0};
+    double end_s {0.0};
+};
+
 struct StationState {
     std::string station_id;
     Inventory inventory;
@@ -433,6 +464,8 @@ struct StationState {
     double population {0.0};
     double supply_index {1.0};
     double population_announced {0.0};
+    // Events running here (step 28): the definition's id, and when each ends.
+    std::vector<ActiveEvent> events {};
 };
 
 struct SimulationSnapshot {
@@ -456,6 +489,7 @@ struct SimulationSnapshot {
     // Emergency deliveries (step 14): open now, opened since the start, premiums paid.
     std::vector<Emergency> emergencies;
     int emergencies_opened {0};
+    std::map<std::string, int> events_started;  // by event id (step 28)
     double emergency_paid {0.0};
 };
 

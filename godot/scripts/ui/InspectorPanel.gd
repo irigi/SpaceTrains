@@ -113,6 +113,10 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         var trend := "well supplied" if supply >= 0.95 else ("short, people leaving" if supply < 0.7 else "steady")
         _add_label("Population %+.0f%% since founding · supply %.0f%% · %s" % [100.0 * change, 100.0 * supply, trend],
             UiTheme.GOOD if supply >= 0.95 else (UiTheme.WARN if supply < 0.7 else UiTheme.TEXT_DIM), 12)
+    # Events running here (step 28).
+    for event in detail.get("events", []):
+        _add_label("⚑ %s (%.0f more days)" % [String(event.get("headline", "")), float(event.get("days_left", 0.0))],
+            UiTheme.WARN, 12)
 
     var fuel_factory := float(detail.get("fuel_factory_per_day", 0.0))
     var exports: Array = detail.get("export_market", [])

@@ -87,6 +87,8 @@ public:
 private:
     void compute_cover_days();
     void compute_price_caps();
+    // The multiple of a recipe's rate the events running at a station allow (step 28).
+    [[nodiscard]] double event_factor(const domain::StationState& station, const domain::RecipeDefinition& recipe) const;
     // reference_price for a caller that passes the base price.
     [[nodiscard]] double curve_centre(
         const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const;
@@ -107,6 +109,8 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, double>> cover_days_;
     // Landed-cost reference prices by station id and good (empty: base prices).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
+    // Events by id (step 28).
+    std::unordered_map<std::string, const domain::EventDefinition*> events_by_id_;
     // Current populations by station id (step 27).
     std::unordered_map<std::string, double> populations_;
     // Price caps above pricing.price_cap, by station id and good (inputs only).
