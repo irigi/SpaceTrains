@@ -1122,6 +1122,9 @@ int main(int argc, char** argv) {
     if (!snapshot_json_path.empty()) {
         std::ofstream file(snapshot_json_path, std::ios::binary | std::ios::trunc);
         file << sim.build_bridge_snapshot_json(false, 0, 0.0);
+        // The planned paths, as the bridge writes them next to its snapshot.
+        std::ofstream paths(snapshot_json_path + ".paths", std::ios::binary | std::ios::trunc);
+        paths << sim.build_bridge_paths_json();
     }
 
     std::cout << "\n=== Final Report ===\n";

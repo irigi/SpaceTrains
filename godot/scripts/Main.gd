@@ -728,10 +728,14 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
         "departure": float(ship.get("departure_time_s", 0.0)),
         "arrival": float(ship.get("arrival_time_s", 0.0)),
     }
+    var origin_planet := _planet_of(String(cached["origin"]))
+    cached["helio"] = origin_planet != "" and origin_planet != _planet_of(String(cached["destination"]))
     var times := PackedFloat64Array()
     var offsets := PackedFloat64Array()
+    var raw := PackedFloat64Array()
     times.resize(path.size())
     offsets.resize(path.size() * 3)
+    raw.resize(path.size() * 3)
     for i in range(path.size()):
         var point: Dictionary = path[i]
         var t := float(point.get("t_s", 0.0))
@@ -740,16 +744,46 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
         var xyz := [float(point.get("x", 0.0)), float(point.get("y", 0.0)), float(point.get("z", 0.0))]
         for axis in range(3):
             offsets[3 * i + axis] = xyz[axis] - anchor[axis]
+            raw[3 * i + axis] = xyz[axis]
     cached["t"] = times
     cached["off"] = offsets
+    cached["raw"] = raw
+    cached["sense"] = _path_sense(times, raw, float(cached["departure"]), float(cached["arrival"]))
     ship_paths[ship_id] = cached
+
+# The planet a body belongs to (itself for a planet, its parent for a moon); "" for the Sun.
+func _planet_of(body_id: String) -> String:
+    var body := body_id
+    for _depth in range(4):
+        var parent := String((body_orbits.get(body, {}) as Dictionary).get("parent", ""))
+        if parent == "":
+            return ""
+        if String((body_orbits.get(parent, {}) as Dictionary).get("parent", "")) == "":
+            return body
+        body = parent
+    return body
+
+# +1 when a heliocentric path runs anticlockwise (increasing angle), -1 otherwise.
+func _path_sense(times: PackedFloat64Array, raw: PackedFloat64Array, departure: float, arrival: float) -> float:
+    var total := 0.0
+    for i in range(times.size() - 1):
+        if times[i + 1] <= departure or times[i] >= arrival:
+            continue
+        var a0 := atan2(raw[3 * i + 2], raw[3 * i])
+        var a1 := atan2(raw[3 * i + 5], raw[3 * i + 3])
+        total += wrapf(a1 - a0, -PI, PI)
+    return 1.0 if total >= 0.0 else -1.0
 
 # Ships ride their planets' rails. A planned path is sampled every few days (the wait for
 # a launch window is a handful of points along the planet's orbit), so straight lines
 # between samples cut across the planet's curved track. Each sample is kept as an offset
-# from an anchor that moves with the origin planet and hands over smoothly to the
-# destination planet during the flight; the offsets are interpolated and the anchor's
-# exact position is added back. At the sample times this is the planned path itself.
+# from an anchor that moves with the origin planet and, for a hop within one planet's
+# system, hands over smoothly to the destination during the flight; the offsets are
+# interpolated and the anchor's exact position is added back. At the sample times this is
+# the planned path itself. An interplanetary flight is drawn from its heliocentric samples
+# instead (see _helio_point_m): blending a planet into the anchor over a years-long flight,
+# with samples weeks apart on flat spirals, drew the planet's yearly circle into the path
+# as a sawtooth wobble.
 func _rail_anchor_m(path: Dictionary, t: float) -> PackedFloat64Array:
     var origin := String(path.get("origin", ""))
     var destination := String(path.get("destination", ""))
@@ -757,6 +791,8 @@ func _rail_anchor_m(path: Dictionary, t: float) -> PackedFloat64Array:
         return PackedFloat64Array([0.0, 0.0, 0.0])
     var departure := float(path["departure"])
     var arrival := float(path["arrival"])
+    if bool(path.get("helio", false)):
+        return _body_at_m(origin if t < 0.5 * (departure + arrival) else destination, t)
     var s := clampf((t - departure) / maxf(arrival - departure, 1.0), 0.0, 1.0)
     var w := s * s * (3.0 - 2.0 * s)
     if w <= 0.0:
@@ -774,12 +810,35 @@ func _rail_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
     var i := clampi(times.bsearch(t, true) - 1, 0, times.size() - 2)
     var span := times[i + 1] - times[i]
     var f := clampf((t - times[i]) / span, 0.0, 1.0) if span > 0.0 else 1.0
+    if bool(path.get("helio", false)) and t > float(path["departure"]) and t < float(path["arrival"]):
+        return _helio_point_m(path, i, f)
     var anchor := _rail_anchor_m(path, t)
     var out := PackedFloat64Array([0.0, 0.0, 0.0])
     for axis in range(3):
         var a := offsets[3 * i + axis]
         out[axis] = anchor[axis] + a + (offsets[3 * (i + 1) + axis] - a) * f
     return out
+
+# Between two heliocentric samples: radius and angle (the short way, unless that runs
+# against the flight's sense of motion) are interpolated, so spirals and conic arcs stay
+# smooth however far apart the samples are.
+func _helio_point_m(path: Dictionary, i: int, f: float) -> PackedFloat64Array:
+    var raw: PackedFloat64Array = path["raw"]
+    var x0 := raw[3 * i]
+    var z0 := raw[3 * i + 2]
+    var x1 := raw[3 * i + 3]
+    var z1 := raw[3 * i + 5]
+    var r0 := sqrt(x0 * x0 + z0 * z0)
+    var r1 := sqrt(x1 * x1 + z1 * z1)
+    var a0 := atan2(z0, x0)
+    var turn := wrapf(atan2(z1, x1) - a0, -PI, PI)
+    var sense := float(path.get("sense", 1.0))
+    if turn * sense < 0.0 and absf(turn) > 0.5 * PI:
+        turn += TAU * sense
+    var r := r0 + (r1 - r0) * f
+    var a := a0 + turn * f
+    var y := raw[3 * i + 1] + (raw[3 * i + 4] - raw[3 * i + 1]) * f
+    return PackedFloat64Array([cos(a) * r, y, sin(a) * r])
 
 # A body's position at any time t (the per-frame _body_m caches the display time only).
 func _body_at_m(body_id: String, t: float) -> PackedFloat64Array:
