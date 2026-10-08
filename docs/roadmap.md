@@ -114,14 +114,15 @@ Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorit
 12. **Unmet demand:** investigated. Main cause transport capacity (steady supply needs ~45,000 u of holds in
     transit, the fleet had 5,000-11,000 u) and targets too small for distant supply; one forecast bug. Open for the
     user: local life-support production at the outposts (design decision).
-13. **Orders and mixed cargo:** stage 1 (mixed cargo by marginal value) done; contracts with prices fixed at
-    departure, and investment that sizes hulls to the orders, not started.
+13. **Orders and mixed cargo:** done. Mixed cargo by marginal value (v37), investment values mixed holds and
+    ranks by profit per day near the fleet limit (v37d, v39a), contracts with prices agreed at departure (v39c);
+    station panels show orders and contracts.
 
 Checks after each step: the three test suites, `tools/benchmark.py` (four starting dates, mean and spread; one
-run is too noisy to judge a change) and `--trajectory-audit`. v39b (2026-10-08, four starts, 730 days): unmet
-demand 51.2 +- 0.7%, 33.7 +- 2.1% in the last fifth, 47/90.5 profitable, holds 93,800 u, money -3.2 +- 5.3%,
-0 trajectory flags, drift 0; a single run takes about a minute. Over 1460 days (v39a): 34.4 +- 3.5%, the last
-~290 days 15.4 +- 5.9%. Earlier: v37b 63.3 +- 2.2% (before the map changes and the investment ranking). Older single-run figures, for history: compare with the calibration log in `ship_operating_costs.md`
+run is too noisy to judge a change) and `--trajectory-audit`. v39d (2026-10-08, four starts): 730 days unmet
+demand 49.8 +- 1.0%, 32.5 +- 1.6% in the last fifth, 50.8/91 profitable, holds 99,000 u, money +1.3 +- 7.4%;
+**1460 days 32.3 +- 1.2%, the last ~290 days 10.5 +- 1.9%, 84.5/93 profitable**, exports 1.84M, money +10.5 +- 12%;
+0 trajectory flags, drift 0; a single 730-day run takes about a minute. Earlier: v37b 63.3 +- 2.2% at 730 days. Older single-run figures, for history: compare with the calibration log in `ship_operating_costs.md`
 (v33: 17/43 profitable, fleet profit 1.035M, cargo margin 2.06M, fuel 599k cr, exports 1.02M, unmet demand
 72.9%, 34 CRITICAL lines, money supply +6.7%, drift 0, run 11m10; trajectory audit 0 of 277 plans flagged;
 v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'

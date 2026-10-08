@@ -225,3 +225,6 @@ outposts (design question).
 - 02:0x **v39d:** the investment valuation's round trip counted the launch-window wait three times (2 x travel +
   wait, with the wait already in the travel time); now wait + 2 x transfer. Four starts: unmet 49.8 +- 1.0%, last
   fifth 32.5 +- 1.6, 50.8/91 profitable, money +1.3 +- 7.4% (neutral within noise, a correctness fix).
+- 02:1x **Final 4-year, four-start benchmark (v39d):** unmet **32.3 +- 1.2%** over 1460 days, **10.5 +- 1.9% in the
+  last ~290 days** (v38: 17.6 +- 1.5), **84.5/93 ships profitable**, exports 1.84M, money supply +10.5 +- 12% (one
+  start +28%: to watch), 0 trajectory flags, drift 0.
