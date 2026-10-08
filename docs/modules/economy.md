@@ -105,23 +105,41 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 
 - **Starting stocks** (`Simulation::starting_inventory`): every consumed good starts at least at its target stock,
   within 85% of storage.
-- **Production scale** (`tools/rebalance_production.py --multiple 3`): profile industries produce 3x what the
-  stations consume system-wide; local resources (station rows), fuel and export goods are left alone. Regenerate
-  the reference prices afterwards.
+- **Production scale** (`tools/rebalance_production.py --multiple 3`): a tool that scales profile industries to a
+  multiple of system consumption. Tried and reverted in data (it removed the slack the supply chains need).
 - **Depot fuel** at stations without a factory is centred on base plus the carriage from the nearest factory
   (part of `reference_prices.csv`).
-- **Fleet cap** (`fleet_investment.csv`): `max_fleet_hold_units` (100,000 u) with `max_fleet_size` (130) as a backstop;
-  near the cap candidates rank by profit per day per hold unit.
+- **Fleet cap** (`fleet_investment.csv`): `max_fleet_hold_units` (built, 0 = off) with `max_fleet_size` (90); while
+  a hold cap is set, candidates near it rank by profit per day per hold unit.
 - **Scheduled liners** (`data/economy/liners.csv`): a seed ship flies its loop of stops forever, carrying whatever
   pays for the next stop (or nothing), never laid up, sold or refitted, outside the fleet cap; its faction tops its
   cash up when it runs out (`ShipLedger::subsidies`).
 - Results and decisions: `docs/plans/steps_18_22_log.md`.
 
+## Steps 23-28
+
+- **Cover from the round trip** (step 23, `pricing.csv`): a consumer whose nearest producer is on another planet
+  wants at least `cover_round_trip_factor` (1.2) x the reference round trip of stock (`round_trip_days` in
+  `reference_prices.csv`), at most `max_cover_days` (1460). Titan's electronics cover went from 365 to ~1,460 days.
+- **Input value** (step 24): a good that is an `input:` at a station may rise past `price_cap` when short, up to
+  `input_value_share` (25%) of the value of the outputs one unit makes, at most `input_price_cap` (12) x its
+  reference (`EconomySystem::price_cap(station, good)`).
+- **Faction money** (step 26): a faction may borrow against its stations' stock at reference prices as well as its
+  fleet; a faction with savings covers its stations' whole deficit (the core-crew cap applies only while it
+  borrows).
+- **Growth** (step 27, `growth.csv`): population grows `growth_per_year` while the worst upkeep good's availability,
+  averaged over `window_days`, is at least `grow_above` and the station is above its credit floor; it shrinks
+  `decline_per_year` below `decline_below`; bounds are the core crew and `max_population_factor` x the seed. Rates,
+  targets and the money controller's per-capita share follow the current population (`StationState::population`).
+- **Events** (step 28, `data/events/`): outages, booms, demand spikes and settler migrations at given stations,
+  with a rate per year and a duration range, drawn from a seeded generator (saved). They act only through the
+  production step. `--no-events` switches them off.
+- Results and decisions: `docs/plans/steps_23_28_log.md`.
+
 ## Deferred Work
 
 - More detailed production chains
-- Station budget / faction budget systems
-- Maintenance and service commodities
+- Piracy and police (user, 2026-10-08: later)
 
 ## Tests
 

@@ -2787,8 +2787,9 @@ void Simulation::step_treasuries(double dt_s) {
     }
 
     // Faction treasuries close the gap of stations outside the credit band: they tax the excess
-    // above the ceiling, and top up a station below the floor by at most the upkeep of its core
-    // crew (step 17), so a station that cannot pay its way gets less than it spends.
+    // above the ceiling, and top up a station below the floor: while the faction borrows, by at
+    // most the upkeep of its core crew (step 17), so a station that cannot pay its way gets less
+    // than it spends; out of its savings, by the whole gap (step 26).
     const double band_share = std::min(1.0, dt_days / open.station_balance_days);
     const double tax_decay = std::exp(-dt_days / 365.0);
     for (auto& [faction_id, per_day] : faction_tax_per_day_) {
@@ -2800,8 +2801,12 @@ void Simulation::step_treasuries(double dt_s) {
         if (station.credits < open.station_credit_floor) {
             transfer = (open.station_credit_floor - station.credits) * band_share;
             if (open.core_crew_fraction > 0.0) {
+                // A faction in surplus covers the whole gap out of its savings (step 26): the
+                // core-crew cap left outposts deep in debt for the stock step 23 has them hold,
+                // while their faction's taxes piled up unused.
+                const double savings = std::max(0.0, faction_treasuries_[definition.faction_id]);
                 transfer = std::min(transfer,
-                    open.core_crew_fraction * consumption_value_per_day(definition, true) * dt_days);
+                    std::max(open.core_crew_fraction * consumption_value_per_day(definition, true) * dt_days, savings));
             }
         } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
             transfer = -(station.credits - open.station_credit_ceiling) * band_share;
@@ -2857,8 +2862,21 @@ double Simulation::faction_credit_limit(const std::string& faction_id) const {
             fleet_value += get_ship_class(ship.class_id).ship_value_cr;
         }
     }
+    // Its stations' stock is collateral too, at reference prices (step 26): after step 23 a
+    // remote colony stocks a year or more of its imports, which its faction paid for; Mars
+    // Corporation, with one station and few ships, went over its limit building that stock.
+    double stock_value = 0.0;
+    for (const auto& station : stations_) {
+        const auto& definition = get_station_definition(station.station_id);
+        if (definition.faction_id != faction_id) {
+            continue;
+        }
+        for (const auto& [commodity_id, units] : station.inventory) {
+            stock_value += std::max(0.0, units) * economy_.reference_price(definition, commodity_id);
+        }
+    }
     const auto tax = faction_tax_per_day_.find(faction_id);
-    return open.faction_loan_to_value * fleet_value
+    return open.faction_loan_to_value * (fleet_value + stock_value)
         + open.faction_tax_years * 365.0 * (tax == faction_tax_per_day_.end() ? 0.0 : tax->second);
 }
 
