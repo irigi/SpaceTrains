@@ -22,7 +22,8 @@ flags 0 plans; money drift is 0.
   **orders** and **inbound contracts**; body panel; economy overview (M); registry tooltips.
 - **Save/load:** SAVE/LOAD buttons and F5/F9; a loaded game continues exactly (tested).
 - **Unmet demand** (four starting dates each): v33 72.9% (one run) -> **49.8 +- 1.0% at 730 days**, and over four
-  years **32.3 +- 1.2%, only 10.5 +- 1.9% in the last ~290 days**, 84.5 of 93 ships profitable.
+  years **32.3 +- 1.2%, only 10.5 +- 1.9% in the last ~290 days**, 84.5 of 93 ships profitable. An 8-year run stays
+  stable (8% unmet in years 7-8, no drift, no trajectory flags).
 
 **What the investigation found (step 12):** the fleet had a fifth of the hold capacity steady supply needs;
 consumers wanted three weeks of stock even when the next delivery was a year away, so supplying them did not pay;
@@ -266,3 +267,7 @@ departure.
 - 02:3x **Money analysis (v39d, start 0, 4 years):** internal money +28% at day 1460 is in ships (3.1M, stations 1.0M);
   faction treasuries: Sol Federation +12.4M, Independent +11.3M, Mars Corporation -5.3M (subsidies to keep Mars
   Transfer Port above its credit floor while it imports at scarcity prices). Not changed tonight.
+- 02:4x **8-year stability run (v39d, start 0):** no NaN, 0 trajectory flags, drift 0, 2920 days in 3m37. Unmet
+  demand by two-year period: 51.2%, 13.2%, 11.3%, 8.2% (cumulative 21.0%). Fleet stable at ~90 (71 bought, 3 sold).
+  Money supply +3.8%, +28.3%, -0.7%, +7.3% at the four reports. Treasuries keep diverging: Mars Corporation -10.3M,
+  Sol Federation +17.5M, Independent Consortium +32.6M by year 8 (see the open point).
