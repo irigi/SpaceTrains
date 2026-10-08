@@ -44,7 +44,7 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 
 ## Prices and target stocks (v36-v37)
 
-- A station's price for a good is `base x clamp((target / stock)^1.3, 0.25, 16)`; trades integrate it exactly over
+- A station's price for a good is `reference x clamp((target / stock)^1.3, 0.25, 4)` (16x base before step 15); trades integrate it exactly over
   the stock they move (`get_trade_value`), so big lots move along the curve.
 - **Target stock.** A producer's is 14 days of output. A consumer's covers its *resupply time*: three weeks, or
   1.4 x the one-way transfer from the nearest producer (Hohmann half-orbit between the parent planets, a few days
@@ -81,6 +81,14 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
   One contract for 30 days of use: while units are open, the station's price below 30 days of stock is at least
   the premium times its reference price; the premium starts at 3x and grows 1.5x every 15 days nobody takes it, up
   to 24x. The faction pays the part above the station's curve (`CargoLot::emergency_premium`), on arrival.
+
+## Reference prices (step 15)
+
+- A consumer's curve is centred on its **reference price** (`EconomySystem::reference_price`), read from
+  `data/economy/reference_prices.csv`: base price plus `carrier_margin` x the cheapest cost per unit of carrying the
+  good from one of its two nearest producers (planned round trips, full or partial hold out, back empty). Regenerate
+  with `spacetrains_headless --write-reference-prices data/economy/reference_prices.csv`. Producers, fuel and export
+  markets keep the base price. The curve is clamped to [0.25, `price_cap`] x its centre (`pricing.csv`, 4).
 
 ## Deferred Work
 

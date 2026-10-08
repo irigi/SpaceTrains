@@ -665,6 +665,57 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
     }
 
+    {
+        const auto pricing_path = root / "economy" / "pricing.csv";
+        const auto rows = read_csv_rows(pricing_path);
+        require_header(rows.front(), {"key", "value"}, pricing_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& pricing = universe.pricing;
+        const std::unordered_map<std::string, double*> fields {
+            {"price_cap", &pricing.price_cap},
+            {"carrier_margin", &pricing.carrier_margin},
+            {"reference_departures", &pricing.reference_departures},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, pricing_path, i + 1);
+            require_unique_id(row[0], seen_keys, pricing_path, i + 1);
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + pricing_path.string());
+            }
+            *field->second = parse_double(row[1], pricing_path, i + 1, row[0].c_str());
+        }
+        for (const auto& [key, field] : fields) {
+            if (!seen_keys.contains(key)) {
+                throw std::runtime_error("Missing key '" + key + "' in " + pricing_path.string());
+            }
+        }
+        if (pricing.price_cap < 1.0 || pricing.carrier_margin < 0.0 || pricing.reference_departures < 1.0) {
+            throw std::runtime_error("price_cap and reference_departures must be at least 1 in " + pricing_path.string());
+        }
+    }
+
+    {
+        // Written by `spacetrains_headless --write-reference-prices` (step 15); only the first
+        // four columns are read, the rest documents where each price comes from.
+        const auto reference_path = root / "economy" / "reference_prices.csv";
+        const auto rows = read_csv_rows(reference_path);
+        require_header(rows.front(), {"station_id", "commodity_id", "reference_price", "base_price", "transport_per_unit",
+            "producer_id", "class_id", "round_trip_days"}, reference_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 8, reference_path, i + 1);
+            require_station(row[0], reference_path);
+            require_commodity(row[1], reference_path);
+            const double price = parse_double(row[2], reference_path, i + 1, "reference_price");
+            if (price <= 0.0) {
+                throw std::runtime_error("reference_price must be positive in " + reference_path.string());
+            }
+            universe.pricing.reference_prices[row[0]][row[1]] = price;
+        }
+    }
+
     for (const auto& body : universe.bodies) {
         if (!body.orbit.parent_id.empty() && !contains_id(universe.bodies, body.orbit.parent_id)) {
             throw std::runtime_error("Body '" + body.id + "' references unknown parent body '" + body.orbit.parent_id + "'");

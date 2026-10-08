@@ -116,6 +116,16 @@ struct FleetInvestmentDefinition {
     double max_fleet_size {0.0};           // no purchase while this many ships are in service; 0 = no limit
 };
 
+// Prices (data/economy/pricing.csv and reference_prices.csv, step 15).
+struct PricingDefinition {
+    double price_cap {16.0};            // a curve's highest multiple of its centre (empty stock)
+    double carrier_margin {1.2};        // on the transport cost, in the reference prices
+    double reference_departures {6.0};  // departure dates over a year the reference trips are planned at
+    // A consumer's reference price (the centre of its curve) by station id and good: the
+    // landed cost from the cheapest producer. Goods not listed are centred on their base price.
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices;
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -182,6 +192,7 @@ struct UniverseDefinition {
     FuelSupplyDefinition fuel_supply;
     OpenEconomyDefinition open_economy;
     FleetInvestmentDefinition fleet_investment;
+    PricingDefinition pricing;
     // Output multiplier at a full shortage of an upkeep good (data/economy/upkeep_penalties.csv).
     std::unordered_map<std::string, double> upkeep_penalties;
     // Upkeep goods whose shortage makes the owning faction pay for an emergency delivery.

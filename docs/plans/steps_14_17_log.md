@@ -58,3 +58,44 @@ both (below).
 5. **Requisition below a station's reserve** was left out (production is 8–10x consumption).
 6. **Penalties multiply**, so a station short of several upkeep goods can fall to under 1% (Mercury with no
    oxygen, water and food: 0.1 × 0.1 × 0.5). It never stops entirely, as agreed.
+
+## Step 15: landed-cost reference prices
+
+### What was built
+
+- `spacetrains_headless --write-reference-prices data/economy/reference_prices.csv` plans, for every consumer
+  and every good it consumes (fuel and export markets excepted), the round trip from each of its two nearest
+  producers (Hohmann estimate) in every standard-tank hull of at least 150 u: a full hold out (or a half or a
+  quarter where a full one is too heavy, as to Mercury), back empty, at 6 departure dates over a year. A hull that
+  cannot fly the route at most dates is skipped; the median trip sets its cost. Cost per unit = (capital + crew +
+  life support at base prices) x round-trip days + propellant at base price, divided by the units carried. The
+  reference price is base + `carrier_margin` (1.2) x the cheapest. The table (40 rows, 0.6 s to compute) is data, so
+  the loader reads it and it can be reviewed and edited. Producers and goods not listed keep the base price.
+- Each consumer's price curve is centred on its reference price; `price_cap` (pricing.csv) went from 16 to 4.
+- The Hohmann estimate moved into `EconomySystem::transfer_days` (shared with `cover_days`).
+
+Examples: Titan machinery 525 cr (base 300), Ganymede food 76 (50), Mercury food 334 (Venus by NTR freighter at
+half load), Mercury water 56 (20, from Mars), Earth L1 water 21.7 (20, from Lunar Gateway).
+
+### Results (730 days, four starts)
+
+| Version | unmet | last fifth | profitable | ships | holds | money | emergencies / premiums |
+|---|---|---|---|---|---|---|---|
+| 14c | 48.9 ± 2.1% | 36.6 ± 2.6% | 50.2/91 | 91 | 92,700 u | −3.7 ± 3.3% | 17 / 87k |
+| 15 | 56.3 ± 1.2% | 51.7 ± 3.8% | 30.0/54 | 54 | 33,500 u | +6.6 ± 4.9% | 18 / 266k |
+
+The fleet stops growing at about 54 ships. Fleet reviews still find ships worth 128–533%/yr, but the treasuries
+cannot pay for them (day 365: Sol Federation 41k, Mars Corporation 25k, Independent Consortium −85k). Their income
+was taxes on stations, whose cash came mostly from residents paying scarcity prices to the outside account. The 4x
+cap removed most of that money. Step 17 lets factions borrow against their fleets, so the push does step 17 next
+and step 16 after it.
+
+### Decisions to review
+
+7. **Reference prices are precomputed data**, not computed at every start (thousands of plans per start would slow
+   every test and game start; 0.6 s offline). Rerun the command after changing stations, recipes or ship classes.
+8. **Fuel keeps its depot pricing** (v29) and gets no landed cost, since fuel prices drive every ship's costs.
+9. **Price cap 4x the reference** (from 16x base); carrier margin 1.2 on the cheapest trip.
+10. **The reference trip is a full hold out and back empty in the cheapest hull**, two nearest producers, median
+    over 6 dates. Carriage is cheap per unit in big holds: most outposts' references are only 10–40% above base;
+    Mercury's are high because full holds cannot reach it.

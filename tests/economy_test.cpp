@@ -43,11 +43,22 @@ int main() {
         require_near(target, std::abs(water_rate) * 21.0, 1.0e-9,
             "agri_hub water target must be 21-day consumption buffer");
 
-        const double base = 4.0;
+        // A consumer's curve is centred on its landed cost (step 15): Earth L1 buys Lunar water.
+        const double base = economy.reference_price(agri, "water");
+        require(base > 20.0, "Earth L1's water reference must include carrying it from Lunar Gateway");
         require_near(economy.get_price(agri, "water", target, base), base, 1.0e-9,
-            "price at target stock must equal base price");
-        require_near(economy.get_price(agri, "water", 0.0, base), base * 16.0, 1.0e-9,
-            "price at zero stock must clamp at 16x base");
+            "price at target stock must equal the reference price");
+        require_near(economy.get_price(agri, "water", 0.0, base), base * universe.pricing.price_cap, 1.0e-9,
+            "price at zero stock must clamp at the price cap");
+        // Distant consumers pay more for carriage; producers keep the base price.
+        const auto station = [&](const char* id) -> const auto& {
+            return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
+        };
+        require(economy.reference_price(station("titan_works"), "machinery")
+                > economy.reference_price(station("luna_base"), "machinery"),
+            "Titan's machinery must cost more to land than Lunar Gateway's");
+        require_near(economy.reference_price(station("earth_orbit"), "electronics"), 200.0, 1.0e-9,
+            "a producer's reference price is the base price");
         require_near(economy.get_price(agri, "water", 1.0e9, base), base * 0.25, 1.0e-9,
             "price at huge stock must clamp at 0.25x base");
 

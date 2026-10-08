@@ -68,6 +68,9 @@ public:
     // cost of carrying it from the nearest producer, set by set_reference_prices) at a
     // consumer, the base price elsewhere.
     [[nodiscard]] double reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Map-level one-way transfer estimate between two stations, in days: a Hohmann half-orbit
+    // between their parent planets, a few days within one planet's system.
+    [[nodiscard]] double transfer_days(const domain::StationDefinition& a, const domain::StationDefinition& b) const;
     // The station consumes this good as upkeep (life support and crew needs).
     [[nodiscard]] bool is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const;
     // The highest multiple of its centre a station's curve reaches (at an empty stock).

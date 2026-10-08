@@ -48,6 +48,22 @@ public:
     // fingerprint) and throws, leaving the simulation unchanged, on a bad or foreign save.
     [[nodiscard]] std::string save_state_json() const;
     void load_state_json(const std::string& text);
+    // Landed-cost reference prices (step 15): for each consumer and good it buys, the base price
+    // plus carrier_margin x the cheapest cost per unit of carrying it from one of its two nearest
+    // producers, in a full hold of a standard-tank hull of at least 150 u, out loaded and back
+    // empty (median over departure dates in a year). Written to data by
+    // `spacetrains_headless --write-reference-prices`.
+    struct ReferencePrice {
+        std::string station_id;
+        std::string commodity_id;
+        double reference_price {0.0};
+        double base_price {0.0};
+        double transport_per_unit {0.0};
+        std::string producer_id;
+        std::string class_id;
+        double round_trip_days {0.0};
+    };
+    [[nodiscard]] std::vector<ReferencePrice> compute_reference_prices() const;
     // Tests and debugging: overwrite one good's stock at a station.
     void set_station_stock(const std::string& station_id, const std::string& commodity_id, double units);
     [[nodiscard]] std::string data_fingerprint() const;

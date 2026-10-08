@@ -23,9 +23,9 @@ constexpr double EXPORT_STOCKPILE_DAYS = 720.0;
 // Price elasticity: how sharply prices respond to stock deviating from target.
 constexpr double PRICE_ELASTICITY = 1.3;
 constexpr double PRICE_MIN_MULTIPLIER = 0.25;
-// A starving station must be able to bid up to the delivered cost of the goods
-// (fuel plus ship time); 4x made outer-system supply runs impossible to pay for.
-constexpr double PRICE_MAX_MULTIPLIER = 16.0;
+// The upper clamp is data (pricing.csv, price_cap): 16x until v39, when a curve centred on the
+// base price had to pay for carrying goods to the outer system; 4x since step 15, when each
+// consumer's curve is centred on its landed cost.
 }  // namespace
 
 EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : universe_(universe) {
@@ -42,6 +42,7 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
         export_goods_.insert(market.commodity_id);
     }
     compute_cover_days();
+    reference_prices_ = universe_.pricing.reference_prices;
 }
 
 // A consumer's target stock (where its price is the base price) covers three weeks of
@@ -52,7 +53,7 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
 // needed for steady supply, the fleet had 5,000-10,000 u). Transfer times are Hohmann
 // half-orbits between the parent planets (a few days within one planet's system), a
 // map-level estimate that does not depend on where the planets are.
-void EconomySystem::compute_cover_days() {
+double EconomySystem::transfer_days(const domain::StationDefinition& a, const domain::StationDefinition& b) const {
     const auto body_of = [&](const std::string& id) -> const domain::CelestialBodyDefinition* {
         for (const auto& body : universe_.bodies) {
             if (body.id == id) {
@@ -78,17 +79,21 @@ void EconomySystem::compute_cover_days() {
             mu_sun = body.mu_m3_s2;
         }
     }
+    const auto* pa = planet_of(a.parent_body_id);
+    const auto* pb = planet_of(b.parent_body_id);
+    if (pa == nullptr || pb == nullptr || mu_sun <= 0.0) {
+        return 0.0;
+    }
+    if (pa == pb) {
+        return a.parent_body_id == b.parent_body_id ? 0.5 : 5.0;
+    }
+    const double axis = 0.5 * (pa->orbit.semi_major_axis_m + pb->orbit.semi_major_axis_m);
+    return 3.14159265358979323846 * std::sqrt(axis * axis * axis / mu_sun) / 86400.0;
+}
+
+void EconomySystem::compute_cover_days() {
     const auto one_way_days = [&](const domain::StationDefinition& a, const domain::StationDefinition& b) {
-        const auto* pa = planet_of(a.parent_body_id);
-        const auto* pb = planet_of(b.parent_body_id);
-        if (pa == nullptr || pb == nullptr || mu_sun <= 0.0) {
-            return 0.0;
-        }
-        if (pa == pb) {
-            return a.parent_body_id == b.parent_body_id ? 0.5 : 5.0;
-        }
-        const double axis = 0.5 * (pa->orbit.semi_major_axis_m + pb->orbit.semi_major_axis_m);
-        return 3.14159265358979323846 * std::sqrt(axis * axis * axis / mu_sun) / 86400.0;
+        return transfer_days(a, b);
     };
     for (const auto& consumer : universe_.stations) {
         for (const auto* recipe : recipes_of(consumer)) {
@@ -393,7 +398,7 @@ bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const st
 }
 
 double EconomySystem::price_cap() const {
-    return PRICE_MAX_MULTIPLIER;
+    return universe_.pricing.price_cap;
 }
 
 double EconomySystem::stock_at_multiplier(
@@ -411,7 +416,7 @@ double EconomySystem::get_price(
     }
     const double target = get_target_stock(station, commodity_id);
     const double ratio = target / std::max(stock, 0.5);
-    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
+    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, price_cap());
     return curve_centre(station, commodity_id, base_price) * multiplier;
 }
 
@@ -436,9 +441,9 @@ double EconomySystem::get_trade_value(
     const double target = get_target_stock(station, commodity_id);
     const double e = PRICE_ELASTICITY;
     const auto clamp_multiplier = [&](double stock) {
-        return std::clamp(std::pow(target / std::max(stock, 0.5), e), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
+        return std::clamp(std::pow(target / std::max(stock, 0.5), e), PRICE_MIN_MULTIPLIER, price_cap());
     };
-    const double s_hi = std::max(0.5, target * std::pow(PRICE_MAX_MULTIPLIER, -1.0 / e));
+    const double s_hi = std::max(0.5, target * std::pow(price_cap(), -1.0 / e));
     const double s_lo = std::max(0.5, target * std::pow(PRICE_MIN_MULTIPLIER, -1.0 / e));
     const auto power_integral = [&](double a, double b) {  // ∫ (target/s)^e ds over [a, b]
         return std::pow(target, e) * (std::pow(b, 1.0 - e) - std::pow(a, 1.0 - e)) / (1.0 - e);
@@ -448,7 +453,7 @@ double EconomySystem::get_trade_value(
         x = std::max(0.0, x);
         double total = clamp_multiplier(0.0) * std::min(x, 0.5);
         if (x > 0.5) {
-            total += PRICE_MAX_MULTIPLIER * (std::min(x, s_hi) - 0.5);
+            total += price_cap() * (std::min(x, s_hi) - 0.5);
         }
         if (x > s_hi) {
             total += power_integral(s_hi, std::min(x, s_lo));

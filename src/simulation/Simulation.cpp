@@ -414,6 +414,184 @@ const domain::CommodityDefinition& Simulation::get_commodity(const std::string& 
     return *it;
 }
 
+std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() const {
+    constexpr double MIN_HOLD_UNITS = 150.0;
+    constexpr std::size_t PRODUCERS_PER_GOOD = 2;
+    const auto& pricing = universe_.pricing;
+    const auto departures = static_cast<int>(pricing.reference_departures);
+    std::vector<const domain::ShipClassDefinition*> hulls;
+    for (const auto& ship_class : universe_.ship_classes) {
+        if (ship_class.id == ship_class.hull_id && ship_class.cargo_capacity_units >= MIN_HOLD_UNITS) {
+            hulls.push_back(&ship_class);
+        }
+    }
+    const double fuel_cr_per_kg = get_commodity(economy::FUEL_ID).base_price / FUEL_UNITS_TO_KG;
+    const auto daily_cost = [&](const domain::ShipClassDefinition& ship_class) {
+        double cost = daily_capital_cost(ship_class) + ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
+        for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+            cost += ship_class.crew_size * units_per_crew_day * get_commodity(commodity_id).base_price;
+        }
+        return cost;
+    };
+
+    // What to price: every consumer's net-consumed goods (fuel keeps its depot pricing; export
+    // markets keep their flat price), with its nearest producers.
+    struct Route {
+        const domain::StationDefinition* consumer {nullptr};
+        const domain::CommodityDefinition* commodity {nullptr};
+        std::vector<const domain::StationDefinition*> producers;
+    };
+    std::vector<Route> routes;
+    for (const auto& consumer : universe_.stations) {
+        for (const auto& [commodity_id, rate] : economy_.get_station_net_rates(consumer)) {
+            if (rate >= 0.0 || commodity_id == economy::FUEL_ID || economy_.is_export_market(consumer, commodity_id)) {
+                continue;
+            }
+            Route route {.consumer = &consumer, .commodity = &get_commodity(commodity_id)};
+            for (const auto& producer : universe_.stations) {
+                const auto rates = economy_.get_station_net_rates(producer);
+                const auto it = rates.find(commodity_id);
+                if (producer.id != consumer.id && it != rates.end() && it->second > 0.0) {
+                    route.producers.push_back(&producer);
+                }
+            }
+            std::stable_sort(route.producers.begin(), route.producers.end(), [&](const auto* a, const auto* b) {
+                return economy_.transfer_days(*a, consumer) < economy_.transfer_days(*b, consumer);
+            });
+            if (route.producers.size() > PRODUCERS_PER_GOOD) {
+                route.producers.resize(PRODUCERS_PER_GOOD);
+            }
+            if (!route.producers.empty()) {
+                routes.push_back(std::move(route));
+            }
+        }
+    }
+    std::sort(routes.begin(), routes.end(), [](const Route& a, const Route& b) {
+        return std::tie(a.consumer->id, a.commodity->id) < std::tie(b.consumer->id, b.commodity->id);
+    });
+
+    // Every leg to plan: (from, to, hull, departure, payload); the empty returns are shared.
+    struct Leg {
+        const domain::StationDefinition* from {nullptr};
+        const domain::StationDefinition* to {nullptr};
+        const domain::ShipClassDefinition* hull {nullptr};
+        double departure_s {0.0};
+        double payload_kg {0.0};
+    };
+    std::vector<Leg> legs;
+    std::map<std::string, std::size_t> leg_index;
+    const auto add_leg = [&](const Leg& leg) {
+        const auto key = std::format("{}|{}|{}|{:.0f}|{:.0f}", leg.from->id, leg.to->id, leg.hull->id, leg.departure_s, leg.payload_kg);
+        if (const auto it = leg_index.find(key); it != leg_index.end()) {
+            return it->second;
+        }
+        legs.push_back(leg);
+        return leg_index[key] = legs.size() - 1;
+    };
+    const auto departure_s = [&](int d) { return d * 365.25 * 86400.0 / departures; };
+    // A full hold, or a part of it where a full one is too heavy for the transfer (Mercury).
+    constexpr std::array<double, 3> LOADS {1.0, 0.5, 0.25};
+    for (const auto& route : routes) {
+        for (const auto* producer : route.producers) {
+            for (const auto* hull : hulls) {
+                for (const double load : LOADS) {
+                    for (int d = 0; d < departures; ++d) {
+                        add_leg({producer, route.consumer, hull, departure_s(d),
+                            load * hull->cargo_capacity_units * route.commodity->mass_per_unit_kg});
+                    }
+                }
+            }
+        }
+    }
+    const auto plan_leg = [&](const Leg& leg) {
+        domain::ShipState probe;
+        probe.class_id = leg.hull->id;
+        probe.current_station_id = leg.from->id;
+        const trajectory::PlanningOptions options {
+            .propellant_cr_per_kg = fuel_cr_per_kg,
+            .time_cr_per_day = daily_cost(*leg.hull),
+            .payload_kg = leg.payload_kg,
+            .purchasable_propellant_kg = leg.hull->propellant_capacity_kg,
+            .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
+            .include_path = false,
+        };
+        const auto& planner = (leg.hull->propulsion_type == "variable_isp" && variable_isp_planner_)
+            ? static_cast<const trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
+            : static_cast<const trajectory::ITrajectoryPlanner&>(*kepler_planner_);
+        return planner.plan_transfer(*leg.from, *leg.to, probe, *leg.hull, leg.departure_s, options);
+    };
+    std::vector<domain::TrajectoryPlan> outbound(legs.size());
+    thread_pool_->parallel_for(legs.size(), [&](std::size_t i) { outbound[i] = plan_leg(legs[i]); });
+    // The empty returns leave when the loaded legs arrive.
+    std::vector<Leg> returns;
+    std::map<std::string, std::size_t> return_index;
+    std::vector<std::size_t> return_of(legs.size(), std::numeric_limits<std::size_t>::max());
+    for (std::size_t i = 0; i < legs.size(); ++i) {
+        if (!outbound[i].feasible) {
+            continue;
+        }
+        const Leg back {legs[i].to, legs[i].from, legs[i].hull, outbound[i].arrival_time_s, 0.0};
+        const auto key = std::format("{}|{}|{}|{:.0f}", back.from->id, back.to->id, back.hull->id, back.departure_s);
+        auto it = return_index.find(key);
+        if (it == return_index.end()) {
+            returns.push_back(back);
+            it = return_index.emplace(key, returns.size() - 1).first;
+        }
+        return_of[i] = it->second;
+    }
+    std::vector<domain::TrajectoryPlan> inbound(returns.size());
+    thread_pool_->parallel_for(returns.size(), [&](std::size_t i) { inbound[i] = plan_leg(returns[i]); });
+
+    std::vector<ReferencePrice> prices;
+    for (const auto& route : routes) {
+        ReferencePrice best {
+            .station_id = route.consumer->id,
+            .commodity_id = route.commodity->id,
+            .base_price = route.commodity->base_price,
+            .transport_per_unit = std::numeric_limits<double>::infinity(),
+        };
+        for (const auto* producer : route.producers) {
+            for (const auto* hull : hulls) {
+              for (const double load : LOADS) {
+                const double units = load * hull->cargo_capacity_units;
+                std::vector<std::pair<double, double>> trips;  // (cost per unit, round-trip days)
+                for (int d = 0; d < departures; ++d) {
+                    const auto key = std::format("{}|{}|{}|{:.0f}|{:.0f}", producer->id, route.consumer->id, hull->id,
+                        departure_s(d), units * route.commodity->mass_per_unit_kg);
+                    const auto i = leg_index.at(key);
+                    if (return_of[i] == std::numeric_limits<std::size_t>::max() || !inbound[return_of[i]].feasible) {
+                        continue;
+                    }
+                    const auto& out = outbound[i];
+                    const auto& back = inbound[return_of[i]];
+                    const double days = (back.arrival_time_s - departure_s(d)) / 86400.0;
+                    const double cost = daily_cost(*hull) * days
+                        + (out.propellant_required_kg + back.propellant_required_kg) * fuel_cr_per_kg;
+                    trips.emplace_back(cost / units, days);
+                }
+                // A hull that cannot fly the route at most dates does not set its price.
+                if (trips.size() * 2 <= static_cast<std::size_t>(departures)) {
+                    continue;
+                }
+                std::sort(trips.begin(), trips.end());
+                const auto& median = trips[trips.size() / 2];
+                if (median.first < best.transport_per_unit) {
+                    best.transport_per_unit = median.first;
+                    best.round_trip_days = median.second;
+                    best.producer_id = producer->id;
+                    best.class_id = load < 1.0 ? std::format("{}@{:.0f}%", hull->id, 100.0 * load) : hull->id;
+                }
+              }
+            }
+        }
+        if (std::isfinite(best.transport_per_unit)) {
+            best.reference_price = best.base_price + pricing.carrier_margin * best.transport_per_unit;
+            prices.push_back(std::move(best));
+        }
+    }
+    return prices;
+}
+
 void Simulation::set_station_stock(const std::string& station_id, const std::string& commodity_id, double units) {
     get_station_state(station_id).inventory[commodity_id] = units;
 }

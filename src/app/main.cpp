@@ -904,6 +904,7 @@ int main(int argc, char** argv) {
     double start_day = 0.0;
     std::string snapshot_json_path;
     int save_at_day = -1;
+    std::string write_reference_prices_path;
 
     // Parse arguments
     std::vector<std::string> args(argv + 1, argv + argc);
@@ -925,6 +926,8 @@ int main(int argc, char** argv) {
         } else if (args[i] == "--save-at" && i + 2 < args.size()) {
             save_at_day = std::stoi(args[++i]);
             save_path = args[++i];
+        } else if (args[i] == "--write-reference-prices" && i + 1 < args.size()) {
+            write_reference_prices_path = args[++i];
         } else if (args[i] == "--profile") {
             profile = true;
         } else if (args[i] == "--step-days" && i + 1 < args.size()) {
@@ -954,6 +957,22 @@ int main(int argc, char** argv) {
     }
     const auto load_start = std::chrono::steady_clock::now();
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
+    if (!write_reference_prices_path.empty()) {
+        // Plans the reference trips (step 15) and writes data/economy/reference_prices.csv.
+        const auto prices = sim.compute_reference_prices();
+        std::ofstream file(write_reference_prices_path);
+        file << "station_id,commodity_id,reference_price,base_price,transport_per_unit,producer_id,class_id,round_trip_days\n";
+        for (const auto& price : prices) {
+            file << std::format("{},{},{:.2f},{:.2f},{:.2f},{},{},{:.1f}\n", price.station_id, price.commodity_id,
+                price.reference_price, price.base_price, price.transport_per_unit, price.producer_id, price.class_id,
+                price.round_trip_days);
+            std::cout << std::format("{:16s} {:13s} {:9.2f} = {:7.2f} base + {:8.2f} carriage  from {:16s} by {:20s} ({:.0f} d round trip)\n",
+                price.station_id, price.commodity_id, price.reference_price, price.base_price, price.transport_per_unit,
+                price.producer_id, price.class_id, price.round_trip_days);
+        }
+        std::cout << std::format("Wrote {} reference prices to {}\n", prices.size(), write_reference_prices_path);
+        return 0;
+    }
     const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
     if (start_day > 0.0) {
         sim.start_at(start_day * kDayS);
