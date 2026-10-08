@@ -1,4 +1,4 @@
-# Production dependencies and upkeep penalties (step 14, planned 2026-10-08, not implemented)
+# Production dependencies and upkeep penalties (step 14, planned 2026-10-08, penalties confirmed, not implemented)
 
 ## Why
 
@@ -26,18 +26,36 @@ Every consumed good of a profile has one **role**:
 
 Availability stays as it is now: stock over a 7-day buffer of the consumption rate, clamped to [0, 1].
 
-### Proposed upkeep penalties (placeholders, the user to confirm)
+### Upkeep penalties (confirmed by the user 2026-10-08)
 
 | Shortage (availability 0) | Output multiplier | Note |
 |---|---|---|
 | medicine | 0.85 | sick days |
 | food | 0.5 | rationing |
 | fuel (station operations) | 0.7 | station keeping, local transport |
-| oxygen or water | 0.0 (stop) | evacuation level; with a floor of 0.1 if a total stop proves too harsh |
+| oxygen or water | 0.1 | survival level; triggers emergency resupply (below) |
 
 A partial shortage scales the penalty linearly: multiplier = 1 - (1 - full_penalty) x (1 - availability).
-Keep the current overall floor of 10% only if the benchmark shows cascades again; with the per-output split it
-should not be needed.
+No penalty is total: a station never stops completely, so it cannot fall into a state it never leaves.
+
+### Emergency resupply (user, 2026-10-08)
+
+A station short of oxygen or water must not stay broken: if several stations sit at 10% for long, the economy
+breaks. The owning faction then pays for an emergency delivery.
+
+- **Trigger:** an upkeep good (oxygen and water; food too if the benchmark shows long famines) whose forecast stock,
+  with the contracts already on their way, runs out before the soonest delivery a ship could make plus a margin,
+  or whose availability is below 30%.
+- **Emergency contract:** the faction treasury (not the station) offers a fixed price for 30 days of consumption,
+  less the cargo already on its way: the station's reference price times an emergency premium (start at 3x). The
+  premium rises every 10 days nobody takes it. The faction pays even when its treasury goes negative.
+- **Sourcing:** a ship filling an emergency contract may buy below a station's sellable reserve (requisition), at
+  that station's curve price.
+- **Ships:** the contract is one more mission candidate with a fixed value, so the normal scoring decides who
+  flies it. Idle ships and ships still waiting to depart can take it. A ship already in transit is not diverted.
+- **End:** when the forecast covers 14 days again.
+- **Observer:** each emergency is logged as an event (station, good, ship, cost to the faction) and shown in the UI.
+  The benchmark counts emergencies per year and their cost; they should be rare.
 
 ### Data
 
@@ -63,6 +81,7 @@ should not be needed.
 
 ## Checks
 
+- Unit tests: an emergency contract opens below the trigger, closes at 14 days of cover, and the faction pays.
 - Unit tests: an output stops without its material input and is unaffected by another output's input; upkeep
   penalties multiply; an output with no inputs runs at full rate under no shortage.
 - `tools/benchmark.py` at 730 and 1460 days against v39d (730 d: 49.8 +- 1.0% unmet; 1460 d: 32.3 +- 1.2%, last
