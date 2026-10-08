@@ -117,24 +117,17 @@ Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorit
 13. **Orders and mixed cargo:** done. Mixed cargo by marginal value (v37), investment values mixed holds and
     ranks by profit per day near the fleet limit (v37d, v39a), contracts with prices agreed at departure (v39c);
     station panels show orders and contracts.
-14. **Production dependencies and upkeep penalties** (planned, user-approved 2026-10-08, not started;
-    `docs/plans/production_dependencies.md`): replaces v37's weighted-average production gating, which the user
-    rejected as unphysical. Each output depends only on its own material inputs (hard, minimum rule); life-support
-    and crew goods are upkeep with explicit per-condition penalties on the whole station (confirmed: medicine
-    -15%, fuel -30%, food -50%, oxygen or water -90%). Oxygen and water shortages trigger emergency resupply paid by
-    the faction, so no station stays broken. Needs a role column in `recipes.csv`.
-15. **Landed-cost reference prices** (planned 2026-10-08, `docs/plans/station_finances.md`): each consumer's curve
-    is centred on base price plus the transport cost from its nearest producer, and the cap drops from 16x to about
-    4x. Aimed at the outposts' chronic shortage and the windfalls that pile money in ships.
-16. **Science trade** (planned 2026-10-08, `docs/plans/science_trade.md`): light, valuable `science_samples` from
-    Titan, Ganymede, Ceres and Mercury, bought by Earth (export) and Lunar Gateway and Mars (curve). Gives the
-    outposts an income and the return legs a cargo.
-17. **Station money** (planned 2026-10-08, `docs/plans/station_finances.md`): station and residents are one
-    account; local consumption is no payment; Earth stations are backed by the outside account; station cash limits
-    orders; faction core-crew subsidies, budgets and loans; the money-supply controller is set to measure only.
-    Fixes the source of new money (residents paying scarcity prices) and the faction deficits.
+14. **Production dependencies, upkeep penalties, emergency resupply:** done (`e8d4fdd`).
+15. **Landed-cost reference prices, price cap 4x:** done (`906e05d`).
+16. **Science trade:** done (`117e00f`).
+17. **Station money** (residents pay the import cost, local production free, faction credit and interest,
+    core-crew subsidy; budget gate built but off): done (`e633881`). UI `0a323ab`.
+    Results, variants and **19 decisions for the user to review**: `docs/plans/steps_14_17_log.md`. Four starts,
+    1460 days: unmet 33.0 +- 2.5%, last ~290 days 11.8 +- 2.6%, 73.5/92 profitable, ships hold 26% of the money
+    (was ~75%), ~4 emergencies a year, drift 0.
 
-Then tune the economy (money in ships, Mars Corporation, outposts) against steps 14-17.
+Next: the user reviews the decisions in `steps_14_17_log.md`; then tune the economy (outposts, Mars Corporation's debt,
+remote emergencies, profitability) against steps 14-17.
 
 Deferred (user, 2026-10-08):
 - **Station growth and decline:** wanted, but needs limits first: a subsidised core crew (step 17 provides it) and

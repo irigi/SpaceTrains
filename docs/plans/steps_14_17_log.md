@@ -6,6 +6,37 @@ such decision is listed under **Decisions to review**. Benchmarks are `tools/ben
 mean ± sd). Baseline v39d at 730 days: unmet 49.8 ± 1.0%, last fifth 32.5 ± 1.6%, 50.8/91 profitable, money
 +1.3 ± 7.4%.
 
+## Summary (final, four starts; steps done in the order 14, 15, 17, 16)
+
+| | v39d | after steps 14–17 |
+|---|---|---|
+| 730 d unmet | 49.8 ± 1.0% | 48.5 ± 2.9% |
+| 730 d last fifth | 32.5 ± 1.6% | 29.9 ± 5.2% |
+| 1460 d unmet | 32.3 ± 1.2% | 33.0 ± 2.5% |
+| 1460 d last fifth (~290 days) | 10.5 ± 1.9% | 11.8 ± 2.6% |
+| 1460 d profitable ships | 84.5/93 | 73.5/92 |
+| 1460 d money vs target | +10.5 ± 12% | −7.0 ± 7.6% |
+| 1460 d share of money in ships | ~75% (3.1M of 4.1M) | 26 ± 7% |
+| 1460 d exports | 1.84M | 2.07M (science included) |
+| 1460 d emergencies / premiums | – | 17 ± 4 / 255k cr per run |
+| 1460 d factions over their credit limit | – | 0.5 per run (Mars Corporation) |
+| trajectory flags, money drift | 0, 0 | 0, 0 |
+
+Against the plan's acceptance checks: drift 0 (met); emergencies rare, about 4 a year at 1460 days (met); ships'
+share of the money much lower (met); faction debts within limits (Mars Corporation over its limit in two of four
+runs, and it stops buying ships then); no emergency open for more than 120 days (**not met in the first two years**:
+the remote stations' first emergencies stayed open 450–660 days, since "enough coming" needs a freighter months
+into its trip; in years 3–4 the longest was 119 days); outpost unmet demand lower than v39d (**mixed**: one
+four-year run against the v39d report: Ganymede 45–73% (50–77%), Mars food 45% / fuel 67% / metals 51% (52–60%),
+Ceres 36–51% (30–51%), Titan 51–95% (60–90%)).
+
+Unmet demand overall is about where it was, but it now measures something more physical (upkeep shortages
+count in full, stopped plants no longer hide their inputs' shortage), and the money no longer piles up in ships.
+Not built from the plans: Earth stations pinned to the outside account (decision 12), the station budget gate
+switched on (13), a test for it, and the money-supply controller at zero (14). The UI shows the new state in the
+station panel (production limits, upkeep shortages, emergencies, landed costs) and the economy overview (faction
+debt, emergencies), but nobody has looked at it in the game yet.
+
 ## Step 14: production dependencies, upkeep penalties, emergency resupply
 
 ### What was built
