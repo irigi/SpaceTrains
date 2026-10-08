@@ -228,3 +228,6 @@ outposts (design question).
 - 02:1x **Final 4-year, four-start benchmark (v39d):** unmet **32.3 +- 1.2%** over 1460 days, **10.5 +- 1.9% in the
   last ~290 days** (v38: 17.6 +- 1.5), **84.5/93 ships profitable**, exports 1.84M, money supply +10.5 +- 12% (one
   start +28%: to watch), 0 trajectory flags, drift 0.
+- 02:2x **v39e: the ships' cash reserve shrinks when the money supply is above target** (to half at 1.5x): the
+  controller can only tax stations. 1460 days, four starts: money **+3.9 +- 11.3%** (worst start +14.7%, was +28%),
+  unmet 34.0 +- 2.9% (v39d 32.3 +- 1.2, within noise), last ~290 days 11.1 +- 4.8%, 82.8/93.8 profitable.

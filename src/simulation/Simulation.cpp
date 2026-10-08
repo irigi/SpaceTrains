@@ -2221,14 +2221,18 @@ void Simulation::step_treasuries(double dt_s) {
     const auto& open = universe_.open_economy;
     const double dt_days = dt_s / 86400.0;
 
-    // Ships keep a working reserve; the rest goes to the owner, the home station.
+    // Ships keep a working reserve; the rest goes to the owner, the home station. When the
+    // money supply runs above its target the reserve shrinks (to half at 1.5x the target):
+    // the controller can only tax stations, and a large fleet's reserves were most of the excess.
     if (open.ship_cash_reserve > 0.0) {
         const double share = std::min(1.0, dt_days / open.dividend_days);
+        const double excess = seeded_money_supply_ > 0.0 ? internal_money_supply() / seeded_money_supply_ - 1.0 : 0.0;
+        const double reserve = open.ship_cash_reserve * std::clamp(1.0 - excess, 0.5, 1.0);
         for (auto& ship : ships_) {
-            if (ship.credits <= open.ship_cash_reserve) {
+            if (ship.credits <= reserve) {
                 continue;
             }
-            const double dividend = (ship.credits - open.ship_cash_reserve) * share;
+            const double dividend = (ship.credits - reserve) * share;
             auto& home = get_station_state(ship.home_station_id);
             ship.credits -= dividend;
             ship.ledger.dividends += dividend;
