@@ -59,6 +59,11 @@ int main() {
             "Titan's machinery must cost more to land than Lunar Gateway's");
         require_near(economy.reference_price(station("earth_orbit"), "electronics"), 200.0, 1.0e-9,
             "a producer's reference price is the base price");
+        // Depot fuel far from any factory costs its carriage (step 20); a factory's does not.
+        require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * 8.0,
+            "Mars fuel must cost the haul from the nearest factory");
+        require_near(economy.reference_price(station("venus_cloud"), "fuel"), 8.0, 1.0e-9,
+            "a fuel factory's fuel keeps the base price");
         require_near(economy.get_price(agri, "water", 1.0e9, base), base * 0.25, 1.0e-9,
             "price at huge stock must clamp at 0.25x base");
 

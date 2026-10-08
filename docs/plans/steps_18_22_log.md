@@ -64,3 +64,18 @@ re-checked after it.
 
 2. **Station-specific rows are not scaled** (local resources); with them scaled, Lunar Gateway's ice would fall
    from 10 to 1.8 u/day, below what Earth L1's farms need.
+
+## Step 20: landed-cost fuel at depots without a factory
+
+`Simulation::compute_reference_prices` now also prices fuel at every depot without a factory, from the nearest
+factories: Earth L1 9.69 and Low Earth Logistics 9.84 (from Lunar Gateway), Mars Transfer Port 26.81 (from Venus,
+plasma bulk tanker at half load, 372-day round trip; up to 107 cr/u at the 4x cap). Factories keep the base
+price. This reverses step 15's decision 8 (fuel excluded).
+
+| | unmet | last fifth | profitable | holds | money | exports | emergencies / cr |
+|---|---|---|---|---|---|---|---|
+| step 19 | 25.5 ± 2.3% | 33.1 ± 5.3% | 49.8/91 | 101,000 u | −17.7 ± 15% | 1.29M | 14 / 109k |
+| step 20 | 26.6 ± 1.5% | 37.2 ± 4.0% | 54.0/90 | 104,100 u | −21.7 ± 3.0% | 1.19M | 12.5 / 91k |
+
+Mars fuel, 88% unmet in year 2 after step 19, drops below 5%: fleet reviews order bulk tankers from Venus and
+Lunar Gateway for it. The overall numbers are within noise of step 19.

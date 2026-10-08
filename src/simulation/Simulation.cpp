@@ -469,8 +469,9 @@ std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() c
         return cost;
     };
 
-    // What to price: every consumer's net-consumed goods (fuel keeps its depot pricing; export
-    // markets keep their flat price), with its nearest producers.
+    // What to price: every consumer's net-consumed goods (export markets keep their flat price),
+    // with its nearest producers; and fuel at every depot without a factory (step 20: Mars, 250
+    // days from the nearest factory, got almost no fuel while it was priced like a factory's).
     struct Route {
         const domain::StationDefinition* consumer {nullptr};
         const domain::CommodityDefinition* commodity {nullptr};
@@ -478,8 +479,15 @@ std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() c
     };
     std::vector<Route> routes;
     for (const auto& consumer : universe_.stations) {
-        for (const auto& [commodity_id, rate] : economy_.get_station_net_rates(consumer)) {
-            if (rate >= 0.0 || commodity_id == economy::FUEL_ID || economy_.is_export_market(consumer, commodity_id)) {
+        auto goods = economy_.get_station_net_rates(consumer);
+        const bool fuel_depot = universe_.fuel_supply.depot_buffer_units > 0.0 && economy_.fuel_factory_output(consumer) <= 0.0;
+        if (fuel_depot) {
+            goods[economy::FUEL_ID] = std::min(goods[economy::FUEL_ID], -1.0);
+        } else {
+            goods.erase(economy::FUEL_ID);
+        }
+        for (const auto& [commodity_id, rate] : goods) {
+            if (rate >= 0.0 || economy_.is_export_market(consumer, commodity_id)) {
                 continue;
             }
             Route route {.consumer = &consumer, .commodity = &get_commodity(commodity_id)};
