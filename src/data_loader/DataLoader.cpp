@@ -645,6 +645,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"route_commitment_days", &investment.route_commitment_days},
             {"max_ships_per_review", &investment.max_ships_per_review},
             {"max_fleet_size", &investment.max_fleet_size},
+            {"max_fleet_hold_units", &investment.max_fleet_hold_units},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];

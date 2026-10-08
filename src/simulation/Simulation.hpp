@@ -163,6 +163,8 @@ private:
     [[nodiscard]] double station_affordability(const domain::StationDefinition& station) const;
     void record_affordability();
     [[nodiscard]] double internal_money_supply() const;
+    // The fleet's total hold, against max_fleet_hold_units (step 21).
+    [[nodiscard]] double fleet_hold_units() const;
     // Fleet investment (docs/plans/fleet_investment.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();

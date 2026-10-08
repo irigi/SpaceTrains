@@ -335,6 +335,17 @@ int main() {
             "the faction treasuries' balance must equal taxes minus subsidies, their ship trade and emergency premiums");
         require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
             "dividends paid by ships must equal dividends received by stations");
+        // The fleet stays within its hold cap (step 21).
+        double fleet_hold = 0.0;
+        for (const auto& ship : snap.ships) {
+            for (const auto& ship_class : sim.universe().ship_classes) {
+                if (ship_class.id == ship.class_id) {
+                    fleet_hold += ship_class.cargo_capacity_units;
+                }
+            }
+        }
+        require(fleet_hold <= sim.universe().fleet_investment.max_fleet_hold_units,
+            "fleet investment must not take the fleet's holds past the cap");
         const auto& open = sim.universe().open_economy;
         require(open.station_credit_ceiling > open.station_credit_floor, "open_economy.csv must enable a credit band");
         require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,

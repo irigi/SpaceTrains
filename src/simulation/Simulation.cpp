@@ -2583,6 +2583,14 @@ void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stoc
     }
 }
 
+double Simulation::fleet_hold_units() const {
+    double units = 0.0;
+    for (const auto& ship : ships_) {
+        units += get_ship_class(ship.class_id).cargo_capacity_units;
+    }
+    return units;
+}
+
 double Simulation::internal_money_supply() const {
     double total = 0.0;
     for (const auto& station : stations_) {
@@ -2776,9 +2784,11 @@ void Simulation::step_fleet_investment() {
     // One purchase per tick (each takes a second or two of probing), so a review never
     // stalls the simulation for long. Each purchase is a committed flow and keeps its yard
     // busy, so the next one is valued against the demand still open.
-    // A fleet beyond about a hundred ships is more than a player can follow: the treasuries
-    // stop buying at the limit (laid-up ships sold for salvage free their places).
-    if (investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= investment.max_fleet_size) {
+    // The fleet is limited by its total hold (step 21: a cap on ship numbers made a cheap local
+    // shuttle cost a place as much as a 2,000 u freighter, so none was bought), with a ship
+    // count as a backstop for run time. Laid-up ships sold for salvage free their places.
+    if ((investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= investment.max_fleet_size)
+        || (investment.max_fleet_hold_units > 0.0 && fleet_hold_units() >= investment.max_fleet_hold_units)) {
         investment_purchases_left_ = 0;
     }
     // One batch of probes or one purchase per tick: a review never stalls the simulation for
@@ -2887,10 +2897,12 @@ Simulation::CommissionStep Simulation::commission_step() {
         double rank_bound {0.0};  // in the review's ranking: return per year, or profit per day
     };
     // Far from the fleet limit the treasuries rank candidates by return on their price; from
-    // half the limit on, a place in the fleet is the scarce thing, so by profit per day (above
-    // the hurdle): a big hold beats a cheap 30 u courier.
-    const bool rank_by_profit = investment.max_fleet_size > 0.0
-        && static_cast<double>(ships_.size()) >= 0.5 * investment.max_fleet_size;
+    // half the limit on, hold space in the fleet is the scarce thing, so by profit per day per
+    // unit of hold (above the hurdle): what a ship earns for the share of the cap it takes.
+    const double fleet_hold = fleet_hold_units();
+    const bool rank_by_profit = investment.max_fleet_hold_units > 0.0
+        ? fleet_hold >= 0.5 * investment.max_fleet_hold_units
+        : investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= 0.5 * investment.max_fleet_size;
     std::vector<Candidate> candidates;
     // A yard builds one ship at a time. (Routes already served are discounted by the
     // committed flow, so a yard may build again as soon as it is free.)
@@ -2929,7 +2941,9 @@ Simulation::CommissionStep Simulation::commission_step() {
         }
         for (const auto& ship_class : universe_.ship_classes) {
             if ((!ship_class.hull_id.empty() && ship_class.hull_id != ship_class.id) || ship_class.ship_value_cr <= 0.0
-                || ship_class.ship_value_cr + investment.working_capital > richest_treasury) {
+                || ship_class.ship_value_cr + investment.working_capital > richest_treasury
+                || (investment.max_fleet_hold_units > 0.0
+                    && fleet_hold + ship_class.cargo_capacity_units > investment.max_fleet_hold_units)) {
                 continue;
             }
             // A ship of this hull docked idle or laid up here could already take the work.
@@ -2953,7 +2967,9 @@ Simulation::CommissionStep Simulation::commission_step() {
             const double return_bound = (margin_bound - running_cost) * 365.0 / ship_class.ship_value_cr;
             if (return_bound >= investment.hurdle_return_per_year) {
                 candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound,
-                    .rank_bound = rank_by_profit ? margin_bound - running_cost : return_bound});
+                    .rank_bound = rank_by_profit
+                        ? (margin_bound - running_cost) / std::max(1.0, ship_class.cargo_capacity_units)
+                        : return_bound});
             }
         }
     }
@@ -3145,6 +3161,7 @@ Simulation::CommissionStep Simulation::commission_step() {
         ++probes;
         const double rank = rank_by_profit
             ? valuation.annual_return * candidate.ship_class->ship_value_cr / 365.0
+                / std::max(1.0, candidate.ship_class->cargo_capacity_units)
             : valuation.annual_return;
         if (valuation.annual_return > investment.hurdle_return_per_year && rank > best_rank) {
             best_rank = rank;

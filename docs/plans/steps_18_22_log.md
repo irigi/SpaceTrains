@@ -79,3 +79,27 @@ price. This reverses step 15's decision 8 (fuel excluded).
 
 Mars fuel, 88% unmet in year 2 after step 19, drops below 5%: fleet reviews order bulk tankers from Venus and
 Lunar Gateway for it. The overall numbers are within noise of step 19.
+
+## Step 21: fleet cap by hold capacity
+
+`max_fleet_hold_units` (100,000 u) replaces the ship count as the fleet limit; `max_fleet_size` stays as a
+backstop for run time, raised to 130. A candidate whose hold would pass the cap is skipped. From half the cap on,
+candidates rank by profit per day **per hold unit**.
+
+| | unmet | last fifth | profitable | ships | holds | money | exports | emergencies / cr |
+|---|---|---|---|---|---|---|---|---|
+| step 20 | 26.6 ± 1.5% | 37.2 ± 4.0% | 54.0/90 | 90 | 104,100 u | −21.7 ± 3.0% | 1.19M | 12.5 / 91k |
+| step 21 | 25.1 ± 2.3% | 32.8 ± 4.1% | 56.5/115 | 115 | 59,300 u | −7.4 ± 9.5% | 1.27M | 13.5 / 83k |
+
+The fleet is now many smaller ships (115 ships, 59,000 u): ranking per hold unit favours plasma freighters and
+couriers, and within two years the fleet reaches neither cap (purchases are limited by the review rate and the
+hurdle). Slightly better on every measure, within noise.
+
+It did **not** bring back the Earth shuttles: hops between Earth L1 and Low Earth Logistics stay at ~30–40 a year,
+and Earth L1's water from Lunar Gateway stays 72% unmet in year 2. That route is worth about 30 cr/day (1.8 u/day
+at a margin of ~17 cr), however the cap counts it. The blocker is that an input's price ignores the output it
+enables (step 19), not the cap.
+
+### Decisions to review
+
+3. **Hold cap 100,000 u, ship backstop 130, ranking per hold unit** near the cap.

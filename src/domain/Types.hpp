@@ -120,6 +120,7 @@ struct FleetInvestmentDefinition {
     double route_commitment_days {0.0};    // a new ship works the route it was bought for this long
     double max_ships_per_review {1.0};     // ships bought per review while candidates clear the hurdle
     double max_fleet_size {0.0};           // no purchase while this many ships are in service; 0 = no limit
+    double max_fleet_hold_units {0.0};     // no purchase that takes the fleet's holds past this; 0 = no limit (step 21)
 };
 
 // Prices (data/economy/pricing.csv and reference_prices.csv, step 15).
