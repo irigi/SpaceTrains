@@ -214,7 +214,7 @@ outposts (design question).
   so it froze until the simulation caught up (diagnosed with the tour's stall report: display 3.3 days ahead). Now
   it crawls at a fifth of the rate while snapshots keep coming. Reviews probe 2 candidates per tick. Measured in the
   window at day 0-600: **5 days/s: 0.8% of frames stalled, longest 0.24 s** (was 13%, 3 s); 1 day/s: none.
-- 02:1x **v39c: contracts (step 13 stage 2) and a forecast bug.** At departure each lot's price is agreed from the
+- 01:5x **v39c: contracts (step 13 stage 2) and a forecast bug.** At departure each lot's price is agreed from the
   destination's forecast on arrival; the station pays it on arrival (save version 5); the station panel lists inbound
   contracts with their agreed prices. **Bug found and fixed:** every arrival forecast added the launch-window wait
   twice (a plan's travel time already includes it), so ships with long waits forecast their sale too far ahead.
@@ -222,3 +222,6 @@ outposts (design question).
   money +7.2 +- 4.7%. **Test fixed:** the economy suite's per-ship cash check (< 4x the reserve) failed once the
   reserve was halved in v37c - I had run only the main suite at those commits; it now checks the fleet average (a
   ship just paid for a big hold may hold more for a few weeks until the dividends drain it).
+- 02:0x **v39d:** the investment valuation's round trip counted the launch-window wait three times (2 x travel +
+  wait, with the wait already in the travel time); now wait + 2 x transfer. Four starts: unmet 49.8 +- 1.0%, last
+  fifth 32.5 +- 1.6, 50.8/91 profitable, money +1.3 +- 7.4% (neutral within noise, a correctness fix).

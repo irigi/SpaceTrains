@@ -2548,10 +2548,13 @@ Simulation::CommissionStep Simulation::commission_step() {
 
         // Whole round trips over the commitment, at least one: a run longer than the
         // commitment earns its margin over its own cycle.
-        const double cycle_days = std::max(1.0, 2.0 * option.travel_days + option.wait_days);
+        // travel_days includes the wait for the launch window: a cycle is the wait plus the
+        // transfer out and back (until 2026-10-08 the wait was counted three times).
+        const double transfer_days = std::max(0.0, option.travel_days - option.wait_days);
+        const double cycle_days = std::max(1.0, 2.0 * transfer_days + option.wait_days);
         const double cycles = std::max(1.0, std::floor(investment.route_commitment_days / cycle_days));
         const double window_days = cycles * cycle_days;
-        const double leg_days = std::min(cycle_days, option.travel_days + option.wait_days);
+        const double leg_days = std::min(cycle_days, option.travel_days);
         advance(investment.build_days);
         double margin = 0.0;
         double delivered = 0.0;
