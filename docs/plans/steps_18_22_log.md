@@ -5,6 +5,39 @@ fleet cap by hold capacity (21), scheduled liners (22). The user chose the optio
 Benchmarks: `tools/benchmark.py`, four starting days, mean ± sd. Baseline (after step 16), 730 days: unmet
 48.5 ± 2.9%, last fifth 29.9 ± 5.2%, 50.5/90 profitable, money −23.9 ± 8.2%, exports 0.79M, 13 emergencies.
 
+## Summary (final): steps 18, 20 and 22 kept; 19 and 21 reverted in data
+
+Four starts, 1460 days:
+
+| Configuration | unmet | last fifth (~290 d) | profitable | ships | holds | money | emergencies | run |
+|---|---|---|---|---|---|---|---|---|
+| after step 16 (baseline, reproduced) | 33.0 ± 2.5% | 11.8 ± 2.6% | 73.5/92 | 92 | 97,600 u | −7.0% | 17 | 322 s |
+| step 18 alone | 16.3 ± 2.1% | **5.3 ± 3.2%** | 78.8/94 | 94 | 114,800 u | −1.7% | 19 | 328 s |
+| steps 18–22 as planned (3x, hold cap, backstop 130) | 24.1 ± 2.8% | 20.4 ± 5.5% | 108.5/138 | 138 | 65,800 u | +1.5% | 28 | 422 s |
+| … with production at 5x | 23.7 ± 2.1% | 21.8 ± 4.4% | 106.8/135 | 135 | 67,700 u | −6.5% | 31 | 418 s |
+| … with backstop 200 | 23.7 ± 2.7% | 18.0 ± 3.1% | 126/188 | 188 | 80,100 u | −7.2% | 28 | 522 s |
+| … without step 21 (ship cap 90) | 25.2 ± 1.3% | 23.5 ± 3.1% | 79.2/97 | 97 | 115,000 u | −9.5% | 22 | 364 s |
+| … without step 21 and liners | 25.4 ± 1.1% | 21.8 ± 3.6% | 75.8/95 | 95 | 107,400 u | −7.2% | 20 | 381 s |
+| … without step 21 and fuel landed cost | 24.6 ± 1.9% | 22.8 ± 3.0% | 79.8/97 | 97 | 107,700 u | −3.7% | 22 | 346 s |
+| **final: original production, steps 18, 20, 22, ship cap 90** | **17.4 ± 2.2%** | **7.0 ± 4.3%** | 76.8/93 | 93 (+2 liners) | 112,900 u | −21.8% | 15 | 331 s |
+| final with hold cap 100k, backstop 200 | 18.8 ± 0.5% | 11.7 ± 2.7% | 124/195 | 195 | 91,800 u | −17.3% | 21 | 547 s |
+
+- **Step 18 (start stocked) is most of the gain:** the steady state goes from 11.8% to 5.3% unmet.
+- **Step 19 (production cut) caused the regression** (last fifth ~20%): any cut, 3x or 5x, removes the slack that
+  covers transit stock, spoilage and imperfect dispatch, and the Earth cluster spirals (Earth L1 grows food from
+  water and needs spare parts; with less slack a shortage of either cuts the food that Low Earth Logistics needs
+  to make those parts). **Reverted**: recipes are back to their step 18 levels; `tools/rebalance_production.py`
+  stays for later. My expectation that 3x would bring producer prices to base was wrong (see step 19).
+- **Step 21 (hold cap) is switched off** (`max_fleet_hold_units` 0, `max_fleet_size` 90; the code stays and ranks
+  per hold unit only while a hold cap is set). It filled the fleet with small ships, did not bring back the Earth
+  shuttles it was for, and with original production it is worse (11.7% vs 7.0%) and 65% slower.
+- **Steps 20 (fuel) and 22 (liners) are about neutral overall** and kept for what they fix locally: Mars gets fuel,
+  the outposts get scheduled calls.
+
+Year 4 of one final run (start day 0): Titan electronics 94% unmet, Ganymede food 66%, Earth L1 machinery 56%,
+Low Earth Logistics food 44%, Earth L1 water 32%, Mars fuel 30%; everything else under 30%. Earth-pair hops still
+fall from 28 to ~10 a year. 11 emergencies in four years, none open at the end.
+
 ## Step 18: start stocked
 
 `Simulation::starting_inventory`: every good a station consumes starts at least at its target stock (its
@@ -103,3 +136,32 @@ enables (step 19), not the cap.
 ### Decisions to review
 
 3. **Hold cap 100,000 u, ship backstop 130, ranking per hold unit** near the cap.
+
+
+## Step 22: scheduled liners
+
+`data/economy/liners.csv` names seed ships that fly a fixed loop forever. Two Independent Consortium plasma bulk
+tankers (2,000 u), home Low Earth Logistics:
+- **IC Outer Loop East:** LEO → Ganymede → Titan → Earth L1;
+- **IC Outer Loop West:** LEO → Titan → Ganymede → Earth L1.
+
+How a liner behaves:
+- **Next stop only:** its only allowed destination is the stop after the one it is at. The usual mixed-cargo fill
+  chooses what to carry; when nothing pays, it flies the leg empty.
+- **Never retired:** it is never laid up, sold or refitted, and doesn't count against the fleet cap.
+- **Top-ups:** its faction tops its cash up to the 25k reserve when it runs out (`ShipLedger::subsidies`, saved;
+  save version 8).
+- **Shown in the game:** the ship panel shows the loop; each departure is logged as "(liner) leaves X on schedule
+  for Y"; the audit has a line per liner.
+
+In practice each outer leg takes ~600 days and a loop ~3.5 years, so each outpost gets about two calls in that
+time. Over four years (start day 0) the liners made 217k and 90k cr profit, with 36k and 128k cr of faction
+top-ups. Their first legs carried 500 u machinery + 150 u electronics to Ganymede and 164 u electronics to Titan.
+Titan's electronics are still 94% unmet in year 4: the liners call too rarely for its use.
+
+### Decisions to review
+
+4. **Two liners on opposite loops** through Low Earth Logistics, Ganymede, Titan and Earth L1, owned by the
+   Independent Consortium. More liners, or shorter loops, would call more often.
+5. **Liners stay outside the fleet cap** and get faction top-ups instead of being laid up.
+6. **Production cut reverted, hold cap switched off** (above). The user chose both; the benchmark says both hurt.

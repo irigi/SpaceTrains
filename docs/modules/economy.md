@@ -101,6 +101,22 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 - A station budget gate (`affordability_days`, off) can scale what a station offers ships by what it can pay.
 - Details and the variants tried: `docs/plans/steps_14_17_log.md`.
 
+## Steps 18-22 (economy improvements)
+
+- **Starting stocks** (`Simulation::starting_inventory`): every consumed good starts at least at its target stock,
+  within 85% of storage.
+- **Production scale** (`tools/rebalance_production.py --multiple 3`): profile industries produce 3x what the
+  stations consume system-wide; local resources (station rows), fuel and export goods are left alone. Regenerate
+  the reference prices afterwards.
+- **Depot fuel** at stations without a factory is centred on base plus the carriage from the nearest factory
+  (part of `reference_prices.csv`).
+- **Fleet cap** (`fleet_investment.csv`): `max_fleet_hold_units` (100,000 u) with `max_fleet_size` (130) as a backstop;
+  near the cap candidates rank by profit per day per hold unit.
+- **Scheduled liners** (`data/economy/liners.csv`): a seed ship flies its loop of stops forever, carrying whatever
+  pays for the next stop (or nothing), never laid up, sold or refitted, outside the fleet cap; its faction tops its
+  cash up when it runs out (`ShipLedger::subsidies`).
+- Results and decisions: `docs/plans/steps_18_22_log.md`.
+
 ## Deferred Work
 
 - More detailed production chains

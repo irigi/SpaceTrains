@@ -869,6 +869,48 @@ int main() {
             days, snap.emergency_paid);
     }
 
+    // --- Scheduled liners (step 22): a liner only ever flies to the stop after the one it is at,
+    // and keeps going whether or not the leg pays. ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        auto sim = spacetrains::simulation::Simulation::from_data_root(data_root);
+        sim.set_timewarp(86400.0);
+        const auto& liners = sim.universe().liners;
+        require(!liners.empty(), "the data should define scheduled liners");
+        std::map<std::string, std::string> last_port;
+        std::map<std::string, int> legs;
+        for (const auto& ship : sim.snapshot().ships) {
+            last_port[ship.id] = ship.current_station_id;
+        }
+        for (int day = 0; day < 700; ++day) {
+            sim.step(1.0);
+            for (const auto& ship : sim.snapshot().ships) {
+                const auto loop = liners.find(ship.id);
+                if (loop == liners.end()) {
+                    continue;
+                }
+                const auto& stops = loop->second;
+                const auto& mission = ship.active_mission;
+                if (!mission.destination_station_id.empty()) {
+                    const auto at = std::find(stops.begin(), stops.end(), mission.origin_station_id);
+                    require(at != stops.end(), "a liner should leave from one of its stops");
+                    const auto next = stops[static_cast<std::size_t>(at - stops.begin() + 1) % stops.size()];
+                    require(mission.destination_station_id == next, "a liner should fly only to its next stop");
+                }
+                // A liner turns round within the day it arrives, so a leg shows as a change of port.
+                if (last_port[ship.id] != ship.current_station_id) {
+                    ++legs[ship.id];
+                    last_port[ship.id] = ship.current_station_id;
+                }
+                require(ship.phase != spacetrains::domain::ShipMissionPhase::LaidUp, "a liner should never lay up");
+            }
+        }
+        for (const auto& [ship_id, stops] : liners) {
+            require(legs[ship_id] >= 1, "a liner should complete legs of its loop");
+            std::cout << std::format("Liner {}: {} legs in 700 days\n", ship_id, legs[ship_id]);
+        }
+    }
+
     std::cout << "All SpaceTrains tests passed.\n";
     return 0;
 }

@@ -433,6 +433,13 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         "%s · %s" % [String(detail.get("class_name", detail.get("class_id", "ship"))), String(detail.get("faction_id", ""))],
         _faction_color(detail, context))
     _add_label(_mission_sentence(detail, context), UiTheme.TEXT_PRIMARY, 13)
+    # Scheduled liners (step 22) fly a fixed loop, paying or not.
+    var stops: Array = detail.get("liner_stops", [])
+    if not stops.is_empty():
+        var names: Array[String] = []
+        for stop in stops:
+            names.append(_resolve_name(context, String(stop)))
+        _add_label("Scheduled liner: " + " → ".join(names) + " → …", UiTheme.ACCENT, 12)
 
     var propellant := float(detail.get("propellant_kg", 0.0))
     var propellant_capacity := float(detail.get("propellant_capacity_kg", 1.0))

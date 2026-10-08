@@ -475,6 +475,20 @@ void print_economy_audit(
         "  provisions {:.0f}  refits {:.0f}  dividends {:.0f}  -> {}/{} ships profitable\n",
         fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
         fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, all_ships.size());
+    // Scheduled liners (step 22): their loop, where they are, what they earned and the top-ups.
+    for (const auto& ship : snap.ships) {
+        const auto loop = universe.liners.find(ship.id);
+        if (loop == universe.liners.end()) {
+            continue;
+        }
+        std::string stops;
+        for (const auto& stop : loop->second) {
+            stops += (stops.empty() ? "" : " > ") + stop;
+        }
+        std::cout << std::format("    Liner {:22s} {}  now {} ({})  profit {:.0f}  faction top-ups {:.0f}\n", ship.name, stops,
+            ship.current_station_id, ship.active_mission.destination_station_id.empty() ? "docked"
+                : "to " + ship.active_mission.destination_station_id, ship.lifetime_profit, ship.ledger.subsidies);
+    }
     const double internal_supply = station_credits + ship_credits;
     double treasuries = 0.0;
     std::cout << "    Faction treasuries:";

@@ -126,8 +126,14 @@ Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorit
     1460 days: unmet 33.0 +- 2.5%, last ~290 days 11.8 +- 2.6%, 73.5/92 profitable, ships hold 26% of the money
     (was ~75%), ~4 emergencies a year, drift 0.
 
-Next: the user reviews the decisions in `steps_14_17_log.md`; then tune the economy (outposts, Mars Corporation's debt,
-remote emergencies, profitability) against steps 14-17.
+Steps 18-22 (`docs/plans/steps_18_22_log.md`, user's choices of 2026-10-08): 18 start stocked (kept, most of the
+gain), 19 production at 3x consumption (reverted in data: it caused the steady-state regression), 20 landed-cost
+fuel at depots without a factory (kept), 21 fleet cap by hold capacity (switched off in data: worse and slower),
+22 scheduled liners to Titan and Ganymede (kept). Four starts, 1460 days: unmet 17.4 +- 2.2%, last ~290 days
+7.0 +- 4.3% (was 11.8), 76.8/93 profitable, 15 emergencies, drift 0.
+
+Next: the user reviews `steps_18_22_log.md`. Open: Earth-cluster supply (an input's price ignores the output it
+enables), outposts' rare liner calls, Mars Corporation's debt.
 
 Deferred (user, 2026-10-08):
 - **Station growth and decline:** wanted, but needs limits first: a subsidised core crew (step 17 provides it) and

@@ -165,6 +165,11 @@ private:
     [[nodiscard]] double internal_money_supply() const;
     // The fleet's total hold, against max_fleet_hold_units (step 21).
     [[nodiscard]] double fleet_hold_units() const;
+    // Ships counted against max_fleet_size (liners are not).
+    [[nodiscard]] std::size_t fleet_ship_count() const;
+    // Scheduled liners (step 22): a liner's loop (null for other ships), and its stop after `from_id`.
+    [[nodiscard]] const std::vector<std::string>* liner_stops(const domain::ShipState& ship) const;
+    [[nodiscard]] std::string next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const;
     // Fleet investment (docs/plans/fleet_investment.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();

@@ -313,6 +313,10 @@ int main() {
         }
         const auto& investment = snap.fleet_investment;
         const double internal_supply = final_supply;
+        double liner_subsidies = 0.0;
+        for (const auto& ship : snap.ships) {
+            liner_subsidies += ship.ledger.subsidies;
+        }
         double treasuries = 0.0;
         for (const auto& [faction_id, balance] : snap.faction_treasuries) {
             treasuries += balance;
@@ -331,7 +335,7 @@ int main() {
             " plus ships sold to the treasuries minus salvage bought back, plus interest");
         require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies
                 - investment.hulls_bought - investment.working_capital + investment.salvage - snap.emergency_paid
-                - snap.faction_interest_paid, 1.0e-3,
+                - snap.faction_interest_paid - liner_subsidies, 1.0e-3,
             "the faction treasuries' balance must equal taxes minus subsidies, their ship trade and emergency premiums");
         require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
             "dividends paid by ships must equal dividends received by stations");
@@ -344,8 +348,8 @@ int main() {
                 }
             }
         }
-        require(fleet_hold <= sim.universe().fleet_investment.max_fleet_hold_units,
-            "fleet investment must not take the fleet's holds past the cap");
+        const double hold_cap = sim.universe().fleet_investment.max_fleet_hold_units;
+        require(hold_cap <= 0.0 || fleet_hold <= hold_cap, "fleet investment must not take the fleet's holds past the cap");
         const auto& open = sim.universe().open_economy;
         require(open.station_credit_ceiling > open.station_credit_floor, "open_economy.csv must enable a credit band");
         require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,

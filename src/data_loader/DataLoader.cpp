@@ -672,6 +672,36 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
 
     {
+        const auto liners_path = root / "economy" / "liners.csv";
+        const auto rows = read_csv_rows(liners_path);
+        require_header(rows.front(), {"ship_id", "stops"}, liners_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, liners_path, i + 1);
+            const auto seed = std::find_if(universe.ship_seeds.begin(), universe.ship_seeds.end(),
+                [&](const domain::ShipSeedDefinition& s) { return s.id == row[0]; });
+            if (seed == universe.ship_seeds.end()) {
+                throw std::runtime_error("Liner '" + row[0] + "' is not a ship in ships.csv (" + liners_path.string() + ")");
+            }
+            std::vector<std::string> stops;
+            std::size_t start = 0;
+            while (start <= row[1].size()) {
+                const auto end = std::min(row[1].find('|', start), row[1].size());
+                stops.push_back(row[1].substr(start, end - start));
+                require_station(stops.back(), liners_path);
+                start = end + 1;
+            }
+            if (stops.size() < 2 || std::unordered_set<std::string>(stops.begin(), stops.end()).size() != stops.size()) {
+                throw std::runtime_error("A liner needs two or more different stops in " + liners_path.string());
+            }
+            if (std::find(stops.begin(), stops.end(), seed->start_station_id) == stops.end()) {
+                throw std::runtime_error("Liner '" + row[0] + "' must start at one of its stops in " + liners_path.string());
+            }
+            universe.liners[row[0]] = std::move(stops);
+        }
+    }
+
+    {
         const auto pricing_path = root / "economy" / "pricing.csv";
         const auto rows = read_csv_rows(pricing_path);
         require_header(rows.front(), {"key", "value"}, pricing_path);

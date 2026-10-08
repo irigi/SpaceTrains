@@ -200,6 +200,9 @@ struct UniverseDefinition {
     OpenEconomyDefinition open_economy;
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
+    // Scheduled liners (data/economy/liners.csv, step 22): seed ship id -> the stations of its
+    // loop, in order. A liner flies only to the stop after the one it is at, forever.
+    std::unordered_map<std::string, std::vector<std::string>> liners;
     // Output multiplier at a full shortage of an upkeep good (data/economy/upkeep_penalties.csv).
     std::unordered_map<std::string, double> upkeep_penalties;
     // Upkeep goods whose shortage makes the owning faction pay for an emergency delivery.
@@ -316,6 +319,7 @@ struct ShipLedger {
     double provisions {0.0};
     double refits {0.0};
     double dividends {0.0};  // surplus cash paid to the owner; not a cost, so not in lifetime_profit
+    double subsidies {0.0};  // a liner's cash top-ups from its faction (step 22); not income, so not in lifetime_profit
 };
 
 struct ShipState {

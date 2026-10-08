@@ -21,3 +21,5 @@ sf_hauler_02,SF Caravan,sol_fed,light_freighter,luna_base,luna_base,72000,25000
 mc_hauler_02,MC Cydonia,mars_corp,light_freighter,mars_transfer,mars_transfer,72000,25000
 sf_ntr_02,SF Icarus,sol_fed,ntr_freighter,venus_cloud,venus_cloud,237000,25000
 ind_ntr_02,IN Zephyr,independent,ntr_freighter,ganymede_depot,ganymede_depot,237000,25000
+ic_liner_east,IC Outer Loop East,independent,plasma_bulk_tanker,earth_orbit,earth_orbit,100000,25000
+ic_liner_west,IC Outer Loop West,independent,plasma_bulk_tanker,earth_orbit,earth_orbit,100000,25000

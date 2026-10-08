@@ -1216,8 +1216,13 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // A newly commissioned ship works the route it was bought for: from home only to its route
     // destination, from anywhere else only home. Otherwise it left once the gap it was bought
     // for closed, the gap reopened and the treasuries ordered another ship for it.
-    const bool on_route = !cargo_only && !ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s;
+    // A liner (step 22) flies only to the stop after the one it is at, forever.
+    const bool liner = !cargo_only && liner_stops(ship) != nullptr;
+    const bool on_route = liner || (!cargo_only && !ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s);
     const auto route_leg_allowed = [&](const std::string& from_id, const std::string& to_id) {
+        if (liner) {
+            return to_id == next_liner_stop(ship, from_id);
+        }
         return !on_route || to_id == (from_id == ship.home_station_id ? ship.route_destination_id : ship.home_station_id);
     };
 
@@ -1864,8 +1869,23 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         }
     }
 
+    // A liner with nothing that pays for its next leg flies it empty: its value is the schedule.
+    if (best_destination == nullptr && liner) {
+        const auto& next = get_station_definition(next_liner_stop(ship, origin_def.id));
+        const auto fuel_plan = plan_with_return_fuel(next, 0.0);
+        if (fuel_plan.plan->feasible && fuel_plan.feasible && fuel_plan.plan->travel_time_s / 86400.0 <= max_mission_days) {
+            trace_line("liner: next stop empty to " + next.id);
+            best_pickup_commodity.clear();
+            best_pickup_units = 0.0;
+            best_score = 0.0;
+            best_destination = &next;
+            best_plan = fuel_plan.plan;
+            best_carried_kg = fuel_plan.carried_kg;
+        }
+    }
+
     // A ship on its route away from home with nothing to carry back flies home empty.
-    if (best_destination == nullptr && on_route && origin_def.id != ship.home_station_id) {
+    if (best_destination == nullptr && on_route && !liner && origin_def.id != ship.home_station_id) {
         const auto& home = get_station_definition(ship.home_station_id);
         const auto& plan = plan_to(home, 0.0);
         if (plan.feasible && plan.travel_time_s / 86400.0 <= max_mission_days) {
@@ -2056,7 +2076,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 ship_class.id, ship.current_station_id, review_s);
         }
     }
-    if (consider_refit(ship, choice, trace)) {
+    if (liner_stops(ship) == nullptr && consider_refit(ship, choice, trace)) {
         return;
     }
 
@@ -2066,7 +2086,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         if (ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.01 && purchasable_propellant_kg(ship) <= 0.0) {
             ship.phase = domain::ShipMissionPhase::Stranded;
             add_event(std::format("{} is stranded at {} due to fuel shortage", ship.name, origin_def.name), "alert");
-        } else if (!laid_up
+        } else if (!laid_up && liner_stops(ship) == nullptr
             && (ship.credits < 0.0 || game_time_s_ - ship.idle_since_s > IDLE_LAYUP_DAYS * 86400.0)) {
             // Nothing worth flying and either in debt or idle for a month: stop paying the crew.
             ship.phase = domain::ShipMissionPhase::LaidUp;
@@ -2166,6 +2186,11 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     }
     for (const auto& lot : contracted_cargo) {
         expected_revenue += lot.contract_value;
+    }
+    if (liner_stops(ship) != nullptr) {
+        add_event(std::format("{} (liner) leaves {} on schedule for {}, departing day {:.0f}, arriving day {:.0f}{}",
+            ship.name, origin_def.name, best_destination->name, plan.departure_time_s / 86400.0,
+            plan.arrival_time_s / 86400.0, cargo.empty() ? " (empty)" : ""), "mission");
     }
     // Nuclear-thermal ships: deduct propellant at mission start (instantaneous burns).
     // Variable-Isp ships: propellant is consumed continuously during transit and
@@ -2586,9 +2611,30 @@ void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stoc
 double Simulation::fleet_hold_units() const {
     double units = 0.0;
     for (const auto& ship : ships_) {
-        units += get_ship_class(ship.class_id).cargo_capacity_units;
+        if (liner_stops(ship) == nullptr) {  // liners are a public service, outside the cap
+            units += get_ship_class(ship.class_id).cargo_capacity_units;
+        }
     }
     return units;
+}
+
+std::size_t Simulation::fleet_ship_count() const {
+    return static_cast<std::size_t>(std::count_if(ships_.begin(), ships_.end(),
+        [&](const domain::ShipState& ship) { return liner_stops(ship) == nullptr; }));
+}
+
+const std::vector<std::string>* Simulation::liner_stops(const domain::ShipState& ship) const {
+    const auto it = universe_.liners.find(ship.id);
+    return it == universe_.liners.end() ? nullptr : &it->second;
+}
+
+std::string Simulation::next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const {
+    const auto* stops = liner_stops(ship);
+    if (stops == nullptr) {
+        return {};
+    }
+    const auto at = std::find(stops->begin(), stops->end(), from_id);
+    return at == stops->end() ? stops->front() : stops->at(static_cast<std::size_t>(at - stops->begin() + 1) % stops->size());
 }
 
 double Simulation::internal_money_supply() const {
@@ -2620,6 +2666,17 @@ void Simulation::step_treasuries(double dt_s) {
             ship.ledger.dividends += dividend;
             home.credits += dividend;
             home.ledger.dividends += dividend;
+        }
+    }
+
+    // A liner keeps its schedule whatever it earns: its faction tops its cash up to the working
+    // reserve when it runs out (step 22).
+    for (auto& ship : ships_) {
+        if (ship.credits < 0.0 && liner_stops(ship) != nullptr) {
+            const double top_up = open.ship_cash_reserve - ship.credits;
+            ship.credits += top_up;
+            ship.ledger.subsidies += top_up;
+            faction_treasuries_[ship.faction_id] -= top_up;
         }
     }
 
@@ -2770,7 +2827,7 @@ void Simulation::step_fleet_investment() {
     if (investment.layup_sale_days > 0.0) {
         for (std::size_t i = ships_.size(); i-- > 0;) {
             const auto& ship = ships_[i];
-            if (ship.phase == domain::ShipMissionPhase::LaidUp
+            if (ship.phase == domain::ShipMissionPhase::LaidUp && liner_stops(ship) == nullptr
                 && game_time_s_ - ship.laid_up_since_s >= investment.layup_sale_days * 86400.0) {
                 sell_ship(i);
             }
@@ -2787,7 +2844,7 @@ void Simulation::step_fleet_investment() {
     // The fleet is limited by its total hold (step 21: a cap on ship numbers made a cheap local
     // shuttle cost a place as much as a 2,000 u freighter, so none was bought), with a ship
     // count as a backstop for run time. Laid-up ships sold for salvage free their places.
-    if ((investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= investment.max_fleet_size)
+    if ((investment.max_fleet_size > 0.0 && static_cast<double>(fleet_ship_count()) >= investment.max_fleet_size)
         || (investment.max_fleet_hold_units > 0.0 && fleet_hold_units() >= investment.max_fleet_hold_units)) {
         investment_purchases_left_ = 0;
     }
@@ -2900,9 +2957,11 @@ Simulation::CommissionStep Simulation::commission_step() {
     // half the limit on, hold space in the fleet is the scarce thing, so by profit per day per
     // unit of hold (above the hurdle): what a ship earns for the share of the cap it takes.
     const double fleet_hold = fleet_hold_units();
+    // Under a hold cap a candidate competes per unit of hold it takes; under a ship cap, per ship.
+    const bool per_hold_unit = investment.max_fleet_hold_units > 0.0;
     const bool rank_by_profit = investment.max_fleet_hold_units > 0.0
         ? fleet_hold >= 0.5 * investment.max_fleet_hold_units
-        : investment.max_fleet_size > 0.0 && static_cast<double>(ships_.size()) >= 0.5 * investment.max_fleet_size;
+        : investment.max_fleet_size > 0.0 && static_cast<double>(fleet_ship_count()) >= 0.5 * investment.max_fleet_size;
     std::vector<Candidate> candidates;
     // A yard builds one ship at a time. (Routes already served are discounted by the
     // committed flow, so a yard may build again as soon as it is free.)
@@ -2968,7 +3027,7 @@ Simulation::CommissionStep Simulation::commission_step() {
             if (return_bound >= investment.hurdle_return_per_year) {
                 candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound,
                     .rank_bound = rank_by_profit
-                        ? (margin_bound - running_cost) / std::max(1.0, ship_class.cargo_capacity_units)
+                        ? (margin_bound - running_cost) / (per_hold_unit ? std::max(1.0, ship_class.cargo_capacity_units) : 1.0)
                         : return_bound});
             }
         }
@@ -3161,7 +3220,7 @@ Simulation::CommissionStep Simulation::commission_step() {
         ++probes;
         const double rank = rank_by_profit
             ? valuation.annual_return * candidate.ship_class->ship_value_cr / 365.0
-                / std::max(1.0, candidate.ship_class->cargo_capacity_units)
+                / (per_hold_unit ? std::max(1.0, candidate.ship_class->cargo_capacity_units) : 1.0)
             : valuation.annual_return;
         if (valuation.annual_return > investment.hurdle_return_per_year && rank > best_rank) {
             best_rank = rank;
@@ -3760,6 +3819,15 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"pickup_units\":" << ship.active_mission.pickup_units << ","
                << "\"expected_revenue\":" << ship.active_mission.expected_revenue << ","
                << "\"purchase_cost\":" << ship.active_mission.purchase_cost << ","
+               << "\"liner_stops\":[" << [&] {
+                      std::string text;
+                      if (const auto* stops = liner_stops(ship)) {
+                          for (const auto& stop : *stops) {
+                              text += (text.empty() ? "\"" : ",\"") + json_escape(stop) + "\"";
+                          }
+                      }
+                      return text;
+                  }() << "],"
                << "\"route_destination_id\":\"" << json_escape(ship.route_destination_id) << "\","
                << "\"route_commodity_id\":\"" << json_escape(ship.route_commodity_id) << "\","
                << "\"route_until_s\":" << ship.route_until_s << ","

@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 7;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs
+constexpr int kSaveVersion = 8;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -169,6 +169,7 @@ Json ship_to_json(const domain::ShipState& s) {
     ledger.set("capital", s.ledger.capital);
     ledger.set("provisions", s.ledger.provisions);
     ledger.set("refits", s.ledger.refits);
+    ledger.set("subsidies", s.ledger.subsidies);
     ledger.set("dividends", s.ledger.dividends);
     out.set("ledger", std::move(ledger));
     out.set("next_review_s", s.next_review_s);
@@ -207,6 +208,7 @@ domain::ShipState ship_from_json(const Json& j) {
     s.ledger.capital = ledger.get("capital").number();
     s.ledger.provisions = ledger.get("provisions").number();
     s.ledger.refits = ledger.get("refits").number();
+    s.ledger.subsidies = ledger.get("subsidies").number();
     s.ledger.dividends = ledger.get("dividends").number();
     s.next_review_s = j.get("next_review_s").number();
     s.idle_since_s = j.get("idle_since_s").number();
