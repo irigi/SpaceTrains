@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 8;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies
+constexpr int kSaveVersion = 9;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -243,6 +243,9 @@ Json station_to_json(const domain::StationState& s) {
     out.set("unmet_units", goods_to_json(s.unmet_units));
     out.set("market_sold_units", goods_to_json(s.market_sold_units));
     out.set("import_unit_cost", goods_to_json(s.import_unit_cost));
+    out.set("population", s.population);
+    out.set("supply_index", s.supply_index);
+    out.set("population_announced", s.population_announced);
     return out;
 }
 
@@ -264,6 +267,9 @@ domain::StationState station_from_json(const Json& j) {
     s.unmet_units = goods_from_json(j.get("unmet_units"));
     s.market_sold_units = goods_from_json(j.get("market_sold_units"));
     s.import_unit_cost = goods_from_json(j.get("import_unit_cost"));
+    s.population = j.get("population").number();
+    s.supply_index = j.get("supply_index").number();
+    s.population_announced = j.get("population_announced").number();
     return s;
 }
 
@@ -506,6 +512,9 @@ void Simulation::load_state_json(const std::string& text) {
     investment_ledger_.working_capital = investment.get("working_capital").number();
     investment_ledger_.salvage = investment.get("salvage").number();
     stations_ = std::move(stations);
+    for (const auto& station : stations_) {
+        economy_.set_population(station.station_id, station.population);
+    }
     ships_ = std::move(ships);
     sold_ships_ = std::move(sold);
     recent_events_ = std::move(events);

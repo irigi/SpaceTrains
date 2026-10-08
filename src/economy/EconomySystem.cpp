@@ -525,8 +525,14 @@ double EconomySystem::get_trade_value(
     return curve_centre(station, commodity_id, base_price) * std::abs(cumulative(b) - cumulative(a));
 }
 
-double EconomySystem::population_factor(const domain::StationDefinition& station) {
-    return static_cast<double>(station.population) / RATE_REFERENCE_POPULATION;
+double EconomySystem::population_factor(const domain::StationDefinition& station) const {
+    const auto it = populations_.find(station.id);
+    const double population = it == populations_.end() ? static_cast<double>(station.population) : it->second;
+    return population / RATE_REFERENCE_POPULATION;
+}
+
+void EconomySystem::set_population(const std::string& station_id, double population) {
+    populations_[station_id] = population;
 }
 
 std::unordered_map<std::string, double> EconomySystem::get_station_net_rates(const domain::StationDefinition& station) const {

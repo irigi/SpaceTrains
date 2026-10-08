@@ -20,7 +20,10 @@ public:
     void step(std::vector<domain::StationState>& stations, double dt_s) const;
     // Net units per day of the station's recipes, scaled by its population, and its fuel factory.
     [[nodiscard]] std::unordered_map<std::string, double> get_station_net_rates(const domain::StationDefinition& station) const;
-    [[nodiscard]] static double population_factor(const domain::StationDefinition& station);
+    // Rates scale with the station's residents: its current population (set_population, step
+    // 27) over RATE_REFERENCE_POPULATION, the seeded one until set.
+    [[nodiscard]] double population_factor(const domain::StationDefinition& station) const;
+    void set_population(const std::string& station_id, double population);
 
     // Units that count against a station's storage capacity (depot fuel does not).
     [[nodiscard]] double storage_used_units(const domain::Inventory& inventory) const;
@@ -104,6 +107,8 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, double>> cover_days_;
     // Landed-cost reference prices by station id and good (empty: base prices).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
+    // Current populations by station id (step 27).
+    std::unordered_map<std::string, double> populations_;
     // Price caps above pricing.price_cap, by station id and good (inputs only).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> price_caps_;
 };

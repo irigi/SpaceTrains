@@ -912,6 +912,55 @@ int main() {
         }
     }
 
+    // --- Station growth (step 27): residents come to a station that keeps them supplied and
+    // leave one that does not, within the data's bounds. ---
+    {
+        auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        sim.set_timewarp(86400.0);
+        const auto& universe = sim.universe();
+        const auto& economy = sim.economy_system();
+        const auto definition = [&](const std::string& id) -> const auto& {
+            return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
+        };
+        const auto population = [&](const std::string& id) {
+            for (const auto& station : sim.snapshot().stations) {
+                if (station.station_id == id) {
+                    return station.population;
+                }
+            }
+            return 0.0;
+        };
+        for (int day = 0; day < 240; ++day) {
+            for (const auto& commodity : universe.commodities) {
+                if (economy.is_upkeep(definition("earth_l1"), commodity.id)) {
+                    sim.set_station_stock("earth_l1", commodity.id, 5000.0);
+                }
+                if (economy.is_upkeep(definition("mars_transfer"), commodity.id)) {
+                    sim.set_station_stock("mars_transfer", commodity.id, 0.0);
+                }
+            }
+            sim.step(1.0);
+        }
+        const double earth_seed = static_cast<double>(definition("earth_l1").population);
+        const double mars_seed = static_cast<double>(definition("mars_transfer").population);
+        require(population("earth_l1") > earth_seed, "a well-supplied station should grow");
+        require(population("earth_l1") <= universe.growth.max_population_factor * earth_seed + 1.0e-6,
+            "growth should stop at max_population_factor");
+        require(population("mars_transfer") < mars_seed, "a station without its upkeep goods should shrink");
+        require(population("mars_transfer") >= universe.open_economy.core_crew_fraction * mars_seed - 1.0e-6,
+            "a station should keep its core crew");
+        const auto restored = [&] {
+            auto copy = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+            copy.load_state_json(sim.save_state_json());
+            return copy.snapshot();
+        }();
+        for (const auto& station : restored.stations) {
+            require(std::abs(station.population - population(station.station_id)) < 1.0e-9, "save/load should keep populations");
+        }
+        std::cout << std::format("Growth: Earth L1 {:.0f} -> {:.0f}, Mars {:.0f} -> {:.0f} in 240 days\n",
+            earth_seed, population("earth_l1"), mars_seed, population("mars_transfer"));
+    }
+
     std::cout << "All SpaceTrains tests passed.\n";
     return 0;
 }

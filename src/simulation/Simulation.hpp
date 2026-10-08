@@ -149,6 +149,7 @@ private:
     void settle_local_economy(const std::vector<domain::Inventory>& stocks_before);
     // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
+    void step_population(double dt_s);
     // Station money (step 17). Consumption per day of a station's goods at reference prices:
     // its upkeep goods only (for the core-crew subsidy), or every consumed good (its import bill).
     [[nodiscard]] double consumption_value_per_day(const domain::StationDefinition& station, bool upkeep_only) const;

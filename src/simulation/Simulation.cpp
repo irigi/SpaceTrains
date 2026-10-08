@@ -179,6 +179,8 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
         stations_.push_back({.station_id = station.id, .inventory = starting_inventory(station), .credits = station.initial_credits, .ledger = {}});
+        stations_.back().population = static_cast<double>(station.population);
+        stations_.back().population_announced = stations_.back().population;
     }
     for (const auto& ship_class : universe_.ship_classes) {
         ship_classes_by_id_[ship_class.id] = &ship_class;
@@ -2543,6 +2545,7 @@ void Simulation::tick() {
         }
     }
     settle_local_economy(stocks_before);
+    step_population(dt_s);
     step_treasuries(dt_s);
     step_emergencies();
     refresh_station_payable();
@@ -2604,6 +2607,45 @@ void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stoc
             station.credits += value;
             station.ledger.household_sales += value;
             outside_economy_credits_ -= value;
+        }
+    }
+}
+
+// Step 27: residents come while their station keeps them supplied and pays its way, and leave
+// while it does not (see GrowthDefinition). Rates follow the population, so a grown station
+// needs more and makes more; growth stops by itself where supply cannot keep up.
+void Simulation::step_population(double dt_s) {
+    const auto& growth = universe_.growth;
+    const double dt_days = dt_s / 86400.0;
+    for (auto& station : stations_) {
+        const auto& definition = get_station_definition(station.station_id);
+        double worst = 1.0;
+        for (const auto& [commodity_id, available] : station.upkeep_availability) {
+            worst = std::min(worst, available);
+        }
+        station.supply_index += (worst - station.supply_index) * std::min(1.0, dt_days / growth.window_days);
+        double rate = 0.0;
+        if (station.supply_index >= growth.grow_above && station.credits >= universe_.open_economy.station_credit_floor) {
+            rate = growth.growth_per_year;
+        } else if (station.supply_index < growth.decline_below) {
+            rate = -growth.decline_per_year;
+        }
+        const double seeded = static_cast<double>(definition.population);
+        const double floor = std::max(universe_.open_economy.core_crew_fraction, 0.0) * seeded;
+        const double before = station.population;
+        station.population = std::clamp(station.population * std::exp(rate * dt_days / 365.25),
+            std::min(floor, seeded), growth.max_population_factor * seeded);
+        if (station.population != before) {
+            economy_.set_population(station.station_id, station.population);
+        }
+        const double announced = station.population_announced > 0.0 ? station.population_announced : seeded;
+        if (std::abs(station.population / announced - 1.0) >= 0.05) {
+            add_event(station.population > announced
+                    ? std::format("{} grows to {:.0f} residents: its people are well supplied", definition.name, station.population)
+                    : std::format("{} shrinks to {:.0f} residents as people leave for better-supplied stations",
+                        definition.name, station.population),
+                "news");
+            station.population_announced = station.population;
         }
     }
 }
@@ -2685,8 +2727,8 @@ void Simulation::step_treasuries(double dt_s) {
     double per_capita = 0.0;
     if (open.money_supply_days > 0.0) {
         double population = 0.0;
-        for (const auto& definition : universe_.stations) {
-            population += static_cast<double>(definition.population);
+        for (const auto& station : stations_) {
+            population += station.population;
         }
         if (population > 0.0) {
             per_capita = (seeded_money_supply_ - internal_money_supply()) * std::min(1.0, dt_days / open.money_supply_days)
@@ -2716,7 +2758,7 @@ void Simulation::step_treasuries(double dt_s) {
         }
         // The controller never pushes a station out of the band, or it would fight the band.
         const double after_band = station.credits + transfer;
-        const double controller = per_capita * static_cast<double>(definition.population);
+        const double controller = per_capita * station.population;
         if (controller < 0.0) {
             transfer -= std::min(-controller, std::max(0.0, after_band - open.station_credit_floor));
         } else if (open.station_credit_ceiling > 0.0) {
@@ -3632,7 +3674,9 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"parent_body_id\":\"" << json_escape(station.parent_body_id) << "\","
                << "\"altitude_m\":" << station.altitude_m << ","
                << "\"theta_rad\":" << station.theta_rad << ","
-               << "\"population\":" << station.population << ","
+               << "\"population\":" << std::llround(get_station_state(station.id).population) << ","
+               << "\"seeded_population\":" << station.population << ","
+               << "\"supply_index\":" << get_station_state(station.id).supply_index << ","
                << "\"x\":" << position.x << ","
                << "\"y\":" << position.y << ","
                << "\"z\":" << position.z << ","

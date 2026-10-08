@@ -102,9 +102,17 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
     var faction := String(detail.get("faction_id", ""))
     _add_header(
         String(detail.get("name", detail.get("id", ""))),
-        "%s · pop %s · orbits %s" % [faction, str(detail.get("population", 0)),
+        "%s · pop %s · orbits %s" % [faction, str(int(detail.get("population", 0))),
             _resolve_name(context, String(detail.get("parent_body_id", "")))],
         _faction_color(detail, context))
+    # Growth (step 27): residents against the seeded population, and how well they are supplied.
+    var seeded := float(detail.get("seeded_population", 0.0))
+    if seeded > 0.0:
+        var change := float(detail.get("population", 0.0)) / seeded - 1.0
+        var supply := float(detail.get("supply_index", 1.0))
+        var trend := "well supplied" if supply >= 0.95 else ("short, people leaving" if supply < 0.7 else "steady")
+        _add_label("Population %+.0f%% since founding · supply %.0f%% · %s" % [100.0 * change, 100.0 * supply, trend],
+            UiTheme.GOOD if supply >= 0.95 else (UiTheme.WARN if supply < 0.7 else UiTheme.TEXT_DIM), 12)
 
     var fuel_factory := float(detail.get("fuel_factory_per_day", 0.0))
     var exports: Array = detail.get("export_market", [])

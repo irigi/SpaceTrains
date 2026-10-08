@@ -123,6 +123,20 @@ struct FleetInvestmentDefinition {
     double max_fleet_hold_units {0.0};     // no purchase that takes the fleet's holds past this; 0 = no limit (step 21)
 };
 
+// Station growth (data/economy/growth.csv, step 27). A station's population follows how well
+// its residents are supplied: it grows while every upkeep good has been in stock (an average
+// over window_days of the worst one's availability at least grow_above) and the station pays
+// its way, and shrinks (emigration) while that average is below decline_below. It stays
+// between the core crew and max_population_factor x the seeded population.
+struct GrowthDefinition {
+    double growth_per_year {0.0};
+    double decline_per_year {0.0};
+    double max_population_factor {1.0};
+    double window_days {90.0};
+    double grow_above {0.95};
+    double decline_below {0.7};
+};
+
 // Prices (data/economy/pricing.csv and reference_prices.csv, step 15).
 struct PricingDefinition {
     double price_cap {16.0};            // a curve's highest multiple of its centre (empty stock)
@@ -211,6 +225,7 @@ struct UniverseDefinition {
     OpenEconomyDefinition open_economy;
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
+    GrowthDefinition growth;
     // Scheduled liners (data/economy/liners.csv, step 22): seed ship id -> the stations of its
     // loop, in order. A liner flies only to the stop after the one it is at, forever.
     std::unordered_map<std::string, std::vector<std::string>> liners;
@@ -413,6 +428,11 @@ struct StationState {
     Inventory upkeep_availability {};                         // stock over a 7-day buffer, per upkeep good
     // The share of its curve the station can offer ships now (step 17; 1 = all of it).
     double affordability {1.0};
+    // Residents now (step 27; the definition's population is the seeded one), the average
+    // availability of the worst-supplied upkeep good, and the population last announced.
+    double population {0.0};
+    double supply_index {1.0};
+    double population_announced {0.0};
 };
 
 struct SimulationSnapshot {

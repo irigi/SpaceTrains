@@ -128,7 +128,7 @@ int main() {
         // water, oxygen, fuel and medicine are upkeep.
         const auto& mercury = *std::find_if(universe.stations.begin(), universe.stations.end(),
             [](const auto& station) { return station.id == "mercury_yard"; });
-        const auto factor = spacetrains::economy::EconomySystem::population_factor(mercury);
+        const auto factor = economy.population_factor(mercury);
         const auto stocked = [&] {
             spacetrains::domain::StationState state {.station_id = mercury.id};
             for (const auto* good : {"food", "water", "oxygen", "fuel", "medicine", "electronics"}) {

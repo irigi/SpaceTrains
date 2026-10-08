@@ -702,6 +702,42 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
 
     {
+        const auto growth_path = root / "economy" / "growth.csv";
+        const auto rows = read_csv_rows(growth_path);
+        require_header(rows.front(), {"key", "value"}, growth_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& growth = universe.growth;
+        const std::unordered_map<std::string, double*> fields {
+            {"growth_per_year", &growth.growth_per_year},
+            {"decline_per_year", &growth.decline_per_year},
+            {"max_population_factor", &growth.max_population_factor},
+            {"window_days", &growth.window_days},
+            {"grow_above", &growth.grow_above},
+            {"decline_below", &growth.decline_below},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, growth_path, i + 1);
+            require_unique_id(row[0], seen_keys, growth_path, i + 1);
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + growth_path.string());
+            }
+            *field->second = parse_double(row[1], growth_path, i + 1, row[0].c_str());
+        }
+        for (const auto& [key, field] : fields) {
+            if (!seen_keys.contains(key)) {
+                throw std::runtime_error("Missing key '" + key + "' in " + growth_path.string());
+            }
+        }
+        if (growth.growth_per_year < 0.0 || growth.decline_per_year < 0.0 || growth.max_population_factor < 1.0
+            || growth.window_days <= 0.0 || growth.decline_below > growth.grow_above) {
+            throw std::runtime_error("growth rates must be >= 0, max_population_factor >= 1, window_days > 0 and "
+                "decline_below <= grow_above in " + growth_path.string());
+        }
+    }
+
+    {
         const auto pricing_path = root / "economy" / "pricing.csv";
         const auto rows = read_csv_rows(pricing_path);
         require_header(rows.front(), {"key", "value"}, pricing_path);
