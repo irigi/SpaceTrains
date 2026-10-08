@@ -131,10 +131,11 @@ double EconomySystem::flat_price_multiplier(const domain::StationDefinition& sta
     if (is_export_market(station, commodity_id)) {
         return 1.0;
     }
+    // Made or used here (science samples at Lunar Gateway and Mars): priced on the curve.
     const auto& recipes = recipes_of(station);
-    const bool made_here = std::any_of(recipes.begin(), recipes.end(),
+    const bool traded_here = std::any_of(recipes.begin(), recipes.end(),
         [&](const domain::RecipeDefinition* recipe) { return recipe->commodity_id == commodity_id; });
-    return made_here ? 0.0 : PRICE_MIN_MULTIPLIER;
+    return traded_here ? 0.0 : PRICE_MIN_MULTIPLIER;
 }
 
 const std::vector<const domain::RecipeDefinition*>& EconomySystem::recipes_of(const domain::StationDefinition& station) const {

@@ -159,3 +159,37 @@ and step 16 after it.
 15. **Faction credit:** 50% of fleet hull value + 2 years of taxes, interest 5%/yr. Mars Corporation (one station,
     a small fleet) ends over its limit in every run and stops buying ships: the debt-and-austerity story.
 16. **Core-crew subsidy:** at most 30% of the population's upkeep per day.
+
+## Step 16: science trade
+
+### What was built
+
+- `science_samples`: 10 kg/u, base 2000 cr (200 cr/kg), no decay. Made at Titan, Ganymede, Ceres and Mercury
+  (station recipes, with 0.1 u of electronics per unit as a material input), used up at Lunar Gateway and Mars
+  Transfer Port (0.1 u/day per 10,000 people, role `consume`), bought by Earth L1 and Low Earth Logistics as an
+  export market (flat base price).
+- An export good made **or used** at a station is priced on its curve there (before, only goods made there
+  were; Lunar Gateway and Mars would have paid 0.25x).
+- Reference prices regenerated (42 rows; science at Lunar Gateway 2008, Mars 2013).
+
+Calibration: each producer's rate makes its science worth about half its import bill at reference prices:
+
+| Station | import bill (cr/day) | science (u/day) | per 10,000 people |
+|---|---|---|---|
+| Titan (7,000) | ~721 | ~0.18 | 0.26 |
+| Ganymede (6,000) | ~880 | ~0.22 | 0.37 |
+| Ceres (9,000) | ~1,218 | ~0.30 | 0.34 |
+| Mercury (8,000) | ~2,102 | ~0.53 | 0.66 |
+
+### Results
+
+730 days, four starts: unmet 48.5 ± 2.9%, last fifth 29.9 ± 5.2%, 50.5/90 profitable, holds 94,600 u, money
+−23.9 ± 8.2%, exports 0.79M, 13 emergencies and 211k cr of premiums per run, drift 0 (step 17 alone: 47.6 / 30.0).
+In a four-year run (start day 0) Earth bought 122 u of science for 244k cr, mostly brought by plasma couriers
+from Mercury; Lunar Gateway and Mars bought more along their curves.
+
+### Decisions to review
+
+17. **Science producers and rates** as above; Venus makes no science.
+18. **Earth's science price is flat** (export market, like platinum); Lunar Gateway and Mars pay their curve.
+19. **Science value does not decay with age** (left for later, as the plan says).

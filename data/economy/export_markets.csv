@@ -3,3 +3,5 @@ earth_orbit,platinum,10
 earth_orbit,deuterium,10
 earth_l1,platinum,10
 earth_l1,deuterium,10
+earth_orbit,science_samples,5
+earth_l1,science_samples,5

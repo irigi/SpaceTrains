@@ -1,4 +1,4 @@
-# Science trade (step 16, planned 2026-10-08, not implemented)
+# Science trade (step 16, done 2026-10-08; results in `steps_14_17_log.md`)
 
 The user's idea (2026-10-08): some stations produce science, which Earth and other rich colonies buy.
 

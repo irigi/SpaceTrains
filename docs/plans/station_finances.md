@@ -1,4 +1,4 @@
-# Landed-cost prices and station money (steps 15 and 17, planned 2026-10-08, not implemented)
+# Landed-cost prices and station money (steps 15 and 17, done 2026-10-08; what changed from this plan is in `steps_14_17_log.md`)
 
 Two open problems from the v39d four-year runs: money piles up in ships (3.1M cr in ships, 1.0M in stations by
 year 4; windfalls of up to 16x base, such as 693k cr for 185 u of reactor fuel), and faction treasuries split apart

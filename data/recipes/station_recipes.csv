@@ -4,3 +4,13 @@ ganymede_depot,deuterium,1,
 titan_works,deuterium,1,
 luna_base,metals,16,
 luna_base,water,20,
+titan_works,science_samples,0.26,
+titan_works,electronics,-0.026,input:science_samples
+ganymede_depot,science_samples,0.37,
+ganymede_depot,electronics,-0.037,input:science_samples
+ceres_depot,science_samples,0.34,
+ceres_depot,electronics,-0.034,input:science_samples
+mercury_yard,science_samples,0.66,
+mercury_yard,electronics,-0.066,input:science_samples
+luna_base,science_samples,-0.1,consume
+mars_transfer,science_samples,-0.1,consume

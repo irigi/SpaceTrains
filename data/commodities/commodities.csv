@@ -10,3 +10,4 @@ medicine,Medicine,50,0.001,250
 reactor_fuel,Reactor Fuel,500,0.0,400
 platinum,Platinum Metals,10,0.0,3000
 deuterium,Deuterium,20,0.0,1500
+science_samples,Science Samples,10,0.0,2000

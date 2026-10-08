@@ -20,12 +20,14 @@ luna_base,food,51.69,50.00,1.41,earth_l1,plasma_bulk_tanker,54.7
 luna_base,machinery,303.68,300.00,3.07,earth_orbit,plasma_bulk_tanker,126.4
 luna_base,medicine,251.28,250.00,1.07,earth_l1,plasma_bulk_tanker,32.3
 luna_base,oxygen,31.28,30.00,1.07,earth_l1,plasma_bulk_tanker,32.3
+luna_base,science_samples,2007.59,2000.00,6.32,mercury_yard,plasma_bulk_tanker,171.0
 mars_transfer,electronics,209.90,200.00,8.25,earth_orbit,plasma_bulk_tanker,399.6
 mars_transfer,food,63.97,50.00,11.64,earth_l1,plasma_bulk_tanker,643.4
 mars_transfer,machinery,329.35,300.00,24.46,earth_orbit,plasma_bulk_tanker@50%,643.4
 mars_transfer,medicine,259.41,250.00,7.84,venus_cloud,plasma_bulk_tanker,372.1
 mars_transfer,metals,90.88,75.00,13.24,luna_base,plasma_bulk_tanker,704.4
 mars_transfer,oxygen,39.41,30.00,7.84,venus_cloud,plasma_bulk_tanker,372.1
+mars_transfer,science_samples,2012.62,2000.00,10.52,ceres_depot,plasma_bulk_tanker,568.1
 mercury_yard,electronics,213.80,200.00,11.50,earth_orbit,plasma_bulk_tanker@50%,215.9
 mercury_yard,food,333.63,50.00,236.35,venus_cloud,ntr_freighter@50%,344.2
 mercury_yard,medicine,280.18,250.00,25.15,earth_l1,plasma_bulk_tanker@25%,214.5
