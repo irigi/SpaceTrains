@@ -47,7 +47,8 @@ departure.
 - Money supply over four years: +10.5 +- 12% (one start +28%); a fix that shrank ship reserves cost supply and was
   reverted.
 - Titan and Ganymede remain the worst supplied (62-94% in year 4): remote, small demand, prices capped at 16x.
-  Options for you: a higher price cap for remote outposts, or faction subsidies for supplying them.
+  A higher cap for remote outposts (up to 64x, tested over 4 years) made things worse: unmet 38.8 +- 2.4% (32.3),
+  money +55%: ships chase the remote premiums. Faction subsidies for outpost supply would be the next idea to try.
 - Exports at 730 days are lower than in v33 (domestic supply now pays better); over four years 1.84M.
 - **Git history:** commit `f18bb94` accidentally contains a profiling build directory (`build-prof/`, ~80 MB of
   binaries, removed in a later commit; now ignored). Before pushing you may want to purge it:
@@ -256,3 +257,6 @@ departure.
 - 02:2x **v39e reverted:** at 730 days it was 52.0 +- 4.3% unmet (v39d 49.8 +- 1.0) with no better money supply
   (+3.7 +- 10.3% vs +1.3 +- 7.4%); over 4 years slightly worse too. A smaller cash reserve leaves ships less to buy
   cargo with. v39d stays; **money supply over 4 years (+10.5 +- 12%, one start +28%) is an open point.**
+- 02:3x **Scenario (not applied): price cap up to 64x for remote consumers** (16x x cover/90 days, capped at 4x):
+  1460 days, four starts: unmet 38.8 +- 2.4% (v39d 32.3 +- 1.2), last ~290 days 16.4 +- 5.8 (10.5), money +55 +- 32%.
+  Worse: ships chase the remote premiums and the rest goes short.
