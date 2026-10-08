@@ -44,8 +44,11 @@ departure.
 
 **Open:**
 
-- Money supply over four years: +10.5 +- 12% (one start +28%); a fix that shrank ship reserves cost supply and was
-  reverted.
+- Money supply over four years: +10.5 +- 12% (one start +28%). The excess sits in ships (3.1M in year 4: big
+  contract payments drain over the 30-day dividend period); shrinking their reserve cost supply (ships need cash for
+  big holds) and was reverted. A reserve sized to each ship's hold would be the cleaner fix. Also: faction
+  treasuries diverge (Mars Corporation -5.3M subsidising its port's imports at scarcity prices while residents pay
+  base prices; the other two +12M each) - the open economy allows it, but you may want a limit.
 - Titan and Ganymede remain the worst supplied (62-94% in year 4): remote, small demand, prices capped at 16x.
   A higher cap for remote outposts (up to 64x, tested over 4 years) made things worse: unmet 38.8 +- 2.4% (32.3),
   money +55%: ships chase the remote premiums. Faction subsidies for outpost supply would be the next idea to try.
@@ -260,3 +263,6 @@ departure.
 - 02:3x **Scenario (not applied): price cap up to 64x for remote consumers** (16x x cover/90 days, capped at 4x):
   1460 days, four starts: unmet 38.8 +- 2.4% (v39d 32.3 +- 1.2), last ~290 days 16.4 +- 5.8 (10.5), money +55 +- 32%.
   Worse: ships chase the remote premiums and the rest goes short.
+- 02:3x **Money analysis (v39d, start 0, 4 years):** internal money +28% at day 1460 is in ships (3.1M, stations 1.0M);
+  faction treasuries: Sol Federation +12.4M, Independent +11.3M, Mars Corporation -5.3M (subsidies to keep Mars
+  Transfer Port above its credit floor while it imports at scarcity prices). Not changed tonight.
