@@ -3,33 +3,58 @@
 Working through `docs/plans/speed_gui_orders.md` without the user (asleep). Decisions taken on my own are marked
 **Decision** with the reason; the user reviews them in the morning.
 
-## Morning summary (draft, finalised at the end of the night)
+## Morning summary
 
-**Done (all committed on `feature/opus5_5_return`, not pushed):**
+Everything is committed on `feature/opus5_5_return` (not pushed). All three test suites pass; the trajectory audit
+flags 0 plans; money drift is 0.
 
-- **Speed:** a 730-day run takes about a minute with 90 ships (11 min with 41 ships before); the opening
-  dispatch is cached (start in milliseconds after the first run with the same data and build).
-- **Smooth play:** the display moves smoothly at 1 day/s (0 stalled frames measured with 90 ships); at 5 days/s short
-  stalls remain during fleet reviews.
-- **GUI:** orbit lines exact up close; KSP-like map (true-size planets, icons and labels when far, brighter Sun);
-  ship panel says what the ship does in words; station panel shows stock vs target, days of cover, share gone short,
-  **orders**, inbound/docked ships; economy overview (M); body panel (orbit, moons, stations).
-- **Save/load:** F5/F9, exact continuation.
-- **Unmet demand:** 72.9% (v33) -> 52.8 +- 2.6% at day 730 over four starts; ~15% unmet in year 4 of a 4-year run.
+**Done:**
 
-**Decisions to review (each reverts on its own):**
+- **Speed:** a 730-day run with 90 ships takes about a minute (11 minutes with 41 ships before). The parallel
+  planning gives exactly the same results as sequential. The opening dispatch is cached: after the first start with
+  the same data and build, the game is running within a second.
+- **Smooth play:** measured in the real window with 90 ships: at 1 day/s no frame stalls; at 5 days/s 0.8% of
+  frames, the longest 0.24 s. About 1-2% of frames take over 50 ms (engine side, not the scripts).
+- **GUI:** orbit lines exact at any zoom (planets sit on them); KSP-like map (true-size planets, icons and labels
+  when far, brighter Sun, readable night sides); ship panel says what the ship does ("Carrying 230 u food + 140 u
+  medicine to Mars Transfer Port to sell, then load 150 u reactor_fuel there."), with fuel, cargo, crew,
+  provisions, trip earnings and ledger; station panel with stock vs target, days of cover, share gone short,
+  **orders** and **inbound contracts**; body panel; economy overview (M); registry tooltips.
+- **Save/load:** SAVE/LOAD buttons and F5/F9; a loaded game continues exactly (tested).
+- **Unmet demand** (four starting dates each): v33 72.9% (one run) -> **49.8 +- 1.0% at 730 days**, and over four
+  years **32.3 +- 1.2%, only 10.5 +- 1.9% in the last ~290 days**, 84.5 of 93 ships profitable.
 
-1. Target stocks cover the resupply time (economy price curve), `EconomySystem::cover_days`.
-2. Mixed cargo by marginal value (your contract idea, stage 1; no price-fixed contracts yet).
-3. Fleet cap `max_fleet_size` 90; near it, purchases ranked by profit per day (bigger hulls).
-4. Production gating: weighted average of inputs instead of the scarcest input.
-5. Ship cash reserve 50k -> 25k (money supply held near target).
-6. **Map data:** fuel factory at Mercury, metals at Lunar Gateway (commit `934baa8`, data only).
-7. Sunlight energy 7, true-size planets, labels in screen space (look).
+**What the investigation found (step 12):** the fleet had a fifth of the hold capacity steady supply needs;
+consumers wanted three weeks of stock even when the next delivery was a year away, so supplying them did not pay;
+forecasts counted cargo arriving after the ship, and counted waits twice; one scarce input cut a station's whole
+output to 10% (shortages cascaded); metals came only from hard-to-reach Mercury. Your contract idea works as
+designed: holds are filled by marginal value across goods, stations' orders are visible, and prices are agreed at
+departure.
 
-**Open:** contracts with prices fixed at departure; investment sizing hulls to orders; Titan/Ganymede still
-62-94% short; reactor fuel at Low Earth Logistics; stalls at 5 days/s during fleet reviews; local life support at the
-outposts (design question).
+**Decisions to review** (each can be reverted on its own; details in the log below):
+
+1. Consumers' target stock covers their resupply time (`EconomySystem::cover_days`).
+2. Mixed cargo by marginal value; contracts with prices agreed at departure.
+3. Fleet limit `max_fleet_size` 90; near it, new ships are ranked by profit per day (bigger holds).
+4. Production runs at the weighted average of its inputs' availability, not the scarcest one.
+5. Ship cash reserve 50k -> 25k.
+6. **Map data (commit `934baa8`, data only):** a fuel factory at Mercury, metals from Lunar Gateway.
+7. Look: true-size planets, screen-space labels, sunlight energy 7.
+8. The game ticks every 0.1 day in headless runs too, so benchmarks measure the game you play.
+
+**Open:**
+
+- Money supply over four years: +10.5 +- 12% (one start +28%); a fix that shrank ship reserves cost supply and was
+  reverted.
+- Titan and Ganymede remain the worst supplied (62-94% in year 4): remote, small demand, prices capped at 16x.
+  Options for you: a higher price cap for remote outposts, or faction subsidies for supplying them.
+- Exports at 730 days are lower than in v33 (domestic supply now pays better); over four years 1.84M.
+- **Git history:** commit `f18bb94` accidentally contains a profiling build directory (`build-prof/`, ~80 MB of
+  binaries, removed in a later commit; now ignored). Before pushing you may want to purge it:
+  `git filter-branch --index-filter 'git rm -r --cached --ignore-unmatch build-prof' -- origin/feature/opus5_5_return..HEAD`
+  (then `git for-each-ref --format='%(refname)' refs/original/ | xargs -n1 git update-ref -d` and `git gc --prune=now`).
+- Old snapshot files from earlier sessions in `~/.local/share/godot/app_userdata/SpaceTrains/` (safe to delete).
+- Atlas time-optimality (regenerate the atlas) not started.
 
 ## Log
 
