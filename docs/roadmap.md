@@ -132,18 +132,21 @@ fuel at depots without a factory (kept), 21 fleet cap by hold capacity (switched
 22 scheduled liners to Titan and Ganymede (kept). Four starts, 1460 days: unmet 17.4 +- 2.2%, last ~290 days
 7.0 +- 4.3% (was 11.8), 76.8/93 profitable, 15 emergencies, drift 0.
 
-Next: the user reviews `steps_18_22_log.md`. Open: Earth-cluster supply (an input's price ignores the output it
-enables), outposts' rare liner calls, Mars Corporation's debt.
+Steps 23-28 (`docs/plans/steps_23_28_log.md`, one push asked for by the user on 2026-10-08): 23 cover from the
+reference round trip (Titan ordered a year for a 3.4-year round trip; the big win), 24 input price caps by what
+an input makes, 25 smooth drawing of outer-system paths, 26 faction credit against station stock and factions in
+surplus covering station deficits, 27 station growth, 28 random events and stories. Four starts, 1460 days, events
+on: unmet 4.4 +- 0.4%, last ~290 days 2.3 +- 0.9%, 77/94 profitable, ~13 emergencies, no faction over its limit,
+~4.6 events a year, drift 0.
+
+Next: the user reviews `steps_23_28_log.md`. Open: Mars fuel (depot buffer target, not the round-trip cover),
+the Earth cluster's local supply (Low Earth Logistics metals and food, Earth L1 water at 10-17%), fuel-factory
+events.
 
 Deferred (user, 2026-10-08):
-- **Station growth and decline:** wanted, but needs limits first: a subsidised core crew (step 17 provides it) and
-  a guard against a few efficient stations producing everything while the rest wither.
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
   so an intercept is a rendezvous problem (Lambert), costly in delta-v and likeliest near departure and arrival.
   It could start as an expected-loss cost per route that police presence lowers.
-- **Random events and small stories:** later. The player only watches, so events are what makes the economy
-  interesting to watch. Step 14's per-station multipliers and step 17's emergency log are the hooks: an event is
-  a timed multiplier on production, consumption or price, defined as data.
 
 Checks after each step: the three test suites, `tools/benchmark.py` (four starting dates, mean and spread; one
 run is too noisy to judge a change) and `--trajectory-audit`. v39d (2026-10-08, four starts): 730 days unmet
