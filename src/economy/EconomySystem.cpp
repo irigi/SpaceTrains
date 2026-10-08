@@ -169,26 +169,34 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
 
         const double factor = population_factor(*station_it);
 
-        // Production gating: each input's availability scales from 0.1 (none in stock) to 1.0
-        // (a 7-day buffer); production runs at their average weighted by the inputs' value
-        // (rate x base price). Never below 10%: stations keep some output through manual and
-        // emergency operations. (Until v37 it was the minimum over the inputs: one minor
-        // shortage, say electronics at the Mercury smelter, cut its metals to 10%, which starved
-        // Lunar Gateway's water output, which starved Earth L1: shortages cascaded.)
-        double weighted_availability = 0.0;
-        double input_weight = 0.0;
+        // Production dependencies (step 14). Each consumed good's availability is its stock over
+        // a 7-day buffer, in [0, 1]. Upkeep goods (life support, crew needs) penalise every output:
+        // each by 1 - (1 - full_shortage_multiplier) x (1 - availability), and the penalties
+        // multiply. Each output then runs at the lowest availability of its own material inputs,
+        // times the upkeep multiplier. No penalty is total, so a station never stops for good.
+        // (v37's value-weighted average over all inputs let a smelter with food but no ore run at
+        // 90%; the minimum over all inputs before it let 0.75 u/day of medicine stop 100 u/day of
+        // metals, and shortages cascaded.)
+        const auto stock_of = [&](const std::string& commodity_id) {
+            const auto it = station.inventory.find(commodity_id);
+            return it == station.inventory.end() ? 0.0 : it->second;
+        };
+        std::unordered_map<std::string, double> availability;
+        double upkeep = 1.0;
         for (const auto* recipe : recipes) {
-            if (recipe->units_per_day < 0.0) {
-                const double stock = station.inventory.count(recipe->commodity_id)
-                    ? station.inventory.at(recipe->commodity_id) : 0.0;
-                const double buffer = std::abs(recipe->units_per_day * factor) * 7.0;
-                const double ratio = stock / std::max(0.001, buffer);
-                const double weight = std::abs(recipe->units_per_day) * commodity_base_price(recipe->commodity_id);
-                weighted_availability += weight * (0.1 + 0.9 * std::min(1.0, ratio));
-                input_weight += weight;
+            if (recipe->units_per_day >= 0.0) {
+                continue;
+            }
+            const double buffer = std::abs(recipe->units_per_day * factor) * 7.0;
+            const double available = std::clamp(stock_of(recipe->commodity_id) / std::max(0.001, buffer), 0.0, 1.0);
+            availability[recipe->commodity_id] = available;
+            if (recipe->role == domain::RecipeRole::Upkeep) {
+                const auto penalty = universe_.upkeep_penalties.find(recipe->commodity_id);
+                if (penalty != universe_.upkeep_penalties.end()) {
+                    upkeep *= 1.0 - (1.0 - penalty->second) * (1.0 - available);
+                }
             }
         }
-        const double efficiency = input_weight > 0.0 ? weighted_availability / input_weight : 1.0;
 
         // Storage cap: a full station halts production of new units (consumption continues),
         // so gluts back up the supply chain instead of accumulating without consequence.
@@ -196,12 +204,62 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         // a producer that fills itself to the brim can no longer be resupplied at all.
         const double capacity = station_it->storage_capacity_units;
         const bool storage_full = capacity > 0.0 && storage_used_units(station.inventory) >= capacity * 0.85;
+        const double ceiling = storage_full ? 0.0 : upkeep;
+
+        // Each output's run rate, and the input that limits it (for the unmet-demand count).
+        struct OutputRun {
+            double run {1.0};
+            std::string limited_by;
+            double limit {1.0};
+        };
+        std::unordered_map<std::string, OutputRun> runs;
+        for (const auto* recipe : recipes) {
+            if (recipe->units_per_day > 0.0) {
+                runs.try_emplace(recipe->commodity_id);
+            }
+        }
+        for (const auto* recipe : recipes) {
+            if (recipe->role != domain::RecipeRole::Input) {
+                continue;
+            }
+            for (const auto& output : recipe->feeds) {
+                auto& run = runs[output];
+                const double available = availability[recipe->commodity_id];
+                if (available < run.limit) {
+                    run.limit = available;
+                    run.limited_by = recipe->commodity_id;
+                }
+            }
+        }
+        station.upkeep_multiplier = upkeep;
+        station.output_factor.clear();
+        for (auto& [commodity_id, run] : runs) {
+            run.run = ceiling * run.limit;
+            station.output_factor[commodity_id] = run.run;
+        }
 
         for (const auto* recipe : recipes) {
             const double units_per_day = recipe->units_per_day * factor;
-            const double rate = (units_per_day > 0.0)
-                ? (storage_full ? 0.0 : units_per_day * efficiency)  // production scales with input availability
-                : units_per_day;              // consumption is unaffected by efficiency
+            double rate = units_per_day;
+            // Lost consumption that is a shortage, not a choice: the part of an input's use its own
+            // stock-out took from the outputs it limits.
+            double input_shortfall_per_day = 0.0;
+            if (units_per_day > 0.0) {
+                rate = units_per_day * runs[recipe->commodity_id].run;
+            } else if (recipe->role == domain::RecipeRole::Input && !recipe->feeds.empty()) {
+                // A plant that is not running uses no feedstock.
+                double mean_run = 0.0;
+                for (const auto& output : recipe->feeds) {
+                    const auto& run = runs[output];
+                    mean_run += run.run;
+                    if (run.limited_by == recipe->commodity_id) {
+                        input_shortfall_per_day += ceiling * (1.0 - run.limit);
+                    }
+                }
+                const double feeds = static_cast<double>(recipe->feeds.size());
+                rate = units_per_day * mean_run / feeds;
+                input_shortfall_per_day *= -units_per_day / feeds;
+            }
             double& stock = station.inventory[recipe->commodity_id];
             stock += rate * dt_days;
 
@@ -216,6 +274,9 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
 
             if (units_per_day < 0.0) {
                 station.demand_units[recipe->commodity_id] -= units_per_day * dt_days;
+                if (input_shortfall_per_day > 0.0) {
+                    station.unmet_units[recipe->commodity_id] += input_shortfall_per_day * dt_days;
+                }
             }
             if (stock < 0.0) {
                 if (recipe->units_per_day < 0.0) {
@@ -306,6 +367,40 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
     return 20.0;
 }
 
+double EconomySystem::curve_centre(
+    const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const {
+    const auto station_it = reference_prices_.find(station.id);
+    if (station_it == reference_prices_.end()) {
+        return base_price;
+    }
+    const auto it = station_it->second.find(commodity_id);
+    return it == station_it->second.end() ? base_price : it->second;
+}
+
+double EconomySystem::reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    return curve_centre(station, commodity_id, commodity_base_price(commodity_id));
+}
+
+void EconomySystem::set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices) {
+    reference_prices_ = std::move(prices);
+}
+
+bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    const auto& recipes = recipes_of(station);
+    return std::any_of(recipes.begin(), recipes.end(), [&](const domain::RecipeDefinition* recipe) {
+        return recipe->commodity_id == commodity_id && recipe->role == domain::RecipeRole::Upkeep;
+    });
+}
+
+double EconomySystem::price_cap() const {
+    return PRICE_MAX_MULTIPLIER;
+}
+
+double EconomySystem::stock_at_multiplier(
+    const domain::StationDefinition& station, const std::string& commodity_id, double multiplier) const {
+    return get_target_stock(station, commodity_id) * std::pow(std::max(multiplier, 1.0e-9), -1.0 / PRICE_ELASTICITY);
+}
+
 double EconomySystem::get_price(
     const domain::StationDefinition& station,
     const std::string& commodity_id,
@@ -317,7 +412,7 @@ double EconomySystem::get_price(
     const double target = get_target_stock(station, commodity_id);
     const double ratio = target / std::max(stock, 0.5);
     const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, PRICE_MAX_MULTIPLIER);
-    return base_price * multiplier;
+    return curve_centre(station, commodity_id, base_price) * multiplier;
 }
 
 double EconomySystem::production_cap_units(
@@ -365,7 +460,7 @@ double EconomySystem::get_trade_value(
     };
     const double a = stock_before;
     const double b = stock_before + units_into_station;
-    return base_price * std::abs(cumulative(b) - cumulative(a));
+    return curve_centre(station, commodity_id, base_price) * std::abs(cumulative(b) - cumulative(a));
 }
 
 double EconomySystem::population_factor(const domain::StationDefinition& station) {

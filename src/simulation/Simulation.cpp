@@ -47,6 +47,20 @@ constexpr double LAYUP_REVIEW_DAYS = 5.0;
 constexpr double IDLE_REVIEW_S = 6.0 * 3600.0;
 // Ships load the propellant a mission burns plus this reserve, not a full tank.
 constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
+// Emergency deliveries (step 14): opened when a life-support good's forecast stock runs out
+// within the horizon, closed when it covers EMERGENCY_CLOSE_DAYS again. The floor price covers
+// one delivery of EMERGENCY_COVER_DAYS of use (shared by the ships that take it); its premium
+// (x the reference price) grows by EMERGENCY_RAISE_FACTOR every EMERGENCY_RAISE_DAYS that no
+// ship takes a delivery: a small station's month of water is worth little at 3x, less than
+// a trip to it costs, so the offer grows until a ship comes (Mercury's water stayed short for
+// two years at 8x; doubling to 96x paid 2M cr in two years).
+constexpr double EMERGENCY_HORIZON_DAYS = 21.0;
+constexpr double EMERGENCY_CLOSE_DAYS = 14.0;
+constexpr double EMERGENCY_COVER_DAYS = 30.0;
+constexpr double EMERGENCY_START_PREMIUM = 3.0;
+constexpr double EMERGENCY_RAISE_FACTOR = 1.5;
+constexpr double EMERGENCY_MAX_PREMIUM = 24.0;
+constexpr double EMERGENCY_RAISE_DAYS = 15.0;
 
 // Part loads dispatch scores: a full hold may be too heavy, and big lots move prices.
 constexpr std::array<double, 3> LOAD_FRACTIONS {1.0, 0.5, 0.25};
@@ -400,6 +414,19 @@ const domain::CommodityDefinition& Simulation::get_commodity(const std::string& 
     return *it;
 }
 
+void Simulation::set_station_stock(const std::string& station_id, const std::string& commodity_id, double units) {
+    get_station_state(station_id).inventory[commodity_id] = units;
+}
+
+std::string Simulation::faction_name(const std::string& faction_id) const {
+    for (const auto& faction : universe_.factions) {
+        if (faction.id == faction_id) {
+            return faction.name;
+        }
+    }
+    return faction_id;
+}
+
 double Simulation::station_price(const domain::StationState& state, const std::string& commodity_id) const {
     const auto& definition = get_station_definition(state.station_id);
     const auto stock_it = state.inventory.find(commodity_id);
@@ -418,9 +445,104 @@ double Simulation::trade_value(
 
 double Simulation::sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
     double units, double days_ahead, const std::string& seller_ship_id) const {
-    const auto& definition = get_station_definition(state.station_id);
-    return economy_.get_trade_value(definition, commodity_id,
-        forecast_stock_on_arrival(state, commodity_id, days_ahead, seller_ship_id), units, get_commodity(commodity_id).base_price);
+    return sale_split_on_arrival(state, commodity_id, units, days_ahead, seller_ship_id).total;
+}
+
+Simulation::SaleSplit Simulation::sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
+    double units, double days_ahead, const std::string& seller_ship_id) const {
+    return sale_split(get_station_definition(state.station_id), commodity_id,
+        forecast_stock_on_arrival(state, commodity_id, days_ahead, seller_ship_id), units);
+}
+
+const domain::Emergency* Simulation::find_emergency(const std::string& station_id, const std::string& commodity_id) const {
+    for (const auto& emergency : emergencies_) {
+        if (emergency.station_id == station_id && emergency.commodity_id == commodity_id) {
+            return &emergency;
+        }
+    }
+    return nullptr;
+}
+
+Simulation::SaleSplit Simulation::sale_split(const domain::StationDefinition& station, const std::string& commodity_id,
+    double stock, double units) const {
+    SaleSplit split {.total = economy_.get_trade_value(station, commodity_id, stock, units, get_commodity(commodity_id).base_price)};
+    const auto* emergency = units > 0.0 ? find_emergency(station.id, commodity_id) : nullptr;
+    if (emergency == nullptr) {
+        return split;
+    }
+    const auto rates = economy_.get_station_net_rates(station);
+    const auto rate = rates.find(commodity_id);
+    if (rate == rates.end() || rate->second >= 0.0) {
+        return split;
+    }
+    // The faction pays the floor price for the units that land below the emergency cover,
+    // where the station's own curve is below the floor. The curve falls with the stock, so
+    // that is the stock range above the floor's point on the curve (all of it when the floor
+    // is above the curve's cap).
+    const double cover = -rate->second * EMERGENCY_COVER_DAYS;
+    const double floor_from = emergency->premium >= economy_.price_cap()
+        ? 0.0 : economy_.stock_at_multiplier(station, commodity_id, emergency->premium);
+    const double lo = std::max(stock, floor_from);
+    const double hi = std::min({stock + units, cover, lo + emergency->units_open});
+    if (hi <= lo) {
+        return split;
+    }
+    const double floor_price = emergency->premium * economy_.reference_price(station, commodity_id);
+    const double premium = floor_price * (hi - lo)
+        - economy_.get_trade_value(station, commodity_id, lo, hi - lo, get_commodity(commodity_id).base_price);
+    if (premium > 0.0) {
+        split.faction = premium;
+        split.total += premium;
+        split.emergency_units = hi - lo;
+    }
+    return split;
+}
+
+void Simulation::step_emergencies() {
+    for (const auto& state : stations_) {
+        const auto& definition = get_station_definition(state.station_id);
+        const auto rates = economy_.get_station_net_rates(definition);
+        for (const auto& commodity_id : universe_.emergency_goods) {
+            const auto rate = rates.find(commodity_id);
+            if (rate == rates.end() || rate->second >= 0.0 || !economy_.is_upkeep(definition, commodity_id)) {
+                continue;
+            }
+            const double use_per_day = -rate->second;
+            const double forecast = forecast_stock_on_arrival(state, commodity_id, EMERGENCY_HORIZON_DAYS, {});
+            const auto open = std::find_if(emergencies_.begin(), emergencies_.end(), [&](const domain::Emergency& e) {
+                return e.station_id == state.station_id && e.commodity_id == commodity_id;
+            });
+            if (open == emergencies_.end()) {
+                if (forecast <= 0.0) {
+                    emergencies_.push_back({
+                        .station_id = state.station_id,
+                        .commodity_id = commodity_id,
+                        .premium = EMERGENCY_START_PREMIUM,
+                        .units_open = use_per_day * EMERGENCY_COVER_DAYS,
+                        .opened_s = game_time_s_,
+                        .last_raise_s = game_time_s_,
+                    });
+                    ++emergencies_opened_;
+                    add_event(std::format("EMERGENCY: {} will run out of {} — {} pays {:.0f}x for deliveries",
+                        definition.name, get_commodity(commodity_id).name, faction_name(definition.faction_id),
+                        EMERGENCY_START_PREMIUM), "alert");
+                }
+                continue;
+            }
+            if (forecast >= use_per_day * EMERGENCY_CLOSE_DAYS) {
+                add_event(std::format("Emergency over: {} has enough {} coming ({:.0f} days after it began)",
+                    definition.name, get_commodity(commodity_id).name, (game_time_s_ - open->opened_s) / 86400.0), "alert");
+                emergencies_.erase(open);
+            } else if (game_time_s_ - open->last_raise_s >= EMERGENCY_RAISE_DAYS * 86400.0
+                && open->premium < EMERGENCY_MAX_PREMIUM && open->units_open > 0.0) {
+                open->premium = std::min(EMERGENCY_MAX_PREMIUM, open->premium * EMERGENCY_RAISE_FACTOR);
+                open->last_raise_s = game_time_s_;
+                add_event(std::format("EMERGENCY: no ship for {} at {} — {} raises its offer to {:.1f}x",
+                    get_commodity(commodity_id).name, definition.name, faction_name(definition.faction_id), open->premium),
+                    "alert");
+            }
+        }
+    }
 }
 
 double Simulation::forecast_stock_on_arrival(const domain::StationState& state, const std::string& commodity_id,
@@ -1381,8 +1503,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                         continue;
                     }
                     const auto& commodity = get_commodity(good.offer->commodity_id);
-                    const double sale = economy_.get_trade_value(destination, commodity.id,
-                        good.stock_on_arrival + good.loaded, units, commodity.base_price);
+                    const double sale = sale_split(destination, commodity.id, good.stock_on_arrival + good.loaded, units).total;
                     const double buy = trade_value(origin_state, commodity.id, -(good.loaded + units)) - good.buy_cost;
                     const double gain = good.urgency * (sale - buy) / units;
                     if (sale > buy && gain > best_gain && buy <= credits_left) {
@@ -1781,7 +1902,20 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     for (auto& lot : contracted_cargo) {
         const double surviving = lot.units
             * std::pow(1.0 - get_commodity(lot.commodity_id).decay_fraction_per_day, plan.travel_time_s / 86400.0);
-        lot.contract_value = sale_value_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
+        const auto split = sale_split_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
+        lot.contract_value = split.total;
+        lot.emergency_premium = split.faction;
+        if (split.faction > 0.0) {
+            for (auto& emergency : emergencies_) {
+                if (emergency.station_id == best_destination->id && emergency.commodity_id == lot.commodity_id) {
+                    emergency.last_raise_s = game_time_s_;
+                    emergency.units_open = std::max(0.0, emergency.units_open - split.emergency_units);
+                }
+            }
+            add_event(std::format("{} takes an emergency delivery of {:.0f}u {} to {} ({:.0f} cr from {})",
+                ship.name, surviving, get_commodity(lot.commodity_id).name, best_destination->name, split.faction,
+                faction_name(best_destination->faction_id)), "alert");
+        }
     }
     for (const auto& lot : cargo) {
         // Buy at origin along the price curve as the stock falls.
@@ -2067,12 +2201,24 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             // The agreed price for what arrives (less if storage forced a jettison), or, without a
             // contract, the market's along the price curve as the delivery lands.
             const double expected_units = lot.units * surviving;
+            const double delivered_share = expected_units > 0.0 ? std::min(1.0, arrived / expected_units) : 0.0;
             const double revenue = lot.contract_value > 0.0 && expected_units > 0.0
-                ? lot.contract_value * std::min(1.0, arrived / expected_units)
+                ? lot.contract_value * delivered_share
                 : trade_value(destination, lot.commodity_id, arrived);
+            // An emergency premium comes from the station's faction, the rest from the station.
+            const double faction_share = lot.emergency_premium * delivered_share;
+            if (faction_share > 0.0) {
+                faction_treasuries_[destination_def.faction_id] -= faction_share;
+                emergency_paid_ += faction_share;
+                for (auto& emergency : emergencies_) {
+                    if (emergency.station_id == destination.station_id && emergency.commodity_id == lot.commodity_id) {
+                        emergency.faction_paid += faction_share;
+                    }
+                }
+            }
             destination.inventory[lot.commodity_id] += arrived;
             destination.import_units_per_day[lot.commodity_id] += arrived / TRADE_FLOW_DAYS;
-            destination.credits -= revenue;
+            destination.credits -= revenue - faction_share;
             ship.credits += revenue;
             ship.lifetime_profit += revenue;
             ship.ledger.cargo_revenue += revenue;
@@ -2136,6 +2282,7 @@ void Simulation::tick() {
     }
     settle_local_economy(stocks_before);
     step_treasuries(dt_s);
+    step_emergencies();
     step_fleet_investment();
 
     for (auto& ship : ships_) {
@@ -2806,6 +2953,9 @@ domain::SimulationSnapshot Simulation::snapshot() const {
         .ships = ships_,
         .sold_ships = sold_ships_,
         .recent_events = recent_events_,
+        .emergencies = emergencies_,
+        .emergencies_opened = emergencies_opened_,
+        .emergency_paid = emergency_paid_,
     };
 }
 

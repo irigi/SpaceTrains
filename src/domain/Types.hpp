@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "math/Vec3d.hpp"
@@ -131,11 +132,21 @@ struct StationDefinition {
 
 // A recipe of an economy profile, or of one station (local resources such as Ceres's
 // platinum, data/recipes/station_recipes.csv), when station_id is set.
+// What a consumed good is for (step 14). Outputs have no role.
+enum class RecipeRole {
+    Output,
+    Input,    // material input of the outputs in `feeds`: they stop without it
+    Upkeep,   // life support and crew needs: a shortage penalises every output of the station
+    Consume,  // demand with no effect on output (colony construction, research)
+};
+
 struct RecipeDefinition {
     std::string profile_id;
     std::string commodity_id;
     double units_per_day {0.0};
     std::string station_id {};
+    RecipeRole role {RecipeRole::Output};
+    std::vector<std::string> feeds {};  // outputs of the same station, for an Input
 };
 
 // Earth's economy (the outside account) buys any amount of an export good delivered to
@@ -171,6 +182,10 @@ struct UniverseDefinition {
     FuelSupplyDefinition fuel_supply;
     OpenEconomyDefinition open_economy;
     FleetInvestmentDefinition fleet_investment;
+    // Output multiplier at a full shortage of an upkeep good (data/economy/upkeep_penalties.csv).
+    std::unordered_map<std::string, double> upkeep_penalties;
+    // Upkeep goods whose shortage makes the owning faction pay for an emergency delivery.
+    std::unordered_set<std::string> emergency_goods;
 };
 
 enum class ShipMissionPhase {
@@ -208,6 +223,23 @@ struct CargoLot {
     // destination's forecast price along its curve, the same forecast dispatch planned with.
     // The station pays it on arrival whatever the market did meanwhile (0: sold at market).
     double contract_value {0.0};
+    // The part of contract_value the destination's faction pays: an emergency delivery's
+    // premium over the station's own price (step 14).
+    double emergency_premium {0.0};
+};
+
+// An emergency delivery the owning faction pays for (step 14): the station is about to run
+// out of a life-support good. While it is open, the station's price for that good, for the
+// units still open (30 days of its use) and below 30 days of stock, is at least `premium`
+// times its reference price; the faction pays the part above the station's own curve.
+struct Emergency {
+    std::string station_id;
+    std::string commodity_id;
+    double premium {3.0};
+    double units_open {0.0};    // still to be contracted at the floor price (30 days of use at opening)
+    double opened_s {0.0};
+    double last_raise_s {0.0};  // when the premium last rose, or a ship last took a delivery
+    double faction_paid {0.0};
 };
 
 [[nodiscard]] inline double total_units(const std::vector<CargoLot>& cargo) {
@@ -337,6 +369,10 @@ struct StationState {
     Inventory unmet_units {};
     // Units an export market sold on to the outside economy since the start.
     Inventory market_sold_units {};
+    // Diagnostics of the last economy step (not saved): the product of the upkeep penalties
+    // in force, and each output's run rate (upkeep included).
+    double upkeep_multiplier {1.0};
+    Inventory output_factor {};
 };
 
 struct SimulationSnapshot {
@@ -354,6 +390,10 @@ struct SimulationSnapshot {
     std::vector<ShipState> ships;
     std::vector<ShipState> sold_ships;   // as they were when sold, for the audit
     std::vector<EventEntry> recent_events;
+    // Emergency deliveries (step 14): open now, opened since the start, premiums paid.
+    std::vector<Emergency> emergencies;
+    int emergencies_opened {0};
+    double emergency_paid {0.0};
 };
 
 // Planner-internal facts that the final path no longer shows (endpoints are

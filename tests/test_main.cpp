@@ -824,6 +824,51 @@ int main() {
             saved.size() / 1024, kHalfDays, kHalfDays);
     }
 
+    // --- Emergency resupply (step 14): a station about to run out of oxygen gets an emergency
+    // delivery paid by its faction; the emergency closes when the stock is safe again, and a
+    // game saved with one open continues exactly. ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        auto sim = spacetrains::simulation::Simulation::from_data_root(data_root);
+        sim.set_timewarp(86400.0);
+        sim.set_station_stock("mercury_yard", "oxygen", 0.0);
+        sim.step(0.1);
+        auto snap = sim.snapshot();
+        require(snap.emergencies_opened == 1 && snap.emergencies.size() == 1, "an empty oxygen stock should open an emergency");
+        require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
+            "the emergency should be for Mercury's oxygen");
+        require(snap.emergencies.front().premium == 3.0, "an emergency should start at a 3x premium");
+
+        auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
+        resumed.load_state_json(sim.save_state_json());
+        for (int day = 0; day < 20; ++day) {
+            sim.step(1.0);
+            resumed.step(1.0);
+        }
+        require(resumed.save_state_json() == sim.save_state_json(), "a game saved with an open emergency should continue exactly");
+
+        const auto mercury_oxygen_open = [&] {
+            const auto open = sim.snapshot().emergencies;
+            return std::any_of(open.begin(), open.end(), [](const auto& emergency) {
+                return emergency.station_id == "mercury_yard" && emergency.commodity_id == "oxygen";
+            });
+        };
+        int days = 20;
+        while (days < 300 && mercury_oxygen_open()) {
+            sim.step(1.0);
+            ++days;
+        }
+        require(!mercury_oxygen_open(), "an emergency should close once enough is on its way");
+        while (days < 300 && sim.snapshot().emergency_paid <= 0.0) {
+            sim.step(1.0);
+            ++days;
+        }
+        snap = sim.snapshot();
+        require(snap.emergency_paid > 0.0, "the faction should pay the emergency premium");
+        std::cout << std::format("Emergency: Mercury oxygen resupplied in {} days, factions paid {:.0f} cr\n",
+            days, snap.emergency_paid);
+    }
+
     std::cout << "All SpaceTrains tests passed.\n";
     return 0;
 }

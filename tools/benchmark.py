@@ -51,6 +51,10 @@ def run_one(binary, days, start, threads, extra):
         m = re.search(r"Exports: (\d+) cr", line)
         if m:
             result["exports"] = float(m.group(1))
+        m = re.search(r"Emergencies: (\d+) opened, (\d+) open now, (\d+) cr paid", line)
+        if m:
+            result["emergencies"] = int(m.group(1))
+            result["emergency_cr"] = float(m.group(3))
         m = re.search(r"fleet holds now: (\d+) u", line)
         if m:
             result["holds"] = float(m.group(1))
@@ -75,7 +79,7 @@ def main():
 
     columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("profitable", "profitable"), ("ships", "ships"),
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
-               ("seconds", "run s")]
+               ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("seconds", "run s")]
     print(f"{'start day':>10}" + "".join(f"{title:>12}" for _, title in columns))
     for result in results:
         print(f"{result['start']:>10.0f}" + "".join(

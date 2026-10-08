@@ -322,17 +322,51 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
     }
 
+    // A recipe row's role: empty for an output, "upkeep", "consume" or "input:<output>[|<output>]".
+    const auto set_role = [](domain::RecipeDefinition& recipe, const std::string& text,
+                              const std::filesystem::path& path, std::size_t line) {
+        const auto where = path.string() + ":" + std::to_string(line);
+        if (recipe.units_per_day > 0.0) {
+            if (!text.empty()) {
+                throw std::runtime_error("An output must have no role in " + where);
+            }
+            recipe.role = domain::RecipeRole::Output;
+            return;
+        }
+        if (text == "upkeep") {
+            recipe.role = domain::RecipeRole::Upkeep;
+        } else if (text == "consume") {
+            recipe.role = domain::RecipeRole::Consume;
+        } else if (text.starts_with("input:") && text.size() > 6) {
+            recipe.role = domain::RecipeRole::Input;
+            std::size_t start = 6;
+            while (start <= text.size()) {
+                const auto end = std::min(text.find('|', start), text.size());
+                if (end == start) {
+                    throw std::runtime_error("Empty output name in role '" + text + "' in " + where);
+                }
+                recipe.feeds.push_back(text.substr(start, end - start));
+                start = end + 1;
+            }
+        } else {
+            throw std::runtime_error("A consumed good needs a role (upkeep, consume or input:<output>), got '"
+                + text + "' in " + where);
+        }
+    };
+
     {
         const auto rows = read_csv_rows(recipes_path);
-        require_header(rows.front(), {"profile_id", "commodity_id", "units_per_day"}, recipes_path);
+        require_header(rows.front(), {"profile_id", "commodity_id", "units_per_day", "role"}, recipes_path);
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 3, recipes_path, i + 1);
-            universe.recipes.push_back({
+            require_field_count(row, 4, recipes_path, i + 1);
+            domain::RecipeDefinition recipe {
                 .profile_id = row[0],
                 .commodity_id = row[1],
                 .units_per_day = parse_double(row[2], recipes_path, i + 1, "units_per_day"),
-            });
+            };
+            set_role(recipe, row[3], recipes_path, i + 1);
+            universe.recipes.push_back(std::move(recipe));
         }
     }
 
@@ -450,18 +484,66 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
 
     {
         const auto rows = read_csv_rows(station_recipes_path);
-        require_header(rows.front(), {"station_id", "commodity_id", "units_per_day"}, station_recipes_path);
+        require_header(rows.front(), {"station_id", "commodity_id", "units_per_day", "role"}, station_recipes_path);
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 3, station_recipes_path, i + 1);
+            require_field_count(row, 4, station_recipes_path, i + 1);
             require_station(row[0], station_recipes_path);
             require_commodity(row[1], station_recipes_path);
-            universe.recipes.push_back({
+            domain::RecipeDefinition recipe {
                 .profile_id = {},
                 .commodity_id = row[1],
                 .units_per_day = parse_double(row[2], station_recipes_path, i + 1, "units_per_day"),
                 .station_id = row[0],
-            });
+            };
+            set_role(recipe, row[3], station_recipes_path, i + 1);
+            universe.recipes.push_back(std::move(recipe));
+        }
+    }
+
+    // Every input feeds an output of the same station (its profile's rows or its own).
+    for (const auto& station : universe.stations) {
+        const auto applies = [&](const domain::RecipeDefinition& recipe) {
+            return recipe.station_id.empty() ? recipe.profile_id == station.economy_profile_id : recipe.station_id == station.id;
+        };
+        for (const auto& recipe : universe.recipes) {
+            if (!applies(recipe)) {
+                continue;
+            }
+            for (const auto& output : recipe.feeds) {
+                const bool produced = std::any_of(universe.recipes.begin(), universe.recipes.end(),
+                    [&](const domain::RecipeDefinition& other) {
+                        return applies(other) && other.commodity_id == output && other.units_per_day > 0.0;
+                    });
+                if (!produced) {
+                    throw std::runtime_error("Recipe input " + recipe.commodity_id + " at " + station.id
+                        + " feeds '" + output + "', which the station does not produce");
+                }
+            }
+        }
+    }
+
+    {
+        const auto upkeep_path = root / "economy" / "upkeep_penalties.csv";
+        const auto rows = read_csv_rows(upkeep_path);
+        require_header(rows.front(), {"commodity_id", "full_shortage_multiplier", "emergency"}, upkeep_path);
+        std::unordered_set<std::string> seen_ids;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 3, upkeep_path, i + 1);
+            require_unique_id(row[0], seen_ids, upkeep_path, i + 1);
+            require_commodity(row[0], upkeep_path);
+            const double multiplier = parse_double(row[1], upkeep_path, i + 1, "full_shortage_multiplier");
+            // No penalty is total: a station that stops completely could never recover.
+            if (multiplier <= 0.0 || multiplier > 1.0) {
+                throw std::runtime_error("full_shortage_multiplier must be in (0, 1] in " + upkeep_path.string());
+            }
+            universe.upkeep_penalties[row[0]] = multiplier;
+            if (row[2] == "1") {
+                universe.emergency_goods.insert(row[0]);
+            } else if (row[2] != "0") {
+                throw std::runtime_error("emergency must be 0 or 1 in " + upkeep_path.string());
+            }
         }
     }
 

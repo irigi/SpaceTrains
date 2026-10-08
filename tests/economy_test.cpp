@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -89,6 +90,53 @@ int main() {
         // Untraded commodity falls back to the flat target.
         require_near(economy.get_target_stock(agri, "reactor_fuel"), 20.0, 1.0e-9,
             "untraded commodity target must be flat 20 units");
+    }
+
+    {
+        // --- Production dependencies (step 14) ---
+        // Mercury runs smelter_hub: metals need nothing, machinery needs electronics; food,
+        // water, oxygen, fuel and medicine are upkeep.
+        const auto& mercury = *std::find_if(universe.stations.begin(), universe.stations.end(),
+            [](const auto& station) { return station.id == "mercury_yard"; });
+        const auto factor = spacetrains::economy::EconomySystem::population_factor(mercury);
+        const auto stocked = [&] {
+            spacetrains::domain::StationState state {.station_id = mercury.id};
+            for (const auto* good : {"food", "water", "oxygen", "fuel", "medicine", "electronics"}) {
+                state.inventory[good] = 1000.0 * factor;  // far above a 7-day buffer
+            }
+            return state;
+        };
+        const auto run_day = [&](spacetrains::domain::StationState state) {
+            std::vector<spacetrains::domain::StationState> states {std::move(state)};
+            economy.step(states, 86400.0);
+            return states.front();
+        };
+
+        const auto full = run_day(stocked());
+        require_near(full.upkeep_multiplier, 1.0, 1.0e-12, "a stocked station pays no upkeep penalty");
+        require_near(full.output_factor.at("metals"), 1.0, 1.0e-12, "a stocked station's outputs run at full rate");
+        require_near(full.output_factor.at("machinery"), 1.0, 1.0e-12, "a stocked station's outputs run at full rate");
+
+        auto no_electronics = stocked();
+        no_electronics.inventory["electronics"] = 0.0;
+        const auto starved = run_day(no_electronics);
+        require_near(starved.output_factor.at("machinery"), 0.0, 1.0e-12, "an output stops without its material input");
+        require_near(starved.output_factor.at("metals"), 1.0, 1.0e-12, "another output's input does not affect an output");
+        require_near(starved.inventory.at("electronics"), 0.0, 1.0e-12, "an idle plant uses none of its input");
+        require(starved.unmet_units.at("electronics") > 0.0, "an input's stock-out counts as unmet demand");
+
+        auto no_oxygen = stocked();
+        no_oxygen.inventory["oxygen"] = 0.0;
+        const auto breathless = run_day(no_oxygen);
+        require_near(breathless.upkeep_multiplier, 0.1, 1.0e-12, "no oxygen leaves 10% of output");
+        require_near(breathless.output_factor.at("metals"), 0.1, 1.0e-12, "upkeep penalties apply to every output");
+        auto no_oxygen_or_food = no_oxygen;
+        no_oxygen_or_food.inventory["food"] = 0.0;
+        require_near(run_day(no_oxygen_or_food).upkeep_multiplier, 0.05, 1.0e-12, "upkeep penalties multiply");
+        auto half_medicine = stocked();
+        half_medicine.inventory["medicine"] = 0.75 * factor * 7.0 * 0.5;  // half the 7-day buffer
+        require_near(run_day(half_medicine).upkeep_multiplier, 1.0 - 0.15 * 0.5, 1.0e-12,
+            "a partial shortage scales its penalty linearly");
     }
 
     {
@@ -246,8 +294,8 @@ int main() {
             "the outside economy's balance must equal producer payments minus resident payments,"
             " plus ships sold to the treasuries minus salvage bought back");
         require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies
-                - investment.hulls_bought - investment.working_capital + investment.salvage, 1.0e-3,
-            "the faction treasuries' balance must equal taxes minus subsidies and their ship trade");
+                - investment.hulls_bought - investment.working_capital + investment.salvage - snap.emergency_paid, 1.0e-3,
+            "the faction treasuries' balance must equal taxes minus subsidies, their ship trade and emergency premiums");
         require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
             "dividends paid by ships must equal dividends received by stations");
         const auto& open = sim.universe().open_economy;

@@ -48,6 +48,8 @@ public:
     // fingerprint) and throws, leaving the simulation unchanged, on a bad or foreign save.
     [[nodiscard]] std::string save_state_json() const;
     void load_state_json(const std::string& text);
+    // Tests and debugging: overwrite one good's stock at a station.
+    void set_station_stock(const std::string& station_id, const std::string& commodity_id, double units);
     [[nodiscard]] std::string data_fingerprint() const;
     [[nodiscard]] std::string build_report() const;
     // The UI snapshot. Without paths, ships in flight carry only a "path_id"; their planned
@@ -78,6 +80,7 @@ private:
     [[nodiscard]] std::string bridge_path_id(const domain::ShipState& ship) const;
     void write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
+    [[nodiscard]] std::string faction_name(const std::string& faction_id) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
     // Value of moving units into (+) or out of (-) a station, along its price curve.
     // Value of selling `units` at a station `days_ahead` from now, on its forecast stock.
@@ -87,6 +90,21 @@ private:
         double days_ahead, const std::string& seller_ship_id) const;
     [[nodiscard]] double sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
+    // A sale's value and the part of it the station's faction pays (an emergency premium).
+    struct SaleSplit {
+        double total {0.0};
+        double faction {0.0};
+        double emergency_units {0.0};  // units sold at the emergency floor
+    };
+    // Selling `units` into a station whose stock is `stock`: along its curve, raised to an
+    // open emergency's floor price for the units that land below its emergency cover.
+    [[nodiscard]] SaleSplit sale_split(const domain::StationDefinition& station, const std::string& commodity_id,
+        double stock, double units) const;
+    [[nodiscard]] SaleSplit sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
+        double units, double days_ahead, const std::string& seller_ship_id) const;
+    [[nodiscard]] const domain::Emergency* find_emergency(const std::string& station_id, const std::string& commodity_id) const;
+    // Opens, raises and closes emergency deliveries of life-support goods (step 14).
+    void step_emergencies();
     [[nodiscard]] double trade_value(
         const domain::StationState& state, const std::string& commodity_id, double units_into_station) const;
     // Propellant the ship's current port will sell it (capped by free tank space).
@@ -244,6 +262,10 @@ private:
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;
+    // Emergency deliveries open now, and the totals since the start.
+    std::vector<domain::Emergency> emergencies_;
+    int emergencies_opened_ {0};
+    double emergency_paid_ {0.0};   // by the faction treasuries, in premiums
     std::vector<domain::ShipState> sold_ships_;
     double timewarp_factor_ {3600.0};
     std::vector<domain::StationState> stations_;

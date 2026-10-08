@@ -64,6 +64,24 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 - **Transport capacity** (`--econ-audit`): steady supply of every consumer from its nearest producer needs about
   45,000 u of holds in transit (104,000 with the export markets); the fleet is capped at `max_fleet_size` (90).
 
+## Production dependencies and emergencies (step 14)
+
+- Every consumed recipe row has a **role** (`data/recipes/*.csv`): `input:<outputs>` (feedstock: the outputs stop
+  without it), `upkeep` (life support, maintenance, power: a shortage penalises every output of the station) or
+  `consume` (demand with no effect on output).
+- **Availability** of a consumed good: stock over a 7-day buffer, in [0, 1]. **Upkeep multiplier**: the product of
+  `1 - (1 - m)(1 - availability)` over the upkeep goods, `m` from `data/economy/upkeep_penalties.csv` (no penalty is
+  total). Each **output** runs at the lowest availability of its own inputs times the upkeep multiplier (zero while
+  storage is 85% full). A plant that is not running uses no feedstock; upkeep and consume goods are used at the full
+  rate. `StationState::output_factor` and `upkeep_multiplier` show the result (station panel, `--econ-audit`).
+- **Unmet demand**: stock-outs of upkeep and consume goods, and for an input the output it failed to feed (where
+  it is the limiting input).
+- **Emergencies** (`Simulation::step_emergencies`, goods flagged in `upkeep_penalties.csv`: oxygen and water):
+  opened when the forecast stock with inbound cargo runs out within 21 days, closed when it covers 14 days of use.
+  One contract for 30 days of use: while units are open, the station's price below 30 days of stock is at least
+  the premium times its reference price; the premium starts at 3x and grows 1.5x every 15 days nobody takes it, up
+  to 24x. The faction pays the part above the station's curve (`CargoLot::emergency_premium`), on arrival.
+
 ## Deferred Work
 
 - More detailed production chains

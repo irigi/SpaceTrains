@@ -318,6 +318,28 @@ void print_economy_audit(
         std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
     }
 
+    // Production (step 14): stations whose outputs run below full rate now, and why.
+    std::cout << "\n  [ECON AUDIT] Production (outputs below 90% now; upkeep = product of the upkeep penalties):\n";
+    for (const auto& ss : snap.stations) {
+        const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+            [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+        std::string slow;
+        for (const auto& [c, run] : ss.output_factor) {
+            if (run < 0.9) {
+                slow += std::format(" {}={:.0f}%", c, 100.0 * run);
+            }
+        }
+        if (!slow.empty() || ss.upkeep_multiplier < 0.99) {
+            std::cout << std::format("    {:30s}  upkeep {:5.1f}% {}\n", name, 100.0 * ss.upkeep_multiplier, slow);
+        }
+    }
+    std::cout << std::format("    Emergencies: {} opened, {} open now, {:.0f} cr paid by the factions\n",
+        snap.emergencies_opened, snap.emergencies.size(), snap.emergency_paid);
+    for (const auto& emergency : snap.emergencies) {
+        std::cout << std::format("      open: {} {} for {:.0f} days at {:.0f}x\n", emergency.station_id,
+            emergency.commodity_id, (snap.game_time_s - emergency.opened_s) / 86400.0, emergency.premium);
+    }
+
     // Ship utilization
     int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0, ships_laid_up = 0,
         ships_refitting = 0;

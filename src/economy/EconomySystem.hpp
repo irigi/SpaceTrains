@@ -64,8 +64,24 @@ public:
         double units_into_station,
         double base_price) const;
 
+    // The centre of a station's price curve for a good: the landed cost (base price plus the
+    // cost of carrying it from the nearest producer, set by set_reference_prices) at a
+    // consumer, the base price elsewhere.
+    [[nodiscard]] double reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // The station consumes this good as upkeep (life support and crew needs).
+    [[nodiscard]] bool is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // The highest multiple of its centre a station's curve reaches (at an empty stock).
+    [[nodiscard]] double price_cap() const;
+    void set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices);
+    // The stock at which the station's curve (before clamping) is at `multiplier` x its centre.
+    [[nodiscard]] double stock_at_multiplier(
+        const domain::StationDefinition& station, const std::string& commodity_id, double multiplier) const;
+
 private:
     void compute_cover_days();
+    // reference_price for a caller that passes the base price.
+    [[nodiscard]] double curve_centre(
+        const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const;
     [[nodiscard]] double commodity_base_price(const std::string& commodity_id) const;
     [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
     // A price that does not move with the stock: the base price at an export market, the
@@ -81,6 +97,8 @@ private:
     // Days of its consumption a consumer wants in stock, by station id and good: three weeks,
     // or longer where the nearest producer is far (see resupply_cover_days in the .cpp).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> cover_days_;
+    // Landed-cost reference prices by station id and good (empty: base prices).
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
 };
 
 }  // namespace spacetrains::economy

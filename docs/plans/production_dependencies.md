@@ -1,4 +1,4 @@
-# Production dependencies and upkeep penalties (step 14, planned 2026-10-08, penalties confirmed, not implemented)
+# Production dependencies and upkeep penalties (step 14, done 2026-10-08; results and changes in `steps_14_17_log.md`)
 
 ## Why
 

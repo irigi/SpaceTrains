@@ -15,7 +15,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 5;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts
+constexpr int kSaveVersion = 6;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -92,6 +92,7 @@ Json mission_to_json(const domain::MissionAssignment& m) {
         entry.set("commodity_id", lot.commodity_id);
         entry.set("units", lot.units);
         entry.set("contract_value", lot.contract_value);
+        entry.set("emergency_premium", lot.emergency_premium);
         cargo.push(std::move(entry));
     }
     out.set("cargo", std::move(cargo));
@@ -122,7 +123,8 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     m.destination_station_id = j.get("destination_station_id").string();
     for (const auto& entry : j.get("cargo").items()) {
         m.cargo.push_back({.commodity_id = entry.get("commodity_id").string(), .units = entry.get("units").number(),
-            .contract_value = entry.get("contract_value").number()});
+            .contract_value = entry.get("contract_value").number(),
+            .emergency_premium = entry.get("emergency_premium").number()});
     }
     m.departure_time_s = j.get("departure_time_s").number();
     m.arrival_time_s = j.get("arrival_time_s").number();
@@ -282,7 +284,11 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
     for (const auto& recipe : universe_.recipes) {
-        mix(std::format("r{}|{}|{}|{};", recipe.profile_id, recipe.station_id, recipe.commodity_id, recipe.units_per_day));
+        mix(std::format("r{}|{}|{}|{}|{};", recipe.profile_id, recipe.station_id, recipe.commodity_id, recipe.units_per_day,
+            static_cast<int>(recipe.role)));
+        for (const auto& output : recipe.feeds) {
+            mix(std::format("f{};", output));
+        }
     }
     return std::format("{:016x}", hash);
 }
@@ -327,6 +333,21 @@ std::string Simulation::save_state_json() const {
     investment.set("working_capital", investment_ledger_.working_capital);
     investment.set("salvage", investment_ledger_.salvage);
     root.set("investment_ledger", std::move(investment));
+    auto emergencies = Json::array();
+    for (const auto& emergency : emergencies_) {
+        auto entry = Json::object();
+        entry.set("station_id", emergency.station_id);
+        entry.set("commodity_id", emergency.commodity_id);
+        entry.set("premium", emergency.premium);
+        entry.set("units_open", emergency.units_open);
+        entry.set("opened_s", emergency.opened_s);
+        entry.set("last_raise_s", emergency.last_raise_s);
+        entry.set("faction_paid", emergency.faction_paid);
+        emergencies.push(std::move(entry));
+    }
+    root.set("emergencies", std::move(emergencies));
+    root.set("emergencies_opened", emergencies_opened_);
+    root.set("emergency_paid", emergency_paid_);
     auto stations = Json::array();
     for (const auto& station : stations_) {
         stations.push(station_to_json(station));
@@ -421,6 +442,19 @@ void Simulation::load_state_json(const std::string& text) {
         });
     }
     const auto& investment = root.get("investment_ledger");
+    std::vector<domain::Emergency> emergencies;
+    for (const auto& entry : root.get("emergencies").items()) {
+        emergencies.push_back({
+            .station_id = entry.get("station_id").string(),
+            .commodity_id = entry.get("commodity_id").string(),
+            .premium = entry.get("premium").number(),
+            .units_open = entry.get("units_open").number(),
+            .opened_s = entry.get("opened_s").number(),
+            .last_raise_s = entry.get("last_raise_s").number(),
+            .faction_paid = entry.get("faction_paid").number(),
+        });
+        (void)get_station_definition(emergencies.back().station_id);  // throws on an unknown station
+    }
     std::map<std::string, std::vector<ProbedRun>> review_probes;
     for (const auto& [key, list] : root.get("review_probes").fields()) {
         auto& runs = review_probes[key];
@@ -447,6 +481,9 @@ void Simulation::load_state_json(const std::string& text) {
     next_investment_review_s_ = root.get("next_investment_review_s").number();
     investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());
     review_probes_ = std::move(review_probes);
+    emergencies_ = std::move(emergencies);
+    emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());
+    emergency_paid_ = root.get("emergency_paid").number();
     investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());
     investment_ledger_.ships_sold = static_cast<int>(investment.get("ships_sold").number());
     investment_ledger_.hulls_bought = investment.get("hulls_bought").number();
