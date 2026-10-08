@@ -481,7 +481,7 @@ func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
         if String(body.get("parent_id", "")) == body_id:
             moons.append(String(body.get("name", "")))
     if not moons.is_empty():
-        _add_label("Moons: " + ", ".join(moons), UiTheme.TEXT_DIM, 12)
+        _add_label(("Planets: " if parent_id == "" else "Moons: ") + ", ".join(moons), UiTheme.TEXT_DIM, 12)
     var stations: Array[String] = []
     for station in context.get("stations", []):
         if String(station.get("parent_body_id", "")) == body_id:
