@@ -197,12 +197,6 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
                 var material := _standard(Color.WHITE, 0.9)
                 var texture: Texture2D = load(texture_path)
                 material.albedo_texture = texture
-                # A faint glow of the planet's own texture keeps the night side readable
-                # (a map, not a photograph).
-                material.emission_enabled = true
-                material.emission_texture = texture
-                material.emission = Color.WHITE
-                material.emission_energy_multiplier = 0.08
                 materials["hull"] = material
             else:
                 materials["hull"] = _standard(body_color(body_id), 0.82)

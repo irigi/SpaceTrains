@@ -133,6 +133,25 @@ func _run() -> void:
             rig.call("_update_transform")
             await get_tree().create_timer(0.6).timeout
             await _shoot("ship_in_transit")
+            rig.set("distance", 20.0)
+            rig.call("_update_transform")
+            await get_tree().create_timer(0.6).timeout
+            await _shoot("ship_selected_far")
+            break
+    # A ship just leaving a planet, close up: it must ride the planet's rail.
+    var now_s := float(main.get("display_time_s"))
+    for ship_id in main.entity_details.keys():
+        var ship: Dictionary = main.entity_details[ship_id]
+        if main.entity_kinds.get(ship_id, "") == "ship" and String(ship.get("phase", "")) == "in_transit" \
+                and now_s - float(ship.get("departure_time_s", 0.0)) < 1.5 * 86400.0 \
+                and now_s > float(ship.get("departure_time_s", 0.0)):
+            main.select_entity(ship_id, "ship", true)
+            rig.set("distance", 0.01)
+            rig.call("_update_transform")
+            await get_tree().create_timer(0.6).timeout
+            await _shoot("ship_departing")
+            await get_tree().create_timer(2.0).timeout
+            await _shoot("ship_departing_later")
             break
     # Quick save, run on, quick load: the clock must come back to the saved day.
     if OS.get_cmdline_user_args().has("--shot-saveload"):

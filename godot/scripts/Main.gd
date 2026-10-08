@@ -88,7 +88,7 @@ var snapshot_wall_s := 0.0
 var sim_pace := 0.0
 var body_orbits: Dictionary = {}     # body_id -> {parent, a, period, phase}
 var station_orbits: Dictionary = {}  # station_id -> {body, r, theta}
-var ship_paths: Dictionary = {}      # ship_id -> {sig, t: PackedFloat64Array, p: PackedFloat64Array (x,y,z,...)}
+var ship_paths: Dictionary = {}      # ship_id -> {sig, origin, destination, departure, arrival, t, off (x,y,z,... from the rail anchor)}
 var frame_positions_m: Dictionary = {}  # per-frame cache: entity_id -> PackedFloat64Array [x, y, z] in metres
 var origin_m := PackedFloat64Array([0.0, 0.0, 0.0])  # the focus; entities are drawn relative to it
 var entity_root: Node3D
@@ -117,7 +117,6 @@ const TRAJECTORY_COLORS := {
     "keplerian_local": Color(0.4, 1.0, 0.45),
     "variable_isp": Color(0.75, 0.45, 1.0),
 }
-var selected_ship_overlay: MeshInstance3D
 var destination_body_ghost: MeshInstance3D
 var current_paused := false
 # Save/load requests to the bridge (F5 quick save, F9 quick load).
@@ -722,17 +721,79 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
         signature = _trajectory_path_signature(path)
     if ship_paths.has(ship_id) and String(ship_paths[ship_id]["sig"]) == signature:
         return
+    var cached := {
+        "sig": signature,
+        "origin": String((station_orbits.get(String(ship.get("origin_station_id", "")), {}) as Dictionary).get("body", "")),
+        "destination": String((station_orbits.get(String(ship.get("destination_station_id", "")), {}) as Dictionary).get("body", "")),
+        "departure": float(ship.get("departure_time_s", 0.0)),
+        "arrival": float(ship.get("arrival_time_s", 0.0)),
+    }
     var times := PackedFloat64Array()
-    var points := PackedFloat64Array()
+    var offsets := PackedFloat64Array()
     times.resize(path.size())
-    points.resize(path.size() * 3)
+    offsets.resize(path.size() * 3)
     for i in range(path.size()):
         var point: Dictionary = path[i]
-        times[i] = float(point.get("t_s", 0.0))
-        points[3 * i] = float(point.get("x", 0.0))
-        points[3 * i + 1] = float(point.get("y", 0.0))
-        points[3 * i + 2] = float(point.get("z", 0.0))
-    ship_paths[ship_id] = {"sig": signature, "t": times, "p": points}
+        var t := float(point.get("t_s", 0.0))
+        times[i] = t
+        var anchor := _rail_anchor_m(cached, t)
+        var xyz := [float(point.get("x", 0.0)), float(point.get("y", 0.0)), float(point.get("z", 0.0))]
+        for axis in range(3):
+            offsets[3 * i + axis] = xyz[axis] - anchor[axis]
+    cached["t"] = times
+    cached["off"] = offsets
+    ship_paths[ship_id] = cached
+
+# Ships ride their planets' rails. A planned path is sampled every few days (the wait for
+# a launch window is a handful of points along the planet's orbit), so straight lines
+# between samples cut across the planet's curved track. Each sample is kept as an offset
+# from an anchor that moves with the origin planet and hands over smoothly to the
+# destination planet during the flight; the offsets are interpolated and the anchor's
+# exact position is added back. At the sample times this is the planned path itself.
+func _rail_anchor_m(path: Dictionary, t: float) -> PackedFloat64Array:
+    var origin := String(path.get("origin", ""))
+    var destination := String(path.get("destination", ""))
+    if origin == "" or destination == "":
+        return PackedFloat64Array([0.0, 0.0, 0.0])
+    var departure := float(path["departure"])
+    var arrival := float(path["arrival"])
+    var s := clampf((t - departure) / maxf(arrival - departure, 1.0), 0.0, 1.0)
+    var w := s * s * (3.0 - 2.0 * s)
+    if w <= 0.0:
+        return _body_at_m(origin, t)
+    if w >= 1.0:
+        return _body_at_m(destination, t)
+    var a := _body_at_m(origin, t)
+    var b := _body_at_m(destination, t)
+    return PackedFloat64Array([a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w])
+
+# Position on a cached path at time t, on the rail.
+func _rail_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
+    var times: PackedFloat64Array = path["t"]
+    var offsets: PackedFloat64Array = path["off"]
+    var i := clampi(times.bsearch(t, true) - 1, 0, times.size() - 2)
+    var span := times[i + 1] - times[i]
+    var f := clampf((t - times[i]) / span, 0.0, 1.0) if span > 0.0 else 1.0
+    var anchor := _rail_anchor_m(path, t)
+    var out := PackedFloat64Array([0.0, 0.0, 0.0])
+    for axis in range(3):
+        var a := offsets[3 * i + axis]
+        out[axis] = anchor[axis] + a + (offsets[3 * (i + 1) + axis] - a) * f
+    return out
+
+# A body's position at any time t (the per-frame _body_m caches the display time only).
+func _body_at_m(body_id: String, t: float) -> PackedFloat64Array:
+    var orbit: Dictionary = body_orbits.get(body_id, {})
+    var parent_id := String(orbit.get("parent", ""))
+    if parent_id == "":
+        return PackedFloat64Array([0.0, 0.0, 0.0])
+    var base := _body_at_m(parent_id, t)
+    var period := float(orbit["period"])
+    if period <= 0.0:
+        return base
+    var angle := float(orbit["phase"]) + (t / period) * TAU
+    var a := float(orbit["a"])
+    return PackedFloat64Array([base[0] + cos(angle) * a, base[1], base[2] + sin(angle) * a])
 
 # Same formula as CelestialMechanics::get_body_position (circular, coplanar orbits).
 func _body_m(body_id: String) -> PackedFloat64Array:
@@ -777,23 +838,12 @@ func _ship_m(ship_id: String) -> PackedFloat64Array:
         return _station_m(station_id)
     return PackedFloat64Array([float(detail.get("x", 0.0)), float(detail.get("y", 0.0)), float(detail.get("z", 0.0))])
 
-# Position [x, y, z] and segment direction [dx, dy, dz] on a ship's path at time t.
+# Position [x, y, z] and direction of motion [dx, dy, dz] on a ship's path at time t.
 func _path_sample(ship_id: String, t: float) -> PackedFloat64Array:
     var path: Dictionary = ship_paths[ship_id]
-    var times: PackedFloat64Array = path["t"]
-    var points: PackedFloat64Array = path["p"]
-    var count := times.size()
-    var i := clampi(times.bsearch(t, true) - 1, 0, count - 2)
-    var span := times[i + 1] - times[i]
-    var f := clampf((t - times[i]) / span, 0.0, 1.0) if span > 0.0 else 1.0
-    var out := PackedFloat64Array()
-    out.resize(6)
-    for axis in range(3):
-        var a := points[3 * i + axis]
-        var b := points[3 * (i + 1) + axis]
-        out[axis] = a + (b - a) * f
-        out[3 + axis] = b - a
-    return out
+    var here := _rail_point_m(path, t)
+    var ahead := _rail_point_m(path, t + 600.0)
+    return PackedFloat64Array([here[0], here[1], here[2], ahead[0] - here[0], ahead[1] - here[1], ahead[2] - here[2]])
 
 func _ship_heading(ship_id: String) -> Vector3:
     if not ship_paths.has(ship_id):
@@ -1210,9 +1260,11 @@ func _setup_scene_lighting() -> void:
         scene_light.light_energy = 0.0
     sun_light = OmniLight3D.new()
     sun_light.name = "SunLight"
-    sun_light.light_energy = 7.0
-    sun_light.omni_range = 700.0  # past Neptune (~562 units) so outer planets get sunlight
-    sun_light.omni_attenuation = 0.15  # far gentler than physical falloff: outer planets stay readable
+    # Nearly even sunlight from Mercury to Neptune (~562 units): a map, not a photograph.
+    # Strong falloff overexposed the inner planets and left the outer ones dim.
+    sun_light.light_energy = 1.9
+    sun_light.omni_range = 1500.0
+    sun_light.omni_attenuation = 0.05
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
@@ -1223,8 +1275,7 @@ func _setup_scene_lighting() -> void:
     env.background_color = Color(0.01, 0.012, 0.025, 1.0)
     env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
     env.ambient_light_color = Color(0.16, 0.17, 0.22, 1.0)
-    # High enough that textured night sides stay readable, low enough that the
-    # sunward terminator still shows.
+    # Night sides dark but not black.
     env.ambient_light_energy = 0.55
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
     env.glow_enabled = true
@@ -1288,6 +1339,9 @@ func _get_icon_texture(shape: String) -> ImageTexture:
             var inside := false
             if shape == "circle":
                 inside = p.distance_to(center) <= outer
+            elif shape == "ring":
+                var d := p.distance_to(center)
+                inside = d <= sz * 0.46 and d >= sz * 0.40
             elif shape == "diamond":
                 inside = abs(p.x - center.x) + abs(p.y - center.y) <= outer
             else:
@@ -1303,6 +1357,19 @@ func _get_icon_texture(shape: String) -> ImageTexture:
     var texture: ImageTexture = ImageTexture.create_from_image(img)
     _icon_textures[shape] = texture
     return texture
+
+var _selection_ring: Sprite2D
+
+func _ensure_selection_ring() -> Sprite2D:
+    if _selection_ring == null:
+        _selection_ring = Sprite2D.new()
+        _selection_ring.name = "SelectionRing"
+        _selection_ring.texture = _get_icon_texture("ring")
+        _selection_ring.centered = true
+        _selection_ring.modulate = Color(0.85, 0.95, 1.0, 0.9)
+        _selection_ring.visible = false
+        (map_icon_layer if map_icon_layer != null else canvas_layer).add_child(_selection_ring)
+    return _selection_ring
 
 func _attach_map_icon(entity_id: String, kind: String, data: Dictionary) -> void:
     if _map_icons.has(entity_id):
@@ -1350,6 +1417,8 @@ func _update_map_icons() -> void:
     # Labels are placed in priority order (bodies, stations, ships; selected first) and
     # skipped where they would overlap one already placed.
     var label_candidates: Array = []
+    var ring := _ensure_selection_ring()
+    ring.visible = false
     for entity_id in _map_icons.keys():
         var icon: Sprite2D = _map_icons[entity_id]
         var label: Label = _map_labels.get(entity_id)
@@ -1371,7 +1440,13 @@ func _update_map_icons() -> void:
             continue
         var model_pixels := _projected_model_pixels(model)
         # Hand off from map icon to the actual mesh once it is large on screen.
-        icon.visible = model_pixels <= target_size * 1.5
+        # The Sun's halo marks it at every zoom.
+        icon.visible = model_pixels <= target_size * 1.5 and entity_id != "sun"
+        if icon.visible and entity_id == selected_id:
+            # A ring around the selected icon; up close the model itself is the marker.
+            ring.visible = true
+            ring.position = screen_pos
+            ring.scale = Vector2.ONE * ((target_size + 10.0) / (0.92 * float(ring.texture.get_width())))
         if icon.visible:
             icon.position = screen_pos
             var texture_size := Vector2(icon.texture.get_width(), icon.texture.get_height())
@@ -1537,7 +1612,7 @@ func _update_ship_trails() -> void:
         if phase != "in_transit" and phase != "awaiting_departure":
             continue
         var trajectory_path: Array = ship.get("trajectory_path", [])
-        if trajectory_path.size() < 2:
+        if trajectory_path.size() < 2 or not ship_paths.has(ship_id):
             continue
         active[ship_id] = true
         var trail_node := _ensure_trail_node(ship_id)
@@ -1553,7 +1628,7 @@ func _update_ship_trails() -> void:
             plan_id = _trajectory_path_signature(trajectory_path)
         var signature := "%s|%d|%s" % [plan_id, progress_bucket, is_selected]
         if trail_path_signatures.get(ship_id, "") != signature:
-            _rebuild_trail_mesh(trail_node, trajectory_path, ship, is_selected, game_time_s)
+            _rebuild_trail_mesh(trail_node, ship_id, ship, is_selected, game_time_s)
             trail_path_signatures[ship_id] = signature
         trail_node.visible = true
 
@@ -1579,25 +1654,57 @@ func _trajectory_path_signature(trajectory_path: Array) -> String:
 func _trajectory_color(trajectory_type: String) -> Color:
     return TRAJECTORY_COLORS.get(trajectory_type, Color(0.3, 1.0, 0.8)) as Color
 
-func _rebuild_trail_mesh(trail_node: Node3D, trajectory_path: Array, ship: Dictionary, is_selected: bool, game_time_s: float) -> void:
+func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, is_selected: bool, game_time_s: float) -> void:
     var line_color := _trajectory_color(String(ship.get("trajectory_type", "")))
     var base_alpha := 0.95 if is_selected else 0.2
     var elapsed_color := Color(0.5, 0.52, 0.55, base_alpha * 0.45)
+    var path: Dictionary = ship_paths[ship_id]
+    var points := _rail_line_m(path)
     var mesh := ImmediateMesh.new()
     mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-    for point in trajectory_path:
-        var point_time_s := float(point.get("t_s", 0.0))
-        var color := elapsed_color if point_time_s < game_time_s else Color(line_color.r, line_color.g, line_color.b, base_alpha)
+    for point in points:
+        var color := elapsed_color if point[3] < game_time_s else Color(line_color.r, line_color.g, line_color.b, base_alpha)
         mesh.surface_set_color(color)
-        mesh.surface_add_vertex(_scaled_position(point))
+        mesh.surface_add_vertex(_abs_render(point))
     mesh.surface_end()
     var path_mesh: MeshInstance3D = trail_node.get_node("path")
     path_mesh.mesh = mesh
-    _update_burn_markers(trail_node, trajectory_path, ship, is_selected, line_color)
+    _update_burn_markers(trail_node, points.front(), points.back(), ship, is_selected, line_color)
+
+# The drawn line follows the rail from departure to arrival (the wait for the launch
+# window lies on the planet's own orbit ring and is not drawn). Segments are subdivided,
+# finely near the planets where the camera may be close.
+func _rail_line_m(path: Dictionary) -> Array:
+    var times: PackedFloat64Array = path["t"]
+    var departure := maxf(float(path["departure"]), times[0])
+    var arrival := minf(float(path["arrival"]), times[times.size() - 1])
+    if arrival <= departure:
+        departure = times[0]
+        arrival = times[times.size() - 1]
+    var flight := maxf(arrival - departure, 1.0)
+    var stops := PackedFloat64Array([departure])
+    for t in times:
+        if t > departure and t < arrival:
+            stops.append(t)
+    stops.append(arrival)
+    var points: Array = []
+    for k in range(stops.size() - 1):
+        var t0 := stops[k]
+        var t1 := stops[k + 1]
+        var near_planet := minf(t1 - departure, arrival - t0) < maxf(3.0 * 86400.0, 0.1 * flight)
+        var step := 0.1 * 86400.0 if near_planet else 86400.0
+        var pieces := clampi(int(ceil((t1 - t0) / step)), 1, 64)
+        for j in range(pieces):
+            var t := t0 + (t1 - t0) * float(j) / float(pieces)
+            var p := _rail_point_m(path, t)
+            points.append(PackedFloat64Array([p[0], p[1], p[2], t]))
+    var last := _rail_point_m(path, arrival)
+    points.append(PackedFloat64Array([last[0], last[1], last[2], arrival]))
+    return points
 
 # Impulsive-burn planners get small emissive markers at the departure and
 # arrival burns; continuous-thrust (variable ISP) paths have no discrete burns.
-func _update_burn_markers(trail_node: Node3D, trajectory_path: Array, ship: Dictionary, is_selected: bool, line_color: Color) -> void:
+func _update_burn_markers(trail_node: Node3D, first: PackedFloat64Array, last: PackedFloat64Array, ship: Dictionary, is_selected: bool, line_color: Color) -> void:
     var wants_markers: bool = is_selected and String(ship.get("trajectory_type", "")) != "variable_isp"
     for marker_index in range(2):
         var marker_name := "burn%d" % marker_index
@@ -1626,32 +1733,8 @@ func _update_burn_markers(trail_node: Node3D, trajectory_path: Array, ship: Dict
             trail_node.add_child(marker)
         (marker.material_override as StandardMaterial3D).albedo_color = line_color
         (marker.material_override as StandardMaterial3D).emission = line_color
-        marker.position = _scaled_position(trajectory_path.front() if marker_index == 0 else trajectory_path.back())
+        marker.position = _abs_render(first if marker_index == 0 else last)
         marker.visible = true
-
-func _ensure_selected_ship_overlay() -> MeshInstance3D:
-    if selected_ship_overlay != null:
-        return selected_ship_overlay
-    selected_ship_overlay = MeshInstance3D.new()
-    selected_ship_overlay.name = "SelectedShipOverlay"
-    var mesh := SphereMesh.new()
-    mesh.radius = 1.0
-    mesh.height = 2.0
-    mesh.radial_segments = 16
-    mesh.rings = 8
-    selected_ship_overlay.mesh = mesh
-    var material := StandardMaterial3D.new()
-    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    material.albedo_color = Color(0.25, 1.0, 0.95, 0.62)
-    material.emission_enabled = true
-    material.emission = Color(0.35, 1.0, 0.95)
-    material.emission_energy_multiplier = 1.8
-    selected_ship_overlay.material_override = material
-    selected_ship_overlay.scale = Vector3.ONE * SHIP_MIN_MODEL_SCALE * 3.0
-    selected_ship_overlay.visible = false
-    entity_root.add_child(selected_ship_overlay)
-    return selected_ship_overlay
 
 func _ensure_destination_body_ghost() -> MeshInstance3D:
     if destination_body_ghost != null:
@@ -1669,15 +1752,6 @@ func _ensure_destination_body_ghost() -> MeshInstance3D:
     return destination_body_ghost
 
 func _update_selected_overlay_positions() -> void:
-    var overlay := _ensure_selected_ship_overlay()
-    if selected_kind == "ship" and selected_id != "" and entity_nodes.has(selected_id):
-        var selected_node: Node3D = entity_nodes[selected_id]
-        overlay.position = selected_node.position
-        overlay.scale = selected_node.scale * 3.0
-        # Locator beacon for sub-pixel ships; the mesh itself takes over up close.
-        overlay.visible = _projected_model_pixels(selected_node) < 24.0
-    else:
-        overlay.visible = false
     if destination_body_ghost != null and destination_body_ghost.visible and selected_kind == "ship" and entity_details.has(selected_id):
         var ship: Dictionary = entity_details[selected_id]
         var destination_body: Dictionary = ship.get("destination_body_at_arrival", {})
