@@ -271,3 +271,7 @@ departure.
   demand by two-year period: 51.2%, 13.2%, 11.3%, 8.2% (cumulative 21.0%). Fleet stable at ~90 (71 bought, 3 sold).
   Money supply +3.8%, +28.3%, -0.7%, +7.3% at the four reports. Treasuries keep diverging: Mars Corporation -10.3M,
   Sol Federation +17.5M, Independent Consortium +32.6M by year 8 (see the open point).
+- 02:5x **Scenario (not applied): ship replacement at the fleet limit** (sell the worst docked performer for a
+  candidate expected to earn twice as much per day, at most two per review): 1460 days, four starts: unmet 32.3 +-
+  0.8% (v39d 32.3 +- 1.2), last ~290 days 10.6 +- 0.9 (10.5 +- 1.9), slightly more profitable ships, runs 15% slower
+  (reviews keep probing at the limit), only a few ships replaced in four years. Neutral: not applied.
