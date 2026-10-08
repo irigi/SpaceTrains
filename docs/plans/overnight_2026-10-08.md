@@ -228,3 +228,6 @@ outposts (design question).
 - 02:1x **Final 4-year, four-start benchmark (v39d):** unmet **32.3 +- 1.2%** over 1460 days, **10.5 +- 1.9% in the
   last ~290 days** (v38: 17.6 +- 1.5), **84.5/93 ships profitable**, exports 1.84M, money supply +10.5 +- 12% (one
   start +28%: to watch), 0 trajectory flags, drift 0.
+- 02:2x **v39e reverted:** at 730 days it was 52.0 +- 4.3% unmet (v39d 49.8 +- 1.0) with no better money supply
+  (+3.7 +- 10.3% vs +1.3 +- 7.4%); over 4 years slightly worse too. A smaller cash reserve leaves ships less to buy
+  cargo with. v39d stays; **money supply over 4 years (+10.5 +- 12%, one start +28%) is an open point.**
