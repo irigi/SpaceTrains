@@ -40,16 +40,24 @@ int main() {
         const double water_rate = agri_rates.at("water");
         require(water_rate < 0.0, "agri_hub must consume water");
         const double target = economy.get_target_stock(agri, "water");
-        require_near(target, std::abs(water_rate) * 21.0, 1.0e-9,
-            "agri_hub water target must be 21-day consumption buffer");
+        require_near(target, std::abs(water_rate) * economy.cover_days(agri, "water"), 1.0e-9,
+            "agri_hub water target must be its cover of consumption");
+        require(economy.cover_days(agri, "water") >= 21.0, "a cover is at least three weeks");
 
         // A consumer's curve is centred on its landed cost (step 15): Earth L1 buys Lunar water.
         const double base = economy.reference_price(agri, "water");
         require(base > 20.0, "Earth L1's water reference must include carrying it from Lunar Gateway");
         require_near(economy.get_price(agri, "water", target, base), base, 1.0e-9,
             "price at target stock must equal the reference price");
-        require_near(economy.get_price(agri, "water", 0.0, base), base * universe.pricing.price_cap, 1.0e-9,
+        require_near(economy.get_price(agri, "water", 0.0, base), base * economy.price_cap(agri, "water"), 1.0e-9,
             "price at zero stock must clamp at the price cap");
+        // An input's cap rises with what it makes (step 24): Earth L1's water feeds its farms.
+        require(economy.price_cap(agri, "water") > universe.pricing.price_cap,
+            "Earth L1's water must be worth more than 4x its landed cost to a dry farm");
+        require(economy.price_cap(agri, "water") <= universe.pricing.input_price_cap + 1.0e-9,
+            "an input's cap must stay within input_price_cap");
+        require_near(economy.price_cap(agri, "medicine"), universe.pricing.price_cap, 1.0e-9,
+            "a good that is not an input keeps the price cap");
         // Distant consumers pay more for carriage; producers keep the base price.
         const auto station = [&](const char* id) -> const auto& {
             return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
@@ -59,6 +67,12 @@ int main() {
             "Titan's machinery must cost more to land than Lunar Gateway's");
         require_near(economy.reference_price(station("earth_orbit"), "electronics"), 200.0, 1.0e-9,
             "a producer's reference price is the base price");
+        // An outpost's cover lasts the reference round trip (step 23), within max_cover_days.
+        const double titan_trip = universe.pricing.round_trip_days.at("titan_works").at("electronics");
+        const double titan_cover = economy.cover_days(station("titan_works"), "electronics");
+        require(titan_cover >= std::min(titan_trip, universe.pricing.max_cover_days) - 1.0e-9,
+            "Titan's electronics cover must last the reference round trip");
+        require(titan_cover <= universe.pricing.max_cover_days + 1.0e-9, "a cover is at most max_cover_days");
         // Depot fuel far from any factory costs its carriage (step 20); a factory's does not.
         require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * 8.0,
             "Mars fuel must cost the haul from the nearest factory");

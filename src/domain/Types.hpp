@@ -128,9 +128,20 @@ struct PricingDefinition {
     double price_cap {16.0};            // a curve's highest multiple of its centre (empty stock)
     double carrier_margin {1.2};        // on the transport cost, in the reference prices
     double reference_departures {6.0};  // departure dates over a year the reference trips are planned at
+    // A consumer's target stock covers at least this multiple of the reference round trip for
+    // the good (step 23), at most max_cover_days: a delivery has to last until the next one.
+    double cover_round_trip_factor {0.0};
+    double max_cover_days {365.0};
+    // An input's curve may rise past price_cap, up to this share of the value of the outputs one
+    // unit of it makes, at most input_price_cap x its centre (step 24): water that keeps a farm
+    // running is worth more to it than its landed cost.
+    double input_value_share {0.0};
+    double input_price_cap {4.0};
     // A consumer's reference price (the centre of its curve) by station id and good: the
     // landed cost from the cheapest producer. Goods not listed are centred on their base price.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices;
+    // The reference trip's round-trip days, same keys (the last column of reference_prices.csv).
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> round_trip_days;
 };
 
 struct StationDefinition {

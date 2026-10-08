@@ -882,7 +882,8 @@ int main() {
         for (const auto& ship : sim.snapshot().ships) {
             last_port[ship.id] = ship.current_station_id;
         }
-        for (int day = 0; day < 700; ++day) {
+        // Long enough for the first outbound leg to Titan (about 715 days with a full hold).
+        for (int day = 0; day < 800; ++day) {
             sim.step(1.0);
             for (const auto& ship : sim.snapshot().ships) {
                 const auto loop = liners.find(ship.id);
@@ -907,7 +908,7 @@ int main() {
         }
         for (const auto& [ship_id, stops] : liners) {
             require(legs[ship_id] >= 1, "a liner should complete legs of its loop");
-            std::cout << std::format("Liner {}: {} legs in 700 days\n", ship_id, legs[ship_id]);
+            std::cout << std::format("Liner {}: {} legs in 800 days\n", ship_id, legs[ship_id]);
         }
     }
 

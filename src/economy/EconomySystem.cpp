@@ -43,11 +43,42 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     }
     compute_cover_days();
     reference_prices_ = universe_.pricing.reference_prices;
+    compute_price_caps();
+}
+
+// Step 24: an input's cap is what a unit of it makes, input_value_share of the value of the
+// outputs it feeds at this station's prices, within [price_cap, input_price_cap] x its centre.
+// Earth L1's water makes ~1,700 cr of food and oxygen a unit, so a dry farm pays up to 12x its
+// landed cost instead of 4x; at its target stock the price is still the reference.
+void EconomySystem::compute_price_caps() {
+    price_caps_.clear();
+    const auto& pricing = universe_.pricing;
+    for (const auto& station : universe_.stations) {
+        const auto& recipes = recipes_of(station);
+        for (const auto* input : recipes) {
+            if (input->role != domain::RecipeRole::Input || input->units_per_day >= 0.0) {
+                continue;
+            }
+            double value_per_day = 0.0;
+            for (const auto* output : recipes) {
+                if (output->role == domain::RecipeRole::Output && output->units_per_day > 0.0
+                    && std::find(input->feeds.begin(), input->feeds.end(), output->commodity_id) != input->feeds.end()) {
+                    value_per_day += output->units_per_day * reference_price(station, output->commodity_id);
+                }
+            }
+            const double centre = reference_price(station, input->commodity_id);
+            const double derived = pricing.input_value_share * value_per_day / -input->units_per_day;
+            const double cap = std::clamp(derived / centre, pricing.price_cap, pricing.input_price_cap);
+            double& entry = price_caps_[station.id][input->commodity_id];
+            entry = std::max(entry, cap);
+        }
+    }
 }
 
 // A consumer's target stock (where its price is the base price) covers three weeks of
-// consumption, or, where the nearest producer is far, 1.4 x the one-way transfer time (at
-// most a year): a delivery has to last until the next one can come. With three weeks
+// consumption, or, where the nearest producer is far, 1.4 x the one-way transfer time or
+// cover_round_trip_factor x the reference round trip, whichever is longer (at most
+// max_cover_days): a delivery has to last until the next one can come. With three weeks
 // everywhere, a hold big enough for a 200-day route flooded a Mars price down to a quarter
 // of base, so nobody supplied the distant stations (v36: about 45,000 u of holds would be
 // needed for steady supply, the fleet had 5,000-10,000 u). Transfer times are Hohmann
@@ -108,9 +139,21 @@ void EconomySystem::compute_cover_days() {
                     }
                 }
             }
-            if (std::isfinite(nearest)) {
-                cover_days_[consumer.id][recipe->commodity_id] = std::clamp(1.4 * nearest, 21.0, 365.0);
+            if (!std::isfinite(nearest)) {
+                continue;
             }
+            // Step 23: at least the reference round trip times a factor, so an outer outpost's
+            // order lasts until the next ship can come back (Titan: ~1,250 days, not a year).
+            // Only across planets: within one planet's system the reference plasma ship's slow
+            // spirals overstate how long a local shuttle takes.
+            double cover = 1.4 * nearest;
+            const auto& trips = universe_.pricing.round_trip_days;
+            if (const auto station_it = trips.find(consumer.id); nearest > 5.0 && station_it != trips.end()) {
+                if (const auto it = station_it->second.find(recipe->commodity_id); it != station_it->second.end()) {
+                    cover = std::max(cover, universe_.pricing.cover_round_trip_factor * it->second);
+                }
+            }
+            cover_days_[consumer.id][recipe->commodity_id] = std::clamp(cover, 21.0, universe_.pricing.max_cover_days);
         }
     }
 }
@@ -395,6 +438,7 @@ double EconomySystem::reference_price(const domain::StationDefinition& station, 
 
 void EconomySystem::set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices) {
     reference_prices_ = std::move(prices);
+    compute_price_caps();
 }
 
 bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -404,7 +448,12 @@ bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const st
     });
 }
 
-double EconomySystem::price_cap() const {
+double EconomySystem::price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    if (const auto station_it = price_caps_.find(station.id); station_it != price_caps_.end()) {
+        if (const auto it = station_it->second.find(commodity_id); it != station_it->second.end()) {
+            return it->second;
+        }
+    }
     return universe_.pricing.price_cap;
 }
 
@@ -423,7 +472,7 @@ double EconomySystem::get_price(
     }
     const double target = get_target_stock(station, commodity_id);
     const double ratio = target / std::max(stock, 0.5);
-    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, price_cap());
+    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, price_cap(station, commodity_id));
     return curve_centre(station, commodity_id, base_price) * multiplier;
 }
 
@@ -447,10 +496,11 @@ double EconomySystem::get_trade_value(
     // upper clamp up to s_hi, (target/s)^e up to s_lo, at the lower clamp beyond.
     const double target = get_target_stock(station, commodity_id);
     const double e = PRICE_ELASTICITY;
+    const double cap = price_cap(station, commodity_id);
     const auto clamp_multiplier = [&](double stock) {
-        return std::clamp(std::pow(target / std::max(stock, 0.5), e), PRICE_MIN_MULTIPLIER, price_cap());
+        return std::clamp(std::pow(target / std::max(stock, 0.5), e), PRICE_MIN_MULTIPLIER, cap);
     };
-    const double s_hi = std::max(0.5, target * std::pow(price_cap(), -1.0 / e));
+    const double s_hi = std::max(0.5, target * std::pow(cap, -1.0 / e));
     const double s_lo = std::max(0.5, target * std::pow(PRICE_MIN_MULTIPLIER, -1.0 / e));
     const auto power_integral = [&](double a, double b) {  // ∫ (target/s)^e ds over [a, b]
         return std::pow(target, e) * (std::pow(b, 1.0 - e) - std::pow(a, 1.0 - e)) / (1.0 - e);
@@ -460,7 +510,7 @@ double EconomySystem::get_trade_value(
         x = std::max(0.0, x);
         double total = clamp_multiplier(0.0) * std::min(x, 0.5);
         if (x > 0.5) {
-            total += price_cap() * (std::min(x, s_hi) - 0.5);
+            total += cap * (std::min(x, s_hi) - 0.5);
         }
         if (x > s_hi) {
             total += power_integral(s_hi, std::min(x, s_lo));

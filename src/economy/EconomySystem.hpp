@@ -73,8 +73,9 @@ public:
     [[nodiscard]] double transfer_days(const domain::StationDefinition& a, const domain::StationDefinition& b) const;
     // The station consumes this good as upkeep (life support and crew needs).
     [[nodiscard]] bool is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const;
-    // The highest multiple of its centre a station's curve reaches (at an empty stock).
-    [[nodiscard]] double price_cap() const;
+    // The highest multiple of its centre a station's curve for a good reaches (at an empty
+    // stock): price_cap, or more for an input worth more by what it makes (step 24).
+    [[nodiscard]] double price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const;
     void set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices);
     // The stock at which the station's curve (before clamping) is at `multiplier` x its centre.
     [[nodiscard]] double stock_at_multiplier(
@@ -82,6 +83,7 @@ public:
 
 private:
     void compute_cover_days();
+    void compute_price_caps();
     // reference_price for a caller that passes the base price.
     [[nodiscard]] double curve_centre(
         const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const;
@@ -102,6 +104,8 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, double>> cover_days_;
     // Landed-cost reference prices by station id and good (empty: base prices).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
+    // Price caps above pricing.price_cap, by station id and good (inputs only).
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> price_caps_;
 };
 
 }  // namespace spacetrains::economy

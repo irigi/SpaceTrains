@@ -705,7 +705,7 @@ Simulation::SaleSplit Simulation::sale_split(const domain::StationDefinition& st
     // that is the stock range above the floor's point on the curve (all of it when the floor
     // is above the curve's cap).
     const double cover = -rate->second * EMERGENCY_COVER_DAYS;
-    const double floor_from = emergency->premium >= economy_.price_cap()
+    const double floor_from = emergency->premium >= economy_.price_cap(station, commodity_id)
         ? 0.0 : economy_.stock_at_multiplier(station, commodity_id, emergency->premium);
     const double lo = std::max(stock, floor_from);
     const double hi = std::min({stock + units, cover, lo + emergency->units_open});

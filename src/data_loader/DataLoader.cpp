@@ -711,6 +711,10 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"price_cap", &pricing.price_cap},
             {"carrier_margin", &pricing.carrier_margin},
             {"reference_departures", &pricing.reference_departures},
+            {"cover_round_trip_factor", &pricing.cover_round_trip_factor},
+            {"max_cover_days", &pricing.max_cover_days},
+            {"input_value_share", &pricing.input_value_share},
+            {"input_price_cap", &pricing.input_price_cap},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
@@ -730,11 +734,17 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         if (pricing.price_cap < 1.0 || pricing.carrier_margin < 0.0 || pricing.reference_departures < 1.0) {
             throw std::runtime_error("price_cap and reference_departures must be at least 1 in " + pricing_path.string());
         }
+        if (pricing.input_value_share < 0.0 || pricing.input_price_cap < pricing.price_cap) {
+            throw std::runtime_error("input_value_share must be >= 0 and input_price_cap >= price_cap in " + pricing_path.string());
+        }
+        if (pricing.cover_round_trip_factor < 0.0 || pricing.max_cover_days < 21.0) {
+            throw std::runtime_error("cover_round_trip_factor must be >= 0 and max_cover_days >= 21 in " + pricing_path.string());
+        }
     }
 
     {
-        // Written by `spacetrains_headless --write-reference-prices` (step 15); only the first
-        // four columns are read, the rest documents where each price comes from.
+        // Written by `spacetrains_headless --write-reference-prices` (step 15); the price and the
+        // round-trip days are read, the rest documents where each price comes from.
         const auto reference_path = root / "economy" / "reference_prices.csv";
         const auto rows = read_csv_rows(reference_path);
         require_header(rows.front(), {"station_id", "commodity_id", "reference_price", "base_price", "transport_per_unit",
@@ -749,6 +759,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 throw std::runtime_error("reference_price must be positive in " + reference_path.string());
             }
             universe.pricing.reference_prices[row[0]][row[1]] = price;
+            universe.pricing.round_trip_days[row[0]][row[1]] = parse_double(row[7], reference_path, i + 1, "round_trip_days");
         }
     }
 
