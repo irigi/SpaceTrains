@@ -143,6 +143,12 @@ Next: the user reviews `steps_23_28_log.md`. Open: Mars fuel (depot buffer targe
 the Earth cluster's local supply (Low Earth Logistics metals and food, Earth L1 water at 10-17%), fuel-factory
 events.
 
+Bug to fix next coding session (user, 2026-10-09): **wobbly paths to Ganymede and Titan.** Drawn trajectories of
+ships flying to these moons show wobbles, as if the path were computed or drawn in the moon's frame without
+subtracting its circular motion around the planet. Check first: step 25 (smooth drawing of outer-system paths),
+the endpoint/start snap onto the moon station's position, and whether path samples mix heliocentric and
+moon-relative positions. Add a `--trajectory-audit` check and a regression test.
+
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
   so an intercept is a rendezvous problem (Lambert), costly in delta-v and likeliest near departure and arrival.
