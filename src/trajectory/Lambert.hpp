@@ -18,4 +18,13 @@ LambertResult solve_lambert(
     double dt_s,
     double mu);
 
+// Closest approach to the central body along the coplanar conic arc from r1 (with
+// velocity v1) to r2, travelled in the direction of motion: the periapsis radius if
+// the arc passes periapsis, otherwise the closer endpoint.
+double conic_arc_min_radius(
+    const math::Vec3d& r1,
+    const math::Vec3d& v1,
+    const math::Vec3d& r2,
+    double mu);
+
 }  // namespace spacetrains::trajectory

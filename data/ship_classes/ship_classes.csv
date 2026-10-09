@@ -1,8 +1,37 @@
-id,name,propulsion_type,dry_mass_kg,propellant_capacity_kg,cargo_capacity_units,max_delta_v_mps,cruise_accel_mps2,specific_engine_power_w_per_kg
-light_freighter,Light Freighter,chemical,8000,56000,40,20382,0.02,0
-tanker,Orbital Tanker,chemical,12000,60000,60,16251,0.015,0
-fast_courier,Fast Courier,chemical,5000,45000,15,27104,0.03,0
-ion_freighter,Ion Freighter,electric_ion,10000,10000,20,0,0,300
-ion_courier,Ion Courier,electric_ion,5000,7000,8,0,0,800
-deep_space_freighter,Deep Space Freighter,chemical,12000,132000,20,34126,0.005,0
-ntr_freighter,NTR Freighter,chemical,10000,190000,30,41138,0.01,0
+id,name,propulsion_type,dry_mass_kg,propellant_capacity_kg,cargo_capacity_units,max_delta_v_mps,cruise_accel_mps2,specific_engine_power_w_per_kg,ship_value_cr,crew_size,hull_id
+light_freighter_tank050,Light Freighter (50% tanks),nuclear_thermal,42351,45000,200,6744,0.809,0,43100,3,light_freighter
+light_freighter,Light Freighter,nuclear_thermal,51261,90000,200,9444,0.5,0,47100,3,light_freighter
+light_freighter_tank150,Light Freighter (150% tanks),nuclear_thermal,60171,135000,200,10962,0.362,0,51000,3,light_freighter
+light_freighter_tank200,Light Freighter (200% tanks),nuclear_thermal,69081,180000,200,11948,0.284,0,55000,3,light_freighter
+tanker_tank050,Orbital Tanker (50% tanks),nuclear_thermal,44593,45000,300,6500,0.801,0,43700,3,tanker
+tanker,Orbital Tanker,nuclear_thermal,53503,90000,300,9192,0.5,0,47700,3,tanker
+tanker_tank150,Orbital Tanker (150% tanks),nuclear_thermal,62413,135000,300,10728,0.363,0,51700,3,tanker
+tanker_tank200,Orbital Tanker (200% tanks),nuclear_thermal,71323,180000,300,11734,0.285,0,55700,3,tanker
+fast_courier_tank050,Fast Courier (50% tanks),nuclear_thermal,34661,45000,30,11425,0.838,0,76500,2,fast_courier
+fast_courier,Fast Courier,nuclear_thermal,43571,90000,30,15380,0.5,0,80500,2,fast_courier
+fast_courier_tank150,Fast Courier (150% tanks),nuclear_thermal,52481,135000,30,17480,0.356,0,84500,2,fast_courier
+fast_courier_tank200,Fast Courier (200% tanks),nuclear_thermal,61391,180000,30,18798,0.277,0,88400,2,fast_courier
+plasma_freighter_tank050,Plasma Freighter (50% tanks),variable_isp,33275,15000,150,0,0,301,42100,3,plasma_freighter
+plasma_freighter,Plasma Freighter,variable_isp,34100,30000,150,0,0,293,42300,3,plasma_freighter
+plasma_freighter_tank150,Plasma Freighter (150% tanks),variable_isp,34925,45000,150,0,0,286,42400,3,plasma_freighter
+plasma_freighter_tank200,Plasma Freighter (200% tanks),variable_isp,35750,60000,150,0,0,280,42600,3,plasma_freighter
+plasma_courier_tank050,Plasma Courier (50% tanks),variable_isp,24035,15000,30,0,0,749,41900,2,plasma_courier
+plasma_courier,Plasma Courier,variable_isp,24860,30000,30,0,0,724,42100,2,plasma_courier
+plasma_courier_tank150,Plasma Courier (150% tanks),variable_isp,25685,45000,30,0,0,701,42200,2,plasma_courier
+plasma_courier_tank200,Plasma Courier (200% tanks),variable_isp,26510,60000,30,0,0,679,42400,2,plasma_courier
+deep_space_freighter_tank050,Deep Space Freighter (50% tanks),nuclear_thermal,68585,90000,300,11508,0.504,0,111500,4,deep_space_freighter
+deep_space_freighter,Deep Space Freighter,nuclear_thermal,86405,180000,300,15459,0.3,0,119400,4,deep_space_freighter
+deep_space_freighter_tank150,Deep Space Freighter (150% tanks),nuclear_thermal,104225,270000,300,17550,0.214,0,127400,4,deep_space_freighter
+deep_space_freighter_tank200,Deep Space Freighter (200% tanks),nuclear_thermal,122045,360000,300,18859,0.166,0,135300,4,deep_space_freighter
+ntr_freighter_tank050,NTR Freighter (50% tanks),nuclear_thermal,80712,125000,400,12845,0.518,0,136400,4,ntr_freighter
+ntr_freighter,NTR Freighter,nuclear_thermal,105462,250000,400,16682,0.3,0,147400,4,ntr_freighter
+ntr_freighter_tank150,NTR Freighter (150% tanks),nuclear_thermal,130212,375000,400,18614,0.211,0,158500,4,ntr_freighter
+ntr_freighter_tank200,NTR Freighter (200% tanks),nuclear_thermal,154962,500000,400,19789,0.163,0,169500,4,ntr_freighter
+bulk_tanker_tank050,Bulk Tanker (50% tanks),nuclear_thermal,103338,150000,2000,8354,0.342,0,63800,3,bulk_tanker
+bulk_tanker,Bulk Tanker,nuclear_thermal,133038,300000,2000,10995,0.2,0,77000,3,bulk_tanker
+bulk_tanker_tank150,Bulk Tanker (150% tanks),nuclear_thermal,162738,450000,2000,12352,0.141,0,90300,3,bulk_tanker
+bulk_tanker_tank200,Bulk Tanker (200% tanks),nuclear_thermal,192438,600000,2000,13186,0.109,0,103600,3,bulk_tanker
+plasma_bulk_tanker_tank050,Plasma Bulk Tanker (50% tanks),variable_isp,84150,50000,2000,0,0,475,89400,3,plasma_bulk_tanker
+plasma_bulk_tanker,Plasma Bulk Tanker,variable_isp,86900,100000,2000,0,0,460,90000,3,plasma_bulk_tanker
+plasma_bulk_tanker_tank150,Plasma Bulk Tanker (150% tanks),variable_isp,89650,150000,2000,0,0,446,90700,3,plasma_bulk_tanker
+plasma_bulk_tanker_tank200,Plasma Bulk Tanker (200% tanks),variable_isp,92400,200000,2000,0,0,433,91300,3,plasma_bulk_tanker

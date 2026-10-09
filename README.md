@@ -42,6 +42,25 @@ Run the headless sandbox:
 ./build/bin/spacetrains_headless .
 ```
 
+Useful headless flags: `--days N`, `--verbose`, `--econ-audit` (with the transport-capacity balance),
+`--profile` (time per phase and per step), `--step-days D` (call the simulation in steps of D days; the game
+itself always ticks every 0.1 day), `--start-day D` (the same economy with the planets elsewhere),
+`--save-at DAY FILE` / `--load FILE`, `--snapshot-json FILE` (the final UI snapshot), and the trajectory checks:
+
+```bash
+# Audit every mission plan accepted during a normal run
+./build/bin/spacetrains_headless . --days 1095 --trajectory-audit 2>/dev/null
+# Plan every station pair x fuel level x departure day (every 15 days over 730 days),
+# bypassing the economy; dump flagged paths as CSV for plotting
+./build/bin/spacetrains_headless . --days 730 --trajectory-sweep 15 --trajectory-dump build/audit/sweep.csv 2>/dev/null
+```
+
+Compare economy versions over several starting dates (one run is too noisy to judge a change):
+
+```bash
+tools/benchmark.py --binary build/bin/spacetrains_headless --days 730 --starts 0,90,180,270
+```
+
 Run the bridge directly for debugging:
 
 ```bash
@@ -66,7 +85,10 @@ Run the Godot observer frontend:
 godot4 --path godot
 ```
 
-The Godot scene starts `spacetrains_bridge` automatically, reads live JSON snapshots, and writes pause/timewarp commands back through a command file.
+The Godot scene starts `spacetrains_bridge` automatically, reads live JSON snapshots, and writes pause/timewarp and
+save/load commands back through a command file. In the game: F5 quick save, F9 quick load, M economy and markets,
+F focus, Space pause, `,` `.` timewarp. A scripted screenshot tour for checking the map without sitting at the
+screen: `godot4 --path godot -- --shot-tour=/some/dir` (plus `--shot-day=N`, `--shot-saveload`, `--shot-smooth=SECONDS`).
 
 ## Near-Term Architecture
 

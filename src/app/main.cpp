@@ -1,17 +1,24 @@
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include "celestial/CelestialMechanics.hpp"
 #include "economy/EconomySystem.hpp"
 #include "simulation/Simulation.hpp"
+#include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
+#include "util/Profiling.hpp"
 #include "variable_isp/VariableIsp.hpp"
 
 namespace {
@@ -41,7 +48,7 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
 
     std::cout << "\n=== Ship Classes ===\n";
     for (const auto& sc : universe.ship_classes) {
-        if (sc.propulsion_type == "electric_ion") {
+        if (sc.propulsion_type == "variable_isp") {
             const double m_dry = sc.dry_mass_kg;
             const double m0 = m_dry + sc.propellant_capacity_kg;
             const double P = sc.specific_engine_power_w_per_kg * m_dry;
@@ -49,7 +56,7 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
                 ? 2.0 * P * (1.0 / m_dry - 1.0 / m0) * kappa_scale : 0.0;
             const double fuel_frac = sc.propellant_capacity_kg / m0;
             std::cout << std::format(
-                "  {:20s}  [electric_ion]  m_dry={:.0f}kg  propellant={:.0f}kg  "
+                "  {:20s}  [variable_isp]     m_dry={:.0f}kg  propellant={:.0f}kg  "
                 "alpha={:.0f}W/kg  eps={:.2f}  kappa={:.3f}\n",
                 sc.name, m_dry, sc.propellant_capacity_kg,
                 sc.specific_engine_power_w_per_kg, fuel_frac, kappa);
@@ -61,7 +68,7 @@ void print_ship_class_summary(const spacetrains::domain::UniverseDefinition& uni
             const double isp_s = ve / kG0;
             const double fuel_frac = (m_wet > 0.0) ? sc.propellant_capacity_kg / m_wet : 0.0;
             std::cout << std::format(
-                "  {:20s}  [NTR/chemical]  m_dry={:.0f}kg  propellant={:.0f}kg  "
+                "  {:20s}  [nuclear_thermal]  m_dry={:.0f}kg  propellant={:.0f}kg  "
                 "dv={:.0f}m/s  ISP={:.0f}s  MR={:.2f}  eps={:.2f}\n",
                 sc.name, sc.dry_mass_kg, sc.propellant_capacity_kg,
                 sc.max_delta_v_mps, isp_s, mass_ratio, fuel_frac);
@@ -113,7 +120,7 @@ void print_route_diagnosis(
             synodic_days = 1.0 / std::abs(1.0/T1 - 1.0/T2) / kDayS;
         }
 
-        // Compute wait for a light_freighter (any chemical ship will use same Hohmann)
+        // Compute wait for a light_freighter (any nuclear-thermal ship will use same Hohmann)
         double wait_days = 0.0;
         {
             const double TAU = 2.0 * PI;
@@ -146,7 +153,7 @@ void print_route_diagnosis(
     std::cout << "\n=== NTR Ship Class Feasibility: Earth→Mars Hohmann (dv≈5591 m/s) ===\n";
     const double earth_mars_dv = 5591.0;  // m/s (Hohmann, no 250 fudge)
     for (const auto& sc : universe.ship_classes) {
-        if (sc.propulsion_type == "electric_ion") continue;
+        if (sc.propulsion_type == "variable_isp") continue;
         const double m_wet = sc.dry_mass_kg + sc.propellant_capacity_kg;
         const double mass_ratio = (sc.dry_mass_kg > 0.0) ? m_wet / sc.dry_mass_kg : 0.0;
         const double ve = (mass_ratio > 1.0 && sc.max_delta_v_mps > 0.0)
@@ -168,7 +175,7 @@ void print_economy_summary(
     const spacetrains::economy::EconomySystem& economy) {
     std::cout << "\n=== Station Economy (net rates, units/day) ===\n";
     for (const auto& station : universe.stations) {
-        const auto rates = economy.get_profile_net_rates(station.economy_profile_id);
+        const auto rates = economy.get_station_net_rates(station);
         std::cout << std::format("  {:30s}  profile={}\n", station.name, station.economy_profile_id);
         for (const auto& [commodity, rate] : rates) {
             if (std::abs(rate) > 0.001) {
@@ -224,7 +231,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_profile_net_rates(sd.economy_profile_id);
+            const auto rates = economy.get_station_net_rates(sd);
             for (const auto& [c, amount] : ss.inventory) {
                 sys_stock[c] += amount;
             }
@@ -236,8 +243,8 @@ void print_economy_audit(
         }
     }
     for (const auto& ship : snap.ships) {
-        if (!ship.active_mission.commodity_id.empty() && ship.active_mission.cargo_units > 0.0) {
-            in_transit[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
+        for (const auto& lot : ship.active_mission.cargo) {
+            in_transit[lot.commodity_id] += lot.units;
         }
     }
 
@@ -256,9 +263,9 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_profile_net_rates(sd.economy_profile_id);
+            const auto rates = economy.get_station_net_rates(sd);
             for (const auto& [c, rate] : rates) {
-                if (rate >= 0.0) continue;
+                if (rate >= 0.0 || economy.is_export_market(sd, c)) continue;
                 const double stock = ss.inventory.count(c) ? ss.inventory.at(c) : 0.0;
                 const double days_remaining = (std::abs(rate) > 0.0) ? stock / std::abs(rate) : 999.0;
                 if (days_remaining < 30.0) {
@@ -271,15 +278,96 @@ void print_economy_audit(
         }
     }
 
+    // Unmet demand over the whole run: the share of what consumers asked for that they went
+    // without, weighted by base value so a unit of medicine counts more than a unit of water.
+    {
+        std::unordered_map<std::string, double> base_prices;
+        for (const auto& commodity : universe.commodities) {
+            base_prices[commodity.id] = commodity.base_price;
+        }
+        double demand_value = 0.0;
+        double unmet_value = 0.0;
+        std::cout << "\n  [ECON AUDIT] Unmet Demand (since start, consumers that went without):\n";
+        for (const auto& ss : snap.stations) {
+            const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+                [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+            for (const auto& [c, demand] : ss.demand_units) {
+                const double unmet = ss.unmet_units.contains(c) ? ss.unmet_units.at(c) : 0.0;
+                demand_value += demand * base_prices[c];
+                unmet_value += unmet * base_prices[c];
+                if (demand > 0.0 && unmet / demand >= 0.05) {
+                    std::cout << std::format("    {:30s}  {:15s}  {:8.0f} of {:8.0f}u unmet  {:5.1f}%\n",
+                        name, c, unmet, demand, 100.0 * unmet / demand);
+                }
+            }
+        }
+        std::cout << std::format("    Unmet demand: {:.1f}% of {:.0f} cr consumed at base prices ({:.0f} cr unmet)\n",
+            demand_value > 0.0 ? 100.0 * unmet_value / demand_value : 0.0, demand_value, unmet_value);
+
+        // Export markets: what Earth's economy bought from the outer system.
+        double market_value = 0.0;
+        std::cout << "\n  [ECON AUDIT] Export Markets (sold to the outside economy since start):\n";
+        for (const auto& ss : snap.stations) {
+            const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+                [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+            for (const auto& [c, units] : ss.market_sold_units) {
+                market_value += units * base_prices[c];
+                std::cout << std::format("    {:30s}  {:15s}  {:8.0f}u  {:10.0f} cr\n", name, c, units, units * base_prices[c]);
+            }
+        }
+        std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
+    }
+
+    // Production (step 14): stations whose outputs run below full rate now, and why.
+    std::cout << "\n  [ECON AUDIT] Production (outputs below 90% now; upkeep = product of the upkeep penalties):\n";
+    for (const auto& ss : snap.stations) {
+        const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+            [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+        std::string slow;
+        for (const auto& [c, run] : ss.output_factor) {
+            if (run < 0.9) {
+                slow += std::format(" {}={:.0f}%", c, 100.0 * run);
+            }
+        }
+        if (!slow.empty() || ss.upkeep_multiplier < 0.99 || ss.affordability < 0.99) {
+            std::cout << std::format("    {:30s}  upkeep {:5.1f}%  can pay {:5.1f}% {}\n", name, 100.0 * ss.upkeep_multiplier,
+                100.0 * ss.affordability, slow);
+        }
+    }
+    std::cout << std::format("    Emergencies: {} opened, {} open now, {:.0f} cr paid by the factions\n",
+        snap.emergencies_opened, snap.emergencies.size(), snap.emergency_paid);
+    {
+        int total = 0;
+        std::string listed;
+        for (const auto& [event_id, count] : snap.events_started) {
+            total += count;
+            listed += std::format(" {}={}", event_id, count);
+        }
+        std::cout << std::format("    Events: {} struck{}\n", total, listed);
+        for (const auto& station : snap.stations) {
+            for (const auto& active : station.events) {
+                std::cout << std::format("      running: {} at {} for {:.0f} more days\n", active.event_id,
+                    station.station_id, (active.end_s - snap.game_time_s) / 86400.0);
+            }
+        }
+    }
+    for (const auto& emergency : snap.emergencies) {
+        std::cout << std::format("      open: {} {} for {:.0f} days at {:.0f}x\n", emergency.station_id,
+            emergency.commodity_id, (snap.game_time_s - emergency.opened_s) / 86400.0, emergency.premium);
+    }
+
     // Ship utilization
-    int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0;
+    int ships_with_cargo = 0, ships_repositioning = 0, ships_idle = 0, ships_waiting = 0, ships_stranded = 0, ships_laid_up = 0,
+        ships_refitting = 0;
     std::unordered_map<std::string, double> cargo_by_commodity;
     for (const auto& ship : snap.ships) {
         switch (ship.phase) {
             case spacetrains::domain::ShipMissionPhase::InTransit:
-                if (ship.active_mission.cargo_units > 0.0) {
+                if (!ship.active_mission.cargo.empty()) {
                     ++ships_with_cargo;
-                    cargo_by_commodity[ship.active_mission.commodity_id] += ship.active_mission.cargo_units;
+                    for (const auto& lot : ship.active_mission.cargo) {
+                        cargo_by_commodity[lot.commodity_id] += lot.units;
+                    }
                 } else {
                     ++ships_repositioning;
                 }
@@ -296,11 +384,18 @@ void print_economy_audit(
             case spacetrains::domain::ShipMissionPhase::Refueling:
                 ++ships_idle;
                 break;
+            case spacetrains::domain::ShipMissionPhase::LaidUp:
+                ++ships_laid_up;
+                break;
+            case spacetrains::domain::ShipMissionPhase::Refitting:
+                ++ships_refitting;
+                break;
         }
     }
     const int total = static_cast<int>(snap.ships.size());
-    std::cout << std::format("\n  [ECON AUDIT] Fleet: {}/{} hauling cargo  {}/{} repositioning  {}/{} waiting  {}/{} idle  {}/{} stranded\n",
-        ships_with_cargo, total, ships_repositioning, total, ships_waiting, total, ships_idle, total, ships_stranded, total);
+    std::cout << std::format("\n  [ECON AUDIT] Fleet: {}/{} hauling cargo  {}/{} repositioning  {}/{} waiting  {}/{} idle  {}/{} stranded  {}/{} laid up  {}/{} refitting\n",
+        ships_with_cargo, total, ships_repositioning, total, ships_waiting, total, ships_idle, total, ships_stranded, total,
+        ships_laid_up, total, ships_refitting, total);
     if (!cargo_by_commodity.empty()) {
         std::cout << "             Active cargo: ";
         for (const auto& [c, units] : cargo_by_commodity) {
@@ -309,8 +404,8 @@ void print_economy_audit(
         std::cout << "\n";
     }
 
-    // Money: per-entity balances and total supply. Total must equal the seeded
-    // amount exactly — every trade is a transfer, never a source or sink.
+    // Money: per-entity balances and total supply. Stations, ships and the external
+    // account must add up to the seeded amount exactly: every payment is a transfer.
     double initial_supply = 0.0;
     for (const auto& sd : universe.stations) {
         initial_supply += sd.initial_credits;
@@ -321,22 +416,129 @@ void print_economy_audit(
     double station_credits = 0.0;
     double ship_credits = 0.0;
     std::cout << "\n  [ECON AUDIT] Money:\n";
+    // A station's stock is worth the price curve integrated from zero up to it; trades along
+    // the curve move money and stock value in step, so this shows where money went into goods.
+    const auto stock_value = [&](const spacetrains::domain::StationDefinition& sd,
+                                 const spacetrains::domain::Inventory& inventory) {
+        double value = 0.0;
+        for (const auto& commodity : universe.commodities) {
+            const auto it = inventory.find(commodity.id);
+            const double stock = it == inventory.end() ? 0.0 : std::max(0.0, it->second);
+            value += economy.get_trade_value(sd, commodity.id, 0.0, stock, commodity.base_price);
+        }
+        return value;
+    };
+    std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s}\n",
+        "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock");
+    spacetrains::domain::StationLedger stations_total;
     for (const auto& ss : snap.stations) {
         station_credits += ss.credits;
+        const auto& l = ss.ledger;
+        stations_total.household_sales += l.household_sales;
+        stations_total.producer_purchases += l.producer_purchases;
+        stations_total.dividends += l.dividends;
+        stations_total.subsidies += l.subsidies;
+        stations_total.taxes += l.taxes;
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            std::cout << std::format("    {:30s}  {:>12.0f} cr\n", sd.name, ss.credits);
+            std::cout << std::format("    {:30s}  {:>12.0f} cr  {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:+9.0f}\n",
+                sd.name, ss.credits, l.household_sales, l.producer_purchases, l.dividends, l.subsidies, l.taxes,
+                stock_value(sd, ss.inventory) - stock_value(sd, sd.initial_inventory));
             break;
         }
     }
+    std::cout << std::format(
+        "    Stations: residents paid {:.0f}, producers were paid {:.0f}, dividends {:.0f}, subsidies {:.0f}, taxes {:.0f}\n",
+        stations_total.household_sales, stations_total.producer_purchases, stations_total.dividends,
+        stations_total.subsidies, stations_total.taxes);
+    spacetrains::domain::ShipLedger fleet;
+    int profitable = 0;
+    std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s} {:>6s} {:>7s}  {}\n",
+        "", "", "profit", "margin", "fuel", "wages", "capital", "prov", "refit", "divid", "class");
+    // Sold ships keep their lifetime ledger; their cash went to the home station.
+    std::vector<std::pair<const spacetrains::domain::ShipState*, bool>> all_ships;
     for (const auto& ship : snap.ships) {
-        ship_credits += ship.credits;
-        std::cout << std::format("    {:30s}  {:>12.0f} cr  (lifetime profit {:+.0f})\n",
-            ship.name, ship.credits, ship.lifetime_profit);
+        all_ships.emplace_back(&ship, false);
     }
-    const double total_supply = station_credits + ship_credits;
-    std::cout << std::format("    Total supply: {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
-        total_supply, initial_supply, total_supply - initial_supply);
+    for (const auto& ship : snap.sold_ships) {
+        all_ships.emplace_back(&ship, true);
+    }
+    for (const auto& [ship_ptr, sold] : all_ships) {
+        const auto& ship = *ship_ptr;
+        ship_credits += ship.credits;
+        const auto& l = ship.ledger;
+        std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}{}{}\n",
+            ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
+            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id,
+            ship.commissioned_s > 0.0
+                ? std::format("  (new day {:.0f}, {} -> {} until day {:.0f})", ship.commissioned_s / 86400.0,
+                      ship.route_commodity_id, ship.route_destination_id, ship.route_until_s / 86400.0)
+                : "",
+            sold ? "  (sold)" : "");
+        fleet.cargo_revenue += l.cargo_revenue;
+        fleet.cargo_purchases += l.cargo_purchases;
+        fleet.fuel += l.fuel;
+        fleet.wages += l.wages;
+        fleet.capital += l.capital;
+        fleet.provisions += l.provisions;
+        fleet.refits += l.refits;
+        fleet.dividends += l.dividends;
+        profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
+    }
+    std::cout << std::format(
+        "    Fleet: cargo margin {:.0f} (sold {:.0f}, bought {:.0f})  fuel {:.0f}  wages {:.0f}  capital {:.0f}"
+        "  provisions {:.0f}  refits {:.0f}  dividends {:.0f}  -> {}/{} ships profitable\n",
+        fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
+        fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, all_ships.size());
+    // Scheduled liners (step 22): their loop, where they are, what they earned and the top-ups.
+    for (const auto& ship : snap.ships) {
+        const auto loop = universe.liners.find(ship.id);
+        if (loop == universe.liners.end()) {
+            continue;
+        }
+        std::string stops;
+        for (const auto& stop : loop->second) {
+            stops += (stops.empty() ? "" : " > ") + stop;
+        }
+        std::cout << std::format("    Liner {:22s} {}  now {} ({})  profit {:.0f}  faction top-ups {:.0f}\n", ship.name, stops,
+            ship.current_station_id, ship.active_mission.destination_station_id.empty() ? "docked"
+                : "to " + ship.active_mission.destination_station_id, ship.lifetime_profit, ship.ledger.subsidies);
+    }
+    const double internal_supply = station_credits + ship_credits;
+    double treasuries = 0.0;
+    std::cout << "    Faction treasuries:";
+    for (const auto& faction : universe.factions) {
+        const auto it = snap.faction_treasuries.find(faction.id);
+        const double balance = it == snap.faction_treasuries.end() ? 0.0 : it->second;
+        treasuries += balance;
+        std::cout << std::format("  {} {:.0f}", faction.name, balance);
+    }
+    std::cout << " cr\n";
+    int over_limit = 0;
+    std::cout << "    Faction credit (may borrow):";
+    for (const auto& faction : universe.factions) {
+        const auto it = snap.faction_credit_limits.find(faction.id);
+        const double limit = it == snap.faction_credit_limits.end() ? 0.0 : it->second;
+        const auto balance = snap.faction_treasuries.find(faction.id);
+        if (balance != snap.faction_treasuries.end() && -balance->second > limit) {
+            ++over_limit;
+        }
+        std::cout << std::format("  {} {:.0f}", faction.name, limit);
+    }
+    std::cout << std::format(" cr; interest paid {:.0f} cr; factions over their limit: {}\n", snap.faction_interest_paid, over_limit);
+    const auto& investment = snap.fleet_investment;
+    std::cout << std::format("    Fleet investment: {} ships commissioned (hulls {:.0f}, working capital {:.0f}), {} sold (salvage {:.0f})\n",
+        investment.ships_commissioned, investment.hulls_bought, investment.working_capital,
+        investment.ships_sold, investment.salvage);
+    const double external = snap.outside_economy_credits + treasuries;
+    const double total_supply = internal_supply + external;
+    // The target is the seeded money plus the working capital the treasuries gave new ships.
+    const double target = snap.money_supply_target;
+    std::cout << std::format("    Money supply: stations {:.0f} + ships {:.0f} = {:.0f} cr  (target {:.0f}, {:+.1f}%)\n",
+        station_credits, ship_credits, internal_supply, target,
+        target != 0.0 ? 100.0 * (internal_supply / target - 1.0) : 0.0);
+    std::cout << std::format("    External: residents and producers {:.0f} + treasuries {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
+        snap.outside_economy_credits, treasuries, total_supply, initial_supply, total_supply - initial_supply);
 
     // Per-commodity price spread across stations.
     std::cout << "\n  [ECON AUDIT] Prices (min/avg/max across stations):\n";
@@ -349,7 +551,7 @@ void print_economy_audit(
             for (const auto& sd : universe.stations) {
                 if (sd.id != ss.station_id) continue;
                 const double stock = ss.inventory.count(commodity.id) ? ss.inventory.at(commodity.id) : 0.0;
-                const double price = economy.get_price(sd.economy_profile_id, commodity.id, stock, commodity.base_price);
+                const double price = economy.get_price(sd, commodity.id, stock, commodity.base_price);
                 min_price = std::min(min_price, price);
                 max_price = std::max(max_price, price);
                 sum_price += price;
@@ -367,7 +569,7 @@ void print_economy_audit(
 void print_ship_phases(
     const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe) {
-    int idle = 0, awaiting = 0, transit = 0, stranded = 0;
+    int idle = 0, awaiting = 0, transit = 0, stranded = 0, laid_up = 0;
     std::cout << "  Ships:\n";
     for (const auto& ship : snap.ships) {
         std::string class_name = ship.class_id;
@@ -381,7 +583,9 @@ void print_ship_phases(
             case spacetrains::domain::ShipMissionPhase::AwaitingDeparture: phase_str = "awaiting"; ++awaiting; break;
             case spacetrains::domain::ShipMissionPhase::InTransit:       phase_str = "in_transit"; ++transit; break;
             case spacetrains::domain::ShipMissionPhase::Stranded:        phase_str = "stranded"; ++stranded; break;
+            case spacetrains::domain::ShipMissionPhase::LaidUp:          phase_str = "laid_up"; ++laid_up; break;
             case spacetrains::domain::ShipMissionPhase::Refueling:       phase_str = "refueling"; break;
+            case spacetrains::domain::ShipMissionPhase::Refitting:       phase_str = "refitting"; break;
         }
         std::cout << std::format(
             "    {:20s}  [{:12s}]  {:10s}  fuel={:.0f}kg",
@@ -395,8 +599,333 @@ void print_ship_phases(
         std::cout << "\n";
     }
     std::cout << std::format(
-        "  Phase summary: idle={} awaiting={} in_transit={} stranded={}\n",
-        idle, awaiting, transit, stranded);
+        "  Phase summary: idle={} awaiting={} in_transit={} stranded={} laid_up={}\n",
+        idle, awaiting, transit, stranded, laid_up);
+}
+
+constexpr double kAuM = 1.495978707e11;
+
+std::string join_flags(const std::vector<std::string>& flags) {
+    std::string out;
+    for (const auto& flag : flags) {
+        if (!out.empty()) out += ",";
+        out += flag;
+    }
+    return out.empty() ? "ok" : out;
+}
+
+void print_trajectory_record(const spacetrains::trajectory::TrajectoryAuditRecord& r) {
+    const auto& d = r.diagnostics;
+    const auto& m = r.metrics;
+    std::cout << std::format(
+        "[traj day {:7.1f}] {} ({}) {} -> {}  {}",
+        r.planned_at_s / kDayS, r.ship_name, r.class_id,
+        r.origin_station_id, r.destination_station_id, r.trajectory_type);
+    if (r.trajectory_type == "variable_isp") {
+        std::cout << std::format(
+            "  seed={} iters={} windows={} rho={:.3f} kappa={:.3f} theta={:.3f}->{:.3f} rEnd/rho={:.3f}",
+            d.seed_source, d.refine_iterations, d.windows_tried, d.rho, d.kappa, d.theta_target_rad,
+            d.theta_actual_rad, d.r_end_canonical_ratio);
+    }
+    std::cout << std::format(
+        "\n      miss={:.4f}AU start_miss={:.4f}AU rev={:.2f} max_step={:.1f}deg end_turn={:.1f}deg"
+        " max_turn={:.1f}deg last_seg={:.1f}x wait_rev={:.2f} wait_step={:.1f}deg r=[{:.3f},{:.3f}]AU fuel={:.0f}kg wait={:.1f}d coast={:.1f}d samples={} plan={:.0f}ms\n"
+        "      flags={}\n",
+        d.endpoint_miss_m / kAuM, d.start_miss_m / kAuM, m.revolutions, m.max_step_deg, m.end_turn_deg,
+        m.max_interior_turn_deg, m.last_segment_ratio, m.wait_revolutions, m.wait_max_step_deg, m.min_radius_m / kAuM, m.max_radius_m / kAuM,
+        r.planning_propellant_kg, r.wait_time_s / kDayS, r.coast_time_s / kDayS, m.transfer_sample_count, r.plan_ms,
+        join_flags(m.flags));
+}
+
+void print_trajectory_audit_summary(const std::vector<spacetrains::trajectory::TrajectoryAuditRecord>& records) {
+    std::cout << "\n=== Trajectory Audit Summary ===\n";
+    std::map<std::string, std::vector<const spacetrains::trajectory::TrajectoryAuditRecord*>> by_type;
+    for (const auto& r : records) {
+        std::string key = r.trajectory_type;
+        if (key == "variable_isp") key += "/" + r.diagnostics.seed_source;
+        by_type[key].push_back(&r);
+    }
+    for (const auto& [type, group] : by_type) {
+        std::vector<double> misses;
+        double max_rev = 0.0;
+        std::size_t flagged = 0;
+        std::map<std::string, int> flag_counts;
+        for (const auto* r : group) {
+            misses.push_back(r->diagnostics.endpoint_miss_m / kAuM);
+            max_rev = std::max(max_rev, r->metrics.revolutions);
+            if (!r->metrics.flags.empty()) ++flagged;
+            for (const auto& f : r->metrics.flags) ++flag_counts[f];
+        }
+        std::vector<double> plan_ms;
+        for (const auto* r : group) plan_ms.push_back(r->plan_ms);
+        std::sort(plan_ms.begin(), plan_ms.end());
+        std::sort(misses.begin(), misses.end());
+        const auto pct = [&](double q) { return misses[static_cast<std::size_t>(q * (misses.size() - 1))]; };
+        std::cout << std::format(
+            "  {:28s} plans={:5d} flagged={:5d}  miss AU p50={:.4f} p95={:.4f} max={:.4f}  max_rev={:.2f}"
+            "  plan ms p50={:.1f} p99={:.1f} max={:.0f}\n",
+            type, group.size(), flagged, pct(0.5), pct(0.95), misses.back(), max_rev,
+            plan_ms[plan_ms.size() / 2], plan_ms[static_cast<std::size_t>(0.99 * (plan_ms.size() - 1))], plan_ms.back());
+        for (const auto& [flag, count] : flag_counts) {
+            std::cout << std::format("      {:20s} {}\n", flag, count);
+        }
+    }
+
+    // Worst cases per planner family, so one family's outliers don't hide another's.
+    const auto print_worst = [&](const char* title, auto key) {
+        for (const char* family : {"keplerian", "variable_isp"}) {
+            std::vector<const spacetrains::trajectory::TrajectoryAuditRecord*> sorted;
+            for (const auto& r : records) {
+                if (r.trajectory_type.starts_with(family)) sorted.push_back(&r);
+            }
+            std::sort(sorted.begin(), sorted.end(), [&](auto* a, auto* b) { return key(*a) > key(*b); });
+            std::cout << std::format("\n  Worst {} by {}:\n", family, title);
+            for (std::size_t i = 0; i < std::min<std::size_t>(5, sorted.size()); ++i) {
+                print_trajectory_record(*sorted[i]);
+            }
+        }
+    };
+    print_worst("endpoint miss", [](const auto& r) { return r.diagnostics.endpoint_miss_m; });
+    print_worst("revolutions", [](const auto& r) { return r.metrics.revolutions; });
+    print_worst("end turn", [](const auto& r) { return r.metrics.end_turn_deg; });
+    print_worst("wait revolutions", [](const auto& r) { return r.metrics.wait_revolutions; });
+    print_worst("planning time", [](const auto& r) { return r.plan_ms; });
+}
+
+void dump_flagged_trajectories(
+    const std::vector<spacetrains::trajectory::TrajectoryAuditRecord>& records,
+    const std::string& path) {
+    std::ofstream out(path);
+    out << "record,planned_day,ship,type,seed,flags,sample,t_day,x_au,z_au\n";
+    std::size_t dumped = 0;
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        const auto& r = records[i];
+        if (r.metrics.flags.empty()) continue;
+        ++dumped;
+        auto flags_field = join_flags(r.metrics.flags);
+        std::replace(flags_field.begin(), flags_field.end(), ',', '|');
+        for (std::size_t k = 0; k < r.sampled_path.size(); ++k) {
+            const double t = k < r.sampled_times_s.size() ? r.sampled_times_s[k] : 0.0;
+            out << std::format("{},{:.2f},{},{},{},{},{},{:.3f},{:.6f},{:.6f}\n",
+                i, r.planned_at_s / kDayS, r.ship_name, r.trajectory_type, r.diagnostics.seed_source,
+                flags_field, k, t / kDayS, r.sampled_path[k].x / kAuM, r.sampled_path[k].z / kAuM);
+        }
+    }
+    std::cout << std::format("Dumped {} flagged trajectories to {}\n", dumped, path);
+}
+
+// Plan every interplanetary transfer over a grid of station pairs, fuel levels and
+// departure days, bypassing the economy, so rare atlas regions get exercised.
+std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep(
+    const std::filesystem::path& data_root,
+    const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::celestial::CelestialMechanics& mechanics,
+    int sweep_days,
+    int sweep_step_days) {
+    spacetrains::variable_isp::VariableIspAtlas atlas;
+    atlas.load_binary((data_root.parent_path() / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string());
+    spacetrains::trajectory::VariableIspTrajectoryPlanner ion_planner(universe, mechanics, atlas);
+    spacetrains::trajectory::KeplerTrajectoryPlanner kepler_planner(universe, mechanics);
+
+    const std::vector<double> fuel_fractions {0.03, 0.06, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0};
+    struct SweepJob {
+        const spacetrains::domain::ShipClassDefinition* ship_class;
+        const spacetrains::domain::StationDefinition* origin;
+        const spacetrains::domain::StationDefinition* destination;
+        double fuel_fraction;
+    };
+    std::vector<SweepJob> jobs;
+    for (const auto& ship_class : universe.ship_classes) {
+        for (const auto& origin : universe.stations) {
+            for (const auto& destination : universe.stations) {
+                if (origin.parent_body_id == destination.parent_body_id) continue;
+                for (const double fraction : fuel_fractions) {
+                    jobs.push_back({&ship_class, &origin, &destination, fraction});
+                }
+            }
+        }
+    }
+
+    // Planners are const and stateless, so jobs run on a simple worker pool;
+    // results are merged in job order to keep the output deterministic.
+    std::vector<std::vector<spacetrains::trajectory::TrajectoryAuditRecord>> job_records(jobs.size());
+    std::atomic<std::size_t> next_job {0};
+    std::atomic<std::size_t> attempted {0};
+    std::atomic<std::size_t> integration_failures {0};
+    // Watchdog: each worker publishes its current job and day; plans that run
+    // for more than 10 s are reported (planner hangs are otherwise invisible).
+    const unsigned thread_count = std::max(1u, std::thread::hardware_concurrency());
+    struct InFlight {
+        std::atomic<std::size_t> job {SIZE_MAX};
+        std::atomic<int> day {0};
+        std::atomic<std::int64_t> started_ms {0};
+    };
+    std::vector<InFlight> in_flight(thread_count);
+    std::atomic<unsigned> next_slot {0};
+    const auto now_ms = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    };
+    const auto worker = [&] {
+        auto& slot = in_flight[next_slot++];
+        for (std::size_t j = next_job++; j < jobs.size(); j = next_job++) {
+            const auto& [ship_class, origin, destination, fraction] = jobs[j];
+            const auto& planner = ship_class->propulsion_type == "variable_isp"
+                ? static_cast<const spacetrains::trajectory::ITrajectoryPlanner&>(ion_planner)
+                : static_cast<const spacetrains::trajectory::ITrajectoryPlanner&>(kepler_planner);
+            spacetrains::domain::ShipState ship;
+            ship.name = ship_class->id;
+            ship.class_id = ship_class->id;
+            ship.propellant_kg = fraction * ship_class->propellant_capacity_kg;
+            for (int day = 0; day < sweep_days; day += sweep_step_days) {
+                const double t = day * kDayS;
+                ++attempted;
+                slot.job = j;
+                slot.day = day;
+                slot.started_ms = now_ms();
+                const auto started = std::chrono::steady_clock::now();
+                const auto plan = planner.plan_transfer(*origin, *destination, ship, *ship_class, t);
+                const double plan_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                if (plan_ms > 1000.0) {
+                    std::cout << std::format("[slow plan {:.0f} ms] {} {} -> {} fuel={:.0f}% day={} feasible={} {}\n",
+                        plan_ms, ship_class->id, origin->id, destination->id, fraction * 100.0, day, plan.feasible, plan.summary);
+                }
+                slot.job = SIZE_MAX;
+                if (plan.summary.find("integration failed") != std::string::npos) {
+                    if (integration_failures++ < 20) {
+                        std::cout << std::format("[integration failure] {} fuel={:.0f}% day={} ({:.0f} ms): {}\n",
+                            ship_class->id, fraction * 100.0, day, plan_ms, plan.summary);
+                    }
+                }
+                if (!plan.feasible) continue;
+                const double r_origin = mechanics.get_heliocentric_radius(origin->parent_body_id, plan.departure_time_s);
+                const double r_dest = mechanics.get_heliocentric_radius(destination->parent_body_id, plan.arrival_time_s);
+                auto metrics = spacetrains::trajectory::audit_trajectory(plan);
+                const bool flagged = !metrics.flags.empty();
+                job_records[j].push_back({
+                    .planned_at_s = t,
+                    .ship_name = std::format("{}@{:.0f}%", ship_class->id, fraction * 100.0),
+                    .class_id = ship_class->id,
+                    .origin_station_id = origin->id,
+                    .destination_station_id = destination->id,
+                    .trajectory_type = plan.trajectory_type,
+                    .planning_propellant_kg = ship.propellant_kg,
+                    .wait_time_s = plan.wait_time_s,
+                    .coast_time_s = plan.coast_time_s,
+                    .r_origin_m = r_origin,
+                    .r_dest_m = r_dest,
+                    .plan_ms = plan_ms,
+                    .diagnostics = plan.diagnostics,
+                    .metrics = std::move(metrics),
+                    .sampled_path = flagged ? plan.sampled_path : std::vector<spacetrains::math::Vec3d>{},
+                    .sampled_times_s = flagged ? plan.sampled_times_s : std::vector<double>{},
+                });
+            }
+        }
+    };
+    {
+        std::vector<std::jthread> threads;
+        for (unsigned i = 0; i < thread_count; ++i) {
+            threads.emplace_back(worker);
+        }
+        std::jthread watchdog([&](std::stop_token stop) {
+            std::vector<std::pair<std::size_t, int>> reported;
+            while (!stop.stop_requested()) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                for (auto& f : in_flight) {
+                    const std::size_t j = f.job;
+                    const int day = f.day;
+                    if (j == SIZE_MAX || now_ms() - f.started_ms < 10000) continue;
+                    if (std::find(reported.begin(), reported.end(), std::pair{j, day}) != reported.end()) continue;
+                    reported.emplace_back(j, day);
+                    const auto& job = jobs[j];
+                    std::cout << std::format("[hung plan >10s] {} {} -> {} fuel={:.0f}% day={}\n",
+                        job.ship_class->id, job.origin->id, job.destination->id, job.fuel_fraction * 100.0, day)
+                              << std::flush;
+                }
+            }
+        });
+        for (auto& t : threads) t.join();
+    }
+    std::vector<spacetrains::trajectory::TrajectoryAuditRecord> records;
+    for (auto& group : job_records) {
+        std::move(group.begin(), group.end(), std::back_inserter(records));
+    }
+    std::cout << std::format("Sweep: {} plans attempted, {} feasible, {} integration failures\n",
+        attempted.load(), records.size(), integration_failures.load());
+    return records;
+}
+
+// Demand audit: the transport capacity the stations' consumption needs, against the
+// fleet's. For each consumed good, the nearest producer by a rough transfer time (Hohmann
+// between the parent planets' orbits, a few days within one planet's system); a steady
+// supply needs rate x round trip units in holds (loaded out, empty back).
+void print_capacity_balance(const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::economy::EconomySystem& economy, const spacetrains::domain::SimulationSnapshot& snap) {
+    using namespace spacetrains;
+    const auto& bodies = universe.bodies;
+    const auto body_of = [&](const std::string& id) -> const domain::CelestialBodyDefinition& {
+        for (const auto& b : bodies) {
+            if (b.id == id) return b;
+        }
+        throw std::runtime_error("unknown body " + id);
+    };
+    // The planet (child of the Sun) a station's body belongs to.
+    const auto planet_of = [&](const std::string& body_id) {
+        const auto* body = &body_of(body_id);
+        while (!body->orbit.parent_id.empty() && !body_of(body->orbit.parent_id).orbit.parent_id.empty()) {
+            body = &body_of(body->orbit.parent_id);
+        }
+        return body;
+    };
+    const double mu_sun = body_of("sun").mu_m3_s2;
+    const auto one_way_days = [&](const domain::StationDefinition& a, const domain::StationDefinition& b) {
+        const auto* pa = planet_of(a.parent_body_id);
+        const auto* pb = planet_of(b.parent_body_id);
+        if (pa == pb) {
+            return a.parent_body_id == b.parent_body_id ? 0.5 : 5.0;
+        }
+        const double axis = 0.5 * (pa->orbit.semi_major_axis_m + pb->orbit.semi_major_axis_m);
+        return 3.14159265358979 * std::sqrt(axis * axis * axis / mu_sun) / kDayS;
+    };
+    double needed_units = 0.0;
+    double needed_inner = 0.0;
+    std::cout << "\n  [DEMAND AUDIT] Transport capacity for steady supply (nearest producer, Hohmann-like times):\n";
+    std::cout << std::format("    {:<26}{:<14}{:>8}{:>26}{:>9}{:>11}\n", "consumer", "good", "u/day", "nearest producer", "days", "hold u");
+    for (const auto& consumer : universe.stations) {
+        const auto rates = economy.get_station_net_rates(consumer);
+        for (const auto& commodity : universe.commodities) {
+            const auto it = rates.find(commodity.id);
+            if (it == rates.end() || it->second >= 0.0) continue;
+            const double rate = -it->second;
+            const domain::StationDefinition* best = nullptr;
+            double best_days = 1e18;
+            for (const auto& producer : universe.stations) {
+                const auto prates = economy.get_station_net_rates(producer);
+                const auto pit = prates.find(commodity.id);
+                if (pit == prates.end() || pit->second <= 0.0) continue;
+                const double days = one_way_days(producer, consumer);
+                if (days < best_days) {
+                    best_days = days;
+                    best = &producer;
+                }
+            }
+            if (best == nullptr) continue;
+            const double hold = rate * 2.0 * best_days;
+            needed_units += hold;
+            if (best_days < 200.0) needed_inner += hold;
+            std::cout << std::format("    {:<26}{:<14}{:>8.1f}{:>26}{:>9.0f}{:>11.0f}\n", consumer.name.substr(0, 25), commodity.id, rate,
+                best->name.substr(0, 25), best_days, hold);
+        }
+    }
+    double fleet_units = 0.0;
+    for (const auto& ship : snap.ships) {
+        for (const auto& ship_class : universe.ship_classes) {
+            if (ship_class.id == ship.class_id) fleet_units += ship_class.cargo_capacity_units;
+        }
+    }
+    std::cout << std::format("    Holds needed for steady supply: {:.0f} u (routes under 200 days: {:.0f} u); fleet holds now: {:.0f} u in {} ships\n",
+        needed_units, needed_inner, fleet_units, snap.ships.size());
 }
 
 }  // namespace
@@ -407,6 +936,18 @@ int main(int argc, char** argv) {
     bool verbose = false;
     bool econ_audit = false;
     int report_interval_days = 30;
+    bool trajectory_audit = false;
+    std::string trajectory_dump_path;
+    int sweep_step_days = 0;
+    bool profile = false;
+    double step_days = 1.0;
+    std::string load_path;
+    std::string save_path;
+    double start_day = 0.0;
+    std::string snapshot_json_path;
+    bool no_events = false;
+    int save_at_day = -1;
+    std::string write_reference_prices_path;
 
     // Parse arguments
     std::vector<std::string> args(argv + 1, argv + argc);
@@ -417,8 +958,32 @@ int main(int argc, char** argv) {
             report_interval_days = std::stoi(args[++i]);
         } else if (args[i] == "--verbose" || args[i] == "-v") {
             verbose = true;
+        } else if (args[i] == "--no-events") {
+            no_events = true;
         } else if (args[i] == "--econ-audit") {
             econ_audit = true;
+        } else if (args[i] == "--snapshot-json" && i + 1 < args.size()) {
+            snapshot_json_path = args[++i];
+        } else if (args[i] == "--start-day" && i + 1 < args.size()) {
+            start_day = std::stod(args[++i]);
+        } else if (args[i] == "--load" && i + 1 < args.size()) {
+            load_path = args[++i];
+        } else if (args[i] == "--save-at" && i + 2 < args.size()) {
+            save_at_day = std::stoi(args[++i]);
+            save_path = args[++i];
+        } else if (args[i] == "--write-reference-prices" && i + 1 < args.size()) {
+            write_reference_prices_path = args[++i];
+        } else if (args[i] == "--profile") {
+            profile = true;
+        } else if (args[i] == "--step-days" && i + 1 < args.size()) {
+            step_days = std::stod(args[++i]);
+        } else if (args[i] == "--trajectory-audit") {
+            trajectory_audit = true;
+        } else if (args[i] == "--trajectory-sweep" && i + 1 < args.size()) {
+            sweep_step_days = std::stoi(args[++i]);
+        } else if (args[i] == "--trajectory-dump" && i + 1 < args.size()) {
+            trajectory_audit = true;
+            trajectory_dump_path = args[++i];
         } else if (args[i][0] != '-') {
             data_root_str = args[i];
         }
@@ -432,7 +997,52 @@ int main(int argc, char** argv) {
     std::cout << std::format("Data root: {}\n", data_root.string());
     std::cout << std::format("Simulating {} days, report every {} days\n", sim_days, report_interval_days);
 
+    if (profile) {
+        spacetrains::profiling::set_enabled(true);
+    }
+    const auto load_start = std::chrono::steady_clock::now();
     auto sim = spacetrains::simulation::Simulation::from_data_root(data_root.string());
+    sim.set_events_enabled(!no_events);
+    if (!write_reference_prices_path.empty()) {
+        // Plans the reference trips (step 15) and writes data/economy/reference_prices.csv.
+        const auto prices = sim.compute_reference_prices();
+        std::ofstream file(write_reference_prices_path);
+        file << "station_id,commodity_id,reference_price,base_price,transport_per_unit,producer_id,class_id,round_trip_days\n";
+        for (const auto& price : prices) {
+            file << std::format("{},{},{:.2f},{:.2f},{:.2f},{},{},{:.1f}\n", price.station_id, price.commodity_id,
+                price.reference_price, price.base_price, price.transport_per_unit, price.producer_id, price.class_id,
+                price.round_trip_days);
+            std::cout << std::format("{:16s} {:13s} {:9.2f} = {:7.2f} base + {:8.2f} carriage  from {:16s} by {:20s} ({:.0f} d round trip)\n",
+                price.station_id, price.commodity_id, price.reference_price, price.base_price, price.transport_per_unit,
+                price.producer_id, price.class_id, price.round_trip_days);
+        }
+        std::cout << std::format("Wrote {} reference prices to {}\n", prices.size(), write_reference_prices_path);
+        return 0;
+    }
+    const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
+    if (start_day > 0.0) {
+        sim.start_at(start_day * kDayS);
+    }
+    if (!load_path.empty()) {
+        std::ifstream file(load_path, std::ios::binary);
+        if (!file) {
+            std::cerr << "Cannot read save " << load_path << "\n";
+            return 1;
+        }
+        sim.load_state_json(std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()));
+        std::cout << std::format("Loaded {} (day {:.1f}); simulating {} more days\n", load_path, sim.game_time_s() / kDayS, sim_days);
+    }
+    sim.set_trajectory_audit_enabled(trajectory_audit);
+    if (sweep_step_days > 0) {
+        spacetrains::celestial::CelestialMechanics sweep_mechanics(sim.universe());
+        const auto records = run_trajectory_sweep(data_root, sim.universe(), sweep_mechanics, sim_days, sweep_step_days);
+        print_trajectory_audit_summary(records);
+        if (!trajectory_dump_path.empty()) {
+            dump_flagged_trajectories(records, trajectory_dump_path);
+        }
+        return 0;
+    }
+    std::size_t audit_records_printed = 0;
     spacetrains::celestial::CelestialMechanics mechanics(sim.universe());
 
     // Startup summaries
@@ -447,18 +1057,44 @@ int main(int argc, char** argv) {
     // Use 1-day steps for legible reports.
     sim.set_timewarp(kDayS);  // 1 real second = 1 simulated day per step
 
-    double last_report_day = 0.0;
+    // Reports count from the start (a --start-day or a loaded game starts later than day 0).
+    const double first_day = sim.game_time_s() / kDayS;
+    double last_report_day = first_day;
     int total_events = 0;
+    // Per-step wall time (profiling): the bridge shows a hitch whenever one step is slow.
+    std::vector<double> step_wall_s;
+    const auto run_start = std::chrono::steady_clock::now();
+    const int steps_per_day = std::max(1, static_cast<int>(std::lround(1.0 / step_days)));
 
     for (int step = 0; step < sim_days; ++step) {
-        sim.step(1.0);  // advance 1 simulated day
+        for (int sub = 0; sub < steps_per_day; ++sub) {
+            const auto step_start = std::chrono::steady_clock::now();
+            sim.step(1.0 / steps_per_day);  // advance 1 simulated day in steps_per_day steps
+            if (profile) {
+                step_wall_s.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - step_start).count());
+            }
+        }
 
         const double game_day = sim.snapshot().game_time_s / kDayS;
+        if (save_at_day >= 0 && step + 1 == save_at_day) {
+            std::ofstream file(save_path, std::ios::binary | std::ios::trunc);
+            file << sim.save_state_json();
+            std::cout << std::format("Saved day {:.1f} to {}\n", game_day, save_path);
+        }
+
+        if (trajectory_audit) {
+            const auto& records = sim.trajectory_audit_records();
+            for (; audit_records_printed < records.size(); ++audit_records_printed) {
+                if (!records[audit_records_printed].metrics.flags.empty()) {
+                    print_trajectory_record(records[audit_records_printed]);
+                }
+            }
+        }
 
         if (verbose) {
             for (const auto& event : sim.snapshot().recent_events) {
                 // Only print events newer than the last step
-                if (event.time_s > (step * kDayS) && event.time_s <= ((step + 1) * kDayS)) {
+                if (event.time_s > ((first_day + step) * kDayS) && event.time_s <= ((first_day + step + 1) * kDayS)) {
                     std::cout << std::format("[day {:7.1f}] {}\n", event.time_s / kDayS, event.text);
                     ++total_events;
                 }
@@ -473,6 +1109,7 @@ int main(int argc, char** argv) {
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
                 print_economy_audit(snap, sim.universe(), sim.economy_system());
+                print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {
                 std::cout << "  Recent events:\n";
@@ -483,7 +1120,39 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (profile) {
+        const double run_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - run_start).count();
+        std::cout << std::format("\n=== Profile ===\nload {:.2f} s, run {:.2f} s ({:.1f} ms per simulated day), {} steps of {:.3f} d\n",
+            load_s, run_s, 1000.0 * run_s / std::max(1, sim_days), step_wall_s.size(), 1.0 / steps_per_day);
+        if (!step_wall_s.empty()) {
+            auto sorted = step_wall_s;
+            std::sort(sorted.begin(), sorted.end());
+            const auto pct = [&](double q) { return 1000.0 * sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(q * static_cast<double>(sorted.size())))]; };
+            std::size_t over_50ms = 0;
+            for (const double s : step_wall_s) {
+                over_50ms += s > 0.05 ? 1 : 0;
+            }
+            std::cout << std::format("step ms: p50 {:.1f}, p90 {:.1f}, p99 {:.1f}, max {:.1f} (first step {:.1f}); {} steps over 50 ms\n",
+                pct(0.5), pct(0.9), pct(0.99), 1000.0 * sorted.back(), 1000.0 * step_wall_s.front(), over_50ms);
+        }
+        std::cout << spacetrains::profiling::report();
+    }
+
+    if (!snapshot_json_path.empty()) {
+        std::ofstream file(snapshot_json_path, std::ios::binary | std::ios::trunc);
+        file << sim.build_bridge_snapshot_json(false, 0, 0.0);
+        // The planned paths, as the bridge writes them next to its snapshot.
+        std::ofstream paths(snapshot_json_path + ".paths", std::ios::binary | std::ios::trunc);
+        paths << sim.build_bridge_paths_json();
+    }
+
     std::cout << "\n=== Final Report ===\n";
     std::cout << sim.build_report();
+    if (trajectory_audit) {
+        print_trajectory_audit_summary(sim.trajectory_audit_records());
+        if (!trajectory_dump_path.empty()) {
+            dump_flagged_trajectories(sim.trajectory_audit_records(), trajectory_dump_path);
+        }
+    }
     return 0;
 }

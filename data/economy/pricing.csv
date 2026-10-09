@@ -1,0 +1,8 @@
+key,value
+price_cap,4
+carrier_margin,1.2
+reference_departures,6
+cover_round_trip_factor,1.2
+max_cover_days,1460
+input_value_share,0.25
+input_price_cap,12

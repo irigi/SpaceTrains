@@ -21,25 +21,43 @@
 ## Current Public Surface
 
 - `spacetrains_bridge --data-root ... --snapshot-file ... --command-file ... --step-seconds ...`
-- Snapshot JSON includes simulation timing, bodies, stations, ships, recent events, and per-ship active mission fields.
-- Awaiting/in-transit ships include `trajectory_path: [{t_s,x,y,z}, ...]` and `destination_body_at_arrival`.
-- Command JSON currently accepts `paused` and `timewarp_factor`.
+- Pacing: the simulation advances in fixed ticks (`Simulation::TICK_S`, 0.1 day). Each loop hands it the real time
+  since the last loop x timewarp, one tick at a time and for at most 100 ms of work, and carries the rest over (up
+  to 4 s): a slow stretch (a fleet review) delays snapshots by at most a tenth of a second and the UI slows down
+  smoothly. The opening tick (the whole fleet's first dispatch, ~2-3 s) runs before the clock starts, and its
+  result is kept (`--opening-cache DIR`, the UI passes `user://opening_cache`): a later start with the same data
+  (fingerprint) and the same bridge build loads it in milliseconds.
+- Files (all written aside and renamed, so a reader never sees half a file):
+  - `<snapshot>`: the state, written when something changed, at most 10 times a second. Bodies carry their orbital
+    elements and stations their altitude/angle (the UI places them itself); ships in flight carry a `path_id`.
+  - `<snapshot>.seq`: the snapshot's sequence number; the UI polls it every frame and parses the snapshot only
+    when it changes.
+  - `<snapshot>.paths` / `.paths.seq`: `{"paths": {ship_id: {path_id, trajectory_path: [{t_s,x,y,z}...],
+    destination_body_at_arrival}}}`, written only when some ship's plan changes (paths were 70% of a 600 KB
+    snapshot at 90 ships), always before the snapshot that refers to them.
+- Snapshot extras for the panels: ship ledger, crew, provisions, cargo lots, planned pickup, route commitment;
+  station targets, demand/unmet totals, import/export flows, fuel factory, export market, ledger; an `economy`
+  block (demand, unmet, exports, fleet purchases); `bridge.epoch` (changes with every load) and `bridge.status`
+  (save/load result).
+- Command JSON: `paused`, `timewarp_factor`, and save/load requests (`request` number with `save_path` or
+  `load_path`).
+- Debug: `SPACETRAINS_BRIDGE_LOG=1` reports loops over 0.3 s; `SPACETRAINS_PROFILE=1` enables the phase timers.
 
 The exact transport may change later, but the architectural rule should not: Godot reads through the bridge and does not own simulation state directly.
 
 ## Data Flow
 
 ```
-Godot input -> SimulationBridge commands -> Simulation
-Simulation -> bridge snapshot JSON -> Godot rendering/UI
+Godot input -> command file -> bridge -> Simulation
+Simulation -> snapshot + paths files -> Godot rendering/UI
 ```
 
 ## Invariants
 
 - The bridge mirrors the simulation; it does not duplicate gameplay logic.
-- Snapshot reads are safe to perform every frame.
-- Commands are intentionally narrow during early stages.
-- Selected trajectory display comes from `trajectory_path`, not from Godot-derived station endpoints, and destination ghosts come from bridge arrival-body data.
+- Polling the `.seq` files every frame is cheap; snapshots are parsed once each.
+- Selected trajectory display comes from `trajectory_path`, not from Godot-derived station endpoints, and destination
+  ghosts come from bridge arrival-body data.
 
 ## Deferred Work
 

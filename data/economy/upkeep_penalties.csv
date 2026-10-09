@@ -1,0 +1,9 @@
+commodity_id,full_shortage_multiplier,emergency
+medicine,0.85,0
+fuel,0.7,0
+food,0.5,0
+oxygen,0.1,1
+water,0.1,1
+reactor_fuel,0.5,0
+machinery,0.6,0
+electronics,0.8,0

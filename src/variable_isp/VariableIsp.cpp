@@ -1,11 +1,14 @@
 #include "variable_isp/VariableIsp.hpp"
 
+#include "util/Profiling.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -18,7 +21,7 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kTau = 2.0 * kPi;
 
 using State = std::array<double, 8>;
-using StateWide = std::array<long double, 8>;
+using StateWide = std::array<double, 8>;
 
 template <typename T>
 T read_value(std::ifstream& stream) {
@@ -41,52 +44,52 @@ double wrapped_delta(double a, double b) {
     return VariableIspIntegrator::normalize_angle(a - b);
 }
 
-void ode_system(const StateWide& y, const CanonicalMissionConfig& config, long double c_theta, StateWide& dydt) {
-    const long double r = y[0];
-    const long double v_r = y[2];
-    const long double v_theta = y[3];
-    const long double m = y[4];
-    const long double lambda_r = y[5];
-    const long double lambda_vr = y[6];
-    const long double lambda_vtheta = y[7];
+void ode_system(const StateWide& y, const CanonicalMissionConfig& config, double c_theta, StateWide& dydt) {
+    const double r = y[0];
+    const double v_r = y[2];
+    const double v_theta = y[3];
+    const double m = y[4];
+    const double lambda_r = y[5];
+    const double lambda_vr = y[6];
+    const double lambda_vtheta = y[7];
 
-    const long double a_r = static_cast<long double>(config.k_gain) * lambda_vr;
-    const long double a_theta = static_cast<long double>(config.k_gain) * lambda_vtheta;
-    const long double accel_sq = (a_r * a_r) + (a_theta * a_theta);
+    const double a_r = static_cast<double>(config.k_gain) * lambda_vr;
+    const double a_theta = static_cast<double>(config.k_gain) * lambda_vtheta;
+    const double accel_sq = (a_r * a_r) + (a_theta * a_theta);
 
     dydt[0] = v_r;
     dydt[1] = v_theta / r;
-    dydt[2] = (v_theta * v_theta) / r - (static_cast<long double>(config.mu_m3_s2) / (r * r)) + a_r;
+    dydt[2] = (v_theta * v_theta) / r - (static_cast<double>(config.mu_m3_s2) / (r * r)) + a_r;
     dydt[3] = -(v_r * v_theta) / r + a_theta;
-    dydt[4] = -(m * m / (2.0L * static_cast<long double>(config.power_w))) * accel_sq;
+    dydt[4] = -(m * m / (2.0 * static_cast<double>(config.power_w))) * accel_sq;
     dydt[5] = (c_theta * v_theta) / (r * r)
         + (lambda_vr * v_theta * v_theta) / (r * r)
-        - (2.0L * lambda_vr * static_cast<long double>(config.mu_m3_s2)) / (r * r * r)
+        - (2.0 * lambda_vr * static_cast<double>(config.mu_m3_s2)) / (r * r * r)
         - (lambda_vtheta * v_r * v_theta) / (r * r);
     dydt[6] = -lambda_r + (lambda_vtheta * v_theta) / r;
     dydt[7] = -c_theta / r - (2.0 * lambda_vr * v_theta) / r + (lambda_vtheta * v_r) / r;
 }
 
-long double rms_norm(const StateWide& x) {
-    long double sum = 0.0L;
-    for (const long double value : x) {
+double rms_norm(const StateWide& x) {
+    double sum = 0.0;
+    for (const double value : x) {
         sum += value * value;
     }
-    return std::sqrt(sum / static_cast<long double>(x.size()));
+    return std::sqrt(sum / static_cast<double>(x.size()));
 }
 
-long double select_initial_step(
+double select_initial_step(
     const StateWide& y0,
     const StateWide& f0,
-    long double interval_length,
-    long double max_step,
+    double interval_length,
+    double max_step,
     const IntegratorSettings& settings,
     const CanonicalMissionConfig& config,
-    long double c_theta) {
+    double c_theta) {
     StateWide scale {};
     for (std::size_t idx = 0; idx < y0.size(); ++idx) {
-        scale[idx] = static_cast<long double>(settings.absolute_tolerance)
-            + std::abs(y0[idx]) * static_cast<long double>(settings.relative_tolerance);
+        scale[idx] = static_cast<double>(settings.absolute_tolerance)
+            + std::abs(y0[idx]) * static_cast<double>(settings.relative_tolerance);
     }
 
     StateWide y_scaled {};
@@ -96,9 +99,9 @@ long double select_initial_step(
         f_scaled[idx] = f0[idx] / scale[idx];
     }
 
-    const long double d0 = rms_norm(y_scaled);
-    const long double d1 = rms_norm(f_scaled);
-    long double h0 = (d0 < 1e-5L || d1 < 1e-5L) ? 1e-6L : (0.01L * d0 / d1);
+    const double d0 = rms_norm(y_scaled);
+    const double d1 = rms_norm(f_scaled);
+    double h0 = (d0 < 1e-5 || d1 < 1e-5) ? 1e-6 : (0.01 * d0 / d1);
     h0 = std::min(h0, interval_length);
 
     StateWide y1 = y0;
@@ -113,36 +116,36 @@ long double select_initial_step(
     for (std::size_t idx = 0; idx < y0.size(); ++idx) {
         f_delta[idx] = (f1[idx] - f0[idx]) / scale[idx];
     }
-    const long double d2 = rms_norm(f_delta) / h0;
+    const double d2 = rms_norm(f_delta) / h0;
 
-    long double h1 = 0.0L;
-    if (d1 <= 1e-15L && d2 <= 1e-15L) {
-        h1 = std::max(1e-6L, h0 * 1e-3L);
+    double h1 = 0.0;
+    if (d1 <= 1e-15 && d2 <= 1e-15) {
+        h1 = std::max(1e-6, h0 * 1e-3);
     } else {
-        h1 = std::pow(0.01L / std::max(d1, d2), 1.0L / 5.0L);
+        h1 = std::pow(0.01 / std::max(d1, d2), 1.0 / 5.0);
     }
 
-    return std::min({100.0L * h0, h1, interval_length, max_step});
+    return std::min({100.0 * h0, h1, interval_length, max_step});
 }
 
 void rk45_step(
     const StateWide& y,
     const StateWide& f,
-    long double dt,
+    double dt,
     const CanonicalMissionConfig& config,
-    long double c_theta,
+    double c_theta,
     std::array<StateWide, 7>& k,
     StateWide& y_new,
     StateWide& f_new) {
-    constexpr std::array<std::array<long double, 5>, 6> a {{
-        {{0.0L, 0.0L, 0.0L, 0.0L, 0.0L}},
-        {{1.0L / 5.0L, 0.0L, 0.0L, 0.0L, 0.0L}},
-        {{3.0L / 40.0L, 9.0L / 40.0L, 0.0L, 0.0L, 0.0L}},
-        {{44.0L / 45.0L, -56.0L / 15.0L, 32.0L / 9.0L, 0.0L, 0.0L}},
-        {{19372.0L / 6561.0L, -25360.0L / 2187.0L, 64448.0L / 6561.0L, -212.0L / 729.0L, 0.0L}},
-        {{9017.0L / 3168.0L, -355.0L / 33.0L, 46732.0L / 5247.0L, 49.0L / 176.0L, -5103.0L / 18656.0L}},
+    constexpr std::array<std::array<double, 5>, 6> a {{
+        {{0.0, 0.0, 0.0, 0.0, 0.0}},
+        {{1.0 / 5.0, 0.0, 0.0, 0.0, 0.0}},
+        {{3.0 / 40.0, 9.0 / 40.0, 0.0, 0.0, 0.0}},
+        {{44.0 / 45.0, -56.0 / 15.0, 32.0 / 9.0, 0.0, 0.0}},
+        {{19372.0 / 6561.0, -25360.0 / 2187.0, 64448.0 / 6561.0, -212.0 / 729.0, 0.0}},
+        {{9017.0 / 3168.0, -355.0 / 33.0, 46732.0 / 5247.0, 49.0 / 176.0, -5103.0 / 18656.0}},
     }};
-    constexpr std::array<long double, 6> b {35.0L / 384.0L, 0.0L, 500.0L / 1113.0L, 125.0L / 192.0L, -2187.0L / 6784.0L, 11.0L / 84.0L};
+    constexpr std::array<double, 6> b {35.0 / 384.0, 0.0, 500.0 / 1113.0, 125.0 / 192.0, -2187.0 / 6784.0, 11.0 / 84.0};
 
     k[0] = f;
     for (std::size_t stage = 1; stage < 6; ++stage) {
@@ -165,26 +168,26 @@ void rk45_step(
     k[6] = f_new;
 }
 
-long double estimate_error_norm(
+double estimate_error_norm(
     const std::array<StateWide, 7>& k,
-    long double dt,
+    double dt,
     const StateWide& y,
     const StateWide& y_new,
     const IntegratorSettings& settings) {
-    constexpr std::array<long double, 7> e {
-        -71.0L / 57600.0L, 0.0L, 71.0L / 16695.0L, -71.0L / 1920.0L,
-        17253.0L / 339200.0L, -22.0L / 525.0L, 1.0L / 40.0L,
+    constexpr std::array<double, 7> e {
+        -71.0 / 57600.0, 0.0, 71.0 / 16695.0, -71.0 / 1920.0,
+        17253.0 / 339200.0, -22.0 / 525.0, 1.0 / 40.0,
     };
 
     StateWide scaled_error {};
     for (std::size_t idx = 0; idx < y.size(); ++idx) {
-        long double err = 0.0L;
+        double err = 0.0;
         for (std::size_t stage = 0; stage < e.size(); ++stage) {
             err += e[stage] * k[stage][idx];
         }
         err *= dt;
-        const long double scale = static_cast<long double>(settings.absolute_tolerance)
-            + std::max(std::abs(y[idx]), std::abs(y_new[idx])) * static_cast<long double>(settings.relative_tolerance);
+        const double scale = static_cast<double>(settings.absolute_tolerance)
+            + std::max(std::abs(y[idx]), std::abs(y_new[idx])) * static_cast<double>(settings.relative_tolerance);
         scaled_error[idx] = err / scale;
     }
     return rms_norm(scaled_error);
@@ -193,28 +196,28 @@ long double estimate_error_norm(
 StateWide interpolate_dense_output(
     const std::array<StateWide, 7>& k,
     const StateWide& y_old,
-    long double t_old,
-    long double t_new,
-    long double t_query) {
-    constexpr std::array<std::array<long double, 4>, 7> p {{
-        {{1.0L, -8048581381.0L / 2820520608.0L, 8663915743.0L / 2820520608.0L, -12715105075.0L / 11282082432.0L}},
-        {{0.0L, 0.0L, 0.0L, 0.0L}},
-        {{0.0L, 131558114200.0L / 32700410799.0L, -68118460800.0L / 10900136933.0L, 87487479700.0L / 32700410799.0L}},
-        {{0.0L, -1754552775.0L / 470086768.0L, 14199869525.0L / 1410260304.0L, -10690763975.0L / 1880347072.0L}},
-        {{0.0L, 127303824393.0L / 49829197408.0L, -318862633887.0L / 49829197408.0L, 701980252875.0L / 199316789632.0L}},
-        {{0.0L, -282668133.0L / 205662961.0L, 2019193451.0L / 616988883.0L, -1453857185.0L / 822651844.0L}},
-        {{0.0L, 40617522.0L / 29380423.0L, -110615467.0L / 29380423.0L, 69997945.0L / 29380423.0L}},
+    double t_old,
+    double t_new,
+    double t_query) {
+    constexpr std::array<std::array<double, 4>, 7> p {{
+        {{1.0, -8048581381.0 / 2820520608.0, 8663915743.0 / 2820520608.0, -12715105075.0 / 11282082432.0}},
+        {{0.0, 0.0, 0.0, 0.0}},
+        {{0.0, 131558114200.0 / 32700410799.0, -68118460800.0 / 10900136933.0, 87487479700.0 / 32700410799.0}},
+        {{0.0, -1754552775.0 / 470086768.0, 14199869525.0 / 1410260304.0, -10690763975.0 / 1880347072.0}},
+        {{0.0, 127303824393.0 / 49829197408.0, -318862633887.0 / 49829197408.0, 701980252875.0 / 199316789632.0}},
+        {{0.0, -282668133.0 / 205662961.0, 2019193451.0 / 616988883.0, -1453857185.0 / 822651844.0}},
+        {{0.0, 40617522.0 / 29380423.0, -110615467.0 / 29380423.0, 69997945.0 / 29380423.0}},
     }};
 
-    const long double h = t_new - t_old;
-    const long double x = (t_query - t_old) / h;
-    const std::array<long double, 4> powers {x, x * x, x * x * x, x * x * x * x};
+    const double h = t_new - t_old;
+    const double x = (t_query - t_old) / h;
+    const std::array<double, 4> powers {x, x * x, x * x * x, x * x * x * x};
 
     StateWide out = y_old;
     for (std::size_t idx = 0; idx < out.size(); ++idx) {
-        long double q = 0.0L;
+        double q = 0.0;
         for (std::size_t stage = 0; stage < p.size(); ++stage) {
-            long double stage_poly = 0.0L;
+            double stage_poly = 0.0;
             for (std::size_t order = 0; order < powers.size(); ++order) {
                 stage_poly += p[stage][order] * powers[order];
             }
@@ -450,11 +453,192 @@ double VariableIspIntegrator::normalize_angle(double angle_rad) {
     return std::atan2(std::sin(angle_rad), std::cos(angle_rad));
 }
 
+namespace {
+
+// Scales of the shooting unknowns (lambda_r, lambda_vr, lambda_vtheta, C_theta),
+// taken from the Python generator's SOLUTION0 so all unknowns are O(1).
+constexpr std::array<double, 4> kCostateScale {-9.04177133e-05, -2.23208767e+01, -2.82272150e+03, -1.56907920e+08};
+constexpr std::array<std::size_t, 4> kCostateIndex {0, 1, 2, 4};  // params[3] is the gauge, fixed at 0
+constexpr double kYearDays = 365.0;
+
+using ShootVector = std::array<double, 5>;     // scaled unknowns
+using ShootResidual = std::array<double, 4>;
+
+ShootVector to_unknowns(const AtlasSeed& seed) {
+    ShootVector z {};
+    for (std::size_t i = 0; i < 4; ++i) {
+        z[i] = seed.params[kCostateIndex[i]] / kCostateScale[i];
+    }
+    z[4] = seed.transfer_time_days / kYearDays;
+    return z;
+}
+
+AtlasSeed from_unknowns(const ShootVector& z, const AtlasSeed& base) {
+    AtlasSeed seed = base;
+    for (std::size_t i = 0; i < 4; ++i) {
+        seed.params[kCostateIndex[i]] = z[i] * kCostateScale[i];
+    }
+    seed.transfer_time_days = z[4] * kYearDays;
+    return seed;
+}
+
+double norm(const ShootResidual& f) {
+    double sum = 0.0;
+    for (const double v : f) sum += v * v;
+    return std::sqrt(sum);
+}
+
+// Solve the 4x4 system a * x = b by Gaussian elimination with partial pivoting.
+bool solve4(std::array<std::array<double, 4>, 4> a, ShootResidual b, ShootResidual& x) {
+    for (std::size_t col = 0; col < 4; ++col) {
+        std::size_t pivot = col;
+        for (std::size_t row = col + 1; row < 4; ++row) {
+            if (std::abs(a[row][col]) > std::abs(a[pivot][col])) pivot = row;
+        }
+        if (std::abs(a[pivot][col]) < 1e-300) return false;
+        std::swap(a[col], a[pivot]);
+        std::swap(b[col], b[pivot]);
+        for (std::size_t row = col + 1; row < 4; ++row) {
+            const double factor = a[row][col] / a[col][col];
+            for (std::size_t k = col; k < 4; ++k) a[row][k] -= factor * a[col][k];
+            b[row] -= factor * b[col];
+        }
+    }
+    for (std::size_t row = 4; row-- > 0;) {
+        double sum = b[row];
+        for (std::size_t k = row + 1; k < 4; ++k) sum -= a[row][k] * x[k];
+        x[row] = sum / a[row][row];
+    }
+    return true;
+}
+
+}  // namespace
+
+ShootingResult VariableIspIntegrator::refine_seed(
+    const AtlasSeed& seed,
+    const CanonicalMissionConfig& config,
+    double r_target_m,
+    double theta_target_rad,
+    const ShootingSettings& settings) const {
+    return refine_seed(
+        seed, config, [&](double) { return std::pair {r_target_m, theta_target_rad}; }, settings);
+}
+
+ShootingResult VariableIspIntegrator::refine_seed(
+    const AtlasSeed& seed,
+    const CanonicalMissionConfig& config,
+    const MovingTarget& target,
+    const ShootingSettings& settings) const {
+    const profiling::Scope profile_scope(profiling::Phase::VariableIspRefine);
+
+    // Only endpoints matter here, so let RK45 take long steps; endpoints agree
+    // with the 0.5-day rendering step to ~3e-5 relative.
+    IntegratorSettings integration;
+    integration.max_step_s = 10.0 * kDayS;
+    integration.max_steps = 20000;
+    const double v_scale = std::sqrt(config.mu_m3_s2 / target(seed.transfer_time_days).first);
+
+    // Endpoint residual scaled so each tolerance maps to ~1e-3; nullopt if the
+    // integration fails (e.g. the trajectory dives into the Sun).
+    const auto residual = [&](const ShootVector& z) -> std::optional<ShootResidual> {
+        if (z[4] <= 0.0) return std::nullopt;
+        try {
+            const auto summary = integrate_fixed_time(from_unknowns(z, seed), config, 2, integration);
+            const auto& end = summary.samples.back();
+            if (!std::isfinite(end.r_m) || end.r_m <= 0.0) return std::nullopt;
+            const auto [r_target_m, theta_target_rad] = target(z[4] * kYearDays);
+            return ShootResidual {
+                (end.r_m / r_target_m - 1.0) * (1e-3 / settings.r_tolerance_rel),
+                (end.theta_rad - theta_target_rad) * (1e-3 / settings.theta_tolerance_rad),
+                end.vr_mps / v_scale * (1e-3 / settings.velocity_tolerance_rel),
+                (end.vtheta_mps - std::sqrt(config.mu_m3_s2 / end.r_m)) / v_scale * (1e-3 / settings.velocity_tolerance_rel),
+            };
+        } catch (const std::runtime_error&) {
+            return std::nullopt;
+        }
+    };
+    const auto converged = [](const ShootResidual& f) {
+        return std::all_of(f.begin(), f.end(), [](double v) { return std::abs(v) <= 1e-3; });
+    };
+
+    ShootingResult result;
+    ShootVector z = to_unknowns(seed);
+    auto f = residual(z);
+    if (!f) {
+        return result;
+    }
+    for (; result.iterations < settings.max_iterations && !converged(*f); ++result.iterations) {
+        // Forward-difference Jacobian J (4 residuals x 5 unknowns).
+        std::array<ShootVector, 4> jac {};
+        for (std::size_t c = 0; c < 5; ++c) {
+            ShootVector zp = z;
+            const double h = settings.finite_difference_step * std::max(1.0, std::abs(z[c]));
+            zp[c] += h;
+            const auto fp = residual(zp);
+            if (!fp) {
+                return result;
+            }
+            for (std::size_t r = 0; r < 4; ++r) jac[r][c] = ((*fp)[r] - (*f)[r]) / h;
+        }
+        // Column scaling (like scipy's x_scale="jac"): seeds far from SOLUTION0 have
+        // costates 10-100x the nominal scale, which leaves J badly conditioned.
+        ShootVector column_norm {};
+        for (std::size_t c = 0; c < 5; ++c) {
+            for (std::size_t r = 0; r < 4; ++r) column_norm[c] += jac[r][c] * jac[r][c];
+            column_norm[c] = std::sqrt(column_norm[c]);
+            if (column_norm[c] <= 0.0) column_norm[c] = 1.0;
+            for (std::size_t r = 0; r < 4; ++r) jac[r][c] /= column_norm[c];
+        }
+        // Minimum-norm Gauss-Newton step in the scaled unknowns,
+        // dz = J^T (J J^T)^-1 (-f): the smallest change that fixes the endpoint
+        // to first order.
+        std::array<std::array<double, 4>, 4> jjt {};
+        for (std::size_t a = 0; a < 4; ++a) {
+            for (std::size_t b = 0; b < 4; ++b) {
+                for (std::size_t c = 0; c < 5; ++c) jjt[a][b] += jac[a][c] * jac[b][c];
+            }
+        }
+        ShootResidual rhs {};
+        for (std::size_t r = 0; r < 4; ++r) rhs[r] = -(*f)[r];
+        ShootResidual y {};
+        if (!solve4(jjt, rhs, y)) {
+            return result;
+        }
+        ShootVector dz {};
+        for (std::size_t c = 0; c < 5; ++c) {
+            for (std::size_t r = 0; r < 4; ++r) dz[c] += jac[r][c] * y[r];
+            dz[c] /= column_norm[c];
+        }
+        // Backtracking: accept the first step length that reduces the residual.
+        bool improved = false;
+        for (double step = 1.0; step >= 1.0 / 64.0; step *= 0.5) {
+            ShootVector trial = z;
+            for (std::size_t c = 0; c < 5; ++c) trial[c] += step * dz[c];
+            const auto ft = residual(trial);
+            if (ft && norm(*ft) < norm(*f)) {
+                z = trial;
+                f = ft;
+                improved = true;
+                break;
+            }
+        }
+        if (!improved) {
+            break;
+        }
+    }
+
+    result.seed = from_unknowns(z, seed);
+    result.residual_norm = norm(*f);
+    result.converged = converged(*f);
+    return result;
+}
+
 IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
     const AtlasSeed& seed,
     const CanonicalMissionConfig& base_config,
     std::size_t sample_count,
     const IntegratorSettings& settings) const {
+    const profiling::Scope profile_scope(profiling::Phase::VariableIspIntegrate);
     if (sample_count < 2) {
         throw std::runtime_error("VariableISP integration requires at least 2 samples");
     }
@@ -463,39 +647,39 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
     }
 
     CanonicalMissionConfig config = base_config;
-    constexpr long double safety = 0.9L;
-    constexpr long double min_factor = 0.2L;
-    constexpr long double max_factor = 10.0L;
-    constexpr long double error_exponent = -1.0L / 5.0L;
+    constexpr double safety = 0.9;
+    constexpr double min_factor = 0.2;
+    constexpr double max_factor = 10.0;
+    constexpr double error_exponent = -1.0 / 5.0;
 
-    const long double c_theta = seed.params[4];
-    const long double transfer_time_s = seed.transfer_time_days * kDayS;
-    const long double dt_output = transfer_time_s / static_cast<long double>(sample_count - 1);
+    const double c_theta = seed.params[4];
+    const double transfer_time_s = seed.transfer_time_days * kDayS;
+    const double dt_output = transfer_time_s / static_cast<double>(sample_count - 1);
 
     StateWide y {
-        static_cast<long double>(config.r0_m),
-        0.0L,
-        static_cast<long double>(config.vr0_mps),
-        static_cast<long double>(config.vtheta0_mps),
-        static_cast<long double>(config.m0_kg),
-        static_cast<long double>(seed.params[0]),
-        static_cast<long double>(seed.params[1]),
-        static_cast<long double>(seed.params[2]),
+        static_cast<double>(config.r0_m),
+        0.0,
+        static_cast<double>(config.vr0_mps),
+        static_cast<double>(config.vtheta0_mps),
+        static_cast<double>(config.m0_kg),
+        static_cast<double>(seed.params[0]),
+        static_cast<double>(seed.params[1]),
+        static_cast<double>(seed.params[2]),
     };
 
     IntegrationSummary summary;
     summary.samples.reserve(sample_count);
     summary.samples.push_back({0.0, static_cast<double>(y[0]), static_cast<double>(y[1]), static_cast<double>(y[2]), static_cast<double>(y[3]), static_cast<double>(y[4])});
 
-    long double time_s = 0.0L;
+    double time_s = 0.0;
     std::size_t next_sample_index = 1;
     StateWide f {};
     ode_system(y, config, c_theta, f);
-    long double h_abs = select_initial_step(
+    double h_abs = select_initial_step(
         y,
         f,
         transfer_time_s,
-        static_cast<long double>(settings.max_step_s),
+        static_cast<double>(settings.max_step_s),
         settings,
         config,
         c_theta);
@@ -504,8 +688,8 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
     StateWide f_new {};
 
     while (summary.samples.size() < sample_count) {
-        const long double min_step = 10.0L * std::abs(std::nextafter(time_s, std::numeric_limits<long double>::infinity()) - time_s);
-        h_abs = std::clamp(h_abs, min_step, static_cast<long double>(settings.max_step_s));
+        const double min_step = 10.0 * std::abs(std::nextafter(time_s, std::numeric_limits<double>::infinity()) - time_s);
+        h_abs = std::clamp(h_abs, min_step, static_cast<double>(settings.max_step_s));
 
         bool step_accepted = false;
         bool step_rejected = false;
@@ -513,9 +697,12 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
             if (h_abs < min_step) {
                 throw std::runtime_error("VariableISP RK45 step size underflow");
             }
+            if (summary.accepted_steps + summary.rejected_steps >= settings.max_steps) {
+                throw std::runtime_error("VariableISP RK45 step budget exhausted");
+            }
 
-            long double dt = h_abs;
-            long double t_new = time_s + dt;
+            double dt = h_abs;
+            double t_new = time_s + dt;
             if (t_new > transfer_time_s) {
                 t_new = transfer_time_s;
             }
@@ -523,16 +710,16 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
             h_abs = std::abs(dt);
 
             const StateWide y_old = y;
-            const long double t_old = time_s;
+            const double t_old = time_s;
             rk45_step(y, f, dt, config, c_theta, k, y_new, f_new);
-            const long double error_norm = estimate_error_norm(k, dt, y_old, y_new, settings);
+            const double error_norm = estimate_error_norm(k, dt, y_old, y_new, settings);
 
-            if (error_norm < 1.0L) {
-                long double factor = (error_norm == 0.0L)
+            if (error_norm < 1.0) {
+                double factor = (error_norm == 0.0)
                     ? max_factor
                     : std::min(max_factor, safety * std::pow(error_norm, error_exponent));
                 if (step_rejected) {
-                    factor = std::min(1.0L, factor);
+                    factor = std::min(1.0, factor);
                 }
                 h_abs *= factor;
                 step_accepted = true;
@@ -542,8 +729,13 @@ IntegrationSummary VariableIspIntegrator::integrate_fixed_time(
                 summary.accepted_steps += 1;
 
                 while (next_sample_index < sample_count) {
-                    const long double sample_time = dt_output * static_cast<long double>(next_sample_index);
-                    if (sample_time > time_s + 1e-12L) {
+                    // The last sample is exactly the end: dt_output x (n - 1) can round to a
+                    // hair above it, and the loop then spun on zero-length steps until the
+                    // step budget threw (it did for some sample counts, e.g. 600).
+                    const double sample_time = next_sample_index + 1 == sample_count
+                        ? transfer_time_s
+                        : std::min(transfer_time_s, dt_output * static_cast<double>(next_sample_index));
+                    if (sample_time > time_s + 1e-12) {
                         break;
                     }
                     const StateWide y_sample = (sample_time == time_s)

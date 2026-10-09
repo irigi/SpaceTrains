@@ -1,5 +1,8 @@
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cmath>
+#include <limits>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -9,7 +12,9 @@
 
 #include "celestial/CelestialMechanics.hpp"
 #include "data_loader/DataLoader.hpp"
+#include "persistence/Json.hpp"
 #include "simulation/Simulation.hpp"
+#include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
 #include "variable_isp/VariableIsp.hpp"
@@ -103,6 +108,20 @@ int main() {
     require(universe.stations.size() >= 6, "expected seeded stations");
     require(universe.ship_seeds.size() >= 3, "expected seeded ships");
 
+    // Tank variants (part C): a hull's classes differ only in their tanks.
+    for (const auto& variant : universe.ship_classes) {
+        const auto& nominal = ship_class_by_id(universe, variant.hull_id);
+        require(nominal.hull_id == nominal.id, "a hull's nominal class should carry the hull id");
+        require(variant.propulsion_type == nominal.propulsion_type && variant.crew_size == nominal.crew_size
+                && variant.cargo_capacity_units == nominal.cargo_capacity_units,
+            "tank variants should share propulsion, crew and hold with their hull");
+        const bool bigger = variant.propellant_capacity_kg > nominal.propellant_capacity_kg;
+        const bool smaller = variant.propellant_capacity_kg < nominal.propellant_capacity_kg;
+        require((!bigger || (variant.dry_mass_kg > nominal.dry_mass_kg && variant.ship_value_cr > nominal.ship_value_cr))
+                && (!smaller || (variant.dry_mass_kg < nominal.dry_mass_kg && variant.ship_value_cr < nominal.ship_value_cr)),
+            "bigger tanks should weigh and cost more, smaller ones less");
+    }
+
     spacetrains::celestial::CelestialMechanics mechanics(universe);
     spacetrains::trajectory::KeplerTrajectoryPlanner planner(universe, mechanics);
     const auto& origin = station_by_id(universe, "earth_l1");
@@ -183,18 +202,22 @@ int main() {
     //   - Ganymede: old synodic period ≈ 7.3 days, fixed synodic period ≈ 399 days
     ship.propellant_kg = ship_class.propellant_capacity_kg;
 
-    // Earth L1 → Lunar Gateway: Moon co-moves heliocentrically with Earth.
-    // Both bodies walk up to Earth's heliocentric rate → relative_rate == 0 → wait == 0.
+    // Earth L1 → Lunar Gateway: stations of one planetary system transfer around Earth.
+    // Before, this was planned as a heliocentric Hohmann at r ≈ 1 AU: a 183-day half orbit
+    // of the Sun for a 400,000 km hop. Now: an Earth-centred Hohmann (~5 days) after a
+    // phasing wait of at most one lunar month.
     const auto& luna_station = station_by_id(universe, "luna_base");
     const auto luna_plan = planner.plan_transfer(origin, luna_station, ship, ship_class, 0.0);
+    require(luna_plan.trajectory_type == "keplerian_planet_system", "Kepler Earth->Luna must transfer around Earth");
+    require(luna_plan.coast_time_s > 2.0 * 86400.0 && luna_plan.coast_time_s < 10.0 * 86400.0,
+        "Kepler Earth->Luna transfer should take a few days");
+    require(luna_plan.wait_time_s >= 0.0 && luna_plan.wait_time_s <= 28.0 * 86400.0,
+        "Kepler Earth->Luna phasing wait must be within one lunar period");
     require(luna_plan.sampled_path.size() >= 2, "Kepler Earth->Luna should produce a sampled path");
     require(luna_plan.sampled_times_s.size() == luna_plan.sampled_path.size(),
         "Kepler Earth->Luna times and path sizes must match");
-    require(luna_plan.wait_time_s == 0.0,
-        "Kepler Earth->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
-    require(distance_between(luna_plan.sampled_path.front(),
-            mechanics.get_station_position(origin, luna_plan.departure_time_s)) < 1.0,
-        "Kepler Earth->Luna path start must match origin station at departure time");
+    require(distance_between(luna_plan.sampled_path.front(), mechanics.get_station_position(origin, 0.0)) < 1.0,
+        "Kepler Earth->Luna path must start at the origin station now (wait prefix)");
     require(distance_between(luna_plan.sampled_path.back(),
             mechanics.get_station_position(luna_station, luna_plan.arrival_time_s)) < 1.0,
         "Kepler Earth->Luna path end must match destination station at arrival time");
@@ -235,9 +258,38 @@ int main() {
     bool bridge_snapshot_included_ship_stats = false;
     bool checked_awaiting_departure_parked = false;
     bool checked_render_position_on_path = false;
+    bool saw_refit = false;
+    const auto total_credits = [](const spacetrains::domain::SimulationSnapshot& snap) {
+        double total = 0.0;
+        for (const auto& station : snap.stations) {
+            total += station.credits;
+        }
+        for (const auto& ship : snap.ships) {
+            total += ship.credits;
+        }
+        total += snap.outside_economy_credits;
+        for (const auto& [faction_id, balance] : snap.faction_treasuries) {
+            total += balance;
+        }
+        return total;
+    };
     for (int i = 0; i < 90; ++i) {
         sim.step(1.0);
         const auto during = sim.snapshot();
+        for (const auto& ship_state : during.ships) {
+            const auto& ship_class = ship_class_by_id(universe, ship_state.class_id);
+            // The starting fleet keeps its hull through refits (ships bought later have no seed).
+            const auto seed = std::find_if(universe.ship_seeds.begin(), universe.ship_seeds.end(),
+                [&](const auto& candidate) { return candidate.id == ship_state.id; });
+            if (seed != universe.ship_seeds.end()) {
+                require(ship_class.hull_id == ship_class_by_id(universe, seed->class_id).hull_id,
+                    "a refitted ship should keep its hull");
+            }
+            require(ship_state.propellant_kg <= ship_class.propellant_capacity_kg + 1.0e-6,
+                "a ship should never carry more propellant than its tanks hold");
+            saw_refit = saw_refit || ship_state.phase == spacetrains::domain::ShipMissionPhase::Refitting
+                || (seed != universe.ship_seeds.end() && ship_state.class_id != seed->class_id);
+        }
         const auto bridge_during = sim.build_bridge_snapshot_json(false, static_cast<std::uint64_t>(i + 1), 0.1);
         if (bridge_during.find("\"trajectory_path\"") != std::string::npos) {
             bridge_snapshot_included_trajectory_path = true;
@@ -284,6 +336,8 @@ int main() {
 
     const auto after = sim.snapshot();
     require(after.game_time_s > before.game_time_s, "time should advance");
+    require_near(total_credits(after), total_credits(before), 1.0e-6, "trades, costs, refits and the open economy should conserve money");
+    require(saw_refit, "the seeded fleet should refit at least one ship's tanks within 90 days");
     require(!after.recent_events.empty(), "simulation should emit events");
     const auto bridge_json = sim.build_bridge_snapshot_json(false, 1, 0.1);
     require(bridge_json.find("\"bodies\"") != std::string::npos, "bridge snapshot should include bodies");
@@ -311,7 +365,7 @@ int main() {
 
         spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
 
-        const auto& ion_class = ship_class_by_id(universe, "ion_freighter");
+        const auto& ion_class = ship_class_by_id(universe, "plasma_freighter");
         const auto& earth_station = station_by_id(universe, "earth_l1");
         const auto& mars_station = station_by_id(universe, "mars_transfer");
 
@@ -331,8 +385,11 @@ int main() {
             earth_station, mars_station, ion_ship, ion_class, 0.0);
 
         require(visp_plan.feasible, "fully fueled ion ship should find a feasible Earth-Mars VariableISP plan");
-        require(visp_plan.sampled_path.size() == 120, "VariableISP plan should have 120 sampled path points");
-        require(visp_plan.sampled_times_s.size() == 120, "VariableISP plan should have 120 timed samples");
+        // Thinned by curvature: at least ~40 segments, but far fewer than the dense integration.
+        require(visp_plan.sampled_path.size() >= 41 && visp_plan.sampled_path.size() <= 400,
+            "VariableISP plan should have a rendering-sized sampled path");
+        require(visp_plan.sampled_times_s.size() == visp_plan.sampled_path.size(),
+            "VariableISP plan should have one time per sampled path point");
         require(visp_plan.coast_time_s > 0.0, "VariableISP transfer time should be positive");
         const double transfer_days = visp_plan.coast_time_s / 86400.0;
         require(transfer_days >= 30.0 && transfer_days <= 600.0,
@@ -388,40 +445,552 @@ int main() {
             visp_plan.propellant_required_kg);
 
         // --- VariableISP heliocentric rate regression (moon-station origin/destination) ---
-        // Before the fix, omega for moon stations used the moon's local orbital period instead
-        // of the parent planet's heliocentric period, producing wrong phase offsets.
-        // Earth Orbit → Luna Base: both stations walk up to Earth's heliocentric rate,
-        // so relative_rate == 0 and wait_s must be 0.0.  Old code gave wait ≈ 0-29 days
-        // (Moon's synodic period) because it used Luna's 27.3-day local period for omega_dest.
-        const auto& ion_courier_class = ship_class_by_id(universe, "ion_courier");
+        // Earth Orbit → Luna Base: same planetary system, so a low-thrust spiral around
+        // Earth (no launch window), not a heliocentric atlas transfer at rho ≈ 1.
+        const auto& plasma_courier_class = ship_class_by_id(universe, "plasma_courier");
         const auto& earth_orbit_station = station_by_id(universe, "earth_orbit");
         const auto& luna_station_visp = station_by_id(universe, "luna_base");
-        spacetrains::domain::ShipState ion_courier_ship {
+        spacetrains::domain::ShipState plasma_courier_ship {
             .id = "test_courier",
             .name = "Test Courier",
             .faction_id = "sol_fed",
-            .class_id = ion_courier_class.id,
+            .class_id = plasma_courier_class.id,
             .home_station_id = earth_orbit_station.id,
             .current_station_id = earth_orbit_station.id,
             .phase = spacetrains::domain::ShipMissionPhase::Idle,
-            .propellant_kg = ion_courier_class.propellant_capacity_kg,
+            .propellant_kg = plasma_courier_class.propellant_capacity_kg,
             .active_mission = {},
         };
         const auto visp_luna_plan = visp_planner.plan_transfer(
-            earth_orbit_station, luna_station_visp, ion_courier_ship, ion_courier_class, 0.0);
-        // rho ≈ 1.0 for Earth-Moon; plan may or may not be feasible (heliocentric model
-        // doesn't apply well this close), but if a path is returned the checks below must hold.
-        if (visp_luna_plan.sampled_path.size() >= 2 && visp_luna_plan.sampled_times_s.size() >= 2) {
+            earth_orbit_station, luna_station_visp, plasma_courier_ship, plasma_courier_class, 0.0);
+        require(visp_luna_plan.feasible && visp_luna_plan.trajectory_type == "variable_isp_planet_system",
+            "VariableISP Earth Orbit->Luna must be a feasible spiral around Earth");
+        require(visp_luna_plan.propellant_required_kg < 0.8 * plasma_courier_class.propellant_capacity_kg,
+            "VariableISP Earth Orbit->Luna spiral must leave fuel to spare");
+        {
             require(distance_between(visp_luna_plan.sampled_path.front(),
                     mechanics.get_station_position(earth_orbit_station, visp_luna_plan.departure_time_s)) < 1.0,
                 "VariableISP Earth Orbit->Luna departure must match origin station (moon heliocentric rate fix)");
             require(distance_between(visp_luna_plan.sampled_path.back(),
                     mechanics.get_station_position(luna_station_visp, visp_luna_plan.arrival_time_s)) < 1.0,
                 "VariableISP Earth Orbit->Luna arrival must match destination station (moon heliocentric rate fix)");
-            // Moon co-moves with Earth heliocentrically → relative_rate == 0 → wait_s == 0.
-            require(visp_luna_plan.wait_time_s == 0.0,
-                "VariableISP Earth Orbit->Luna wait must be zero: Moon has the same heliocentric rate as Earth");
+            require(visp_luna_plan.wait_time_s == 0.0, "VariableISP Earth Orbit->Luna spiral needs no launch window");
         }
+    }
+
+    // --- Trajectory audit: synthetic paths ---
+    {
+        constexpr double AU = 1.495978707e11;
+        // Smooth quarter-arc from 1 AU to 1.5 AU: nothing flagged.
+        spacetrains::domain::TrajectoryPlan smooth;
+        smooth.departure_time_s = 0.0;
+        for (int i = 0; i < 60; ++i) {
+            const double a = 0.5 * PI * i / 59.0;
+            const double r = AU * (1.0 + 0.5 * i / 59.0);
+            smooth.sampled_path.push_back({r * std::cos(a), 0.0, r * std::sin(a)});
+            smooth.sampled_times_s.push_back(i * 86400.0);
+        }
+        const auto smooth_audit = spacetrains::trajectory::audit_trajectory(smooth);
+        require(smooth_audit.flags.empty(), "smooth arc should pass the trajectory audit");
+        require_near(smooth_audit.revolutions, 0.25, 1e-6, "quarter arc should sweep 0.25 revolutions");
+
+        // Bug 1 shape: path stops short and the last sample is snapped onto the station.
+        auto dented = smooth;
+        dented.sampled_path.back() = {0.3 * AU, 0.0, 1.9 * AU};
+        dented.diagnostics.endpoint_miss_m = 0.4 * AU;
+        const auto dented_audit = spacetrains::trajectory::audit_trajectory(dented);
+        const auto has_flag = [](const auto& audit, const char* flag) {
+            return std::find(audit.flags.begin(), audit.flags.end(), flag) != audit.flags.end();
+        };
+        require(has_flag(dented_audit, "end_dent"), "snapped far miss should be flagged as end_dent");
+        require(has_flag(dented_audit, "endpoint_miss"), "pre-snap miss should be flagged as endpoint_miss");
+
+        // Bug 2 shape: 11 wait samples spread over 2.5 origin revolutions before departure.
+        spacetrains::domain::TrajectoryPlan waiting = smooth;
+        waiting.departure_time_s = 1000.0 * 86400.0;
+        std::vector<spacetrains::math::Vec3d> wait_path;
+        std::vector<double> wait_times;
+        for (int i = 0; i < 11; ++i) {
+            const double a = 2.0 * PI * 2.5 * i / 11.0;
+            wait_path.push_back({0.72 * AU * std::cos(a), 0.0, 0.72 * AU * std::sin(a)});
+            wait_times.push_back(i * 90.0 * 86400.0);
+        }
+        for (std::size_t i = 0; i < smooth.sampled_path.size(); ++i) {
+            wait_path.push_back(smooth.sampled_path[i]);
+            wait_times.push_back(waiting.departure_time_s + smooth.sampled_times_s[i]);
+        }
+        waiting.sampled_path = wait_path;
+        waiting.sampled_times_s = wait_times;
+        const auto waiting_audit = spacetrains::trajectory::audit_trajectory(waiting);
+        require(has_flag(waiting_audit, "coarse_wait"), "coarse multi-revolution wait prefix should be flagged");
+        require_near(waiting_audit.revolutions, 0.25, 1e-6, "wait prefix must not count toward transfer revolutions");
+    }
+
+    // --- Kepler wait-prefix regression (bug: "trajectory loops around the Sun") ---
+    // Found by --trajectory-sweep: a 573-day launch wait at Venus was drawn with a fixed 11
+    // samples, i.e. 2.5 turns around the Sun as a star polygon with 83-degree steps.
+    {
+        const auto& freighter = ship_class_by_id(universe, "light_freighter");
+        const auto& venus = station_by_id(universe, "venus_cloud");
+        const auto& luna = station_by_id(universe, "luna_base");
+        spacetrains::domain::ShipState waiting_ship;
+        waiting_ship.class_id = freighter.id;
+        waiting_ship.propellant_kg = 0.1 * freighter.propellant_capacity_kg;
+        const double now_s = 45.0 * 86400.0;
+        const auto plan = planner.plan_transfer(venus, luna, waiting_ship, freighter, now_s);
+        require(plan.wait_time_s > 400.0 * 86400.0, "Venus->Luna regression case should still have a multi-orbit wait");
+        const auto audit = spacetrains::trajectory::audit_trajectory(plan);
+        require(audit.wait_revolutions > 2.0, "wait prefix should follow Venus for more than two orbits");
+        require(audit.wait_max_step_deg <= 5.0 + 1e-6, "wait prefix must be sampled at most 5 degrees per step");
+        require(distance_between(plan.sampled_path.front(), mechanics.get_station_position(venus, now_s)) < 1.0,
+            "wait prefix must start at the origin station's current position");
+        for (std::size_t i = 1; i < plan.sampled_times_s.size(); ++i) {
+            require(plan.sampled_times_s[i] > plan.sampled_times_s[i - 1], "wait prefix times must increase strictly");
+        }
+        require(plan.sampled_propellant_kg.size() == plan.sampled_path.size(),
+            "propellant samples must cover the wait prefix too");
+    }
+
+    // --- Kepler hyperbolic Lambert arc regression ---
+    // Found by --trajectory-sweep: a full-tank NTR freighter Ceres -> Titan at day 705 picks a
+    // hyperbolic Lambert arc. The path sampler only handled ellipses, so every transfer sample
+    // sat at Ceres' radius with the departure timestamp and the snap drew a 6.8 AU line.
+    {
+        const auto& ntr = ship_class_by_id(universe, "ntr_freighter");
+        const auto& ceres = station_by_id(universe, "ceres_depot");
+        const auto& titan = station_by_id(universe, "titan_works");
+        spacetrains::domain::ShipState full_ship;
+        full_ship.class_id = ntr.id;
+        full_ship.propellant_kg = ntr.propellant_capacity_kg;
+        const auto plan = planner.plan_transfer(ceres, titan, full_ship, ntr, 705.0 * 86400.0);
+        require(plan.trajectory_type == "keplerian_lambert", "Ceres->Titan full-tank NTR should use a Lambert arc");
+        require(plan.diagnostics.endpoint_miss_m < 1.0e9, "hyperbolic Lambert arc must end at Titan before the snap");
+        double max_r = 0.0;
+        for (std::size_t i = 1; i < plan.sampled_times_s.size(); ++i) {
+            require(plan.sampled_times_s[i] >= plan.sampled_times_s[i - 1], "Lambert sample times must not decrease");
+            if (plan.sampled_times_s[i] > plan.departure_time_s) {
+                require(plan.sampled_times_s[i] > plan.sampled_times_s[i - 1],
+                    "hyperbolic Lambert transfer samples must advance in time");
+            }
+            max_r = std::max(max_r, plan.sampled_path[i].length());
+        }
+        require(max_r <= 1.01 * mechanics.get_heliocentric_radius(titan.parent_body_id, plan.arrival_time_s),
+            "hyperbolic arc must not overshoot Titan's orbit");
+    }
+
+    // --- VariableISP integration hang regression ---
+    // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth L1 -> Titan at
+    // day 210 got an atlas seed that dives into the Sun, and RK45 shrank its step forever.
+    // The integrator now has a step budget, and the planner refines a real atlas cell instead
+    // of using the diverging seed, falling through to the next window when one fails.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        const auto& ion_class = ship_class_by_id(universe, "plasma_freighter");
+        spacetrains::domain::ShipState low_fuel_ship;
+        low_fuel_ship.class_id = ion_class.id;
+        low_fuel_ship.propellant_kg = 0.1 * ion_class.propellant_capacity_kg;
+        const auto plan = visp_planner.plan_transfer(
+            station_by_id(universe, "earth_l1"), station_by_id(universe, "titan_works"),
+            low_fuel_ship, ion_class, 210.0 * 86400.0);
+        if (plan.feasible) {
+            require(plan.diagnostics.endpoint_miss_m < 1.5e9,
+                "Earth L1 -> Titan low-fuel plan, if feasible, must end at Titan before the snap");
+        }
+    }
+
+    // --- Mission-sized fuelling (operating costs part B) ---
+    // Ships load what the transfer burns plus a reserve, not a full tank, and cargo rides
+    // on the rocket equation. Default PlanningOptions keep the old full-tank behaviour.
+    {
+        const auto& freighter = ship_class_by_id(universe, "light_freighter");
+        const auto& earth_l1 = station_by_id(universe, "earth_l1");
+        const auto& leo = station_by_id(universe, "earth_orbit");
+        const auto& mars = station_by_id(universe, "mars_transfer");
+        spacetrains::domain::ShipState empty_tank;
+        empty_tank.class_id = freighter.id;
+        const spacetrains::trajectory::PlanningOptions buy_fuel {
+            .propellant_cr_per_kg = 0.08,
+            .time_cr_per_day = 20.0,
+            .purchasable_propellant_kg = freighter.propellant_capacity_kg,
+            .reserve_fraction = 0.1,
+        };
+        const auto sized = planner.plan_transfer(earth_l1, mars, empty_tank, freighter, 0.0, buy_fuel);
+        require(sized.feasible, "an empty-tank freighter that may buy fuel should reach Mars");
+        require(sized.propellant_load_kg >= 1.1 * sized.propellant_required_kg * (1.0 - 1e-9),
+            "the load must cover the burn plus the 10% reserve");
+        require(sized.propellant_load_kg < freighter.propellant_capacity_kg,
+            "a mission-sized load should not fill the tank for Earth L1 -> Mars");
+        require_near(sized.sampled_propellant_kg.front(), sized.propellant_load_kg, 1e-6,
+            "the path's propellant must start at the departure load");
+
+        // Same Δv (fixed local transfer), minimal loads: the burn scales with the laden dry mass.
+        auto laden = buy_fuel;
+        laden.payload_kg = freighter.dry_mass_kg;
+        const auto light = planner.plan_transfer(earth_l1, leo, empty_tank, freighter, 0.0, buy_fuel);
+        const auto heavy = planner.plan_transfer(earth_l1, leo, empty_tank, freighter, 0.0, laden);
+        require(light.feasible && heavy.feasible, "local transfers should be feasible with fuel for sale");
+        require_near(heavy.propellant_required_kg / light.propellant_required_kg, 2.0, 1e-6,
+            "doubling the dry mass with cargo must double the burn");
+
+        // A ship never drains what it already carries.
+        spacetrains::domain::ShipState full_tank = empty_tank;
+        full_tank.propellant_kg = freighter.propellant_capacity_kg;
+        const auto full = planner.plan_transfer(earth_l1, leo, full_tank, freighter, 0.0, buy_fuel);
+        require_near(full.propellant_load_kg, freighter.propellant_capacity_kg, 1e-6,
+            "a full tank departs full");
+        require(full.propellant_required_kg > light.propellant_required_kg,
+            "carrying a full tank costs more propellant than a sized load");
+
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        const auto& ion_class = ship_class_by_id(universe, "plasma_freighter");
+        spacetrains::domain::ShipState ion_empty;
+        ion_empty.class_id = ion_class.id;
+        auto ion_options = buy_fuel;
+        ion_options.purchasable_propellant_kg = ion_class.propellant_capacity_kg;
+        const auto ion_sized = visp_planner.plan_transfer(earth_l1, mars, ion_empty, ion_class, 0.0, ion_options);
+        require(ion_sized.feasible, "an empty-tank ion freighter that may buy fuel should reach Mars");
+        require(ion_sized.propellant_load_kg <= ion_class.propellant_capacity_kg * (1.0 + 1e-9),
+            "an ion load must fit the tank");
+        require(ion_sized.propellant_load_kg >= 1.09 * ion_sized.propellant_required_kg,
+            "an ion load must keep the reserve unburned");
+        require(ion_sized.sampled_propellant_kg.back() >= 0.09 * ion_sized.propellant_required_kg,
+            "an ion ship must arrive with its reserve");
+    }
+
+    // --- VariableISP kappa at the origin's radius (bug: no way home from the outer system) ---
+    // The atlas is solved at 1 AU and scaled to the origin's orbit, but kappa was taken at
+    // 1 AU for every origin: a plasma freighter leaving Ganymede was planned 60x too weak
+    // and had no feasible way to Earth (Earth -> Ganymede took 345 days). The trip home must
+    // now be feasible and take about as long as the trip out.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        const auto& ship_class = ship_class_by_id(universe, "plasma_freighter");
+        spacetrains::domain::ShipState ship;
+        ship.class_id = ship_class.id;
+        const spacetrains::trajectory::PlanningOptions options {
+            .propellant_cr_per_kg = 0.1,
+            .time_cr_per_day = 300.0,
+            .payload_kg = 2000.0,
+            .purchasable_propellant_kg = ship_class.propellant_capacity_kg,
+            .reserve_fraction = 0.1,
+        };
+        const auto fastest = [&](const char* from, const char* to) {
+            double best_days = std::numeric_limits<double>::infinity();
+            for (int day = 0; day < 720; day += 60) {
+                const auto plan = visp_planner.plan_transfer(station_by_id(universe, from), station_by_id(universe, to),
+                    ship, ship_class, day * 86400.0, options);
+                if (plan.feasible) {
+                    best_days = std::min(best_days, plan.arrival_time_s / 86400.0 - day);
+                }
+            }
+            return best_days;
+        };
+        const double out_days = fastest("earth_l1", "ganymede_depot");
+        const double home_days = fastest("ganymede_depot", "earth_l1");
+        const auto message = std::format("plasma freighter Earth L1 -> Ganymede {:.0f} d, back {:.0f} d", out_days, home_days);
+        require(std::isfinite(out_days) && std::isfinite(home_days), message.c_str());
+        require(home_days < 1.5 * out_days, message.c_str());
+    }
+
+    // --- VariableISP endpoint regression (bug: trajectory ends in a sharp "dent") ---
+    // Atlas seeds were used unrefined: blended corners mixed solution branches and
+    // nearest-cell seeds were solved for a different rho, so paths missed the destination
+    // (up to 13 AU) and the final snap drew a dent. Seeds are now shooting-refined onto the
+    // stations' actual positions. Cases are from --trajectory-sweep; plus a small grid.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        spacetrains::trajectory::VariableIspTrajectoryPlanner visp_planner(universe, mechanics, visp_atlas);
+        constexpr double kMaxMissM = 7.5e8;  // 0.005 AU
+        const auto check = [&](const char* class_id, const char* from, const char* to, double fuel_fraction, double day) {
+            const auto& ship_class = ship_class_by_id(universe, class_id);
+            spacetrains::domain::ShipState ship;
+            ship.class_id = ship_class.id;
+            ship.propellant_kg = fuel_fraction * ship_class.propellant_capacity_kg;
+            const auto& origin = station_by_id(universe, from);
+            const auto& destination = station_by_id(universe, to);
+            const auto plan = visp_planner.plan_transfer(origin, destination, ship, ship_class, day * 86400.0);
+            if (!plan.feasible) {
+                return false;
+            }
+            const auto audit = spacetrains::trajectory::audit_trajectory(plan);
+            const auto message = std::format("VariableISP {} {}->{} fuel={:.0f}% day={:.0f}: miss={:.4f}AU start={:.4f}AU flags={}",
+                class_id, from, to, fuel_fraction * 100.0, day,
+                plan.diagnostics.endpoint_miss_m / 1.495978707e11, plan.diagnostics.start_miss_m / 1.495978707e11,
+                audit.flags.size());
+            require(plan.diagnostics.endpoint_miss_m < kMaxMissM, message.c_str());
+            require(plan.diagnostics.start_miss_m < kMaxMissM, message.c_str());
+            require(std::find(audit.flags.begin(), audit.flags.end(), "end_dent") == audit.flags.end(), message.c_str());
+            return true;
+        };
+        // Worst cases before the fix: 0.088 AU dent, 13.3 AU overshoot, 0.07 AU dent.
+        // (This one's fastest window now dives below kMinPerihelionM, so it may be infeasible.)
+        check("plasma_courier", "venus_cloud", "earth_l1", 0.65, 185.0);
+        check("plasma_freighter", "mars_transfer", "titan_works", 0.75, 540.0);
+        check("plasma_freighter", "earth_l1", "ceres_depot", 0.65, 384.0);
+        // Moon stations at both ends (offset from the parent planet) and co-orbiting Earth/Moon.
+        check("plasma_courier", "ganymede_depot", "titan_works", 0.35, 480.0);
+        check("plasma_courier", "luna_base", "earth_orbit", 0.35, 15.0);
+        int feasible = 0;
+        for (const char* to : {"venus_cloud", "mars_transfer", "ceres_depot", "mercury_yard"}) {
+            for (const double fuel : {0.2, 0.6, 1.0}) {
+                for (const double day : {0.0, 200.0, 400.0}) {
+                    feasible += check("plasma_freighter", "earth_l1", to, fuel, day) ? 1 : 0;
+                }
+            }
+        }
+        require(feasible >= 20, "most Earth L1 ion freighter plans in the grid should be feasible");
+    }
+
+    // --- Save files: doubles and strings survive a JSON round trip exactly. ---
+    {
+        using spacetrains::persistence::Json;
+        const std::vector<double> values {0.1, 1.0 / 3.0, 1e-300, 1.7976931348623157e308, -0.0, 4.9e-324, 123456789.123456789,
+            std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
+        auto array = Json::array();
+        for (const double value : values) {
+            array.push(value);
+        }
+        auto object = Json::object();
+        object.set("numbers", std::move(array));
+        object.set("text", std::string("a \"quoted\" line\nand a tab\t"));
+        const auto parsed = Json::parse(object.dump());
+        const auto& items = parsed.get("numbers").items();
+        require(items.size() == values.size(), "JSON array length should survive a round trip");
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            require(std::bit_cast<std::uint64_t>(items[i].number()) == std::bit_cast<std::uint64_t>(values[i]),
+                "a double should survive a JSON round trip bit for bit");
+        }
+        require(std::isnan(Json::parse(Json(std::numeric_limits<double>::quiet_NaN()).dump()).number()), "NaN should survive");
+        require(parsed.get("text").string() == "a \"quoted\" line\nand a tab\t", "a string should survive a JSON round trip");
+    }
+
+    // --- Resupply-aware targets: a consumer far from its producers wants more stock than three
+    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer). ---
+    {
+        const auto economy_sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        const auto& economy = economy_sim.economy_system();
+        const auto& mars = *std::find_if(universe.stations.begin(), universe.stations.end(),
+            [](const auto& station) { return station.id == "mars_transfer"; });
+        const auto& lunar = *std::find_if(universe.stations.begin(), universe.stations.end(),
+            [](const auto& station) { return station.id == "luna_base"; });
+        require(economy.cover_days(mars, "food") > 200.0, "Mars should want food for its long resupply");
+        require(economy.cover_days(lunar, "food") == 21.0, "the Moon, days from Earth L1, should want three weeks of food");
+    }
+
+    // --- Save and load: a game continued after a load plays exactly as one that never
+    // stopped (state compared as saved JSON, which holds every mutable field). ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        auto straight = spacetrains::simulation::Simulation::from_data_root(data_root);
+        straight.set_timewarp(86400.0);
+        auto first_half = spacetrains::simulation::Simulation::from_data_root(data_root);
+        first_half.set_timewarp(86400.0);
+        constexpr int kHalfDays = 45;
+        for (int day = 0; day < kHalfDays; ++day) {
+            straight.step(1.0);
+            first_half.step(1.0);
+        }
+        const auto saved = first_half.save_state_json();
+        auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
+        resumed.load_state_json(saved);
+        require(resumed.save_state_json() == saved, "a loaded game should save back to the same JSON");
+        for (int day = 0; day < kHalfDays; ++day) {
+            straight.step(1.0);
+            resumed.step(1.0);
+        }
+        require(resumed.save_state_json() == straight.save_state_json(),
+            "a game saved, loaded and continued should equal one that never stopped");
+        require(resumed.build_report() == straight.build_report(), "reports after a load should match");
+        bool rejected = false;
+        try {
+            resumed.load_state_json("{\"version\":999}");
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        require(rejected, "a save of an unknown version should be rejected");
+        require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
+        std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
+            saved.size() / 1024, kHalfDays, kHalfDays);
+    }
+
+    // --- Emergency resupply (step 14): a station about to run out of oxygen gets an emergency
+    // delivery paid by its faction; the emergency closes when the stock is safe again, and a
+    // game saved with one open continues exactly. ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        auto sim = spacetrains::simulation::Simulation::from_data_root(data_root);
+        sim.set_timewarp(86400.0);
+        sim.set_station_stock("mercury_yard", "oxygen", 0.0);
+        sim.step(0.1);
+        auto snap = sim.snapshot();
+        require(snap.emergencies_opened == 1 && snap.emergencies.size() == 1, "an empty oxygen stock should open an emergency");
+        require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
+            "the emergency should be for Mercury's oxygen");
+        require(snap.emergencies.front().premium == 3.0, "an emergency should start at a 3x premium");
+
+        auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
+        resumed.load_state_json(sim.save_state_json());
+        for (int day = 0; day < 20; ++day) {
+            sim.step(1.0);
+            resumed.step(1.0);
+        }
+        require(resumed.save_state_json() == sim.save_state_json(), "a game saved with an open emergency should continue exactly");
+
+        const auto mercury_oxygen_open = [&] {
+            const auto open = sim.snapshot().emergencies;
+            return std::any_of(open.begin(), open.end(), [](const auto& emergency) {
+                return emergency.station_id == "mercury_yard" && emergency.commodity_id == "oxygen";
+            });
+        };
+        int days = 20;
+        while (days < 300 && mercury_oxygen_open()) {
+            sim.step(1.0);
+            ++days;
+        }
+        require(!mercury_oxygen_open(), "an emergency should close once enough is on its way");
+        while (days < 300 && sim.snapshot().emergency_paid <= 0.0) {
+            sim.step(1.0);
+            ++days;
+        }
+        snap = sim.snapshot();
+        require(snap.emergency_paid > 0.0, "the faction should pay the emergency premium");
+        std::cout << std::format("Emergency: Mercury oxygen resupplied in {} days, factions paid {:.0f} cr\n",
+            days, snap.emergency_paid);
+    }
+
+    // --- Scheduled liners (step 22): a liner only ever flies to the stop after the one it is at,
+    // and keeps going whether or not the leg pays. ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        auto sim = spacetrains::simulation::Simulation::from_data_root(data_root);
+        sim.set_timewarp(86400.0);
+        const auto& liners = sim.universe().liners;
+        require(!liners.empty(), "the data should define scheduled liners");
+        std::map<std::string, std::string> last_port;
+        std::map<std::string, int> legs;
+        for (const auto& ship : sim.snapshot().ships) {
+            last_port[ship.id] = ship.current_station_id;
+        }
+        // Long enough for the first outbound leg to Titan (about 715 days with a full hold).
+        for (int day = 0; day < 800; ++day) {
+            sim.step(1.0);
+            for (const auto& ship : sim.snapshot().ships) {
+                const auto loop = liners.find(ship.id);
+                if (loop == liners.end()) {
+                    continue;
+                }
+                const auto& stops = loop->second;
+                const auto& mission = ship.active_mission;
+                if (!mission.destination_station_id.empty()) {
+                    const auto at = std::find(stops.begin(), stops.end(), mission.origin_station_id);
+                    require(at != stops.end(), "a liner should leave from one of its stops");
+                    const auto next = stops[static_cast<std::size_t>(at - stops.begin() + 1) % stops.size()];
+                    require(mission.destination_station_id == next, "a liner should fly only to its next stop");
+                }
+                // A liner turns round within the day it arrives, so a leg shows as a change of port.
+                if (last_port[ship.id] != ship.current_station_id) {
+                    ++legs[ship.id];
+                    last_port[ship.id] = ship.current_station_id;
+                }
+                require(ship.phase != spacetrains::domain::ShipMissionPhase::LaidUp, "a liner should never lay up");
+            }
+        }
+        for (const auto& [ship_id, stops] : liners) {
+            require(legs[ship_id] >= 1, "a liner should complete legs of its loop");
+            std::cout << std::format("Liner {}: {} legs in 800 days\n", ship_id, legs[ship_id]);
+        }
+    }
+
+    // --- Station growth (step 27): residents come to a station that keeps them supplied and
+    // leave one that does not, within the data's bounds. ---
+    {
+        auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        sim.set_timewarp(86400.0);
+        const auto& universe = sim.universe();
+        const auto& economy = sim.economy_system();
+        const auto definition = [&](const std::string& id) -> const auto& {
+            return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
+        };
+        const auto population = [&](const std::string& id) {
+            for (const auto& station : sim.snapshot().stations) {
+                if (station.station_id == id) {
+                    return station.population;
+                }
+            }
+            return 0.0;
+        };
+        for (int day = 0; day < 240; ++day) {
+            for (const auto& commodity : universe.commodities) {
+                if (economy.is_upkeep(definition("earth_l1"), commodity.id)) {
+                    sim.set_station_stock("earth_l1", commodity.id, 5000.0);
+                }
+                if (economy.is_upkeep(definition("mars_transfer"), commodity.id)) {
+                    sim.set_station_stock("mars_transfer", commodity.id, 0.0);
+                }
+            }
+            sim.step(1.0);
+        }
+        const double earth_seed = static_cast<double>(definition("earth_l1").population);
+        const double mars_seed = static_cast<double>(definition("mars_transfer").population);
+        require(population("earth_l1") > earth_seed, "a well-supplied station should grow");
+        require(population("earth_l1") <= universe.growth.max_population_factor * earth_seed + 1.0e-6,
+            "growth should stop at max_population_factor");
+        require(population("mars_transfer") < mars_seed, "a station without its upkeep goods should shrink");
+        require(population("mars_transfer") >= universe.open_economy.core_crew_fraction * mars_seed - 1.0e-6,
+            "a station should keep its core crew");
+        const auto restored = [&] {
+            auto copy = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+            copy.load_state_json(sim.save_state_json());
+            return copy.snapshot();
+        }();
+        for (const auto& station : restored.stations) {
+            require(std::abs(station.population - population(station.station_id)) < 1.0e-9, "save/load should keep populations");
+        }
+        std::cout << std::format("Growth: Earth L1 {:.0f} -> {:.0f}, Mars {:.0f} -> {:.0f} in 240 days\n",
+            earth_seed, population("earth_l1"), mars_seed, population("mars_transfer"));
+    }
+
+    // --- Events (step 28): the same seed strikes the same events; each runs its drawn
+    // duration and then ends. ---
+    {
+        const auto run = [&] {
+            auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+            sim.set_timewarp(86400.0);
+            for (int day = 0; day < 400; ++day) {
+                sim.step(1.0);
+                const auto snap = sim.snapshot();
+                for (const auto& station : snap.stations) {
+                    for (const auto& active : station.events) {
+                        require(active.end_s > snap.game_time_s, "an event should end when due");
+                        const auto& events = sim.universe().events;
+                        const auto it = std::find_if(events.begin(), events.end(), [&](const auto& e) { return e.id == active.event_id; });
+                        require(it != events.end(), "a running event should be defined");
+                        const double days = (active.end_s - active.start_s) / 86400.0;
+                        require(days >= it->min_days - 1.0e-9 && days <= it->max_days + 1.0e-9, "an event should last its drawn duration");
+                    }
+                }
+            }
+            return sim.snapshot().events_started;
+        };
+        const auto first = run();
+        int total = 0;
+        for (const auto& [event_id, count] : first) {
+            total += count;
+        }
+        require(total > 0, "events should strike within 400 days");
+        require(first == run(), "the same seed should strike the same events");
+        std::cout << std::format("Events: {} struck in 400 days\n", total);
     }
 
     std::cout << "All SpaceTrains tests passed.\n";
