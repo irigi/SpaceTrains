@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "variable_isp/GeneralTransfer.hpp"
 #include "variable_isp/VariableIsp.hpp"
 
 namespace {
@@ -407,6 +408,116 @@ void verify_sample_counts(const std::filesystem::path& dataset_path, const Varia
     }
 }
 
+
+// General-boundary solver (GeneralTransfer.hpp): the atlas costates map exactly to the Cartesian
+// primer, the STM refine agrees with the finite-difference one, and arbitrary-state transfers
+// solve and survive an independent rollout.
+void verify_general_transfer(const std::filesystem::path& dataset_path, const VariableIspIntegrator& integrator) {
+    namespace g = spacetrains::variable_isp::general;
+    const g::Propagator propagator;
+    const JsonValue root = JsonParser(read_text(dataset_path)).parse();
+    std::size_t refined = 0, checked = 0, grazing = 0;
+    for (const auto& entry : root.at("trajectories").array_value) {
+        const AtlasSeed seed = seed_from_json(entry.at("seed"));
+        const auto config = VariableIspIntegrator::canonical_config(entry.at("rho").number_value, entry.at("kappa").number_value);
+        const double length = config.r0_m;
+        const double time = std::sqrt(length * length * length / config.mu_m3_s2);
+        const double accel = length / (time * time);
+        const double k = config.k_gain;
+        const g::Primer primer {
+            {k * seed.params[1] / accel, k * seed.params[2] / accel},
+            {-k * seed.params[0] / (accel / time), -k * (seed.params[4] + config.vtheta0_mps * seed.params[1]) / length / (accel / time)},
+        };
+        const g::State start {{1.0, 0.0}, {0.0, config.vtheta0_mps / (length / time)}};
+        const double T = seed.transfer_time_days * VariableIspIntegrator::kDayS / time;
+        const auto atlas_end = integrator.integrate_fixed_time(seed, config, 2).samples.back();
+        const auto end = propagator.propagate(start, primer, T, false);
+        ++checked;
+        if (!end.ok) {
+            // Atlas arcs that graze the Sun hit the propagator's singularity guard.
+            const auto dense = integrator.integrate_fixed_time(seed, config, 2000).samples;
+            const auto closest = std::min_element(dense.begin(), dense.end(), [](const auto& x, const auto& y) { return x.r_m < y.r_m; });
+            require(closest->r_m < 0.01 * length, "primer rollout of an atlas seed should succeed");
+            ++grazing;
+            continue;
+        }
+        const double effort_from_mass = 2.0 * config.power_w * (1.0 / atlas_end.mass_kg - 1.0 / config.m0_kg) / (accel * accel * time);
+        const double err = std::max({std::abs(g::norm(end.state.r) * length / atlas_end.r_m - 1.0), std::abs(end.sweep_rad - atlas_end.theta_rad),
+            std::abs(end.effort / effort_from_mass - 1.0)});
+        // Near-singular solar passes amplify the two integrators' differences.
+        require(err < (end.min_radius > 0.01 ? 1e-4 : 1e-2), "primer rollout should match the atlas trajectory and mass use");
+
+        // STM refine onto a slightly moved target agrees with the finite-difference refine.
+        const double r_target = atlas_end.r_m * 1.01;
+        const double theta_target = atlas_end.theta_rad + 0.01;
+        const auto fd = integrator.refine_seed(seed, config, r_target, theta_target);
+        const auto stm = integrator.refine_seed_stm(seed, config, [&](double) { return std::pair {r_target, theta_target}; });
+        if (fd.converged && stm.converged && end.min_radius > 0.05) {  // grazing arcs: integrators differ
+            const auto e = integrator.integrate_fixed_time(stm.seed, config, 2).samples.back();
+            std::cout << "  stm r err " << e.r_m / r_target - 1.0 << " th " << e.theta_rad - theta_target << " vr " << e.vr_mps / config.vtheta0_mps << " T " << stm.seed.transfer_time_days / fd.seed.transfer_time_days - 1.0 << " minr " << end.min_radius << "\n";
+            require(std::abs(e.r_m / r_target - 1.0) < 1e-4, "refine_seed_stm should hit the target radius");
+            require(std::abs(e.theta_rad - theta_target) < 1e-4, "refine_seed_stm should hit the target angle");
+            require(std::abs(e.vr_mps) < 1e-3 * config.vtheta0_mps, "refine_seed_stm should arrive with no radial speed");
+            require(std::abs(stm.seed.transfer_time_days / fd.seed.transfer_time_days - 1.0) < 0.05,
+                "refine_seed_stm and refine_seed should agree on the transfer time");
+            ++refined;
+        }
+    }
+    require(refined > 0, "refine_seed_stm should converge on the reference set");
+    require(grazing * 2 < checked, "most atlas reference arcs should not graze the Sun");
+
+    // A chase: from a perturbed circular orbit at 1.5 to a target coasting on an ellipse.
+    const g::State chaser {{1.5, 0.0}, {0.05, 0.85}};
+    const g::State quarry {{1.2, 0.6}, {-0.4, 0.75}};
+    for (const auto end_condition : {g::EndCondition::Rendezvous, g::EndCondition::Intercept}) {
+        const g::TransferRequest request {chaser, g::coasting_target(quarry), end_condition, 0.1};
+        const double T = 1.3;
+        const auto sol = g::solve_transfer(propagator, request, T);
+        require(sol.converged, "solve_transfer should solve the chase");
+        g::PropagationSettings tight;
+        tight.relative_tolerance = 1e-12;
+        tight.absolute_tolerance = 1e-13;
+        const auto rollout = g::Propagator(tight).propagate(chaser, sol.primer, T, false);
+        const auto goal = request.target(T).state;
+        require(g::norm(rollout.state.r - goal.r) < 1e-6, "chase rollout should reach the target");
+        if (end_condition == g::EndCondition::Rendezvous) {
+            require(g::norm(rollout.state.v - goal.v) < 1e-6, "rendezvous rollout should match the target velocity");
+        } else {
+            require(g::norm(rollout.primer.p) < 1e-6, "intercept should end with zero thrust (free arrival velocity)");
+        }
+
+        // Time reversal: flying back with both velocities negated costs the same effort.
+        if (end_condition == g::EndCondition::Rendezvous) {
+            const g::State back_start {goal.r, -1.0 * goal.v};
+            const g::State back_end {chaser.r, -1.0 * chaser.v};
+            const g::TransferRequest back {back_start, g::fixed_target(back_end), end_condition, 0.1};
+            const auto reverse = g::solve_transfer(propagator, back, T);
+            require(reverse.converged && std::abs(reverse.end.effort / sol.end.effort - 1.0) < 1e-6,
+                "the reversed transfer should cost the same effort");
+        }
+
+        // Twice the effort buys an earlier arrival, which uses the budget exactly.
+        const auto fast = g::solve_min_time(propagator, request, 2.0 * sol.end.effort, 0.05, 2.0 * T);
+        require(fast.converged && fast.T < T, "a larger budget should arrive earlier");
+        require(std::abs(fast.end.effort / (2.0 * sol.end.effort) - 1.0) < 1e-6, "the minimum-time transfer should use the budget");
+    }
+
+    // Free-space effort formula against a direct quadrature of u = A + C t.
+    const g::State a {{1.0, 0.2}, {0.1, 0.9}};
+    const g::State b {{-0.5, 1.1}, {-0.6, -0.2}};
+    const double T = 0.7;
+    const auto seed = g::free_space_seed(a, b, T);
+    double quad = 0.0;
+    for (int i = 0; i < 1000; ++i) {
+        const double t = (i + 0.5) * T / 1000.0;
+        const g::Vec2 u = seed.p + t * seed.w;
+        quad += g::dot(u, u) * T / 1000.0;
+    }
+    require(std::abs(quad / g::free_space_effort(a, b, T) - 1.0) < 1e-5, "free-space effort formula");
+    std::cout << "general transfer verified (" << checked << " atlas arcs, " << grazing << " Sun-grazing skipped, " << refined
+              << " STM refines)\n";
+}
+
 int main() {
     const auto repo_root = std::filesystem::current_path();
     VariableIspAtlas atlas;
@@ -419,6 +530,7 @@ int main() {
     verify_dataset(repo_root / "tests/data/variable_isp/reference_validation.json", atlas, integrator, false);
 
     verify_sample_counts(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
+    verify_general_transfer(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
 
     std::cout << "VariableISP tests passed.\n";
     return 0;
