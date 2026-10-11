@@ -293,6 +293,8 @@ struct SolveOptions {
     bool always_try_shape {true};
     bool fallbacks {true};    // multiple shooting, boundary homotopy, time continuation
     int branches {3};         // arrival-angle candidates for the shape seed
+    std::size_t zero_max_propagations {60};
+    std::size_t zero_stall_iterations {8};
     ShapeOptions shape {};
     std::size_t fit_samples {80};
 };

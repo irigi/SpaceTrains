@@ -1003,11 +1003,15 @@ Solution solve_transfer(const Propagator& propagator, const TransferRequest& req
             best_stage = name;
         }
     };
-    const auto shoot_from = [&](const Primer& seed) {
-        return shoot(propagator, request.start, request.target, request.end_condition, seed, T);
+    const auto shoot_from = [&](const Primer& seed, const ShootingOptions& shooting = {}) {
+        return shoot(propagator, request.start, request.target, request.end_condition, seed, T, shooting);
     };
     if (warm != nullptr) consider(shoot_from(*warm), "warm");
-    if (!valid(best, request)) consider(shoot_from({}), "zero");
+    // The zero primer either converges fast or not at all: a short leash, the shape seed follows.
+    ShootingOptions quick;
+    quick.max_propagations = options.zero_max_propagations;
+    quick.stall_iterations = options.zero_stall_iterations;
+    if (!valid(best, request)) consider(shoot_from({}, quick), "zero");
     const bool free_end = request.end_condition == EndCondition::Intercept;
     ShapeResult shape;
     const State end = request.target(T).state;

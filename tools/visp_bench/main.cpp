@@ -431,7 +431,17 @@ int run_general(const std::string& set, const std::vector<Case>& atlas, std::siz
     methods.push_back({"solve_transfer", [&](const GCase& c) {
         const auto t0 = std::chrono::steady_clock::now();
         g::TransferRequest req {c.start, c.target, c.end_condition, 0.1};
-        return g_outcome(g::solve_transfer(propagator(), req, c.T), t0);
+        g::SolveOptions o;
+        if (const char* v = std::getenv("ZERO_PROPS")) o.zero_max_propagations = std::atoi(v);
+        if (const char* v = std::getenv("ZERO_STALL")) o.zero_stall_iterations = std::atoi(v);
+        return g_outcome(g::solve_transfer(propagator(), req, c.T, o), t0);
+    }});
+    methods.push_back({"solve_transfer-nofallback", [&](const GCase& c) {
+        const auto t0 = std::chrono::steady_clock::now();
+        g::TransferRequest req {c.start, c.target, c.end_condition, 0.1};
+        g::SolveOptions o;
+        o.fallbacks = false;
+        return g_outcome(g::solve_transfer(propagator(), req, c.T, o), t0);
     }});
     methods.push_back({"tcont", [&](const GCase& c) {
         const auto t0 = std::chrono::steady_clock::now();

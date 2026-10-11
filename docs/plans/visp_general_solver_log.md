@@ -180,3 +180,16 @@ planning CPU 65 → 52 s per simulated year, headless 365 d 16.8 → 14.7 s, the
 Godot side (headless profile at 432000x, ~120 ships): ~3.5 ms of script per frame at 60 fps (entity
 updates 1.6 ms, snapshot apply 0.8 ms, map icons 0.5 ms), worst ~25 ms when a snapshot with new paths
 arrives; path meshes are already rebuilt per ship only when its plan changes. Not changed.
+
+## Real-time knobs for solve_transfer
+
+| set (300) | default valid / t90 / t99 | `fallbacks = false` valid / t90 / t99 |
+|---|---|---|
+| B | 99.3% / 5.3 ms / 87 ms | 95.3% / 4.6 ms / 38 ms |
+| D | 99.3% / 4.5 ms / 167 ms | 95.7% / 4.3 ms / 22 ms |
+| E | 100% / 1.2 ms / 16 ms | 98.5% / 1.3 ms / 13 ms |
+| AG | 99.3% / 4.6 ms / 147 ms | 96.7% / 3.9 ms / 49 ms |
+
+For a game AI deciding chases every few seconds, `fallbacks = false` bounds the tail at a few percent of
+unsolved requests. A shorter leash for the zero-primer attempt (`zero_max_propagations`,
+`zero_stall_iterations`) changed little (kept at 60 / 8).
