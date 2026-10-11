@@ -48,3 +48,51 @@ diving below half the perihelion limit early.
 
 The two refines converge to slightly different T (minimum-norm in different variables): T within 2%,
 J within 6% on bench R; both are valid solutions of the same equations.
+
+## General solver results (fixed T, `spacetrains_visp_bench <set> --limit N`)
+
+"valid" = converged with perihelion ≥ 0.1 (normalised); "best" = within 0.1% of the lowest effort any
+method found for that case. Times are single-thread on this machine.
+
+| set | cases | method | valid | best | t50 | t90 |
+|---|---|---|---|---|---|---|
+| AG: atlas circular→circular, no atlas seed | 300 | atlas's own solution | 63% | 58% | – | – |
+| | | solve_transfer | 99.3% | 94% | 0.76 ms | 7.9 ms |
+| B: atlas endpoints, velocities kicked ≤30% | 200 | solve_transfer | 99% | 96% | 0.66 ms | 7.2 ms |
+| C: chase a coasting target (≤6 months) | 200 | solve_transfer | 100% | 100% | 0.39 ms | 0.67 ms |
+| | | zero-primer Newton alone | 99% | 99% | 0.06 ms | 0.2 ms |
+| D: hard chase (e ≤ 0.6, ≤1.6 yr, any phase) | 200 | solve_transfer | 99% | 96.5% | 0.68 ms | 6.7 ms |
+| E: chase a thrusting variable-Isp ship | 880 | solve_transfer | 100% | 99.5% | 0.67 ms | 2.2 ms |
+
+Seed/method comparison (share of solvable cases where the method finds the best solution):
+
+| method | AG | B | D | E | notes |
+|---|---|---|---|---|---|
+| zero primer (= LQ/Gramian about the ballistic arc) | 78% | 82% | 83% | 92% | 0.2 ms; first try |
+| boundary homotopy from the ballistic arc | 86% | 88% | 89% | 95% | heavy tail |
+| free-space cubic (Astra D2 seed) | 77% | 79% | 72% | 89% | |
+| polar shape → primer fit → single shooting | 89% | 89% | 94% | 98% | 0.5 ms (6 terms, 24 nodes) |
+| shape → multiple shooting | 91% | 89% | 91% | 97% | needs row equilibration |
+| time continuation from short T | 80% | 84% | 86% | 96% | robust but slow, finds other branches |
+
+`solve_transfer` = warm start (if any) → zero primer → shape fit (always, keeps the lower effort) →
+multiple shooting → boundary homotopy → time continuation (fallbacks only when nothing valid yet).
+`solve_min_time` (geometric T grid, warm starts, budget refinement) on set E: 95% found, 1.9 ms median.
+
+Not pursued: Astra D1 (atlas continuation in end velocities) — the zero-primer/shape seeds already
+solve arbitrary velocities without the atlas, and the atlas only covers circular ends. Astra D3 (SCvx
+with a QP solver) — the shape method is the same idea (direct method) without a QP dependency.
+
+## Adopted: fit near-budget refinements to the fuel (2026-10-11 late)
+
+Planner instrumentation (365 d): 237k candidates, **56% rejected as fuel-limited** after refinement,
+16% refine failures, 2% perihelion; 17% of VISP plans found no window. `fit_effort_by_time` changes T
+(safeguarded secant over warm-started fixed-T shootings, direction from dJ/dT = −2h) until the effort fits.
+In game, fits within 10% over budget succeed 88%; beyond that about half fail (the effort minimum at that
+departure is above the budget), so the planner only fits up to 10% over (`max_budget_overshoot`).
+
+| | STM refine only | + fuel fit (≤10%) |
+|---|---|---|
+| no-window plans (365 d) | 13064 / 75570 | 10153 / 73016 |
+| headless 365 d | 26.0 s | 30.2 s |
+| benchmark.py unmet / profitable / run | 4.8 ± 0.5 % / 51.2 / 122 s | 4.6 ± 0.5 % / 54.0 / 138 s |
