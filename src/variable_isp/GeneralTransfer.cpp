@@ -619,8 +619,6 @@ Solution shoot(
     return solution;
 }
 
-
-
 Solution multiple_shoot(
     const Propagator& propagator,
     const State& start,
@@ -1534,8 +1532,6 @@ ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& s
     out.thrust_rate = (1.0 / ((sb - sa) * T)) * (t2 - t1);
     return out;
 }
-
-
 
 Primer fit_primer(const std::vector<double>& times, const std::vector<Vec2>& positions, const std::vector<Vec2>& thrust,
     std::vector<Primer>* history) {
