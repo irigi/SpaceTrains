@@ -1,11 +1,41 @@
 # Wobbly Paths to Ganymede and Titan: Diagnosis and Fix Plan
 
-Status: diagnosed 2026-10-11, fix **not implemented**. Discuss with the user before coding.
+Status: the heliocentric wobble is fixed in the drawing (2026-10-11, see "Revisited" below). F1 and F2 are not
+implemented.
 
 Reported by the user (2026-10-09, `docs/roadmap.md`): drawn trajectories of ships flying to Ganymede and Titan show
 wobbles, as if computed or drawn in the moon's frame without subtracting the moon's motion around its planet.
 
-## Findings
+## Revisited: the wobble is in the heliocentric frame (fixed)
+
+The user clarified that the mild wobble shows in the heliocentric frame, not in the moon's. The path samples there
+are smooth: residuals from a smoothing spline are ≤ 0.0003 AU. The wobble came from **drawing between the
+samples**:
+- `_helio_point_m` interpolated radius and angle *linearly* in time.
+- On the long, nearly radial stretches of outer-system flights, samples are up to 0.4 AU apart. A linear r/θ
+  interpolation bows such a stretch sideways and leaves a corner at every sample.
+
+Measured over 155 interplanetary paths (snapshots on days 120-720), as the drawn line's distance from a smooth
+cubic spline through the same samples:
+
+| Drawing | Worst path | 90th percentile |
+|---|---|---|
+| Linear r/θ (before) | 0.031 AU | 0.005 AU |
+| Cubic Hermite r/θ (now) | 0.005 AU | 0.001 AU |
+
+Of the 25 worst paths, 23 went to or from Ganymede, Titan or Luna, which is why it looked like a moon problem:
+outer-moon routes are the long ones with near-radial legs.
+
+**Fix (Godot only):** `Main.gd` `_cache_helio_polar` stores each sample's radius, unwound angle and their rates.
+The rates are time-weighted central differences, taken from samples within the flight only, so wait samples
+before departure don't bend the start. `_helio_point_m` interpolates with a cubic Hermite. The line still passes
+exactly through every sample and is now smooth at each one. ShotTour gained `--shot-moon-paths`: up to four
+moon-bound ships at three zooms.
+
+What follows is the first diagnosis. It is still true but a separate issue: it shows only in a frame that
+follows the moon.
+
+## Findings (first diagnosis: the moon's frame)
 
 Evidence comes from headless snapshots (`--snapshot-json`, days 120-720), a bridge snapshot at day 124, a Python
 port of the Godot rail-drawing code, and ShotTour screenshots. The scripts were scratch work; they are described
@@ -66,7 +96,7 @@ wait would zigzag, and the audit's `coarse_wait` check (heliocentric angle only)
 
 ## Proposed Fix
 
-### F1: an in-system leg at moon stations (recommended; the physics, not only the picture)
+### F1: an in-system leg at moon stations (the physics; lower priority now that the visible wobble is fixed)
 
 Split every interplanetary leg that starts or ends at a moon station into:
 

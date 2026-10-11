@@ -149,9 +149,10 @@ ships flying to these moons show wobbles, as if the path were computed or drawn 
 subtracting its circular motion around the planet. Check first: step 25 (smooth drawing of outer-system paths),
 the endpoint/start snap onto the moon station's position, and whether path samples mix heliocentric and
 moon-relative positions. Add a `--trajectory-audit` check and a regression test.
-Diagnosed 2026-10-11 (`docs/plans/wobbly_moon_paths.md`): paths to moon stations co-move with the planet and
-meet the moon at its full orbital speed (10.9 km/s at Ganymede), which loops in the moon's frame; Kepler wait
-samples at moon stations also alias. Fix plan F1/F2 with audit checks and tests awaits the user's review.
+Fixed 2026-10-11 (`docs/plans/wobbly_moon_paths.md`): the wobble the user saw in the heliocentric frame came from
+Godot's linear r/θ interpolation between path samples, which bowed long near-radial outer-system legs by up to
+0.03 AU. Cubic Hermite now (≤ 0.005 AU). Still open, lower priority: moon legs meet the moon at its orbital speed
+(F1, only visible in the moon's frame), and Kepler wait samples at moon stations alias (F2).
 
 Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in `ship_structures_log.md`):
 - **Tier 1, done 2026-10-11:** every class's parts (engine, radiators, tanks, habitat split by NASA's Deep Space
