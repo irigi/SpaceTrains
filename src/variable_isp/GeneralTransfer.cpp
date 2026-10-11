@@ -89,7 +89,8 @@ bool min_norm_step(const std::vector<double>& jac, const std::vector<double>& f,
 // y: r(0,1) v(2,3) p(4,5) w(6,7) E(8) sweep(9), then the 9x4 transition matrix column-major
 // by unknown: entries 10 + 9*c + row.
 constexpr std::size_t kBase = 10;
-constexpr std::size_t kWithStm = kBase + 36;
+constexpr std::size_t kWithStm = kBase + 36;   // columns ∂/∂(p0, w0)
+constexpr std::size_t kFullStm = kBase + 72;   // columns ∂/∂(r0, v0, p0, w0)
 
 template <std::size_t N>
 using Vec = std::array<double, N>;
@@ -118,9 +119,9 @@ void rhs(const Vec<N>& y, Vec<N>& dy) {
     dy[8] = px * px + pz * pz;
     dy[9] = (x * y[3] - z * y[2]) / r2;
 
-    if constexpr (N == kWithStm) {
+    if constexpr (N > kBase) {
         const double inv7 = inv5 / r2;
-        for (std::size_t c = 0; c < 4; ++c) {
+        for (std::size_t c = 0; c < (N - kBase) / 9; ++c) {
             const double* s = &y[kBase + 9 * c];
             double* ds = &dy[kBase + 9 * c];
             const double drx = s[0], drz = s[1];
@@ -314,6 +315,28 @@ EndPoint Propagator::propagate(const State& start, const Primer& primer, double 
     return end;
 }
 
+
+SegmentEnd Propagator::propagate_segment(const std::array<double, 8>& x0, double dt) const {
+    SegmentEnd out;
+    Vec<kFullStm> y {};
+    for (std::size_t i = 0; i < 8; ++i) {
+        y[i] = x0[i];
+        y[kBase + 9 * i + i] = 1.0;
+    }
+    if (!(dt > 0.0)) return out;
+    const auto stats = integrate<kFullStm>(y, dt, settings_, [](double, const auto&) {});
+    for (std::size_t i = 0; i < 8; ++i) out.x[i] = y[i];
+    out.effort = y[8];
+    out.sweep_rad = y[9];
+    out.min_radius = std::min(stats.min_radius, std::hypot(x0[0], x0[1]));
+    for (std::size_t c = 0; c < 8; ++c) {
+        for (std::size_t r = 0; r < 9; ++r) out.stm[r][c] = y[kBase + 9 * c + r];
+    }
+    out.steps = stats.steps;
+    out.ok = stats.ok && std::isfinite(y[0]) && std::isfinite(y[8]);
+    return out;
+}
+
 std::vector<Sample> Propagator::sample(const State& start, const Primer& primer, double T, std::size_t count) const {
     // Integrate between output times (each leg adaptive): simple and accurate enough for
     // checks and rendering.
@@ -424,8 +447,11 @@ Solution shoot(
         return solution;
     }
     double lambda = 0.0;
+    const double start_norm = current.norm;
     for (; solution.iterations < options.max_iterations; ++solution.iterations) {
         if (current.norm <= options.tolerance) break;
+        if (solution.propagations >= options.max_propagations) break;
+        if (solution.iterations >= options.stall_iterations && current.norm > options.stall_fraction * start_norm) break;
         // Column scaling (Jacobian-norm), like scipy's x_scale="jac".
         std::vector<double> scale(n, 1.0);
         std::vector<double> jac = current.jac;
@@ -436,7 +462,7 @@ Solution shoot(
             for (std::size_t r = 0; r < m; ++r) jac[r * n + c] /= scale[c];
         }
         bool accepted = false;
-        for (int attempt = 0; attempt < 10 && !accepted; ++attempt) {
+        for (int attempt = 0; attempt < 10 && !accepted && solution.propagations < options.max_propagations; ++attempt) {
             std::vector<double> dx;
             if (!(m < n ? min_norm_step(jac, current.f, m, n, lambda, dx) : lm_step(jac, current.f, m, n, lambda, dx))) {
                 lambda = lambda == 0.0 ? 1e-3 : lambda * 10.0;
@@ -466,6 +492,510 @@ Solution shoot(
     solution.residual = current.norm;
     solution.converged = current.norm <= options.tolerance;
     return solution;
+}
+
+
+
+Solution multiple_shoot(
+    const Propagator& propagator,
+    const State& start,
+    const Target& target,
+    EndCondition end_condition,
+    double T,
+    const std::vector<std::array<double, 8>>& nodes,
+    const ShootingOptions& options) {
+    Solution solution;
+    const std::size_t K = nodes.size();
+    if (K == 0) return solution;
+    const double dt = T / static_cast<double>(K);
+    const std::size_t n = 4 + 8 * (K - 1);
+    const std::size_t m = n;
+    std::vector<double> x(n);
+    for (std::size_t i = 0; i < 4; ++i) x[i] = nodes[0][4 + i];
+    for (std::size_t k = 1; k < K; ++k)
+        for (std::size_t i = 0; i < 8; ++i) x[4 + 8 * (k - 1) + i] = nodes[k][i];
+    const TargetPoint tp = target(T);
+
+    struct Eval {
+        bool ok {false};
+        std::vector<double> f, jac;
+        std::vector<SegmentEnd> segments;
+        double norm {std::numeric_limits<double>::infinity()};
+    };
+    const auto evaluate = [&](const std::vector<double>& xv) {
+        Eval e;
+        e.f.assign(m, 0.0);
+        e.jac.assign(m * n, 0.0);
+        e.segments.resize(K);
+        for (std::size_t k = 0; k < K; ++k) {
+            std::array<double, 8> x0 {};
+            if (k == 0) {
+                x0 = {start.r.x, start.r.y, start.v.x, start.v.y, xv[0], xv[1], xv[2], xv[3]};
+            } else {
+                for (std::size_t i = 0; i < 8; ++i) x0[i] = xv[4 + 8 * (k - 1) + i];
+            }
+            e.segments[k] = propagator.propagate_segment(x0, dt);
+            ++solution.propagations;
+            if (!e.segments[k].ok) return e;
+            const auto& seg = e.segments[k];
+            // Columns of this segment's start unknowns.
+            const auto col_of = [&](std::size_t i) -> long {
+                if (k == 0) return i >= 4 ? static_cast<long>(i - 4) : -1;
+                return static_cast<long>(4 + 8 * (k - 1) + i);
+            };
+            if (k + 1 < K) {
+                for (std::size_t r = 0; r < 8; ++r) {
+                    const std::size_t row = 8 * k + r;
+                    e.f[row] = seg.x[r] - xv[4 + 8 * k + r];
+                    for (std::size_t i = 0; i < 8; ++i) {
+                        const long c = col_of(i);
+                        if (c >= 0) e.jac[row * n + static_cast<std::size_t>(c)] = seg.stm[r][i];
+                    }
+                    e.jac[row * n + 4 + 8 * k + r] = -1.0;
+                }
+            } else {
+                const std::size_t base = 8 * k;
+                std::array<std::size_t, 4> rows {0, 1, 2, 3};
+                std::array<double, 4> goal {tp.state.r.x, tp.state.r.y, tp.state.v.x, tp.state.v.y};
+                if (end_condition == EndCondition::Intercept) {
+                    rows = {0, 1, 4, 5};
+                    goal[2] = goal[3] = 0.0;
+                }
+                for (std::size_t r = 0; r < 4; ++r) {
+                    e.f[base + r] = seg.x[rows[r]] - goal[r];
+                    for (std::size_t i = 0; i < 8; ++i) {
+                        const long c = col_of(i);
+                        if (c >= 0) e.jac[(base + r) * n + static_cast<std::size_t>(c)] = seg.stm[rows[r]][i];
+                    }
+                }
+            }
+        }
+        double mx = 0.0;
+        for (const double v : e.f) mx = std::max(mx, std::abs(v));
+        e.norm = mx;
+        e.ok = true;
+        return e;
+    };
+    const auto sq = [](const std::vector<double>& f) {
+        double s2 = 0.0;
+        for (const double v : f) s2 += v * v;
+        return s2;
+    };
+
+    Eval current = evaluate(x);
+    if (!current.ok) return solution;
+    // Fixed row weights (equilibrate the Jacobian rows at the start) for the merit function and
+    // the steps: continuity rows of primer and position differ by orders of magnitude.
+    std::vector<double> row_weight(m, 1.0);
+    for (std::size_t r = 0; r < m; ++r) {
+        double s2 = 0.0;
+        for (std::size_t c = 0; c < n; ++c) s2 += current.jac[r * n + c] * current.jac[r * n + c];
+        row_weight[r] = s2 > 0.0 ? 1.0 / std::sqrt(s2) : 1.0;
+    }
+    const auto weigh = [&](Eval& e) {
+        for (std::size_t r = 0; r < m; ++r) {
+            e.f[r] *= row_weight[r];
+            for (std::size_t c = 0; c < n; ++c) e.jac[r * n + c] *= row_weight[r];
+        }
+    };
+    const auto raw_norm = [&](const Eval& e) {
+        double mx = 0.0;
+        for (std::size_t r = 0; r < m; ++r) mx = std::max(mx, std::abs(e.f[r] / row_weight[r]));
+        return mx;
+    };
+    weigh(current);
+    const double start_norm = current.norm;
+    double lambda = 0.0;
+    for (; solution.iterations < options.max_iterations; ++solution.iterations) {
+        if (current.norm <= options.tolerance) break;
+        if (solution.propagations >= options.max_propagations * K) break;
+        if (solution.iterations >= options.stall_iterations && current.norm > options.stall_fraction * start_norm) break;
+        std::vector<double> scale(n, 1.0);
+        std::vector<double> jac = current.jac;
+        for (std::size_t c = 0; c < n; ++c) {
+            double s2 = 0.0;
+            for (std::size_t r = 0; r < m; ++r) s2 += jac[r * n + c] * jac[r * n + c];
+            scale[c] = s2 > 0.0 ? std::sqrt(s2) : 1.0;
+            for (std::size_t r = 0; r < m; ++r) jac[r * n + c] /= scale[c];
+        }
+        bool accepted = false;
+        for (int attempt = 0; attempt < 10 && !accepted; ++attempt) {
+            std::vector<double> dx;
+            bool solved = false;
+            if (lambda == 0.0) {
+                std::vector<double> a = jac;
+                dx = current.f;
+                for (double& v : dx) v = -v;
+                solved = solve_dense(a, dx, n);
+            } else {
+                solved = lm_step(jac, current.f, m, n, lambda, dx);
+            }
+            if (!solved) {
+                lambda = lambda == 0.0 ? 1e-3 : lambda * 10.0;
+                continue;
+            }
+            std::vector<double> trial = x;
+            for (std::size_t c = 0; c < n; ++c) trial[c] += dx[c] / scale[c];
+            Eval next = evaluate(trial);
+            if (next.ok) {
+                weigh(next);
+                next.norm = raw_norm(next);
+            }
+            if (next.ok && sq(next.f) < sq(current.f)) {
+                x = std::move(trial);
+                current = std::move(next);
+                lambda *= 0.1;
+                if (lambda < 1e-6) lambda = 0.0;
+                accepted = true;
+            } else {
+                lambda = lambda == 0.0 ? 1e-3 : lambda * 10.0;
+            }
+        }
+        if (!accepted) break;
+    }
+    solution.primer = {{x[0], x[1]}, {x[2], x[3]}};
+    solution.T = T;
+    solution.residual = current.norm;
+    solution.converged = current.norm <= options.tolerance;
+    // Assemble the end point from the segments.
+    EndPoint end;
+    end.ok = current.ok;
+    end.min_radius = std::numeric_limits<double>::infinity();
+    for (const auto& seg : current.segments) {
+        end.effort += seg.effort;
+        end.sweep_rad += seg.sweep_rad;
+        end.min_radius = std::min(end.min_radius, seg.min_radius);
+        end.steps += seg.steps;
+    }
+    const auto& last = current.segments.back().x;
+    end.state = {{last[0], last[1]}, {last[2], last[3]}};
+    end.primer = {{last[4], last[5]}, {last[6], last[7]}};
+    solution.end = end;
+    return solution;
+}
+
+Solution continue_in_time(
+    const Propagator& propagator,
+    const State& start,
+    const Target& target,
+    EndCondition end_condition,
+    double T_to,
+    const ContinuationOptions& options,
+    const ShootingOptions& shooting) {
+    std::size_t propagations = 0;
+    double T = std::min(options.T_from, T_to);
+    ShootingOptions fixed = shooting;
+    fixed.free_time = false;
+    Solution current;
+    // Short-T start: free-space seed toward the target's state at T.
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        const auto tp = target(T);
+        current = shoot(propagator, start, target, end_condition, free_space_seed(start, tp.state, T), T, fixed);
+        propagations += current.propagations;
+        if (current.converged) break;
+        T *= 0.5;
+    }
+    if (!current.converged) {
+        current.propagations = propagations;
+        return current;
+    }
+    const auto budget_solve = [&](const Solution& from) {
+        ShootingOptions budget = shooting;
+        budget.free_time = true;
+        budget.match_budget = true;
+        budget.effort_budget = options.stop_effort;
+        auto sol = shoot(propagator, start, target, end_condition, from.primer, from.T, budget);
+        propagations += sol.propagations;
+        sol.propagations = propagations;
+        return sol;
+    };
+    if (options.stop_effort > 0.0 && current.end.effort <= options.stop_effort) {
+        return budget_solve(current);
+    }
+    double growth = options.initial_growth;
+    for (std::size_t step = 0; step < options.max_steps && T < T_to; ++step) {
+        const double T_next = std::min(T_to, T * growth);
+        // Tangent predictor: F_z dz = −F_T dT, with F_z from the transition matrix at T.
+        Primer predicted = current.primer;
+        {
+            const auto end = propagator.propagate(start, current.primer, T, true);
+            ++propagations;
+            const auto tp = target(T);
+            std::array<std::size_t, 4> rows {0, 1, 2, 3};
+            std::array<double, 4> ft {};
+            const Vec2 g = gravity(end.state.r);
+            ft[0] = end.state.v.x - tp.velocity.x;
+            ft[1] = end.state.v.y - tp.velocity.y;
+            if (end_condition == EndCondition::Rendezvous) {
+                ft[2] = g.x + end.primer.p.x - tp.acceleration.x;
+                ft[3] = g.y + end.primer.p.y - tp.acceleration.y;
+            } else {
+                rows = {0, 1, 4, 5};
+                ft[2] = end.primer.w.x;
+                ft[3] = end.primer.w.y;
+            }
+            std::vector<double> a(16), b(4);
+            for (std::size_t r = 0; r < 4; ++r) {
+                for (std::size_t c = 0; c < 4; ++c) a[r * 4 + c] = end.stm[rows[r]][c];
+                b[r] = -ft[r] * (T_next - T);
+            }
+            if (end.ok && solve_dense(a, b, 4)) {
+                predicted.p = predicted.p + Vec2 {b[0], b[1]};
+                predicted.w = predicted.w + Vec2 {b[2], b[3]};
+            }
+        }
+        auto next = shoot(propagator, start, target, end_condition, predicted, T_next, fixed);
+        propagations += next.propagations;
+        if (!next.converged) {
+            growth = 1.0 + 0.5 * (growth - 1.0);
+            if (growth < options.min_growth) break;
+            continue;
+        }
+        if (options.stop_effort > 0.0 && next.end.effort <= options.stop_effort) {
+            return budget_solve(next);
+        }
+        T = T_next;
+        current = std::move(next);
+        growth = std::min(options.max_growth, 1.0 + 1.5 * (growth - 1.0));
+    }
+    current.propagations = propagations;
+    if (T < T_to) current.converged = false;
+    if (options.stop_effort > 0.0) current.converged = false;  // budget never reached
+    return current;
+}
+
+
+Solution continue_in_boundary(
+    const Propagator& propagator,
+    const State& start,
+    const Target& target,
+    EndCondition end_condition,
+    double T,
+    const BoundaryHomotopyOptions& options,
+    const ShootingOptions& shooting) {
+    std::size_t propagations = 0;
+    const auto coast = propagator.propagate(start, {}, T, false);
+    ++propagations;
+    Solution failed;
+    if (!coast.ok) {
+        failed.propagations = propagations;
+        return failed;
+    }
+    const TargetPoint real = target(T);
+    const State delta {real.state.r - coast.state.r, real.state.v - coast.state.v};
+    const auto blended = [&](double lambda) {
+        const State st {coast.state.r + lambda * delta.r, coast.state.v + lambda * delta.v};
+        return fixed_target(st);
+    };
+    ShootingOptions corrector = shooting;
+    corrector.free_time = false;
+    corrector.max_iterations = options.corrector_iterations;
+    corrector.stall_iterations = options.corrector_iterations;
+
+    Primer z {};  // exact at λ = 0
+    double lambda = 0.0;
+    double step = options.first_step;
+    Solution current;
+    current.converged = true;
+    current.T = T;
+    while (lambda < 1.0) {
+        const double next_lambda = std::min(1.0, lambda + step);
+        // Predictor: F_z dz = Δ dλ (the residual's target part moves with λ).
+        Primer predicted = z;
+        if (lambda > 0.0) {
+            const auto end = propagator.propagate(start, z, T, true);
+            ++propagations;
+            std::array<std::size_t, 4> rows {0, 1, 2, 3};
+            std::array<double, 4> d {delta.r.x, delta.r.y, delta.v.x, delta.v.y};
+            if (end_condition == EndCondition::Intercept) {
+                rows = {0, 1, 4, 5};
+                d[2] = d[3] = 0.0;
+            }
+            std::vector<double> a(16), b(4);
+            for (std::size_t r = 0; r < 4; ++r) {
+                for (std::size_t c = 0; c < 4; ++c) a[r * 4 + c] = end.stm[rows[r]][c];
+                b[r] = d[r] * (next_lambda - lambda);
+            }
+            if (end.ok && solve_dense(a, b, 4)) {
+                predicted.p = predicted.p + Vec2 {b[0], b[1]};
+                predicted.w = predicted.w + Vec2 {b[2], b[3]};
+            }
+        }
+        auto sol = shoot(propagator, start, blended(next_lambda), end_condition, predicted, T, corrector);
+        propagations += sol.propagations;
+        if (sol.converged) {
+            lambda = next_lambda;
+            z = sol.primer;
+            current = std::move(sol);
+            step = std::min(1.0, step * 2.0);
+        } else {
+            step *= 0.5;
+            if (step < options.min_step) {
+                failed.propagations = propagations;
+                return failed;
+            }
+        }
+    }
+    // The blended target at λ = 1 is the real end state; for a moving target the residual is the
+    // same, so the last corrector result is the answer.
+    current.propagations = propagations;
+    return current;
+}
+
+
+// ---- Solvers -----------------------------------------------------------------------------------
+
+namespace {
+
+bool valid(const Solution& s, const TransferRequest& request) {
+    return s.converged && s.end.ok && s.end.min_radius >= request.min_radius;
+}
+
+// Shape seed for a fixed end state: best of the arrival-angle branches.
+ShapeResult best_shape(const State& start, const State& end, double T, const SolveOptions& options, bool free_end) {
+    ShapeOptions opt = options.shape;
+    opt.free_end_velocity = free_end;
+    ShapeResult best;
+    for (const double th : arrival_angle_candidates(start, end, T, options.branches)) {
+        auto sh = shape_solve(start, end, T, th, opt);
+        if (sh.ok && (!best.ok || sh.effort < best.effort)) best = std::move(sh);
+    }
+    return best;
+}
+
+}  // namespace
+
+Solution solve_transfer(const Propagator& propagator, const TransferRequest& request, double T,
+    const SolveOptions& options, const Primer* warm, const char** stage) {
+    Solution best;
+    std::size_t propagations = 0;
+    const char* best_stage = nullptr;
+    const auto consider = [&](Solution s, const char* name) {
+        propagations += s.propagations;
+        if (valid(s, request) && (!valid(best, request) || s.end.effort < best.end.effort)) {
+            best = std::move(s);
+            best_stage = name;
+        }
+    };
+    const auto shoot_from = [&](const Primer& seed) {
+        return shoot(propagator, request.start, request.target, request.end_condition, seed, T);
+    };
+    if (warm != nullptr) consider(shoot_from(*warm), "warm");
+    if (!valid(best, request)) consider(shoot_from({}), "zero");
+    const bool free_end = request.end_condition == EndCondition::Intercept;
+    ShapeResult shape;
+    const State end = request.target(T).state;
+    if (options.always_try_shape || !valid(best, request)) {
+        shape = best_shape(request.start, end, T, options, free_end);
+        if (shape.ok) {
+            std::vector<double> times;
+            std::vector<Vec2> positions, thrust;
+            for (std::size_t i = 0; i < options.fit_samples; ++i) {
+                const double sv = static_cast<double>(i) / static_cast<double>(options.fit_samples - 1);
+                const auto pt = shape_eval(request.start, end, shape, sv, false);
+                times.push_back(sv * T);
+                positions.push_back(pt.state.r);
+                thrust.push_back(pt.thrust);
+            }
+            consider(shoot_from(fit_primer(times, positions, thrust)), "shape");
+        }
+    }
+    if (options.fallbacks && !valid(best, request)) {
+        if (shape.ok) {
+            const std::size_t K = std::clamp<std::size_t>(static_cast<std::size_t>(std::ceil(std::abs(shape.theta_end) / 1.5)), 2, 16);
+            const std::size_t per = 25;
+            std::vector<double> times;
+            std::vector<Vec2> positions, thrust;
+            std::vector<State> states;
+            for (std::size_t i = 0; i <= K * per; ++i) {
+                const double sv = static_cast<double>(i) / static_cast<double>(K * per);
+                const auto pt = shape_eval(request.start, end, shape, sv, false);
+                times.push_back(sv * T);
+                positions.push_back(pt.state.r);
+                thrust.push_back(pt.thrust);
+                states.push_back(pt.state);
+            }
+            std::vector<Primer> history;
+            fit_primer(times, positions, thrust, &history);
+            std::vector<std::array<double, 8>> nodes;
+            for (std::size_t k = 0; k < K; ++k) {
+                const auto& st = states[k * per];
+                const auto& pr = history[k * per];
+                nodes.push_back({st.r.x, st.r.y, st.v.x, st.v.y, pr.p.x, pr.p.y, pr.w.x, pr.w.y});
+            }
+            consider(multiple_shoot(propagator, request.start, request.target, request.end_condition, T, nodes), "multiple");
+        }
+    }
+    if (options.fallbacks && !valid(best, request)) {
+        consider(continue_in_boundary(propagator, request.start, request.target, request.end_condition, T), "boundary");
+    }
+    if (options.fallbacks && !valid(best, request)) {
+        consider(continue_in_time(propagator, request.start, request.target, request.end_condition, T), "time");
+    }
+    if (!valid(best, request)) best.converged = false;
+    best.propagations = propagations;
+    if (stage != nullptr) *stage = best_stage;
+    return best;
+}
+
+Solution solve_min_time(const Propagator& propagator, const TransferRequest& request, double budget, double T_lo,
+    double T_hi, const MinTimeOptions& options) {
+    std::size_t propagations = 0;
+    const double ratio = std::pow(T_hi / T_lo, 1.0 / static_cast<double>(std::max<std::size_t>(1, options.grid - 1)));
+    Solution previous;
+    bool have_previous = false;
+    double previous_T = 0.0;
+    SolveOptions cheap = options.solve;
+    for (std::size_t i = 0; i < options.grid; ++i) {
+        const double T = T_lo * std::pow(ratio, static_cast<double>(i));
+        // Warm start from the previous grid point; the full portfolio when that fails.
+        Solution sol;
+        if (have_previous) {
+            sol = shoot(propagator, request.start, request.target, request.end_condition, previous.primer, T);
+            propagations += sol.propagations;
+        }
+        if (!(sol.converged && sol.end.min_radius >= request.min_radius)) {
+            sol = solve_transfer(propagator, request, T, cheap);
+            propagations += sol.propagations;
+        }
+        if (!sol.converged) {
+            have_previous = false;
+            continue;
+        }
+        if (sol.end.effort <= budget) {
+            // Refine the crossing on the budget equation from the feasible side (or keep this
+            // grid point when it is the first and already feasible).
+            const Solution& from = (have_previous && previous.end.effort > budget) ? previous : sol;
+            const double T_from = (have_previous && previous.end.effort > budget) ? previous_T : T;
+            ShootingOptions budget_shoot;
+            budget_shoot.free_time = true;
+            budget_shoot.match_budget = true;
+            budget_shoot.effort_budget = budget;
+            budget_shoot.min_time = 0.5 * T_from;
+            // Secant guess between the bracketing grid points (effort falls with T here).
+            double T_guess = T;
+            if (&from == &previous) {
+                const double e0 = std::log(previous.end.effort), e1 = std::log(sol.end.effort);
+                const double frac = (e0 - std::log(budget)) / std::max(1e-12, e0 - e1);
+                T_guess = std::exp(std::log(previous_T) + frac * (std::log(T) - std::log(previous_T)));
+            }
+            const Primer& seed = (&from == &previous) ? previous.primer : sol.primer;
+            auto refined = shoot(propagator, request.start, request.target, request.end_condition, seed, T_guess, budget_shoot);
+            propagations += refined.propagations;
+            if (refined.converged && refined.end.min_radius >= request.min_radius && refined.T <= T * (1.0 + 1e-9)) {
+                refined.propagations = propagations;
+                return refined;
+            }
+            sol.propagations = propagations;
+            return sol;  // grid point: feasible, slightly later than the true minimum
+        }
+        previous = sol;
+        previous_T = T;
+        have_previous = true;
+    }
+    Solution none;
+    none.propagations = propagations;
+    return none;
 }
 
 // ---- Seeds ------------------------------------------------------------------------------------
@@ -735,7 +1265,7 @@ ShapeResult shape_solve(
     return result;
 }
 
-ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& shape, double s) {
+ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& shape, double s, bool with_rate) {
     const Polar a = polar(start);
     const Polar b = polar(end);
     const std::size_t terms = shape.terms;
@@ -763,6 +1293,7 @@ ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& s
     };
     ShapePoint out;
     point(at(s), out.state, out.thrust);
+    if (!with_rate) return out;
     // Thrust rate by central difference in time.
     const double ds = 1e-5;
     State s1, s2;
@@ -956,12 +1487,15 @@ TimedShapePoint angle_shape_eval(const State& start, const State& end, const Sha
     return out;
 }
 
-Primer fit_primer(const std::vector<double>& times, const std::vector<Vec2>& positions, const std::vector<Vec2>& thrust) {
+Primer fit_primer(const std::vector<double>& times, const std::vector<Vec2>& positions, const std::vector<Vec2>& thrust,
+    std::vector<Primer>* history) {
     // Propagate the four basis solutions of p'' = G(r(t)) p along the given path (positions at
     // `times`, linearly interpolated inside a step via RK4 on midpoints), then least squares.
     const std::size_t count = times.size();
     std::array<std::array<double, 4>, 4> basis {};  // [solution][p.x, p.y, w.x, w.y]
     for (std::size_t c = 0; c < 4; ++c) basis[c][c] = 1.0;
+    std::vector<std::array<std::array<double, 4>, 4>> basis_history;
+    if (history != nullptr) basis_history.push_back(basis);
     std::array<double, 16> ata {};
     std::array<double, 4> atb {};
     const auto accumulate = [&](std::size_t i) {
@@ -1001,12 +1535,22 @@ Primer fit_primer(const std::vector<double>& times, const std::vector<Vec2>& pos
             const auto k4 = deriv(t, r1);
             for (int j = 0; j < 4; ++j) s[j] += h / 6.0 * (k1[j] + 2 * k2[j] + 2 * k3[j] + k4[j]);
         }
+        if (history != nullptr) basis_history.push_back(basis);
         accumulate(i);
     }
     std::vector<double> a(ata.begin(), ata.end());
     std::vector<double> b(atb.begin(), atb.end());
     for (std::size_t i = 0; i < 4; ++i) a[i * 4 + i] *= 1.0 + 1e-12;
     if (!solve_dense(a, b, 4)) return {};
+    if (history != nullptr) {
+        history->clear();
+        for (const auto& bs : basis_history) {
+            std::array<double, 4> y {};
+            for (std::size_t c = 0; c < 4; ++c)
+                for (std::size_t j = 0; j < 4; ++j) y[j] += b[c] * bs[c][j];
+            history->push_back({{y[0], y[1]}, {y[2], y[3]}});
+        }
+    }
     return {{b[0], b[1]}, {b[2], b[3]}};
 }
 

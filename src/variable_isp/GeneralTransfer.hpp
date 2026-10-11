@@ -90,11 +90,23 @@ struct Sample {
     double effort {0.0};
 };
 
+// One multiple-shooting segment: full state (r, v, p, w) after dt and ∂(r, v, p, w, E)/∂(start).
+struct SegmentEnd {
+    std::array<double, 8> x {};
+    double effort {0.0};
+    double sweep_rad {0.0};
+    double min_radius {0.0};
+    std::array<std::array<double, 8>, 9> stm {};
+    std::size_t steps {0};
+    bool ok {false};
+};
+
 class Propagator {
 public:
     explicit Propagator(PropagationSettings settings = {}) : settings_(settings) {}
 
     EndPoint propagate(const State& start, const Primer& primer, double T, bool with_stm) const;
+    SegmentEnd propagate_segment(const std::array<double, 8>& x0, double dt) const;
     // Dense rollout for paths and independent checks.
     std::vector<Sample> sample(const State& start, const Primer& primer, double T, std::size_t count) const;
 
@@ -106,6 +118,11 @@ private:
 
 struct ShootingOptions {
     std::size_t max_iterations {30};
+    std::size_t max_propagations {60};
+    // Give up when the residual has not fallen below this fraction of the start residual
+    // after `stall_iterations` iterations (a seed in the wrong basin rarely recovers).
+    std::size_t stall_iterations {8};
+    double stall_fraction {1e-2};
     double tolerance {1e-9};  // max abs residual, normalised units
     // T becomes an unknown. With match_budget the effort must equal effort_budget (minimum
     // time for a budget, square system); without, the step is minimum-norm over (p0, w0, T).
@@ -135,6 +152,57 @@ Solution shoot(
     double T,
     const ShootingOptions& options = {});
 
+// Multiple shooting at fixed T over K equal segments. `nodes[k]` is the guessed (r, v, p, w) at
+// t = k T / K (nodes[0]'s r, v are ignored: the start is fixed). Unknowns are (p0, w0) and the
+// interior node states; residuals are the continuity defects and the end condition.
+Solution multiple_shoot(
+    const Propagator& propagator,
+    const State& start,
+    const Target& target,
+    EndCondition end_condition,
+    double T,
+    const std::vector<std::array<double, 8>>& nodes,
+    const ShootingOptions& options = {});
+
+// Continuation in transfer time: solve at a short T_from, where the free-space solution is
+// nearly exact, and follow the solution branch to T_to with a tangent predictor. With
+// stop_effort > 0 it stops at the first T whose effort falls to stop_effort and returns the
+// minimum-time solution for that budget there.
+struct ContinuationOptions {
+    double T_from {0.02};
+    double initial_growth {1.5};
+    double max_growth {2.5};
+    double min_growth {1.01};
+    double stop_effort {0.0};
+    std::size_t max_steps {200};
+};
+Solution continue_in_time(
+    const Propagator& propagator,
+    const State& start,
+    const Target& target,
+    EndCondition end_condition,
+    double T_to,
+    const ContinuationOptions& options = {},
+    const ShootingOptions& shooting = {});
+
+// Continuation in the boundary condition at fixed T: start on the coasting arc (zero primer is
+// exact when the target is the ballistic end state) and move the target to the real one,
+// λ: 0 → 1, with a tangent predictor. A single full step is Newton from the zero primer,
+// i.e. the linear-quadratic (Gramian) solution about the ballistic arc.
+struct BoundaryHomotopyOptions {
+    double first_step {1.0};
+    double min_step {1.0 / 64.0};
+    std::size_t corrector_iterations {8};
+};
+Solution continue_in_boundary(
+    const Propagator& propagator,
+    const State& start,
+    const Target& target,
+    EndCondition end_condition,
+    double T,
+    const BoundaryHomotopyOptions& options = {},
+    const ShootingOptions& shooting = {});
+
 // ---- Seeds ----------------------------------------------------------------------------------
 
 // Gravity-free minimum-effort cubic (closed form), the free-space seed.
@@ -156,8 +224,8 @@ struct ShapeResult {
     double min_radius {0.0};
 };
 struct ShapeOptions {
-    std::size_t terms {8};
-    std::size_t nodes {48};
+    std::size_t terms {6};
+    std::size_t nodes {24};
     std::size_t max_iterations {30};
     bool free_end_velocity {false};  // intercept: arrival velocity becomes free
 };
@@ -170,7 +238,7 @@ struct ShapePoint {
     Vec2 thrust;
     Vec2 thrust_rate;
 };
-ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& shape, double s);
+ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& shape, double s, bool with_rate = true);
 
 // Angle-parametrised shape: r(θ) and t(θ) as cubic Hermite + bubbles over θ ∈ [0, θ_end], so
 // fast perihelion passages stay smooth. Needs the angular rate to keep one sign (no
@@ -187,10 +255,43 @@ TimedShapePoint angle_shape_eval(const State& start, const State& end, const Sha
 // Least-squares fit of (p0, w0) so the primer propagated along a fixed reference path matches
 // a thrust history: the primer equations are linear along a given path.
 Primer fit_primer(const std::vector<double>& times, const std::vector<Vec2>& positions,
-    const std::vector<Vec2>& thrust);
+    const std::vector<Vec2>& thrust, std::vector<Primer>* history = nullptr);
 
 // Unwrapped arrival angle candidates: the arrival direction plus whole turns, nearest first
 // to a rough angular-rate estimate.
 std::vector<double> arrival_angle_candidates(const State& start, const State& end, double T, int count);
+
+// ---- Solvers -----------------------------------------------------------------------------------
+
+struct TransferRequest {
+    State start;
+    Target target;
+    EndCondition end_condition {EndCondition::Rendezvous};
+    double min_radius {0.0};  // reject solutions passing closer to the Sun (normalised)
+};
+
+struct SolveOptions {
+    // Fixed-T portfolio. Each stage runs only if the previous ones found nothing valid, except
+    // that the shape seed always runs after the zero-primer seed to catch a better branch.
+    bool always_try_shape {true};
+    bool fallbacks {true};    // multiple shooting, boundary homotopy, time continuation
+    int branches {3};         // arrival-angle candidates for the shape seed
+    ShapeOptions shape {};
+    std::size_t fit_samples {80};
+};
+
+// Minimum-effort transfer at a fixed T; `warm` is tried first when given. `stage` (optional)
+// receives the name of the seed that produced the answer.
+Solution solve_transfer(const Propagator& propagator, const TransferRequest& request, double T,
+    const SolveOptions& options = {}, const Primer* warm = nullptr, const char** stage = nullptr);
+
+// Earliest arrival whose minimum effort fits `budget` (minimum time for a fuel load), searched
+// over [T_lo, T_hi] on a geometric grid with warm starts, then refined on the budget equation.
+struct MinTimeOptions {
+    std::size_t grid {16};
+    SolveOptions solve {};
+};
+Solution solve_min_time(const Propagator& propagator, const TransferRequest& request, double budget, double T_lo,
+    double T_hi, const MinTimeOptions& options = {});
 
 }  // namespace spacetrains::variable_isp::general
