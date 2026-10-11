@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "trajectory/ChaseSolver.hpp"
 #include "variable_isp/GeneralTransfer.hpp"
 #include "variable_isp/VariableIsp.hpp"
 
@@ -517,6 +518,51 @@ void verify_general_transfer(const std::filesystem::path& dataset_path, const Va
               << " STM refines)\n";
 }
 
+// The game-facing chase adapter: a plasma freighter leaving Earth's orbit intercepts a ship
+// coasting outward on a Hohmann-like ellipse, given as a sampled path in SI units.
+void verify_chase_adapter() {
+    namespace g = spacetrains::variable_isp::general;
+    using spacetrains::math::Vec3d;
+    namespace tr = spacetrains::trajectory;
+    const double au = VariableIspIntegrator::kAstronomicalUnitM;
+    const double mu = VariableIspIntegrator::kMuSunSI;
+    const tr::ChaseUnits units {mu, au};
+    // Quarry: perihelion at 1 AU, aphelion 1.52 AU, starting 0.3 rad ahead of the chaser.
+    const double a = 1.26 * au, e = 0.52 / 2.52;
+    spacetrains::domain::TrajectoryPlan quarry;
+    const double period = 2.0 * 3.14159265358979 * std::sqrt(a * a * a / mu);
+    for (int i = 0; i <= 400; ++i) {
+        const double t = period * 0.5 * i / 400.0;
+        // Kepler's equation for the eccentric anomaly.
+        const double M = 2.0 * 3.14159265358979 * t / period;
+        double E = M;
+        for (int k = 0; k < 30; ++k) E = M + e * std::sin(E);
+        const double nu = 2.0 * std::atan2(std::sqrt(1 + e) * std::sin(E / 2), std::sqrt(1 - e) * std::cos(E / 2));
+        const double r = a * (1 - e * std::cos(E));
+        quarry.sampled_path.push_back(Vec3d {r * std::cos(nu + 0.3), 0.0, r * std::sin(nu + 0.3)});
+        quarry.sampled_times_s.push_back(t);
+    }
+    const double v_earth = std::sqrt(mu / au);
+    tr::ChaseRequest request;
+    request.position_m = {au, 0.0, 0.0};
+    request.velocity_mps = {0.0, 0.0, v_earth};
+    request.depart_time_s = 10.0 * 86400.0;
+    request.power_w = 293.0 * 34100.0;
+    request.dry_mass_kg = 34100.0 + 15000.0;  // half the tanks stay as reserve and payload
+    request.initial_mass_kg = 34100.0 + 30000.0;
+    for (const auto end_condition : {g::EndCondition::Intercept, g::EndCondition::Rendezvous}) {
+        request.end_condition = end_condition;
+        const auto target = tr::path_target(quarry, request.depart_time_s, units);
+        const auto plan = tr::plan_chase(request, target, units);
+        require(plan.feasible, "plasma freighter should catch the coasting ship");
+        require(plan.propellant_kg <= 15000.0 * 1.0001, "the chase should fit the propellant budget");
+        const auto goal = target(plan.transfer_time_s / units.time_s()).state;
+        require((plan.path_m.back() - units.position_m(goal.r)).length() < 1e-4 * au, "the chase path should end at the quarry");
+        std::cout << "chase " << (end_condition == g::EndCondition::Intercept ? "intercept" : "rendezvous") << ": "
+                  << plan.transfer_time_s / 86400.0 << " d, " << plan.propellant_kg << " kg\n";
+    }
+}
+
 int main() {
     const auto repo_root = std::filesystem::current_path();
     VariableIspAtlas atlas;
@@ -530,6 +576,7 @@ int main() {
 
     verify_sample_counts(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
     verify_general_transfer(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
+    verify_chase_adapter();
 
     std::cout << "VariableISP tests passed.\n";
     return 0;
