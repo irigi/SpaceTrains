@@ -123,3 +123,20 @@ successive steps recomputed all 300 solves. Departure rows are now anchored to m
 (plus a fresh "leave now" row) and cached by bodies and absolute departure: 0.95 → 0.14 ms per plan, the
 365-day headless run 22.7 → 19.1 s. Sweep: no Kepler flags. benchmark.py over 8 starts: unmet ≈ 5.3 % both
 before and after (5.3 ± 0.9 and 5.3 ± 2.0 on the two 4-start sets vs 4.8 ± 1.0 and 5.9 ± 2.9 before).
+
+## Direct fallback for plans without an atlas window (built, off by default)
+
+With planner instrumentation: 13% of VISP plan requests found no window. 7.8% of all requests have κ below
+the atlas grid (weak or laden ships, e.g. Mercury → Jupiter); the general solver serves 68% of those but
+at ~36 ms each (minimum-time search over long multi-revolution spirals), too slow for routine planning —
+extending the atlas to lower κ offline would be the cheap way. Of the in-grid requests without a window,
+60% have a direct transfer leaving now (mostly 100–300 days), ~5–16 ms each.
+
+`PlanningOptions::direct_fallback` (VariableIspTrajectoryPlanner) plans those directly between the
+stations with `solve_min_time`. Sweep: +4120 plans (+6%), audits clean (3 many-revolution flags). Economy
+(4 starts): unmet 5.1 ± 0.9 % vs 5.3 ± 0.9 %, no measurable gain, while the 365-day run took 25 s instead
+of 17 s. Left off.
+
+`Propagator::sample` now integrates once and fills output times by cubic Hermite between steps.
+A "walk" minimum-time strategy (one short-T solve, then secant steps up the effort curve) was tried and
+removed: fewer requests solved (154 vs 162 of 173 on set E; 129 vs 268 of 400 low-κ), no faster.

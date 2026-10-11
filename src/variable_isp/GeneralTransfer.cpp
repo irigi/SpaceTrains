@@ -338,23 +338,34 @@ SegmentEnd Propagator::propagate_segment(const std::array<double, 8>& x0, double
 }
 
 std::vector<Sample> Propagator::sample(const State& start, const Primer& primer, double T, std::size_t count) const {
-    // Integrate between output times (each leg adaptive): simple and accurate enough for
-    // checks and rendering.
-    std::vector<Sample> out;
-    out.reserve(count);
+    // One integration, recording every accepted step; output times are filled in by cubic
+    // Hermite interpolation between steps (state and thrust have their derivatives at hand).
+    std::vector<double> times;
+    std::vector<Vec<kBase>> states;
     auto y = initial_vector<kBase>(start, primer);
-    out.push_back({0.0, start, primer.p, 0.0});
-    for (std::size_t i = 1; i < count; ++i) {
-        const double dt = T / static_cast<double>(count - 1);
-        const double effort = y[8];
-        const double sweep = y[9];
-        y[8] = 0.0;
-        y[9] = 0.0;
-        const auto stats = integrate<kBase>(y, dt, settings_, [](double, const auto&) {});
-        y[8] += effort;
-        y[9] += sweep;
-        if (!stats.ok) break;
-        out.push_back({dt * static_cast<double>(i), {{y[0], y[1]}, {y[2], y[3]}}, {y[4], y[5]}, y[8]});
+    const auto stats = integrate<kBase>(y, T, settings_, [&](double t, const Vec<kBase>& state) {
+        times.push_back(t);
+        states.push_back(state);
+    });
+    std::vector<Sample> out;
+    if (!stats.ok || times.size() < 2 || count < 2) return out;
+    out.reserve(count);
+    std::size_t step = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        const double t = i + 1 == count ? times.back() : T * static_cast<double>(i) / static_cast<double>(count - 1);
+        while (step + 2 < times.size() && times[step + 1] < t) ++step;
+        const auto& a = states[step];
+        const auto& b = states[step + 1];
+        const double h = times[step + 1] - times[step];
+        const double s = h > 0.0 ? std::clamp((t - times[step]) / h, 0.0, 1.0) : 0.0;
+        Vec<kBase> da {}, db {};
+        rhs<kBase>(a, da);
+        rhs<kBase>(b, db);
+        const double s2 = s * s, s3 = s2 * s;
+        const double h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2;
+        Vec<kBase> v {};
+        for (std::size_t k = 0; k < kBase; ++k) v[k] = h00 * a[k] + h10 * h * da[k] + h01 * b[k] + h11 * h * db[k];
+        out.push_back({t, {{v[0], v[1]}, {v[2], v[3]}}, {v[4], v[5]}, v[8]});
     }
     return out;
 }

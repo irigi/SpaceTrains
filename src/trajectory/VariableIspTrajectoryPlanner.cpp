@@ -1,12 +1,14 @@
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
 
 #include "trajectory/PathSampling.hpp"
+#include "variable_isp/GeneralTransfer.hpp"
 #include "util/Profiling.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <format>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 #include <stdexcept>
@@ -501,6 +503,108 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     // Seed dives into the Sun or similar: try the next seed/window.
                 }
             }
+        }
+    }
+
+    // Optional (PlanningOptions::direct_fallback): no atlas window converged (refinement failed,
+    // too little fuel, or a Sun dive), so leave now on the fastest transfer the largest fuel
+    // budget allows, solved directly between the stations (GeneralTransfer, no atlas). About
+    // 60% of these requests have one (2026-10-12).
+    const auto direct_transfer = [&](const Budget& budget) -> std::optional<domain::TrajectoryPlan> {
+        namespace g = variable_isp::general;
+        const double mu = variable_isp::VariableIspIntegrator::kMuSunSI;
+        const double length = r_origin_m;
+        const double unit_time = std::sqrt(length * length * length / mu);
+        const double unit_speed = length / unit_time;
+        const double unit_accel = mu / (length * length);
+        // A station on its planet's circular heliocentric orbit (as the atlas assumes).
+        const auto state_at = [&](const domain::StationDefinition& station, double time_s) {
+            const auto p = mechanics_.get_station_position(station, time_s);
+            const double r = std::max(1.0, std::hypot(p.x, p.z));
+            const double v = std::sqrt(mu / r) / unit_speed;
+            return g::State {{p.x / length, p.z / length}, {-p.z / r * v, p.x / r * v}};
+        };
+        const g::Target target = [&](double T) {
+            const double h = 1e-5 * std::max(T, 1e-2);
+            const double arrival = current_time_s + T * unit_time;
+            const auto a = state_at(destination, arrival - h * unit_time);
+            const auto b = state_at(destination, arrival + h * unit_time);
+            return g::TargetPoint {state_at(destination, arrival), (0.5 / h) * (b.r - a.r), (0.5 / h) * (b.v - a.v)};
+        };
+        const g::Propagator propagator;
+        const g::TransferRequest request {state_at(origin, current_time_s), target, g::EndCondition::Rendezvous,
+            kMinPerihelionM / length};
+        g::MinTimeOptions search;
+        search.solve.fallbacks = false;  // the warm-started grid covers it; fallbacks cost 10x
+        // Up to about 1.3 years at 1 AU (times scale with the origin's orbit).
+        const auto solution = g::solve_min_time(propagator, request, 0.999 * budget.kappa, 0.05, 8.0, search);
+        if (!solution.converged) {
+            return std::nullopt;
+        }
+        domain::TrajectoryPlan direct;
+        std::vector<g::Sample> dense = options.include_path
+            ? propagator.sample(request.start, solution.primer, solution.T, 1500)
+            : std::vector<g::Sample> {{0.0, request.start, solution.primer.p, 0.0},
+                  {solution.T, solution.end.state, solution.end.primer.p, solution.end.effort}};
+        if (dense.size() < 2) {
+            return std::nullopt;
+        }
+        std::vector<std::size_t> keep;
+        if (options.include_path) {
+            std::vector<math::Vec3d> positions;
+            positions.reserve(dense.size());
+            for (const auto& sample : dense) positions.push_back({sample.state.r.x, 0.0, sample.state.r.y});
+            keep = select_for_rendering(positions);
+        } else {
+            keep = {0, dense.size() - 1};
+            direct.has_render_path = false;
+        }
+        // Mass from the effort: 1/m = 1/m0 + ∫a²dt / 2P.
+        const auto mass_after = [&](double effort) {
+            return 1.0 / (1.0 / budget.m0 + effort * unit_accel * unit_accel * unit_time / (2.0 * power_w));
+        };
+        for (const auto index : keep) {
+            const auto& sample = dense[index];
+            direct.sampled_path.push_back({sample.state.r.x * length, 0.0, sample.state.r.y * length});
+            direct.sampled_times_s.push_back(current_time_s + sample.t * unit_time);
+            direct.sampled_propellant_kg.push_back(std::max(0.0, mass_after(sample.effort) - laden_dry_kg));
+        }
+        const double transfer_s = solution.T * unit_time;
+        direct.departure_time_s = current_time_s;
+        direct.arrival_time_s = current_time_s + transfer_s;
+        direct.wait_time_s = 0.0;
+        direct.coast_time_s = transfer_s;
+        direct.travel_time_s = transfer_s;
+        direct.propellant_required_kg = budget.m0 - mass_after(solution.end.effort);
+        direct.propellant_load_kg = budget.load_kg;
+        direct.feasible = direct.propellant_required_kg <= budget.load_kg;
+        direct.trajectory_type = "variable_isp";
+        direct.summary = std::format("VariableISP {} -> {} direct (no atlas window) transfer={:.1f}d propellant={:.0f}kg ({})",
+            origin.name, destination.name, transfer_s / variable_isp::VariableIspIntegrator::kDayS, direct.propellant_required_kg,
+            direct.feasible ? "feasible" : "insufficient fuel");
+        const auto origin_station_pos = mechanics_.get_station_position(origin, direct.departure_time_s);
+        const auto dest_station_pos = mechanics_.get_station_position(destination, direct.arrival_time_s);
+        direct.diagnostics = {
+            .start_miss_m = (direct.sampled_path.front() - origin_station_pos).length(),
+            .endpoint_miss_m = (direct.sampled_path.back() - dest_station_pos).length(),
+            .rho = rho,
+            .kappa = budget.kappa,
+            .theta_target_rad = 0.0,
+            .theta_actual_rad = solution.end.sweep_rad,
+            .r_end_canonical_ratio = 1.0,
+            .seed_source = "direct",
+            .refine_iterations = solution.iterations,
+            .windows_tried = windows_tried,
+        };
+        direct.sampled_path.front() = origin_station_pos;
+        direct.sampled_path.back() = dest_station_pos;
+        return direct;
+    };
+    if (!found && options.direct_fallback && !budgets.empty()) {
+        const auto largest = std::max_element(budgets.begin(), budgets.end(),
+            [](const Budget& a, const Budget& b) { return a.kappa < b.kappa; });
+        if (auto direct = direct_transfer(*largest)) {
+            return *direct;
         }
     }
 

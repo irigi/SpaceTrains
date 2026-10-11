@@ -440,11 +440,13 @@ int run_general(const std::string& set, const std::vector<Case>& atlas, std::siz
             if (!ref.converged) continue;
             ++n;
             const auto t0 = std::chrono::steady_clock::now();
-            const auto mt = g::solve_min_time(propagator(), req, ref.end.effort, c.T / 20.0, c.T * 2.0);
+            g::MinTimeOptions mto;
+            const double budget_factor = std::getenv("BUDGETX") ? std::atof(std::getenv("BUDGETX")) : 1.0;
+            const auto mt = g::solve_min_time(propagator(), req, ref.end.effort * budget_factor, c.T / 20.0, c.T * 2.0, mto);
             times.push_back(seconds_since(t0));
             if (!mt.converged) continue;
             ++found;
-            if (mt.end.effort > ref.end.effort * (1 + 1e-6)) std::printf("  over budget %.4g > %.4g\n", mt.end.effort, ref.end.effort);
+            if (mt.end.effort > ref.end.effort * budget_factor * (1 + 1e-6)) std::printf("  over budget %.4g > %.4g\n", mt.end.effort, ref.end.effort);
             ratios.push_back(mt.T / c.T);
             if (mt.T < c.T * 0.999) ++earlier;
         }

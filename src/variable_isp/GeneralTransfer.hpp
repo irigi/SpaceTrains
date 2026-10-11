@@ -296,6 +296,8 @@ Solution solve_transfer(const Propagator& propagator, const TransferRequest& req
 
 // Earliest arrival whose minimum effort fits `budget` (minimum time for a fuel load), searched
 // over [T_lo, T_hi] on a geometric grid with warm starts, then refined on the budget equation.
+// (Following the effort curve up from one solve at T_lo instead of a grid was tried: fewer
+// requests solved, no faster.)
 struct MinTimeOptions {
     std::size_t grid {16};
     SolveOptions solve {};

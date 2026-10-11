@@ -54,10 +54,13 @@ struct PlanningOptions {
     double purchasable_propellant_kg {0.0};
     // Propellant kept unburned on arrival, as a fraction of the burn.
     double reserve_fraction {0.0};
-    // Off when only the numbers matter (scoring candidates): no rendering path is built, and
-    // the variable-Isp check integration is coarser. The chosen mission is planned again
-    // with its path.
+    // Off when only the numbers matter (scoring candidates): no rendering path is built. The
+    // chosen mission is planned again with its path.
     bool include_path {true};
+    // VariableISP: when no atlas window converges, solve a departure now directly between the
+    // stations (GeneralTransfer). Off: measured 2026-10-12, it finds 6% more plans but costs
+    // ~50% more planning time with no measurable economy gain.
+    bool direct_fallback {false};
 };
 
 // Effective exhaust velocity of a nuclear-thermal class, from its rated full-tank Δv
