@@ -140,6 +140,7 @@ struct Solution {
     std::size_t iterations {0};
     std::size_t propagations {0};
     double residual {0.0};
+    double initial_sweep {0.0};  // angle swept by the seed (first evaluation), for branch checks
 };
 
 // Newton (Levenberg-Marquardt) shooting on (p0, w0[, T]) with the analytic transition matrix.

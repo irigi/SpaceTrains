@@ -710,12 +710,15 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
         if (!fitted.converged) {
             return result;
         }
+        fitted.initial_sweep = solution.initial_sweep;
         solution = std::move(fitted);
         result.budget_fitted = true;
     }
-    // Stay on the requested branch: Cartesian residuals do not see whole turns.
+    // Stay on the seed's branch: Cartesian residuals do not see whole turns, so the target
+    // angle only counts modulo 2π, taken nearest to what the seed swept.
+    const double seed_sweep = solution.initial_sweep;
     const double theta_target = target(solution.T * days_per_unit).second;
-    if (std::abs(solution.end.sweep_rad - theta_target) > 0.5) {
+    if (std::abs(solution.end.sweep_rad - (seed_sweep + std::remainder(theta_target - seed_sweep, kTau))) > 0.5) {
         return result;
     }
     const auto& pr = solution.primer;

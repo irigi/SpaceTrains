@@ -449,6 +449,7 @@ Solution shoot(
     if (!current.ok) {
         return solution;
     }
+    solution.initial_sweep = current.end.sweep_rad;
     double lambda = 0.0;
     const double start_norm = current.norm;
     for (; solution.iterations < options.max_iterations; ++solution.iterations) {

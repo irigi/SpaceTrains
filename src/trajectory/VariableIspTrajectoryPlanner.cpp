@@ -388,10 +388,9 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
             for (std::size_t c = 0; c < std::min(cells.size(), kMaxSeedsPerWindow) && !found; ++c) {
                 const auto seed = atlas_.seed_at(cells[c].first, cells[c].second, window.k);
                 try {
-                    // Keep the branch the seed already flies; its grid label is only valid mod 2π.
-                    const auto start = integrator_.integrate_fixed_time(seed, config, 2);
-                    const double theta_seed = start.samples.back().theta_rad;
-                    const double theta_goal = theta_seed + std::remainder(theta_grid[window.k] - theta_seed, TAU);
+                    // The grid label is only valid mod 2π; the shooting keeps the branch the seed
+                    // flies, and the launch wait below does not depend on whole turns.
+                    const double theta_goal = theta_grid[window.k];
                     variable_isp::ShootingSettings shooting;
                     shooting.min_radius_m = kMinPerihelionM / r_scale;
                     shooting.fit_fuel_budget = true;

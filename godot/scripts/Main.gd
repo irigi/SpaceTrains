@@ -180,6 +180,9 @@ func _ready() -> void:
     var session_id := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
     snapshot_path = ProjectSettings.globalize_path("user://spacetrains_snapshot_%s.json" % session_id)
     command_path = ProjectSettings.globalize_path("user://spacetrains_commands_%s.json" % session_id)
+    # Debug aid: SPACETRAINS_TIMEWARP=432000 starts at that speed (profiling without a keyboard).
+    if OS.has_environment("SPACETRAINS_TIMEWARP"):
+        current_timewarp = float(OS.get_environment("SPACETRAINS_TIMEWARP"))
     _write_bridge_commands()
     _start_bridge()
     # Entities are placed relative to the focus (in double precision, then cast), so a
