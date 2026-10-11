@@ -193,3 +193,18 @@ arrives; path meshes are already rebuilt per ship only when its plan changes. No
 For a game AI deciding chases every few seconds, `fallbacks = false` bounds the tail at a few percent of
 unsolved requests. A shorter leash for the zero-primer attempt (`zero_max_propagations`,
 `zero_stall_iterations`) changed little (kept at 60 / 8).
+
+## Receding-horizon chase (bench `REPLAN=1`)
+
+Pursuer with 3x the reference effort; four times during the chase the quarry dodges (5% velocity kick, then
+coasts) and the pursuer re-solves from its current state with the fuel left: `solve_transfer` warm-started
+from its current primer at the old remaining time, then `fit_effort_by_time` / `spend_effort_by_time` to the
+remaining fuel, `solve_min_time` as a fallback.
+
+| set | chases completed | replans ok | replan t50 / t90 / t99 |
+|---|---|---|---|
+| C (coasting quarry) | 144 / 150 | 586 / 592 | 0.36 / 0.49 / 1.6 ms |
+| E (quarry mid-transfer) | 64 / 67 | 263 / 266 | 0.35 / 0.50 / 1.0 ms |
+| D (hard) | 137 / 149 | 574 / 584 | 0.49 / 1.5 / 15 ms |
+
+Sub-millisecond replanning makes a pirate/police AI that re-plans every few game days cheap.

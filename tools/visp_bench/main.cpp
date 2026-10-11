@@ -448,6 +448,66 @@ int run_general(const std::string& set, const std::vector<Case>& atlas, std::siz
         return g_outcome(g::continue_in_time(propagator(), c.start, c.target, c.end_condition, c.T), t0);
     }});
 
+    if (std::getenv("REPLAN")) {
+        // Receding horizon: chase with 3x the reference effort; at 4 replans the quarry dodges
+        // (a 5% velocity kick, then coasts); the pursuer re-solves from where it is with the
+        // fuel left, warm-started from its current primer.
+        std::size_t chases = 0, caught = 0, replans = 0, replans_ok = 0;
+        std::vector<double> times;
+        std::mt19937_64 rng(5);
+        std::uniform_real_distribution<double> u(0.0, 1.0);
+        for (const auto& c : cases) {
+            g::TransferRequest req {c.start, c.target, c.end_condition, 0.1};
+            const auto ref = g::solve_transfer(propagator(), req, c.T);
+            if (!ref.converged) continue;
+            ++chases;
+            const double budget = 3.0 * ref.end.effort;
+            auto plan = g::solve_min_time(propagator(), req, budget, c.T / 20.0, c.T * 2.0);
+            if (!plan.converged) continue;
+            g::State pursuer = c.start;
+            g::Target target = c.target;
+            double used = 0.0;
+            bool ok = true;
+            for (int k = 0; k < 4 && ok; ++k) {
+                // Fly a quarter of the remaining plan.
+                const double dt = 0.25 * plan.T;
+                const auto flown = propagator().propagate(pursuer, plan.primer, dt, false);
+                used += flown.effort;
+                // The quarry dodges at this moment: kick, then coast.
+                const auto q = target(dt);
+                const double ang = 6.283185307179586 * u(rng);
+                const double kick = 0.05 * g::norm(q.state.v);
+                const g::State dodged {q.state.r, q.state.v + g::Vec2 {kick * std::cos(ang), kick * std::sin(ang)}};
+                target = g::coasting_target(dodged);
+                pursuer = flown.state;
+                const g::Primer warm = flown.primer;
+                const double remaining = std::max(1e-9, budget - used);
+                const auto t0 = std::chrono::steady_clock::now();
+                g::TransferRequest again {pursuer, target, c.end_condition, 0.1};
+                // Warm start at the old remaining time, then the earliest time the fuel allows.
+                const double T_left = std::max(1e-3, plan.T - dt);
+                auto fixed = g::solve_transfer(propagator(), again, T_left, {}, &warm);
+                g::Solution next;
+                if (fixed.converged) {
+                    next = fixed.end.effort > remaining
+                        ? g::fit_effort_by_time(propagator(), pursuer, target, c.end_condition, fixed, remaining)
+                        : g::spend_effort_by_time(propagator(), pursuer, target, c.end_condition, fixed, remaining, 0.1);
+                }
+                if (!next.converged) next = g::solve_min_time(propagator(), again, remaining, T_left / 10.0, T_left * 3.0);
+                times.push_back(seconds_since(t0));
+                ++replans;
+                if (!next.converged) { ok = false; break; }
+                ++replans_ok;
+                plan = next;
+            }
+            if (ok) ++caught;
+        }
+        std::sort(times.begin(), times.end());
+        const auto q = [&](double f) { return times.empty() ? 0.0 : times[std::min(times.size() - 1, static_cast<std::size_t>(f * times.size()))]; };
+        std::printf("replanning: %zu/%zu chases completed, %zu/%zu replans ok; replan t50=%.2fms t90=%.2fms t99=%.2fms\n", caught, chases,
+            replans_ok, replans, 1e3 * q(0.5), 1e3 * q(0.9), 1e3 * q(0.99));
+        return 0;
+    }
     if (std::getenv("MINTIME")) {
         // Minimum time for the effort the fixed-T solve needs at the case's T.
         std::size_t n = 0, found = 0, earlier = 0;
