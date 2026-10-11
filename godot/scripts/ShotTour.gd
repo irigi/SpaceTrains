@@ -178,6 +178,22 @@ func _run() -> void:
                 await get_tree().create_timer(0.3).timeout
                 await _shoot("ship_systems_" + propulsion)
                 break
+    # The 3D models up close, one per hull that is flying (paused, so they hold still).
+    main._on_pause_toggled()
+    await get_tree().create_timer(0.5).timeout
+    var shot_hulls := {}
+    for ship_id in main.entity_details.keys():
+        var ship: Dictionary = main.entity_details[ship_id]
+        var hull := String(ship.get("hull_id", ""))
+        if main.entity_kinds.get(ship_id, "") != "ship" or shot_hulls.has(hull) or String(ship.get("phase", "")) != "in_transit":
+            continue
+        shot_hulls[hull] = true
+        main.select_entity(ship_id, "ship", true)
+        rig.set("distance", 0.0003)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        await _shoot("ship_model_" + hull)
+    main._on_pause_toggled()
     # The economy overview.
     main.market_panel.toggle()
     main._refresh_ui(true)
