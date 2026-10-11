@@ -308,6 +308,9 @@ Solution solve_transfer(const Propagator& propagator, const TransferRequest& req
 // requests solved, no faster.)
 struct MinTimeOptions {
     std::size_t grid {16};
+    // Also run the seed portfolio where the warm-started branch is over the budget (another
+    // branch may fit): more robust, slower.
+    bool recheck_over_budget {false};
     SolveOptions solve {};
 };
 Solution solve_min_time(const Propagator& propagator, const TransferRequest& request, double budget, double T_lo,

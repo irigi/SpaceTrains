@@ -449,6 +449,7 @@ int run_general(const std::string& set, const std::vector<Case>& atlas, std::siz
             ++n;
             const auto t0 = std::chrono::steady_clock::now();
             g::MinTimeOptions mto;
+            mto.recheck_over_budget = std::getenv("RECHECK") != nullptr;
             const double budget_factor = std::getenv("BUDGETX") ? std::atof(std::getenv("BUDGETX")) : 1.0;
             const auto mt = g::solve_min_time(propagator(), req, ref.end.effort * budget_factor, c.T / 20.0, c.T * 2.0, mto);
             times.push_back(seconds_since(t0));

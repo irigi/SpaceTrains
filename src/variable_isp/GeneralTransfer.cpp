@@ -1080,9 +1080,13 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
             sol = shoot(propagator, request.start, request.target, request.end_condition, previous.primer, T);
             propagations += sol.propagations;
         }
-        if (!(sol.converged && sol.end.min_radius >= request.min_radius)) {
-            sol = solve_transfer(propagator, request, T, cheap);
-            propagations += sol.propagations;
+        const bool warm_ok = sol.converged && sol.end.min_radius >= request.min_radius;
+        if (!warm_ok || (options.recheck_over_budget && sol.end.effort > budget)) {
+            // Another branch may fit the budget at this T: the portfolio, keeping the cheaper.
+            auto fresh = solve_transfer(propagator, request, T, cheap);
+            propagations += fresh.propagations;
+            if (fresh.converged && (!warm_ok || fresh.end.effort < sol.end.effort)) sol = std::move(fresh);
+            else if (!warm_ok) sol = std::move(fresh);
         }
         if (!sol.converged) {
             have_previous = false;
