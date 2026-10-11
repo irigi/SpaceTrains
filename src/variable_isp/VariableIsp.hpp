@@ -128,6 +128,7 @@ struct ShootingResult {
     // effort) and its closest approach to the Sun, so callers need not integrate it again.
     TrajectorySample end;
     double min_radius_m {0.0};
+    double effort {0.0};  // ∫a²dt in units of μ²/r0⁴ · sqrt(r0³/μ) (the canonical kappa scale)
 };
 
 class VariableIspIntegrator {

@@ -750,6 +750,7 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
         1.0 / (1.0 / config.m0_kg + effort_si / (2.0 * config.power_w)),
     };
     result.min_radius_m = e.min_radius * length;
+    result.effort = e.effort;
     result.converged = true;
     return result;
 }

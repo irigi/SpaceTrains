@@ -425,23 +425,14 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     // an outer fixed-point loop over T does not contract.
                     // Likewise start from the origin station's actual position at departure:
                     // it sets the similarity scale and the frame rotation.
-                    struct Departure {
-                        double wait_s;
-                        double r_scale;
-                        double t_scale;
-                        double phi;
-                    };
                     const auto departure_after = [&](double wait) {
                         const auto position = mechanics_.get_station_position(origin, current_time_s + wait);
                         const double r = std::hypot(position.x, position.z) / variable_isp::VariableIspIntegrator::kAstronomicalUnitM;
                         return Departure {wait, r, std::pow(r, 1.5), std::atan2(position.z, position.x)};
                     };
                     const double theta_branch = theta_goal;
-                    Departure departure {};
-                    variable_isp::ShootingResult targeted;
-                    for (const double wait : waits) {
-                        departure = departure_after(wait);
-                        const auto station_target = [&](double transfer_time_days) {
+                    const auto station_target_for = [&](const Departure& departure) {
+                        return [&, departure](double transfer_time_days) {
                             const double arrival_s = current_time_s + departure.wait_s
                                 + transfer_time_days * variable_isp::VariableIspIntegrator::kDayS * departure.t_scale;
                             const auto station = mechanics_.get_station_position(destination, arrival_s);
@@ -450,10 +441,50 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                                 theta_branch + std::remainder(std::atan2(station.z, station.x) - departure.phi - theta_branch, TAU),
                             };
                         };
-                        targeted = integrator_.refine_seed_stm(refined.seed, config, station_target, shooting);
-                        if (targeted.converged) {
-                            break;
+                    };
+                    // The geometric refinement is shared by all plans of this route, time and cell.
+                    const auto key = std::format("{}|{}|{:a}|{}|{}|{}", origin.id, destination.id, current_time_s,
+                        cells[c].first, cells[c].second, window.k);
+                    std::shared_ptr<const Refinement> refinement;
+                    {
+                        const std::lock_guard lock(refinements_mutex_);
+                        if (const auto it = refinements_.find(key); it != refinements_.end()) refinement = it->second;
+                    }
+                    if (!refinement) {
+                        auto computed = std::make_shared<Refinement>();
+                        variable_isp::ShootingSettings geometric = shooting;
+                        geometric.fit_fuel_budget = false;
+                        for (const double wait : waits) {
+                            const auto departure = departure_after(wait);
+                            auto result = integrator_.refine_seed_stm(refined.seed, config, station_target_for(departure), geometric);
+                            const bool converged = result.converged;
+                            computed->by_wait.emplace_back(departure, std::move(result));
+                            if (converged) break;
                         }
+                        const std::lock_guard lock(refinements_mutex_);
+                        // Plans ask for "now" and a few bucket times: old entries are rarely reused.
+                        if (refinements_.size() >= 50000) refinements_.clear();
+                        refinement = refinements_.emplace(key, std::move(computed)).first->second;
+                    }
+                    // This ship's fuel: within 10% over its budget, refit T to the fuel (see
+                    // ShootingSettings::fit_fuel_budget); a failed fit tries the next wait.
+                    const double fuel_effort = 0.999 * kappa;  // canonical units: the budget is kappa
+                    Departure departure {};
+                    variable_isp::ShootingResult targeted;
+                    for (const auto& [option_departure, option] : refinement->by_wait) {
+                        if (!option.converged) continue;
+                        departure = option_departure;
+                        targeted = option;
+                        if (option.effort > fuel_effort && option.effort < shooting.max_budget_overshoot * fuel_effort) {
+                            targeted = integrator_.refine_seed_stm(option.seed, config, station_target_for(departure), shooting);
+                            if (!targeted.converged) continue;
+                        } else {
+                            // The cached end mass belongs to the ship that first planned it.
+                            // ∫a²dt in SI is the canonical effort / kappa_scale_factor.
+                            targeted.end.mass_kg = 1.0 / (1.0 / config.m0_kg
+                                + option.effort / (2.0 * config.power_w * kappa_scale_factor()));
+                        }
+                        break;
                     }
                     if (!targeted.converged) {
                         continue;
