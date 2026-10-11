@@ -1,0 +1,12 @@
+id,kind,station_id,commodity_id,rate_per_year,min_days,max_days,magnitude,headline,end_headline
+earth_l1_blight,outage,earth_l1,food,0.5,20,60,0.4,Crop blight at Earth L1 Terminal: food output down to 40%,Earth L1 Terminal's farms recover from the blight
+leo_fab_fault,outage,earth_orbit,electronics,0.5,15,45,0.3,Fab contamination at Low Earth Logistics: electronics output down to 30%,Low Earth Logistics' fabs are clean again
+mercury_storm,outage,mercury_yard,metals,0.6,10,30,0,Solar storm shuts Mercury Sunward Yard's smelters,The storm passes and Mercury's smelters restart
+venus_bioreactor,outage,venus_cloud,medicine,0.4,30,90,0.2,Contaminated bioreactor at Venus Aerostat Exchange: medicine output down to 20%,Venus Aerostat Exchange's bioreactors are back in service
+ceres_platinum_seam,boom,ceres_depot,platinum,0.3,90,240,2,Prospectors at Ceres Deep Depot strike a rich platinum seam: output doubled,The platinum seam at Ceres Deep Depot is worked out
+titan_cryovolcano,boom,titan_works,science_samples,0.3,60,180,2,A cryovolcano erupts near Titan Atmo Works: science sample output doubled,The cryovolcano near Titan falls quiet
+mars_epidemic,demand_spike,mars_transfer,medicine,0.4,30,90,3,Epidemic at Mars Transfer Port: medicine use tripled,The epidemic at Mars Transfer Port is over
+ganymede_epidemic,demand_spike,ganymede_depot,medicine,0.3,30,90,3,Fever outbreak at Ganymede Deep Mine: medicine use tripled,The fever at Ganymede Deep Mine has run its course
+titan_hull_breach,demand_spike,titan_works,machinery,0.3,30,60,4,Hull breach at Titan Atmo Works: repairs need four times the machinery,Titan Atmo Works' hull is sealed again
+mars_settlers,migration,mars_transfer,,0.3,0,0,0.05,A settler convoy reaches Mars Transfer Port: population +5%,
+luna_settlers,migration,luna_base,,0.3,0,0,0.05,New contract crews move to Lunar Gateway: population +5%,

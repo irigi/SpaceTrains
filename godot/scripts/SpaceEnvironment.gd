@@ -5,7 +5,7 @@ extends Node3D
 const STAR_COUNT := 3800
 const STARFIELD_RADIUS := 3000.0
 const MILKY_WAY_BAND_DEG := 14.0
-const ORBIT_RING_SEGMENTS := 160
+const ORBIT_RING_SEGMENTS := 360
 const ORBIT_RING_ALPHA := 0.13
 
 var starfield: Node3D
@@ -134,10 +134,11 @@ func _build_sun_halo() -> MeshInstance3D:
     material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
     material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
     material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+    material.billboard_keep_scale = true  # sized by update_sun()
     material.albedo_texture = _radial_falloff_texture()
     # HDR push so the halo core crosses the glow threshold and blooms.
-    material.albedo_color = Color(1.6, 1.45, 1.15)
-    material.no_depth_test = true
+    material.albedo_color = Color(2.4, 2.1, 1.6)
+    # Depth-tested, so a planet in front hides the Sun's glow.
     material.disable_receive_shadows = true
     instance.material_override = material
     instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -182,6 +183,21 @@ func update_orbit_rings(world_parent: Node3D, bodies: Array, positions: Dictiona
         var ring_node: MeshInstance3D = _orbit_rings[body_id]
         ring_node.position = parent_position
         ring_node.scale = Vector3.ONE * radius
+
+# A moon's ring fades out when it is only a few pixels across (KSP's map does the same).
+func set_ring_fade(body_id: String, fade: float) -> void:
+    if not _orbit_rings.has(body_id):
+        return
+    var ring: MeshInstance3D = _orbit_rings[body_id]
+    var material := ring.material_override as StandardMaterial3D
+    if material != null:
+        material.albedo_color.a = ORBIT_RING_ALPHA * fade
+    ring.visible = ring.visible and fade > 0.01
+
+# Main.gd draws rings near the camera itself (finer, focus-relative) and hides these.
+func set_ring_visible(body_id: String, visible_flag: bool) -> void:
+    if _orbit_rings.has(body_id):
+        (_orbit_rings[body_id] as MeshInstance3D).visible = visible_flag
 
 # --- Saturn ring -------------------------------------------------------------
 

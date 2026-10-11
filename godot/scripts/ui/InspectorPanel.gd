@@ -77,7 +77,7 @@ func _show_help() -> void:
     _add_label("INSPECTOR", UiTheme.ACCENT, 14)
     _add_separator()
     _add_label("Click an entity in the scene or pick one from the registry.", UiTheme.TEXT_DIM)
-    _add_label("RMB rotate · MMB pan · wheel zoom\nF focus · Space pause · , . warp\nM market overview", UiTheme.TEXT_DIM, 12)
+    _add_label("RMB rotate · MMB pan · wheel zoom\nF focus · Space pause · , . warp\nM economy and markets\nF5 quick save · F9 quick load", UiTheme.TEXT_DIM, 12)
 
 # context keys: game_time_s, faction_colors (Dictionary), names (id -> display name),
 # price_trends (commodity_id -> -1/0/1 for the selected station)
@@ -92,7 +92,7 @@ func update_selection(detail: Dictionary, kind: String, context: Dictionary) -> 
         "ship":
             _build_ship(detail, context)
         _:
-            _build_body(detail)
+            _build_body(detail, context)
 
 func _faction_color(detail: Dictionary, context: Dictionary) -> Color:
     var colors: Dictionary = context.get("faction_colors", {})
@@ -102,12 +102,38 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
     var faction := String(detail.get("faction_id", ""))
     _add_header(
         String(detail.get("name", detail.get("id", ""))),
-        "%s · pop %s" % [faction, str(detail.get("population", 0))],
+        "%s · pop %s · orbits %s" % [faction, str(int(detail.get("population", 0))),
+            _resolve_name(context, String(detail.get("parent_body_id", "")))],
         _faction_color(detail, context))
+    # Growth (step 27): residents against the seeded population, and how well they are supplied.
+    var seeded := float(detail.get("seeded_population", 0.0))
+    if seeded > 0.0:
+        var change := float(detail.get("population", 0.0)) / seeded - 1.0
+        var supply := float(detail.get("supply_index", 1.0))
+        var trend := "well supplied" if supply >= 0.95 else ("short, people leaving" if supply < 0.7 else "steady")
+        _add_label("Population %+.0f%% since founding · supply %.0f%% · %s" % [100.0 * change, 100.0 * supply, trend],
+            UiTheme.GOOD if supply >= 0.95 else (UiTheme.WARN if supply < 0.7 else UiTheme.TEXT_DIM), 12)
+    # Events running here (step 28).
+    for event in detail.get("events", []):
+        _add_label("⚑ %s (%.0f more days)" % [String(event.get("headline", "")), float(event.get("days_left", 0.0))],
+            UiTheme.WARN, 12)
+
+    var fuel_factory := float(detail.get("fuel_factory_per_day", 0.0))
+    var exports: Array = detail.get("export_market", [])
+    if fuel_factory > 0.0:
+        _add_label("Fuel factory: %.0f u/day" % fuel_factory, UiTheme.GOOD, 12)
+    if not exports.is_empty():
+        _add_label("Export market for Earth's economy: %s" % ", ".join(exports), UiTheme.CREDITS, 12)
 
     var credits := float(detail.get("credits", 0.0))
-    _add_label("Treasury: " + UiTheme.format_credits(credits),
+    _add_label("Cash: " + UiTheme.format_credits(credits),
         UiTheme.CREDITS if credits >= 0.0 else UiTheme.ALERT)
+
+    # Emergency deliveries the faction pays for (step 14).
+    for emergency in detail.get("emergencies", []):
+        _add_label("EMERGENCY: %s running out · %s pays %.1fx the reference price · %.0f u still open · %.0f days" % [
+            String(emergency.get("commodity_id", "")), faction, float(emergency.get("premium", 0.0)),
+            float(emergency.get("units_open", 0.0)), float(emergency.get("days", 0.0))], UiTheme.ALERT, 12)
 
     var capacity := float(detail.get("storage_capacity", 0.0))
     var used := float(detail.get("storage_used", 0.0))
@@ -121,15 +147,15 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         _add_gauge("Storage", used, capacity, "%.0f / %.0f u" % [used, capacity], bar_color)
 
     _add_separator()
-    _add_label("MARKET", UiTheme.ACCENT, 12)
+    _add_label("MARKET   stock vs target · price · rate · cover", UiTheme.ACCENT, 12)
 
     var inventory: Dictionary = detail.get("inventory", {})
     var prices: Dictionary = detail.get("prices", {})
     var rates: Dictionary = detail.get("net_rates", {})
+    var targets: Dictionary = detail.get("target_stock", {})
+    var demand: Dictionary = detail.get("demand_units", {})
+    var unmet: Dictionary = detail.get("unmet_units", {})
     var trends: Dictionary = context.get("price_trends", {})
-    var max_stock := 1.0
-    for commodity_id in inventory.keys():
-        max_stock = max(max_stock, float(inventory[commodity_id]))
 
     for commodity_id in inventory.keys():
         var stock := float(inventory[commodity_id])
@@ -142,14 +168,16 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
 
         var name_label := Label.new()
         name_label.text = String(commodity_id)
-        name_label.custom_minimum_size.x = 86.0
+        name_label.custom_minimum_size.x = 80.0
         name_label.add_theme_font_size_override("font_size", 12)
         row.add_child(name_label)
 
+        # The bar is full at the station's target stock (where the price is the base price).
+        var target := float(targets.get(commodity_id, maxf(stock, 1.0)))
         var bar := ProgressBar.new()
         bar.min_value = 0.0
-        bar.max_value = max_stock
-        bar.value = stock
+        bar.max_value = maxf(target, 1.0)
+        bar.value = minf(stock, bar.max_value)
         bar.show_percentage = false
         bar.custom_minimum_size = Vector2(0, 12)
         bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -161,11 +189,12 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         elif days_left < 14.0:
             bar_color = UiTheme.WARN
         bar.add_theme_stylebox_override("fill", UiTheme.bar_fill_style(bar_color))
+        bar.tooltip_text = "%.0f of target %.0f" % [stock, target]
         row.add_child(bar)
 
         var stock_label := Label.new()
         stock_label.text = "%.0f" % stock
-        stock_label.custom_minimum_size.x = 36.0
+        stock_label.custom_minimum_size.x = 38.0
         stock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
         stock_label.add_theme_font_size_override("font_size", 11)
         stock_label.add_theme_color_override("font_color", UiTheme.TEXT_DIM)
@@ -176,7 +205,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         var trend_color := UiTheme.ALERT if trend > 0 else (UiTheme.GOOD if trend < 0 else UiTheme.TEXT_DIM)
         var price_label := Label.new()
         price_label.text = "%.0f %s" % [float(prices.get(commodity_id, 0.0)), trend_glyph]
-        price_label.custom_minimum_size.x = 52.0
+        price_label.custom_minimum_size.x = 50.0
         price_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
         price_label.add_theme_font_size_override("font_size", 11)
         price_label.add_theme_color_override("font_color", trend_color)
@@ -184,12 +213,158 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
 
         var rate_label := Label.new()
         rate_label.text = "%+.1f/d" % rate if rate != 0.0 else ""
-        rate_label.custom_minimum_size.x = 50.0
+        rate_label.custom_minimum_size.x = 48.0
         rate_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
         rate_label.add_theme_font_size_override("font_size", 11)
         rate_label.add_theme_color_override(
             "font_color", UiTheme.GOOD if rate > 0.0 else (UiTheme.WARN if rate < 0.0 else UiTheme.TEXT_DIM))
         row.add_child(rate_label)
+
+        # Consumers: days of stock left, and the share of demand that went short so far.
+        var cover_label := Label.new()
+        cover_label.custom_minimum_size.x = 64.0
+        cover_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+        cover_label.add_theme_font_size_override("font_size", 11)
+        if rate < 0.0:
+            var asked := float(demand.get(commodity_id, 0.0))
+            var short := float(unmet.get(commodity_id, 0.0)) / asked if asked > 0.0 else 0.0
+            cover_label.text = ("%.0f d" % days_left if days_left < 999.0 else "")
+            if short >= 0.01:
+                cover_label.text += " %d%%✗" % int(round(100.0 * short))
+            cover_label.add_theme_color_override("font_color", bar_color if short < 0.01 else UiTheme.ALERT)
+        row.add_child(cover_label)
+
+    _add_station_production(detail)
+    _add_station_orders(detail, context)
+    _add_station_ships(detail, context)
+
+    var ledger: Dictionary = detail.get("ledger", {})
+    if not ledger.is_empty():
+        _add_separator()
+        _add_label("MONEY SINCE START", UiTheme.ACCENT, 12)
+        _add_label("Residents paid %s (for what they used, at the station's import cost)" % [
+            UiTheme.format_credits(float(ledger.get("household_sales", 0.0)))], UiTheme.TEXT_DIM, 12)
+        _add_label("Ship dividends %s · subsidies %s · taxes %s" % [
+            UiTheme.format_credits(float(ledger.get("dividends", 0.0))),
+            UiTheme.format_credits(float(ledger.get("subsidies", 0.0))),
+            UiTheme.format_credits(float(ledger.get("taxes", 0.0)))], UiTheme.TEXT_DIM, 12)
+
+# How its outputs run (step 14): each at the lowest availability of its own inputs, times the
+# product of the upkeep penalties (life support, maintenance, power) in force.
+func _add_station_production(detail: Dictionary) -> void:
+    var factors: Dictionary = detail.get("output_factor", {})
+    if factors.is_empty():
+        return
+    var limited: Dictionary = detail.get("output_limited_by", {})
+    var upkeep := float(detail.get("upkeep_multiplier", 1.0))
+    _add_separator()
+    _add_label("PRODUCTION   %d%% of capacity after upkeep" % int(round(100.0 * upkeep)),
+        UiTheme.ACCENT if upkeep >= 0.9 else (UiTheme.WARN if upkeep >= 0.5 else UiTheme.ALERT), 12)
+    var outputs: Array[String] = []
+    for output_id in factors.keys():
+        var text := "%s %d%%" % [String(output_id), int(round(100.0 * float(factors[output_id])))]
+        if limited.has(output_id):
+            text += " (short of %s)" % String(limited[output_id])
+        outputs.append(text)
+    _add_label("Outputs: " + " · ".join(outputs), UiTheme.TEXT_DIM, 12)
+    var short: Array[String] = []
+    var availability: Dictionary = detail.get("upkeep_availability", {})
+    for good in availability.keys():
+        if float(availability[good]) < 0.999:
+            short.append("%s %d%%" % [String(good), int(round(100.0 * float(availability[good])))])
+    if not short.is_empty():
+        _add_label("Upkeep short (stock vs a week's use): " + " · ".join(short), UiTheme.WARN, 12)
+
+# What the station still wants of each good it consumes: up to its target stock (which
+# covers its resupply time), less its stock and the cargo already on the way. These are the
+# prices ships see: the bigger the gap, the higher the station bids.
+func _add_station_orders(detail: Dictionary, context: Dictionary) -> void:
+    var station_id := String(detail.get("id", ""))
+    var inventory: Dictionary = detail.get("inventory", {})
+    var targets: Dictionary = detail.get("target_stock", {})
+    var rates: Dictionary = detail.get("net_rates", {})
+    var prices: Dictionary = detail.get("prices", {})
+    var references: Dictionary = detail.get("reference_prices", {})
+    var inbound := {}
+    for ship in context.get("ships", []):
+        var phase := String(ship.get("phase", ""))
+        if (phase == "in_transit" or phase == "awaiting_departure") and String(ship.get("destination_station_id", "")) == station_id:
+            for lot in ship.get("cargo", []):
+                var id := String(lot.get("commodity_id", ""))
+                inbound[id] = float(inbound.get(id, 0.0)) + float(lot.get("units", 0.0))
+    var orders: Array = []
+    for commodity_id in targets.keys():
+        if float(rates.get(commodity_id, 0.0)) >= 0.0:
+            continue
+        var stock := float(inventory.get(commodity_id, 0.0))
+        var coming := float(inbound.get(commodity_id, 0.0))
+        var wanted := float(targets[commodity_id]) - stock - coming
+        if wanted >= 1.0:
+            orders.append({"id": commodity_id, "wanted": wanted, "coming": coming, "price": float(prices.get(commodity_id, 0.0)),
+                "reference": float(references.get(commodity_id, 0.0))})
+    if orders.is_empty():
+        return
+    orders.sort_custom(func(a, b): return float(a["wanted"]) * float(a["price"]) > float(b["wanted"]) * float(b["price"]))
+    _add_separator()
+    _add_label("ORDERS   wanted up to target · on the way · paying now (landed cost)", UiTheme.ACCENT, 12)
+    for order in orders:
+        var text := "%s: %.0f u wanted · %.0f u on the way · %.0f cr/u" % [order["id"], order["wanted"], order["coming"], order["price"]]
+        if float(order["reference"]) > 0.0:
+            text += " (%.0f)" % float(order["reference"])
+        _add_label(text, UiTheme.TEXT_DIM, 12)
+
+# Ships on their way here (with cargo and arrival) and ships docked here.
+func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
+    var station_id := String(detail.get("id", ""))
+    var game_time_s := float(context.get("game_time_s", 0.0))
+    var inbound: Array = []
+    var docked: Array = []
+    for ship in context.get("ships", []):
+        var phase := String(ship.get("phase", ""))
+        if (phase == "in_transit" or phase == "awaiting_departure") and String(ship.get("destination_station_id", "")) == station_id:
+            inbound.append(ship)
+        elif phase != "in_transit" and String(ship.get("current_station_id", "")) == station_id:
+            docked.append(ship)
+    if inbound.is_empty() and docked.is_empty():
+        return
+    _add_separator()
+    if not inbound.is_empty():
+        inbound.sort_custom(func(a, b): return float(a.get("arrival_time_s", 0.0)) < float(b.get("arrival_time_s", 0.0)))
+        _add_label("INBOUND   contracts: cargo · arrival · price agreed at departure", UiTheme.ACCENT, 12)
+        for ship in inbound:
+            var what := _cargo_text(ship)
+            if what == "":
+                what = "empty"
+            var agreed := 0.0
+            for lot in ship.get("cargo", []):
+                agreed += float(lot.get("contract_value", 0.0))
+            var line := "%s · %s · in %.0f d" % [String(ship.get("name", "")), what,
+                maxf(float(ship.get("arrival_time_s", 0.0)) - game_time_s, 0.0) / 86400.0]
+            if agreed > 0.0:
+                line += " · %s" % UiTheme.format_credits(agreed)
+            _add_label(line, UiTheme.TEXT_DIM, 12)
+    if not docked.is_empty():
+        _add_label("DOCKED", UiTheme.ACCENT, 12)
+        var names: Array[String] = []
+        for ship in docked:
+            names.append("%s (%s)" % [String(ship.get("name", "")), _phase_word(String(ship.get("phase", "")))])
+        _add_label(", ".join(names), UiTheme.TEXT_DIM, 12)
+
+func _phase_word(phase: String) -> String:
+    match phase:
+        "idle":
+            return "looking for work"
+        "awaiting_departure":
+            return "waiting for its window"
+        "laid_up":
+            return "laid up"
+        "refitting":
+            return "in the yard"
+        "stranded":
+            return "stranded"
+        "refueling":
+            return "refuelling"
+    return phase
 
 func _resolve_name(context: Dictionary, entity_id: String) -> String:
     if entity_id == "":
@@ -205,18 +380,78 @@ func _trajectory_label(trajectory_type: String) -> String:
             return "Keplerian — Lambert arc"
         "keplerian_hohmann":
             return "Keplerian — Hohmann"
-        "variable_isp":
-            return "Variable-ISP (ion)"
+        "keplerian_planet_system":
+            return "Keplerian — transfer within a planet's system"
+        "variable_isp", "variable_isp/refined":
+            return "Plasma drive — continuous thrust"
+        "variable_isp_planet_system":
+            return "Plasma drive — spiral within a planet's system"
         _:
             return "—"
 
-func _build_ship(detail: Dictionary, context: Dictionary) -> void:
-    var propulsion := String(detail.get("propulsion_type", ""))
+# "230 u food + 140 u medicine" from the snapshot's cargo list (largest lot first).
+func _cargo_text(detail: Dictionary) -> String:
+    var lots: Array = (detail.get("cargo", []) as Array).duplicate()
+    if lots.is_empty():
+        var units := float(detail.get("cargo_units", 0.0))
+        var commodity := String(detail.get("commodity_id", ""))
+        return "%.0f u %s" % [units, commodity] if units > 0.0 and commodity != "" else ""
+    lots.sort_custom(func(a, b): return float(a.get("units", 0.0)) > float(b.get("units", 0.0)))
+    var parts: Array[String] = []
+    for lot in lots:
+        parts.append("%.0f u %s" % [float(lot.get("units", 0.0)), String(lot.get("commodity_id", ""))])
+    return " + ".join(parts)
+
+# What the ship is doing, in words: "Carrying 120 u platinum to Earth L1 Terminal".
+func _mission_sentence(detail: Dictionary, context: Dictionary) -> String:
     var phase := String(detail.get("phase", "idle"))
+    var game_time_s := float(context.get("game_time_s", 0.0))
+    var here := _resolve_name(context, String(detail.get("current_station_id", "")))
+    var destination := _resolve_name(context, String(detail.get("destination_station_id", "")))
+    var load := _cargo_text(detail)
+    match phase:
+        "in_transit", "awaiting_departure":
+            var text := ""
+            if load != "":
+                text = "Carrying %s to %s to sell" % [load, destination]
+            elif String(detail.get("pickup_commodity_id", "")) != "":
+                text = "Flying empty to %s" % destination
+            else:
+                text = "Repositioning to %s" % destination
+            var pickup := String(detail.get("pickup_commodity_id", ""))
+            var pickup_units := float(detail.get("pickup_units", 0.0))
+            if pickup != "" and pickup_units > 0.0:
+                text += ", then load %.0f u %s there" % [pickup_units, pickup]
+            if phase == "awaiting_departure":
+                text = "Waiting %.0f d for the launch window. %s" % [
+                    maxf(float(detail.get("departure_time_s", 0.0)) - game_time_s, 0.0) / 86400.0, text]
+            return text + "."
+        "idle", "refueling":
+            return "Docked at %s, looking for work." % here
+        "laid_up":
+            return "Laid up at %s: no paying work, crew discharged." % here
+        "refitting":
+            return "In the yard at %s for new tanks, %.0f d to go." % [here,
+                maxf(float(detail.get("refit_done_s", 0.0)) - game_time_s, 0.0) / 86400.0]
+        "stranded":
+            return "Stranded at %s: not enough fuel for sale to leave." % here
+    return phase
+
+func _build_ship(detail: Dictionary, context: Dictionary) -> void:
+    var phase := String(detail.get("phase", "idle"))
+    var game_time_s := float(context.get("game_time_s", 0.0))
     _add_header(
         String(detail.get("name", detail.get("id", ""))),
-        "%s · %s · %s" % [String(detail.get("class_id", "ship")), propulsion, phase],
+        "%s · %s" % [String(detail.get("class_name", detail.get("class_id", "ship"))), String(detail.get("faction_id", ""))],
         _faction_color(detail, context))
+    _add_label(_mission_sentence(detail, context), UiTheme.TEXT_PRIMARY, 13)
+    # Scheduled liners (step 22) fly a fixed loop, paying or not.
+    var stops: Array = detail.get("liner_stops", [])
+    if not stops.is_empty():
+        var names: Array[String] = []
+        for stop in stops:
+            names.append(_resolve_name(context, String(stop)))
+        _add_label("Scheduled liner: " + " → ".join(names) + " → …", UiTheme.ACCENT, 12)
 
     var propellant := float(detail.get("propellant_kg", 0.0))
     var propellant_capacity := float(detail.get("propellant_capacity_kg", 1.0))
@@ -227,55 +462,84 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
     elif fuel_ratio < 0.4:
         fuel_color = UiTheme.WARN
     _add_gauge("Propellant", propellant, propellant_capacity,
-        "%.0f / %.0f kg" % [propellant, propellant_capacity], fuel_color)
+        "%.1f / %.0f t (%d%%)" % [propellant / 1000.0, propellant_capacity / 1000.0, int(round(100.0 * fuel_ratio))], fuel_color)
 
     var cargo := float(detail.get("cargo_units", 0.0))
     var cargo_capacity := float(detail.get("cargo_capacity_units", 0.0))
     if cargo_capacity > 0.0:
-        _add_gauge("Cargo", cargo, cargo_capacity, "%.1f / %.0f u" % [cargo, cargo_capacity], UiTheme.GOOD)
+        _add_gauge("Cargo", cargo, cargo_capacity, "%.0f / %.0f u" % [cargo, cargo_capacity], UiTheme.GOOD)
+
+    var provision_days := float(detail.get("provision_days", 0.0))
+    _add_gauge("Provisions", provision_days, maxf(730.0, provision_days), "%.0f days" % provision_days,
+        UiTheme.ALERT if provision_days < 60.0 else UiTheme.ACCENT)
+
+    if phase == "in_transit":
+        var departure_s := float(detail.get("departure_time_s", 0.0))
+        var arrival_s := float(detail.get("arrival_time_s", 0.0))
+        var total_s: float = maxf(arrival_s - departure_s, 1.0)
+        var progress: float = clampf((game_time_s - departure_s) / total_s, 0.0, 1.0)
+        _add_gauge("Transit", progress, 1.0,
+            "arrives in %.1f d" % (maxf(arrival_s - game_time_s, 0.0) / 86400.0), UiTheme.ACCENT)
+        _add_label(_trajectory_label(String(detail.get("trajectory_type", ""))), UiTheme.TEXT_DIM, 12)
+
+    var mission_value := float(detail.get("mission_value", 0.0))
+    if (phase == "in_transit" or phase == "awaiting_departure") and absf(mission_value) > 0.5:
+        _add_label("Trip expected to earn %+.0f cr (contracted sale %s, cargo %s)" % [mission_value,
+            UiTheme.format_credits(float(detail.get("expected_revenue", 0.0))),
+            UiTheme.format_credits(float(detail.get("purchase_cost", 0.0)))],
+            UiTheme.GOOD if mission_value > 0.0 else UiTheme.WARN, 12)
+
+    _add_separator()
+    _add_label("Crew %d · home %s" % [int(detail.get("crew_size", 0)),
+        _resolve_name(context, String(detail.get("home_station_id", "")))], UiTheme.TEXT_DIM, 12)
+    var route_until_s := float(detail.get("route_until_s", 0.0))
+    if route_until_s > game_time_s and String(detail.get("route_destination_id", "")) != "":
+        _add_label("Bought to carry %s to %s, %.0f more days" % [String(detail.get("route_commodity_id", "")),
+            _resolve_name(context, String(detail.get("route_destination_id", ""))),
+            (route_until_s - game_time_s) / 86400.0], UiTheme.TEXT_DIM, 12)
 
     var credits := float(detail.get("credits", 0.0))
     var profit := float(detail.get("lifetime_profit", 0.0))
-    _add_label("Wallet: %s   P&L: %+.0f cr" % [UiTheme.format_credits(credits), profit],
-        UiTheme.CREDITS if credits >= 0.0 else UiTheme.ALERT)
+    _add_label("Cash %s · lifetime profit %+.0f cr" % [UiTheme.format_credits(credits), profit],
+        UiTheme.CREDITS if profit >= 0.0 else UiTheme.ALERT)
+    var ledger: Dictionary = detail.get("ledger", {})
+    if not ledger.is_empty():
+        # Money in (+) and out (−) since the ship was commissioned; fuel can be net income
+        # (a tanker sells fuel at the depots it serves).
+        var parts: Array[String] = ["sales %+.0f" % float(ledger.get("cargo_revenue", 0.0))]
+        for key in ["cargo_purchases", "fuel", "wages", "capital", "provisions", "refits"]:
+            var amount := -float(ledger.get(key, 0.0))
+            if absf(amount) >= 0.5:
+                parts.append("%s %+.0f" % [String(key).replace("cargo_purchases", "cargo").replace("_", " "), amount])
+        _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
 
-    if phase == "in_transit" or phase == "awaiting_departure":
-        _add_separator()
-        _add_label("MISSION", UiTheme.ACCENT, 12)
-        var origin := _resolve_name(context, String(detail.get("origin_station_id", "")))
-        var destination := _resolve_name(context, String(detail.get("destination_station_id", "")))
-        _add_label("%s → %s" % [origin, destination])
-        _add_label(_trajectory_label(String(detail.get("trajectory_type", ""))), UiTheme.TEXT_DIM, 12)
-
-        var commodity := String(detail.get("commodity_id", ""))
-        if commodity != "" and cargo > 0.0:
-            _add_label("Hauling %.1fu %s" % [cargo, commodity], UiTheme.TEXT_DIM, 12)
-        var mission_value := float(detail.get("mission_value", 0.0))
-        if abs(mission_value) > 0.5:
-            _add_label("Expected margin: %+.0f cr" % mission_value,
-                UiTheme.GOOD if mission_value > 0.0 else UiTheme.WARN, 12)
-
-        var game_time_s := float(context.get("game_time_s", 0.0))
-        var departure_s := float(detail.get("departure_time_s", 0.0))
-        var arrival_s := float(detail.get("arrival_time_s", 0.0))
-        if phase == "awaiting_departure":
-            _add_label("Departure in %.1f d · ETA %.1f d" % [
-                max(departure_s - game_time_s, 0.0) / 86400.0,
-                max(arrival_s - game_time_s, 0.0) / 86400.0], UiTheme.TEXT_DIM, 12)
-        else:
-            var total_s: float = max(arrival_s - departure_s, 1.0)
-            var progress: float = clamp((game_time_s - departure_s) / total_s, 0.0, 1.0)
-            _add_gauge("Transit", progress, 1.0,
-                "ETA %.1f d" % (max(arrival_s - game_time_s, 0.0) / 86400.0), UiTheme.ACCENT)
-    elif String(detail.get("current_station_id", "")) != "":
-        _add_label("Docked at %s" % _resolve_name(context, String(detail.get("current_station_id", ""))),
-            UiTheme.TEXT_DIM, 12)
-
-func _build_body(detail: Dictionary) -> void:
+func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
     var strip := ColorRect.new()
     strip.color = Color(0.4, 0.5, 0.6)
     strip.custom_minimum_size = Vector2(0, 3)
     _content.add_child(strip)
-    _add_label(String(detail.get("name", detail.get("id", ""))), UiTheme.TEXT_PRIMARY, 16)
-    _add_label("Celestial body", UiTheme.TEXT_DIM, 12)
+    var body_id := String(detail.get("id", ""))
+    _add_label(String(detail.get("name", body_id)), UiTheme.TEXT_PRIMARY, 16)
+    var parent_id := String(detail.get("parent_id", ""))
+    var a_m := float(detail.get("semi_major_axis_m", 0.0))
+    var period_d := float(detail.get("orbital_period_s", 0.0)) / 86400.0
+    if parent_id == "":
+        _add_label("Star", UiTheme.TEXT_DIM, 12)
+    elif parent_id == "sun":
+        _add_label("Planet · %.2f AU from the Sun · year %.0f days" % [a_m / 1.495978707e11, period_d], UiTheme.TEXT_DIM, 12)
+    else:
+        _add_label("Moon of %s · %.0f thousand km · month %.1f days" % [_resolve_name(context, parent_id), a_m / 1.0e6, period_d],
+            UiTheme.TEXT_DIM, 12)
     _add_label("Radius: %.0f km" % (float(detail.get("radius_m", 0.0)) / 1000.0), UiTheme.TEXT_DIM)
+    var moons: Array[String] = []
+    for body in context.get("bodies", []):
+        if String(body.get("parent_id", "")) == body_id:
+            moons.append(String(body.get("name", "")))
+    if not moons.is_empty():
+        _add_label(("Planets: " if parent_id == "" else "Moons: ") + ", ".join(moons), UiTheme.TEXT_DIM, 12)
+    var stations: Array[String] = []
+    for station in context.get("stations", []):
+        if String(station.get("parent_body_id", "")) == body_id:
+            stations.append(String(station.get("name", "")))
+    if not stations.is_empty():
+        _add_label("Stations: " + ", ".join(stations), UiTheme.TEXT_DIM, 12)

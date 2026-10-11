@@ -10,11 +10,12 @@ static func make_entity(kind: String, data: Dictionary) -> Node3D:
     var container := Node3D.new()
     match kind:
         "body":
-            container.add_child(_named(_sphere(1.0, 24, 12), "hull"))
+            # Dense enough for a smooth limb when a planet fills the screen.
+            container.add_child(_named(_sphere(1.0, 128, 64), "hull"))
         "station":
             _build_station(container)
         "ship":
-            _build_ship(container, String(data.get("class_id", "")), String(data.get("propulsion_type", "chemical")))
+            _build_ship(container, String(data.get("class_id", "")), String(data.get("propulsion_type", "nuclear_thermal")))
     return container
 
 static func _named(instance: MeshInstance3D, instance_name: String) -> MeshInstance3D:
@@ -83,17 +84,17 @@ static func _build_station(container: Node3D) -> void:
 # --- Ships: distinct silhouettes per propulsion / class ----------------------
 
 static func _build_ship(container: Node3D, class_id: String, propulsion: String) -> void:
-    if propulsion == "electric_ion":
-        _build_ion_ship(container)
+    if propulsion == "variable_isp":
+        _build_plasma_ship(container)
     elif class_id == "ntr_freighter":
         _build_ntr_ship(container)
     else:
-        _build_chemical_ship(container, class_id)
+        _build_thermal_ship(container, class_id)
     var glow := _make_engine_glow()
     glow.position = Vector3(0.0, 0.0, 1.15)
     container.add_child(glow)
 
-static func _build_chemical_ship(container: Node3D, class_id: String) -> void:
+static func _build_thermal_ship(container: Node3D, class_id: String) -> void:
     var fuselage := _capsule(0.3, 1.5)
     fuselage.rotation.x = PI * 0.5
     container.add_child(_named(fuselage, "hull"))
@@ -138,7 +139,7 @@ static func _build_ntr_ship(container: Node3D) -> void:
     nozzle.position.z = 1.3
     container.add_child(_named(nozzle, "engine"))
 
-static func _build_ion_ship(container: Node3D) -> void:
+static func _build_plasma_ship(container: Node3D) -> void:
     var bus := _box(Vector3(0.45, 0.22, 0.7))
     container.add_child(_named(bus, "hull"))
     for side in [-1.0, 1.0]:
@@ -194,7 +195,8 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
             var texture_path := "res://assets/planets/%s.jpg" % body_id
             if ResourceLoader.exists(texture_path):
                 var material := _standard(Color.WHITE, 0.9)
-                material.albedo_texture = load(texture_path)
+                var texture: Texture2D = load(texture_path)
+                material.albedo_texture = texture
                 materials["hull"] = material
             else:
                 materials["hull"] = _standard(body_color(body_id), 0.82)
@@ -248,6 +250,9 @@ static func _make_engine_glow() -> MeshInstance3D:
     material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
     material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
     material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+    # Without this a billboard ignores its node's scale and is always one world unit
+    # (0.05 AU) across: a ship's glow filled the screen near Jupiter.
+    material.billboard_keep_scale = true
     material.albedo_texture = _glow_falloff_texture()
     material.albedo_color = Color(1.0, 0.8, 0.45)
     instance.material_override = material
@@ -256,7 +261,7 @@ static func _make_engine_glow() -> MeshInstance3D:
 
 const BURN_WINDOW_S := 6.0 * 3600.0
 
-# Chemical/NTR ships flare near their impulsive burns; ion drives glow softly
+# Nuclear-thermal ships flare near their impulsive burns; plasma drives glow softly
 # for the whole transit. max_glow_scale caps the billboard in world units so a
 # nearby burn never projects larger on screen than the cap the caller computed
 # from camera distance (a flare bigger than Earth ruins close-up views).
@@ -270,8 +275,8 @@ static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s:
         return
     # Container scale converts local glow scale to world units.
     var world_per_local: float = maxf(container.scale.x, 1.0e-12)
-    var propulsion := String(data.get("propulsion_type", "chemical"))
-    if propulsion == "electric_ion":
+    var propulsion := String(data.get("propulsion_type", "nuclear_thermal"))
+    if propulsion == "variable_isp":
         glow.visible = true
         glow.scale = Vector3.ONE * minf(0.9, max_glow_scale / world_per_local)
         (glow.material_override as StandardMaterial3D).albedo_color = Color(0.45, 0.7, 1.0, 0.8)

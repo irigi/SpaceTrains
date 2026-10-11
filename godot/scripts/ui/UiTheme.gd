@@ -19,6 +19,7 @@ const CATEGORY_COLORS := {
     "trade": Color(0.95, 0.85, 0.4),
     "fuel": Color(0.85, 0.65, 0.95),
     "alert": Color(1.0, 0.42, 0.32),
+    "news": Color(0.45, 0.9, 0.85),
     "general": Color(0.7, 0.75, 0.8),
 }
 

@@ -4,6 +4,8 @@ const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 
 signal pause_toggled
 signal timewarp_changed(factor: float)
+signal save_requested
+signal load_requested
 
 const TIMEWARP_PRESETS := {
     600.0: "10m/s",
@@ -51,6 +53,18 @@ func _ready() -> void:
         warp_row.add_child(button)
         _warp_buttons[factor] = button
 
+    var file_row := HBoxContainer.new()
+    file_row.add_theme_constant_override("separation", 2)
+    row.add_child(file_row)
+    for entry in [["SAVE", "Quick save (F5)", save_requested], ["LOAD", "Quick load (F9)", load_requested]]:
+        var button := Button.new()
+        button.text = entry[0]
+        button.tooltip_text = entry[1]
+        button.focus_mode = Control.FOCUS_NONE
+        var request: Signal = entry[2]
+        button.pressed.connect(func() -> void: request.emit())
+        file_row.add_child(button)
+
     var spacer := Control.new()
     spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     row.add_child(spacer)
@@ -82,6 +96,8 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
     var hauling := 0
     var idle := 0
     var stranded := 0
+    var laid_up := 0
+    var refitting := 0
     var in_transit := 0
     for ship in state.get("ships", []):
         var phase := String(ship.get("phase", "idle"))
@@ -91,9 +107,17 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
                 hauling += 1
         elif phase == "stranded":
             stranded += 1
+        elif phase == "laid_up":
+            laid_up += 1
+        elif phase == "refitting":
+            refitting += 1
         else:
             idle += 1
     var fleet_text := "Fleet: %d hauling / %d moving / %d docked" % [hauling, in_transit, idle]
+    if laid_up > 0:
+        fleet_text += " / %d laid up" % laid_up
+    if refitting > 0:
+        fleet_text += " / %d in the yard" % refitting
     if stranded > 0:
         fleet_text += " / %d STRANDED" % stranded
     _fleet_label.text = fleet_text
@@ -101,3 +125,7 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
         "font_color", UiTheme.ALERT if stranded > 0 else UiTheme.TEXT_DIM)
 
     _money_label.text = "Σ " + UiTheme.format_credits(float(state.get("total_credits", 0.0)))
+    # Share of the stations' consumption that found no stock over the last 30 days
+    # (Main adds it to the state from its own history of the cumulative totals).
+    if state.has("unmet_30d"):
+        _money_label.text = "Unmet 30d %d%%   %s" % [int(round(100.0 * float(state["unmet_30d"]))), _money_label.text]

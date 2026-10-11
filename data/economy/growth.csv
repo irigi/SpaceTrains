@@ -1,0 +1,7 @@
+key,value
+growth_per_year,0.03
+decline_per_year,0.05
+max_population_factor,1.5
+window_days,90
+grow_above,0.95
+decline_below,0.7
