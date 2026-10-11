@@ -405,14 +405,16 @@ Solution shoot(
             e.f[3] = e.end.primer.p.y;
             rows = {4, 5};
         }
+        // The budget row is relative: efforts span orders of magnitude.
+        const double budget_scale = budget_row ? 1.0 / std::max(options.effort_budget, 1e-300) : 1.0;
         if (budget_row) {
-            e.f[4] = e.end.effort - options.effort_budget;
+            e.f[4] = e.end.effort * budget_scale - 1.0;
         }
         if (with_jac) {
             e.jac.assign(m * n, 0.0);
             const std::array<std::size_t, 5> stm_rows {0, 1, rows[0], rows[1], 8};
             for (std::size_t r = 0; r < m; ++r) {
-                for (std::size_t c = 0; c < 4; ++c) e.jac[r * n + c] = e.end.stm[stm_rows[r]][c];
+                for (std::size_t c = 0; c < 4; ++c) e.jac[r * n + c] = e.end.stm[stm_rows[r]][c] * (r == 4 ? budget_scale : 1.0);
             }
             if (options.free_time) {
                 // Autonomous dynamics: ∂y(T)/∂T = f(y(T)); minus the target's motion.
@@ -427,6 +429,7 @@ Solution shoot(
                     dt[2] = w.x;
                     dt[3] = w.y;
                 }
+                dt[4] *= budget_scale;
                 for (std::size_t r = 0; r < m; ++r) e.jac[r * n + 4] = dt[r];
             }
         }
@@ -996,6 +999,58 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
     Solution none;
     none.propagations = propagations;
     return none;
+}
+
+
+Solution fit_effort_by_time(const Propagator& propagator, const State& start, const Target& target,
+    EndCondition end_condition, const Solution& from, double budget, double relative_tolerance,
+    const ShootingOptions& shooting) {
+    std::size_t propagations = 0;
+    ShootingOptions fixed = shooting;
+    fixed.free_time = false;
+    Solution a = from;  // over budget
+    if (a.end.effort <= budget) return a;
+    const double T0 = a.T;
+    // Direction and first step from dJ/dT ≈ −2h (exact for a fixed target): with h < 0 the
+    // effort falls toward shorter transfers. Steps stay within [2%, 30%] of T.
+    const double direction = a.end.hamiltonian >= 0.0 ? 1.0 : -1.0;
+    double dT = std::abs(a.end.hamiltonian) > 0.0 ? (a.end.effort - budget) / (2.0 * std::abs(a.end.hamiltonian)) : 0.05 * T0;
+    dT = std::clamp(dT, 0.02 * T0, 0.3 * T0);
+    Solution feasible;
+    bool bracketed = false;
+    for (int iteration = 0; iteration < 20; ++iteration) {
+        const double T = a.T + direction * dT;
+        if (!(T > 0.05 * T0)) break;
+        auto b = shoot(propagator, start, target, end_condition, a.primer, T, fixed);
+        propagations += b.propagations;
+        if (!b.converged || b.end.effort >= a.end.effort) {
+            // Not converged, or past the effort minimum: shorter step.
+            dT *= 0.3;
+            if (dT < 2e-3 * T0) break;
+            continue;
+        }
+        if (b.end.effort <= budget) {
+            feasible = b;
+            bracketed = true;
+            if (b.end.effort >= budget * (1.0 - relative_tolerance)) break;
+            // Regula falsi inside [a, b].
+            const double frac = (a.end.effort - budget) / (a.end.effort - b.end.effort);
+            dT = std::max(1e-4 * T0, frac * std::abs(b.T - a.T));
+            continue;
+        }
+        // Still over budget: secant extrapolation from (a, b).
+        const double slope = (a.end.effort - b.end.effort) / std::abs(b.T - a.T);
+        const double next = (b.end.effort - budget) / slope;
+        a = std::move(b);
+        dT = bracketed ? std::min(next, std::abs(feasible.T - a.T)) : std::clamp(1.2 * next, 0.01 * T0, 0.3 * a.T);
+    }
+    if (!bracketed) {
+        Solution none;
+        none.propagations = propagations;
+        return none;
+    }
+    feasible.propagations = propagations;
+    return feasible;
 }
 
 // ---- Seeds ------------------------------------------------------------------------------------

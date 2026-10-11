@@ -395,6 +395,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     const double theta_goal = theta_seed + std::remainder(theta_grid[window.k] - theta_seed, TAU);
                     variable_isp::ShootingSettings shooting;
                     shooting.min_radius_m = kMinPerihelionM / r_scale;
+                    shooting.fit_fuel_budget = true;
                     auto refined = integrator_.refine_seed_stm(seed, config,
                         [&](double) { return std::pair {r_target_canonical, theta_goal}; }, shooting);
                     if (!refined.converged) {

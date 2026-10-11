@@ -203,6 +203,14 @@ Solution continue_in_boundary(
     const BoundaryHomotopyOptions& options = {},
     const ShootingOptions& shooting = {});
 
+// Lengthen a converged fixed-T solution until its effort fits `budget` (effort falls with T on
+// the usual branch): safeguarded secant search over fixed-T, warm-started shootings. Returns
+// the feasible side (effort ≤ budget, within `relative_tolerance`); not converged if the
+// effort stops falling first (no time at this departure fits the budget).
+Solution fit_effort_by_time(const Propagator& propagator, const State& start, const Target& target,
+    EndCondition end_condition, const Solution& from, double budget, double relative_tolerance = 1e-3,
+    const ShootingOptions& shooting = {});
+
 // ---- Seeds ----------------------------------------------------------------------------------
 
 // Gravity-free minimum-effort cubic (closed form), the free-space seed.

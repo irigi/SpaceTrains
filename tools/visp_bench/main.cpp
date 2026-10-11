@@ -207,6 +207,8 @@ struct GCase {
     g::Target target;
     double T {0.0};
     g::EndCondition end_condition {g::EndCondition::Rendezvous};
+    g::Primer atlas_primer;
+    bool has_atlas {false};
 };
 
 g::State orbit_state(double a, double e, double nu, double omega) {
@@ -227,6 +229,22 @@ std::vector<GCase> general_cases(const std::string& set, const std::vector<Case>
         const double mag = frac * u(rng) * g::norm(v);
         return v + g::Vec2 {mag * std::cos(ang), mag * std::sin(ang)};
     };
+    if (set == "AG") {
+        // Atlas transfers (circular to circular) without the atlas seed; the atlas solution is
+        // added as a method so "best" includes it.
+        for (const auto& c : atlas) {
+            if (out.size() >= limit) break;
+            GCase gc;
+            gc.label = "AG";
+            gc.start = c.start;
+            gc.target = g::fixed_target(c.end);
+            gc.T = c.T;
+            gc.atlas_primer = c.primer;
+            gc.has_atlas = true;
+            out.push_back(gc);
+        }
+        return out;
+    }
     if (set == "E") {
         // Chase a thrusting ship: the target flies an atlas transfer (perihelion > 0.3); the
         // chaser leaves the origin planet tau later.
@@ -314,6 +332,16 @@ int run_general(const std::string& set, const std::vector<Case>& atlas, std::siz
     const auto shoot_seed = [](const GCase& c, const g::Primer& seed) {
         return g::shoot(propagator(), c.start, c.target, c.end_condition, seed, c.T);
     };
+    if (set == "AG") {
+        methods.push_back({"atlas-solution", [&](const GCase& c) {
+            const auto t0 = std::chrono::steady_clock::now();
+            g::Solution sol;
+            sol.end = propagator().propagate(c.start, c.atlas_primer, c.T, false);
+            const auto goal = c.target(c.T).state;
+            sol.converged = sol.end.ok && g::norm(sol.end.state.r - goal.r) + g::norm(sol.end.state.v - goal.v) < 1e-5;
+            return g_outcome(sol, t0);
+        }});
+    }
     methods.push_back({"zero(LQ-ballistic)", [&](const GCase& c) {
         const auto t0 = std::chrono::steady_clock::now();
         return g_outcome(shoot_seed(c, {}), t0);
@@ -545,8 +573,47 @@ int main(int argc, char** argv) {
 
     std::vector<Case> cases = atlas_cases(stride, limit, filter);
     std::fprintf(stderr, "%zu cases\n", cases.size());
-    if (set == "B" || set == "C" || set == "D" || set == "E") {
+    if (set == "B" || set == "C" || set == "D" || set == "E" || set == "AG") {
         return run_general(set, cases, limit, only, shape_terms);
+    }
+    if (set == "F") {
+        // Budget fit with a moving (circular-orbit) destination: is J(T) at fixed departure
+        // reachable for lower budgets?
+        const vi::VariableIspIntegrator integrator;
+        std::size_t tries = 0, ok = 0;
+        for (const auto& c : cases) {
+            if (c.min_radius < 0.2) continue;
+            const double rho_end = g::norm(c.end.r);
+            const double w_dest = std::pow(rho_end, -1.5);
+            const double T0d = c.seed.transfer_time_days;
+            const auto target = [&](double Td) {
+                return std::pair {rho_end * kAU, c.sweep + w_dest * (Td - T0d) * vi::VariableIspIntegrator::kDayS / kT0};
+            };
+            for (const double f : {0.95, 0.8, 0.5}) {
+                const auto cfg = vi::VariableIspIntegrator::canonical_config(c.rho, c.kappa * 0 + c.J * f);
+                vi::ShootingSettings st;
+                st.fit_fuel_budget = true;
+                st.budget_fraction = 1.0;
+                const auto r = integrator.refine_seed_stm(c.seed, cfg, target, st);
+                ++tries;
+                if (r.converged) { ++ok; continue; }
+                if (f != 0.95) continue;
+                // Scan J(T) along the branch with fixed-T shooting.
+                std::printf("fail f=%.2f rho=%.2f T0=%.1fd J=%.4g:", f, c.rho, T0d, c.J);
+                g::Primer z = c.primer;
+                for (const double mult : {1.0, 1.05, 1.1, 1.2, 1.4, 1.7, 2.0}) {
+                    const double Td = T0d * mult;
+                    const auto [rm, th] = target(Td);
+                    const g::State goal = polar_state(rm / kAU, th, 0.0, std::sqrt(kAU / rm));
+                    const auto sol = g::shoot(propagator(), c.start, g::fixed_target(goal), g::EndCondition::Rendezvous, z, Td * vi::VariableIspIntegrator::kDayS / kT0);
+                    if (sol.converged) z = sol.primer;
+                    std::printf(" %.2f:%s%.4g", mult, sol.converged ? "" : "x", sol.end.effort / c.J);
+                }
+                std::printf("\n");
+            }
+        }
+        std::printf("fit ok %zu/%zu\n", ok, tries);
+        return 0;
     }
     if (set == "R") {
         // Refinement as the planner does it: an atlas cell's seed onto a nearby target.

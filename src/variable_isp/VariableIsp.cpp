@@ -691,13 +691,27 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
     // Position to r_tolerance_rel of the target radius, speeds to velocity_tolerance_rel.
     options.tolerance = std::min(settings.r_tolerance_rel, settings.velocity_tolerance_rel) * 0.1;
     const double T0 = seed.transfer_time_days / days_per_unit;
-    const auto solution = g::shoot(propagator, start, moving, g::EndCondition::Rendezvous, seed_primer, T0, options);
+    auto solution = g::shoot(propagator, start, moving, g::EndCondition::Rendezvous, seed_primer, T0, options);
 
     ShootingResult result;
     result.iterations = solution.iterations;
     result.residual_norm = solution.residual;
     if (!solution.converged) {
         return result;
+    }
+    // Over the fuel budget: the effort falls with T, so fly longer on the budget exactly.
+    const double budget = settings.budget_fraction * 2.0 * config.power_w * (1.0 / config.m_dry_kg - 1.0 / config.m0_kg)
+        / (accel * accel * time);
+    if (settings.fit_fuel_budget && solution.end.effort > budget && solution.end.effort < settings.max_budget_overshoot * budget) {
+        g::ShootingOptions fixed = options;
+        fixed.free_time = false;
+        auto fitted = g::fit_effort_by_time(propagator, start, moving, g::EndCondition::Rendezvous, solution, budget, 1e-3, fixed);
+        result.iterations += fitted.iterations;
+        if (!fitted.converged) {
+            return result;
+        }
+        solution = std::move(fitted);
+        result.budget_fitted = true;
     }
     // Stay on the requested branch: Cartesian residuals do not see whole turns.
     const double theta_target = target(solution.T * days_per_unit).second;

@@ -105,6 +105,13 @@ struct ShootingSettings {
     double velocity_tolerance_rel {1e-3};  // radial / circular-mismatch speed over v_circ(target)
     double finite_difference_step {1e-6};  // in scaled unknowns
     double min_radius_m {0.0};  // refine_seed_stm: perihelion limit (canonical metres) for early rejection
+    // refine_seed_stm: when the corrected path needs more effort than the config's fuel allows
+    // (m0 -> m_dry at its power), by at most max_budget_overshoot, change T until it fits.
+    // Further over, the effort minimum at this departure is usually above the budget too
+    // (measured in game: 88% of fits within 10% succeed, about half beyond), so it is not tried.
+    bool fit_fuel_budget {false};
+    double budget_fraction {0.999};
+    double max_budget_overshoot {1.1};
 };
 
 struct ShootingResult {
@@ -112,6 +119,7 @@ struct ShootingResult {
     AtlasSeed seed;                 // corrected costates and transfer time
     std::size_t iterations {0};
     double residual_norm {0.0};     // scaled; < ~1e-3 when converged
+    bool budget_fitted {false};     // refine_seed_stm lengthened T to fit the fuel
 };
 
 class VariableIspIntegrator {
