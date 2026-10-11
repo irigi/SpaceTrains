@@ -158,3 +158,25 @@ opening tick 2.7 → 0.96 s. The remaining slow ticks are fleet-investment probe
 its fuel (minimum time for the fuel), staying above the perihelion limit. Planner test (365 d): same plans
 found, planning +45%, coarse_sampling flags 10 → 29 (closer solar passes). Economy (4 starts): unmet
 5.1 ± 1.1 % vs 5.3 ± 0.9 %, exports 1.31 M vs 1.21 M (noise). Left off.
+
+## Shared refinements (2026-10-12 ~00:10)
+
+91% of VISP plan requests repeat an earlier request's route and plan time (other payload or fuel). The
+station-targeting refinement of an atlas cell does not depend on the ship, so it is cached per (route,
+time, cell) without the fuel fit; each request applies its own fuel check (mass from the cached effort)
+and the ≤10% fuel fit. Different kappas pick different cells, so only 32% of refinements are saved:
+planning CPU 65 → 52 s per simulated year, headless 365 d 16.8 → 14.7 s, the same 88,602 plans.
+
+## Where the session left the game's speed
+
+| 365 d headless, this machine | session start | now |
+|---|---|---|
+| wall | 44.6 s | 14.7 s |
+| VISP planning CPU | 356 s | 52 s |
+| Kepler planning CPU | 50 s | 6.5 s |
+| tick latency p99 / ticks > 50 ms / opening tick | 359 ms / 138 / 2.7 s | ~110 ms / ~45 / 0.9 s |
+| benchmark.py 4 × 730 d | 218 s | ~85 s |
+
+Godot side (headless profile at 432000x, ~120 ships): ~3.5 ms of script per frame at 60 fps (entity
+updates 1.6 ms, snapshot apply 0.8 ms, map icons 0.5 ms), worst ~25 ms when a snapshot with new paths
+arrives; path meshes are already rebuilt per ship only when its plan changes. Not changed.
