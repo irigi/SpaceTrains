@@ -104,6 +104,7 @@ struct ShootingSettings {
     double theta_tolerance_rad {1e-4};
     double velocity_tolerance_rel {1e-3};  // radial / circular-mismatch speed over v_circ(target)
     double finite_difference_step {1e-6};  // in scaled unknowns
+    double min_radius_m {0.0};  // refine_seed_stm: perihelion limit (canonical metres) for early rejection
 };
 
 struct ShootingResult {
@@ -140,6 +141,15 @@ public:
     // {r_m, theta_rad}; theta must be on the branch the seed flies.
     using MovingTarget = std::function<std::pair<double, double>(double transfer_time_days)>;
     [[nodiscard]] ShootingResult refine_seed(
+        const AtlasSeed& seed,
+        const CanonicalMissionConfig& config,
+        const MovingTarget& target,
+        const ShootingSettings& settings = {}) const;
+
+    // Same problem as the moving-target refine_seed, solved in Cartesian primer form
+    // (GeneralTransfer.hpp) with the analytic transition matrix instead of finite differences;
+    // the result is mapped back to atlas costates exactly.
+    [[nodiscard]] ShootingResult refine_seed_stm(
         const AtlasSeed& seed,
         const CanonicalMissionConfig& config,
         const MovingTarget& target,

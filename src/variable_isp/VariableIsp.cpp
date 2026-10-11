@@ -1,6 +1,7 @@
 #include "variable_isp/VariableIsp.hpp"
 
 #include "util/Profiling.hpp"
+#include "variable_isp/GeneralTransfer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -630,6 +631,88 @@ ShootingResult VariableIspIntegrator::refine_seed(
     result.seed = from_unknowns(z, seed);
     result.residual_norm = norm(*f);
     result.converged = converged(*f);
+    return result;
+}
+
+ShootingResult VariableIspIntegrator::refine_seed_stm(
+    const AtlasSeed& seed,
+    const CanonicalMissionConfig& config,
+    const MovingTarget& target,
+    const ShootingSettings& settings) const {
+    const profiling::Scope profile_scope(profiling::Phase::VariableIspRefine);
+    namespace g = general;
+
+    // Normalised units of the general solver: length r0, μ = 1.
+    const double length = config.r0_m;
+    const double time = std::sqrt(length * length * length / config.mu_m3_s2);
+    const double speed = length / time;
+    const double accel = length / (time * time);
+    const double k = config.k_gain;
+    const double vr0 = config.vr0_mps;
+    const double vt0 = config.vtheta0_mps;
+
+    // Polar costates <-> primer at departure (on the +x axis, so e_r = x, e_θ = y):
+    // p = k λ_v, w = −k [λ_r e_r + (C_θ + v_θ λ_vr − v_r λ_vθ)/r e_θ].
+    const g::Primer seed_primer {
+        {k * seed.params[1] / accel, k * seed.params[2] / accel},
+        {-k * seed.params[0] / (accel / time),
+            -k * (seed.params[4] + vt0 * seed.params[1] - vr0 * seed.params[2]) / config.r0_m / (accel / time)},
+    };
+    const g::State start {{1.0, 0.0}, {vr0 / speed, vt0 / speed}};
+    const double days_per_unit = time / kDayS;
+
+    // The station target on a circular-velocity arrival, as refine_seed: position from the
+    // caller, velocity circular at that radius. Its motion for the T column by central differences.
+    const auto state_at = [&](double T) {
+        const auto [r_m, theta] = target(T * days_per_unit);
+        const double r = r_m / length;
+        const g::Vec2 er {std::cos(theta), std::sin(theta)};
+        return g::State {r * er, (1.0 / std::sqrt(r)) * g::Vec2 {-er.y, er.x}};
+    };
+    const g::Target moving = [&](double T) {
+        const double h = 1e-5 * std::max(T, 1e-3);
+        const auto a = state_at(T - h);
+        const auto b = state_at(T + h);
+        return g::TargetPoint {state_at(T), (0.5 / h) * (b.r - a.r), (0.5 / h) * (b.v - a.v)};
+    };
+
+    g::PropagationSettings propagation;
+    // Endpoint-only shooting: 1e-8 matches refine_seed's integration accuracy.
+    propagation.relative_tolerance = 1e-8;
+    propagation.absolute_tolerance = 1e-9;
+    // Fail fast on paths that dive far below the caller's perihelion limit; intermediate
+    // iterates may dip a little below it.
+    propagation.min_radius = std::max(propagation.min_radius, 0.5 * settings.min_radius_m / length);
+    const g::Propagator propagator(propagation);
+    g::ShootingOptions options;
+    options.max_iterations = settings.max_iterations;
+    options.free_time = true;
+    options.match_budget = false;
+    // Position to r_tolerance_rel of the target radius, speeds to velocity_tolerance_rel.
+    options.tolerance = std::min(settings.r_tolerance_rel, settings.velocity_tolerance_rel) * 0.1;
+    const double T0 = seed.transfer_time_days / days_per_unit;
+    const auto solution = g::shoot(propagator, start, moving, g::EndCondition::Rendezvous, seed_primer, T0, options);
+
+    ShootingResult result;
+    result.iterations = solution.iterations;
+    result.residual_norm = solution.residual;
+    if (!solution.converged) {
+        return result;
+    }
+    // Stay on the requested branch: Cartesian residuals do not see whole turns.
+    const double theta_target = target(solution.T * days_per_unit).second;
+    if (std::abs(solution.end.sweep_rad - theta_target) > 0.5) {
+        return result;
+    }
+    const auto& pr = solution.primer;
+    AtlasSeed out = seed;
+    out.params[1] = pr.p.x * accel / k;
+    out.params[2] = pr.p.y * accel / k;
+    out.params[0] = -pr.w.x * (accel / time) / k;
+    out.params[4] = -pr.w.y * (accel / time) * config.r0_m / k - vt0 * out.params[1] + vr0 * out.params[2];
+    out.transfer_time_days = solution.T * days_per_unit;
+    result.seed = out;
+    result.converged = true;
     return result;
 }
 

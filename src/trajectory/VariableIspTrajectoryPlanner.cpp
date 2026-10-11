@@ -393,7 +393,10 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     const auto start = integrator_.integrate_fixed_time(seed, config, 2);
                     const double theta_seed = start.samples.back().theta_rad;
                     const double theta_goal = theta_seed + std::remainder(theta_grid[window.k] - theta_seed, TAU);
-                    auto refined = integrator_.refine_seed(seed, config, r_target_canonical, theta_goal);
+                    variable_isp::ShootingSettings shooting;
+                    shooting.min_radius_m = kMinPerihelionM / r_scale;
+                    auto refined = integrator_.refine_seed_stm(seed, config,
+                        [&](double) { return std::pair {r_target_canonical, theta_goal}; }, shooting);
                     if (!refined.converged) {
                         continue;
                     }
@@ -446,7 +449,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                                 theta_branch + std::remainder(std::atan2(station.z, station.x) - departure.phi - theta_branch, TAU),
                             };
                         };
-                        targeted = integrator_.refine_seed(refined.seed, config, station_target);
+                        targeted = integrator_.refine_seed_stm(refined.seed, config, station_target, shooting);
                         if (targeted.converged) {
                             break;
                         }

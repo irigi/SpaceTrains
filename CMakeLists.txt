@@ -23,6 +23,7 @@ add_library(spacetrains_core
     src/trajectory/TrajectoryPlanner.cpp
     src/trajectory/VariableIspTrajectoryPlanner.cpp
     src/variable_isp/VariableIsp.cpp
+    src/variable_isp/GeneralTransfer.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
     src/util/Profiling.cpp
@@ -41,6 +42,9 @@ target_link_libraries(spacetrains_headless PRIVATE spacetrains_core Threads::Thr
 
 add_executable(spacetrains_bridge src/bridge/main.cpp)
 target_link_libraries(spacetrains_bridge PRIVATE spacetrains_core)
+
+add_executable(spacetrains_visp_bench tools/visp_bench/main.cpp)
+target_link_libraries(spacetrains_visp_bench PRIVATE spacetrains_core)
 
 enable_testing()
 add_executable(spacetrains_tests tests/test_main.cpp)
