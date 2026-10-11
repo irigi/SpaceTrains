@@ -496,6 +496,12 @@ void verify_general_transfer(const std::filesystem::path& dataset_path, const Va
                 "the reversed transfer should cost the same effort");
         }
 
+        // Spending twice the effort along the branch shortens the transfer and uses the budget.
+        const auto spent = g::spend_effort_by_time(propagator, chaser, request.target, end_condition, sol, 2.0 * sol.end.effort, 0.1);
+        require(spent.converged && spent.T < T && spent.end.effort <= 2.0 * sol.end.effort * (1.0 + 1e-9)
+                && spent.end.effort > 2.0 * sol.end.effort * 0.99,
+            "spend_effort_by_time should shorten the transfer to use the budget");
+
         // Twice the effort buys an earlier arrival, which uses the budget exactly.
         const auto fast = g::solve_min_time(propagator, request, 2.0 * sol.end.effort, 0.05, 2.0 * T);
         require(fast.converged && fast.T < T, "a larger budget should arrive earlier");

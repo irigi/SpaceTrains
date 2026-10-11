@@ -213,6 +213,13 @@ Solution fit_effort_by_time(const Propagator& propagator, const State& start, co
     EndCondition end_condition, const Solution& from, double budget, double relative_tolerance = 1e-3,
     const ShootingOptions& shooting = {});
 
+// The other way: shorten a solution with effort below `budget` until it uses the budget (the
+// minimum time for that fuel along this branch), never passing closer to the Sun than
+// `min_radius`. Always returns a feasible solution (possibly `from` itself).
+Solution spend_effort_by_time(const Propagator& propagator, const State& start, const Target& target,
+    EndCondition end_condition, const Solution& from, double budget, double min_radius, double relative_tolerance = 1e-3,
+    const ShootingOptions& shooting = {});
+
 // ---- Seeds ----------------------------------------------------------------------------------
 
 // Gravity-free minimum-effort cubic (closed form), the free-space seed.

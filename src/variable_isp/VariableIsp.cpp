@@ -715,6 +715,14 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
         solution = std::move(fitted);
         result.budget_fitted = true;
     }
+    if (settings.spend_fuel_budget && solution.end.effort < budget * (1.0 - 1e-3)) {
+        g::ShootingOptions fixed = options;
+        fixed.free_time = false;
+        const double initial_sweep = solution.initial_sweep;
+        solution = g::spend_effort_by_time(propagator, start, moving, g::EndCondition::Rendezvous, solution, budget,
+            settings.min_radius_m / length, 1e-3, fixed);
+        solution.initial_sweep = initial_sweep;
+    }
     // Stay on the seed's branch: Cartesian residuals do not see whole turns, so the target
     // angle only counts modulo 2π, taken nearest to what the seed swept.
     const double seed_sweep = solution.initial_sweep;

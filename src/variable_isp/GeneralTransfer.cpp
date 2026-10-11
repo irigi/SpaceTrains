@@ -1176,6 +1176,51 @@ Solution fit_effort_by_time(const Propagator& propagator, const State& start, co
     return feasible;
 }
 
+Solution spend_effort_by_time(const Propagator& propagator, const State& start, const Target& target,
+    EndCondition end_condition, const Solution& from, double budget, double min_radius, double relative_tolerance,
+    const ShootingOptions& shooting) {
+    std::size_t propagations = 0;
+    ShootingOptions fixed = shooting;
+    fixed.free_time = false;
+    Solution a = from;  // feasible: effort below the budget
+    if (a.end.effort >= budget * (1.0 - relative_tolerance)) return a;
+    const double T0 = a.T;
+    // Effort rises toward shorter transfers when h > 0 (dJ/dT = −2h).
+    const double direction = a.end.hamiltonian >= 0.0 ? -1.0 : 1.0;
+    double dT = std::abs(a.end.hamiltonian) > 0.0 ? (budget - a.end.effort) / (2.0 * std::abs(a.end.hamiltonian)) : 0.05 * T0;
+    dT = std::clamp(dT, 0.02 * T0, 0.3 * T0);
+    bool bracketed = false;
+    double over_T = 0.0;
+    double over_effort = 0.0;
+    for (int iteration = 0; iteration < 16; ++iteration) {
+        const double T = a.T + direction * dT;
+        if (!(T > 0.05 * T0)) break;
+        auto b = shoot(propagator, start, target, end_condition, a.primer, T, fixed);
+        propagations += b.propagations;
+        if (!b.converged || b.end.min_radius < min_radius || b.end.effort <= a.end.effort) {
+            dT *= 0.3;
+            if (dT < 2e-3 * T0) break;
+            continue;
+        }
+        if (b.end.effort <= budget) {
+            const double slope = (b.end.effort - a.end.effort) / std::abs(b.T - a.T);
+            a = std::move(b);
+            if (a.end.effort >= budget * (1.0 - relative_tolerance)) break;
+            const double next = (budget - a.end.effort) / slope;
+            dT = bracketed ? std::min(next, 0.9 * std::abs(over_T - a.T)) : std::clamp(1.2 * next, 0.005 * T0, 0.3 * a.T);
+        } else {
+            // Over the budget: regula falsi inside [a, b].
+            bracketed = true;
+            over_T = b.T;
+            over_effort = b.end.effort;
+            const double frac = (budget - a.end.effort) / (over_effort - a.end.effort);
+            dT = std::max(1e-4 * T0, frac * std::abs(over_T - a.T));
+        }
+    }
+    a.propagations = from.propagations + propagations;
+    return a;
+}
+
 // ---- Seeds ------------------------------------------------------------------------------------
 
 Primer free_space_seed(const State& start, const State& end, double T) {

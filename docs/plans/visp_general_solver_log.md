@@ -151,3 +151,10 @@ faster there, and loosening to 1e-7 brings endpoint misses back to 0.0012 AU.
 Slow ticks after all planner work (365 d, 0.1-day ticks): p99 359 → 112 ms, ticks over 50 ms 138 → 62, the
 opening tick 2.7 → 0.96 s. The remaining slow ticks are fleet-investment probe batches (every ~60 days,
 100–250 ms for ~7 ticks), VISP refinements in parallel.
+
+## Spending the whole fuel budget (built, off by default)
+
+`ShootingSettings::spend_fuel_budget` + `spend_effort_by_time`: shorten a refined transfer until it uses all
+its fuel (minimum time for the fuel), staying above the perihelion limit. Planner test (365 d): same plans
+found, planning +45%, coarse_sampling flags 10 → 29 (closer solar passes). Economy (4 starts): unmet
+5.1 ± 1.1 % vs 5.3 ± 0.9 %, exports 1.31 M vs 1.21 M (noise). Left off.

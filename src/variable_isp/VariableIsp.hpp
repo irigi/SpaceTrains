@@ -112,6 +112,10 @@ struct ShootingSettings {
     bool fit_fuel_budget {false};
     double budget_fraction {0.999};
     double max_budget_overshoot {1.1};
+    // refine_seed_stm: when the corrected path leaves fuel unused, shorten T until it uses it
+    // (minimum time for the fuel), staying above min_radius_m. Off in the planner: measured
+    // 2026-10-12, +45% planning time, no measurable economy gain, more close solar passes.
+    bool spend_fuel_budget {false};
 };
 
 struct ShootingResult {
