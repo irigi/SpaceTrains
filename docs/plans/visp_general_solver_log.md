@@ -140,3 +140,14 @@ of 17 s. Left off.
 `Propagator::sample` now integrates once and fills output times by cubic Hermite between steps.
 A "walk" minimum-time strategy (one short-T solve, then secant steps up the effort curve) was tried and
 removed: fewer requests solved (154 vs 162 of 173 on set E; 129 vs 268 of 400 low-κ), no faster.
+
+## DOP853 for the general solver
+
+`PropagationSettings::high_order` (default on) uses DOP853 (tableau from SciPy) instead of DOPRI5. At the
+general solver's 1e-10 tolerance `solve_transfer` medians drop: B 0.78 → 0.59 ms, C 0.41 → 0.35, D 0.62 →
+0.56, E 0.74 → 0.51, AG 0.76 → 0.57, same results. The planner's refine (1e-8) stays on DOPRI5: DOP853 is no
+faster there, and loosening to 1e-7 brings endpoint misses back to 0.0012 AU.
+
+Slow ticks after all planner work (365 d, 0.1-day ticks): p99 359 → 112 ms, ticks over 50 ms 138 → 62, the
+opening tick 2.7 → 0.96 s. The remaining slow ticks are fleet-investment probe batches (every ~60 days,
+100–250 ms for ~7 ticks), VISP refinements in parallel.

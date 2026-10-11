@@ -242,6 +242,117 @@ StepStats integrate(Vec<N>& y, double T, const PropagationSettings& settings, Ob
     return stats;
 }
 
+// DOP853 (Dormand-Prince 8(5,3)) tableau, from SciPy's dop853_coefficients (Hairer's DOP853).
+constexpr std::size_t k853Stages = 12;
+constexpr double k853C[12] = {0.0, 0.05260015195876773, 0.0789002279381516, 0.1183503419072274, 0.2816496580927726, 0.3333333333333333, 0.25, 0.3076923076923077, 0.6512820512820513, 0.6, 0.8571428571428571, 1.0};
+constexpr double k853B[12] = {0.054293734116568765, 0.0, 0.0, 0.0, 0.0, 4.450312892752409, 1.8915178993145003, -5.801203960010585, 0.3111643669578199, -0.1521609496625161, 0.20136540080403034, 0.04471061572777259};
+constexpr double k853E3[13] = {-0.18980075407240762, 0.0, 0.0, 0.0, 0.0, 4.450312892752409, 1.8915178993145003, -5.801203960010585, -0.4226823213237919, -0.1521609496625161, 0.20136540080403034, 0.02265179219836082, 0.0};
+constexpr double k853E5[13] = {0.01312004499419488, 0.0, 0.0, 0.0, 0.0, -1.2251564463762044, -0.4957589496572502, 1.6643771824549864, -0.35032884874997366, 0.3341791187130175, 0.08192320648511571, -0.022355307863886294, 0.0};
+constexpr double k853A[12][12] = {
+    {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.05260015195876773, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.0197250569845379, 0.0591751709536137, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.02958758547680685, 0.0, 0.08876275643042054, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.2413651341592667, 0.0, -0.8845494793282861, 0.924834003261792, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.037037037037037035, 0.0, 0.0, 0.17082860872947386, 0.12546768756682242, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.037109375, 0.0, 0.0, 0.17025221101954405, 0.06021653898045596, -0.017578125, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.03709200011850479, 0.0, 0.0, 0.17038392571223998, 0.10726203044637328, -0.015319437748624402, 0.008273789163814023, 0.0, 0.0, 0.0, 0.0, 0.0},
+    {0.6241109587160757, 0.0, 0.0, -3.3608926294469414, -0.868219346841726, 27.59209969944671, 20.154067550477894, -43.48988418106996, 0.0, 0.0, 0.0, 0.0},
+    {0.47766253643826434, 0.0, 0.0, -2.4881146199716677, -0.590290826836843, 21.230051448181193, 15.279233632882423, -33.28821096898486, -0.020331201708508627, 0.0, 0.0, 0.0},
+    {-0.9371424300859873, 0.0, 0.0, 5.186372428844064, 1.0914373489967295, -8.149787010746927, -18.52006565999696, 22.739487099350505, 2.4936055526796523, -3.0467644718982196, 0.0, 0.0},
+    {2.273310147516538, 0.0, 0.0, -10.53449546673725, -2.0008720582248625, -17.9589318631188, 27.94888452941996, -2.8589982771350235, -8.87285693353063, 12.360567175794303, 0.6433927460157636, 0.0},
+};
+
+// Adaptive DOP853 from 0 to T, same contract as integrate(): error control on the first kBase
+// entries (SciPy's combined 5th/3rd-order estimate), observer after every accepted step.
+template <std::size_t N, typename Observer>
+StepStats integrate853(Vec<N>& y, double T, const PropagationSettings& settings, Observer&& observer) {
+    StepStats stats;
+    std::array<Vec<N>, k853Stages + 1> K {};
+    Vec<N> tmp {}, y_new {};
+    rhs<N>(y, K[0]);
+    double t = 0.0;
+    observer(t, y);
+    const double r0 = std::hypot(y[0], y[1]);
+    double h = std::min(T, 0.05 * std::pow(r0, 1.5));
+    const double rtol = settings.relative_tolerance;
+    const double atol = settings.absolute_tolerance;
+    bool last_rejected = false;
+    while (t < T) {
+        if (stats.steps >= settings.max_steps) {
+            stats.ok = false;
+            return stats;
+        }
+        if (t + h > T) h = T - t;
+        for (std::size_t stage = 1; stage < k853Stages; ++stage) {
+            for (std::size_t i = 0; i < N; ++i) {
+                double acc = 0.0;
+                for (std::size_t j = 0; j < stage; ++j) acc += k853A[stage][j] * K[j][i];
+                tmp[i] = y[i] + h * acc;
+            }
+            rhs<N>(tmp, K[stage]);
+        }
+        for (std::size_t i = 0; i < N; ++i) {
+            double acc = 0.0;
+            for (std::size_t j = 0; j < k853Stages; ++j) acc += k853B[j] * K[j][i];
+            y_new[i] = y[i] + h * acc;
+        }
+        rhs<N>(y_new, K[k853Stages]);
+        double e5 = 0.0, e3 = 0.0;
+        for (std::size_t i = 0; i < kBase; ++i) {
+            double a5 = 0.0, a3 = 0.0;
+            for (std::size_t j = 0; j <= k853Stages; ++j) {
+                a5 += k853E5[j] * K[j][i];
+                a3 += k853E3[j] * K[j][i];
+            }
+            const double sc = atol + rtol * std::max(std::abs(y[i]), std::abs(y_new[i]));
+            e5 += (a5 / sc) * (a5 / sc);
+            e3 += (a3 / sc) * (a3 / sc);
+        }
+        const double err = (e5 == 0.0 && e3 == 0.0) ? 0.0 : std::abs(h) * e5 / std::sqrt((e5 + 0.01 * e3) * static_cast<double>(kBase));
+        ++stats.steps;
+        if (!std::isfinite(err)) {
+            h *= 0.2;
+            last_rejected = true;
+            if (h < 1e-14 * std::max(1.0, T)) {
+                stats.ok = false;
+                return stats;
+            }
+            continue;
+        }
+        if (err <= 1.0) {
+            t += h;
+            y = y_new;
+            K[0] = K[k853Stages];
+            const double rr = std::hypot(y[0], y[1]);
+            stats.min_radius = std::min(stats.min_radius, rr);
+            if (rr < settings.min_radius) {
+                stats.ok = false;
+                return stats;
+            }
+            observer(t, y);
+            double factor = err == 0.0 ? 10.0 : std::min(10.0, 0.9 * std::pow(err, -1.0 / 8.0));
+            if (last_rejected) factor = std::min(1.0, factor);
+            h *= factor;
+            last_rejected = false;
+        } else {
+            h *= std::max(0.2, 0.9 * std::pow(err, -1.0 / 8.0));
+            last_rejected = true;
+            if (h < 1e-14 * std::max(1.0, T)) {
+                stats.ok = false;
+                return stats;
+            }
+        }
+    }
+    return stats;
+}
+
+template <std::size_t N, typename Observer>
+StepStats integrate_with(Vec<N>& y, double T, const PropagationSettings& settings, Observer&& observer) {
+    if (settings.high_order) return integrate853<N>(y, T, settings, std::forward<Observer>(observer));
+    return integrate<N>(y, T, settings, std::forward<Observer>(observer));
+}
+
 template <std::size_t N>
 Vec<N> initial_vector(const State& start, const Primer& primer) {
     Vec<N> y {};
@@ -302,14 +413,14 @@ EndPoint Propagator::propagate(const State& start, const Primer& primer, double 
     }
     if (with_stm) {
         auto y = initial_vector<kWithStm>(start, primer);
-        const auto stats = integrate<kWithStm>(y, T, settings_, [](double, const auto&) {});
+        const auto stats = integrate_with<kWithStm>(y, T, settings_, [](double, const auto&) {});
         finish(y, stats);
         for (std::size_t c = 0; c < 4; ++c) {
             for (std::size_t r = 0; r < 9; ++r) end.stm[r][c] = y[kBase + 9 * c + r];
         }
     } else {
         auto y = initial_vector<kBase>(start, primer);
-        const auto stats = integrate<kBase>(y, T, settings_, [](double, const auto&) {});
+        const auto stats = integrate_with<kBase>(y, T, settings_, [](double, const auto&) {});
         finish(y, stats);
     }
     return end;
@@ -324,7 +435,7 @@ SegmentEnd Propagator::propagate_segment(const std::array<double, 8>& x0, double
         y[kBase + 9 * i + i] = 1.0;
     }
     if (!(dt > 0.0)) return out;
-    const auto stats = integrate<kFullStm>(y, dt, settings_, [](double, const auto&) {});
+    const auto stats = integrate_with<kFullStm>(y, dt, settings_, [](double, const auto&) {});
     for (std::size_t i = 0; i < 8; ++i) out.x[i] = y[i];
     out.effort = y[8];
     out.sweep_rad = y[9];
@@ -343,7 +454,7 @@ std::vector<Sample> Propagator::sample(const State& start, const Primer& primer,
     std::vector<double> times;
     std::vector<Vec<kBase>> states;
     auto y = initial_vector<kBase>(start, primer);
-    const auto stats = integrate<kBase>(y, T, settings_, [&](double t, const Vec<kBase>& state) {
+    const auto stats = integrate_with<kBase>(y, T, settings_, [&](double t, const Vec<kBase>& state) {
         times.push_back(t);
         states.push_back(state);
     });

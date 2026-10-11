@@ -680,6 +680,7 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
     // Endpoint-only shooting: 1e-8 matches refine_seed's integration accuracy.
     propagation.relative_tolerance = 1e-8;
     propagation.absolute_tolerance = 1e-9;
+    propagation.high_order = false;  // DOPRI5: as fast here, and the planner's plans stay as measured
     // Fail fast on paths that dive far below the caller's perihelion limit; intermediate
     // iterates may dip a little below it.
     propagation.min_radius = std::max(propagation.min_radius, 0.5 * settings.min_radius_m / length);

@@ -68,6 +68,7 @@ struct PropagationSettings {
     double absolute_tolerance {1e-11};
     double min_radius {2e-3};          // numerical singularity guard, not a physical limit
     std::size_t max_steps {20000};
+    bool high_order {true};            // DOP853 (else DOPRI5): ~25% faster at 1e-10, equal at 1e-8
 };
 
 struct EndPoint {

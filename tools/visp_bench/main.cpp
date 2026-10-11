@@ -60,7 +60,15 @@ double seconds_since(std::chrono::steady_clock::time_point t0) {
 }
 
 const g::Propagator& propagator() {
-    static const g::Propagator p;
+    static const g::Propagator p = [] {
+        g::PropagationSettings settings;
+        if (const char* h = std::getenv("HIGH_ORDER")) settings.high_order = std::atoi(h) != 0;
+        if (const char* r = std::getenv("RTOL")) {
+            settings.relative_tolerance = std::atof(r);
+            settings.absolute_tolerance = 0.1 * settings.relative_tolerance;
+        }
+        return g::Propagator(settings);
+    }();
     return p;
 }
 
