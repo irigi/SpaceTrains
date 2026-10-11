@@ -791,39 +791,6 @@ int main(int argc, char** argv) {
         csv.open(csv_path);
         csv << "method,case,rho,kappa,theta,T,J_truth,sweep_truth,minr_truth,ok,J,seconds,iterations,props,sweep\n";
     }
-    methods.push_back({"angleshape-only(3br)", [shape_opt](const Case& c) {
-        const auto t0 = std::chrono::steady_clock::now();
-        g::ShapeResult best;
-        for (const double th : g::arrival_angle_candidates(c.start, c.end, c.T, 3)) {
-            auto s = g::angle_shape_solve(c.start, c.end, c.T, th, shape_opt);
-            if (s.ok && (!best.ok || s.effort < best.effort)) best = std::move(s);
-        }
-        Outcome o;
-        o.ok = best.ok;
-        o.J = best.effort;
-        o.iterations = best.iterations;
-        o.sweep = best.theta_end;
-        o.seconds = seconds_since(t0);
-        return o;
-    }});
-    methods.push_back({"angleshapefit+shoot", [shape_opt](const Case& c) {
-        const auto t0 = std::chrono::steady_clock::now();
-        g::ShapeResult best;
-        for (const double th : g::arrival_angle_candidates(c.start, c.end, c.T, 3)) {
-            auto s = g::angle_shape_solve(c.start, c.end, c.T, th, shape_opt);
-            if (s.ok && (!best.ok || s.effort < best.effort)) best = std::move(s);
-        }
-        if (!best.ok) return Outcome {};
-        std::vector<double> times;
-        std::vector<g::Vec2> pos, thrust;
-        for (std::size_t i = 0; i < 400; ++i) {
-            const auto pt = g::angle_shape_eval(c.start, c.end, best, static_cast<double>(i) / 399.0);
-            times.push_back(pt.t);
-            pos.push_back(pt.state.r);
-            thrust.push_back(pt.thrust);
-        }
-        return shoot_from(c, g::fit_primer(times, pos, thrust), t0);
-    }});
     methods.push_back({"portfolio-min", [shape_opt](const Case& c) {
         const auto t0 = std::chrono::steady_clock::now();
         auto o = shoot_from(c, g::free_space_seed(c.start, c.end, c.T), t0);

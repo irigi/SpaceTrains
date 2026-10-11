@@ -486,6 +486,19 @@ void verify_general_transfer(const std::filesystem::path& dataset_path, const Va
             require(g::norm(rollout.primer.p) < 1e-6, "intercept should end with zero thrust (free arrival velocity)");
         }
 
+        // Multiple shooting from the converged solution's nodes, perturbed, converges back to it.
+        {
+            std::vector<std::array<double, 8>> nodes;
+            for (int k = 0; k < 4; ++k) {
+                const auto e = propagator.propagate(chaser, sol.primer, T * k / 4.0, false);
+                const auto& st = k == 0 ? chaser : e.state;
+                const auto& pr = k == 0 ? sol.primer : e.primer;
+                nodes.push_back({st.r.x * 1.002, st.r.y, st.v.x, st.v.y * 0.998, pr.p.x * 1.02, pr.p.y, pr.w.x, pr.w.y * 0.98});
+            }
+            const auto ms = g::multiple_shoot(propagator, chaser, request.target, end_condition, T, nodes);
+            require(ms.converged && std::abs(ms.end.effort / sol.end.effort - 1.0) < 1e-6, "multiple shooting should recover the solution");
+        }
+
         // Time reversal: flying back with both velocities negated costs the same effort.
         if (end_condition == g::EndCondition::Rendezvous) {
             const g::State back_start {goal.r, -1.0 * goal.v};

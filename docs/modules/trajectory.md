@@ -82,15 +82,30 @@ with that the propellant formula (I_real = I_canonical·δ_real/δ_canonical) ho
 it wait for the next window. Before, the wait wrapped to almost a whole synodic period (Ganymede -> Ceres planned
 3133 days, 2705 of them waiting; now 432).
 
-## VariableISP Refinement in Primer Form (v34)
+## VariableISP Refinement in Primer Form (v34–v35)
 
 `VariableIspIntegrator::refine_seed_stm` solves the refinement above with the general solver below:
 the atlas costates map exactly to the Cartesian primer (p = k·λ_v, w = −k[λ_r e_r + (C_θ + v_θλ_vr − v_rλ_vθ)/r e_θ]),
-the shooting uses the analytic transition matrix instead of finite differences (0.57 → 0.22 ms per call in game),
-and the result maps back to atlas costates, so the rest of the planner is unchanged. Paths diving below half
-the perihelion limit are rejected inside the shooting. When the corrected path needs at most 10% more effort
-than the fuel allows, `fit_effort_by_time` changes T until it fits (before, 56% of candidates were rejected as
-fuel-limited). The finite-difference `refine_seed` remains for tests.
+the shooting uses the analytic transition matrix instead of finite differences, and the result maps back
+to atlas costates, so the rest of the planner is unchanged. The finite-difference `refine_seed` remains for tests.
+
+- **One pass.** The station-targeting refinement starts from the atlas seed; the launch wait comes from the
+  seed's T. The seed's winding branch is checked inside the shooting (its first evaluation), so the seed is
+  not integrated separately.
+- **Perihelion inside.** Paths diving below half the perihelion limit fail inside the shooting; the shooting
+  also reports the exact closest approach, end state and effort.
+- **Scoring plans** (`include_path` off) take mass (from the effort) and perihelion from the shooting; only
+  plans with a path integrate the trajectory (4000 samples).
+- **Fuel fit.** When the corrected path needs at most 10% more effort than the fuel allows,
+  `fit_effort_by_time` changes T until it fits (56% of candidates used to be rejected as fuel-limited).
+- **Shared refinements.** The geometric refinement of an atlas cell is cached per (route, plan time, cell):
+  the path does not depend on the ship, so plans differing only in payload or fuel reuse it and apply their
+  own fuel check.
+- Optional, off: `PlanningOptions::direct_fallback` (solve a departure now directly when no window converges)
+  and `ShootingSettings::spend_fuel_budget` (shorten T to use all the fuel); both measured without economy gain.
+
+The Kepler planner caches its Lambert grid rows at departures aligned to multiples of the grid step (plus a
+fresh "leave now" row), shared across plans and steps.
 
 ## General-Boundary Variable-Isp Transfers (prototype)
 

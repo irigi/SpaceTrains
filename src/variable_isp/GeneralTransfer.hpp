@@ -257,18 +257,6 @@ struct ShapePoint {
 };
 ShapePoint shape_eval(const State& start, const State& end, const ShapeResult& shape, double s, bool with_rate = true);
 
-// Angle-parametrised shape: r(θ) and t(θ) as cubic Hermite + bubbles over θ ∈ [0, θ_end], so
-// fast perihelion passages stay smooth. Needs the angular rate to keep one sign (no
-// retrograde ends). Same result type; terms counts the bubbles per function.
-ShapeResult angle_shape_solve(
-    const State& start, const State& end, double T, double theta_end, const ShapeOptions& options = {});
-struct TimedShapePoint {
-    double t {0.0};
-    State state;
-    Vec2 thrust;
-};
-TimedShapePoint angle_shape_eval(const State& start, const State& end, const ShapeResult& shape, double sigma);
-
 // Least-squares fit of (p0, w0) so the primer propagated along a fixed reference path matches
 // a thrust history: the primer equations are linear along a given path.
 Primer fit_primer(const std::vector<double>& times, const std::vector<Vec2>& positions,
