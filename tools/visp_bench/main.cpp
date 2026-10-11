@@ -227,6 +227,29 @@ std::vector<GCase> general_cases(const std::string& set, const std::vector<Case>
         const double mag = frac * u(rng) * g::norm(v);
         return v + g::Vec2 {mag * std::cos(ang), mag * std::sin(ang)};
     };
+    if (set == "E") {
+        // Chase a thrusting ship: the target flies an atlas transfer (perihelion > 0.3); the
+        // chaser leaves the origin planet tau later.
+        for (const auto& c : atlas) {
+            if (out.size() >= limit) break;
+            if (c.min_radius < 0.3 || c.T < 0.3) continue;
+            const double tau = 0.3 * c.T * u(rng);
+            GCase gc;
+            gc.label = "E";
+            gc.start = polar_state(1.0, tau, 0.0, 1.0);
+            const g::State ts = c.start;
+            const g::Primer tz = c.primer;
+            gc.target = [ts, tz, tau](double T) {
+                const auto e = propagator().propagate(ts, tz, tau + T, false);
+                const double rr = g::norm(e.state.r);
+                return g::TargetPoint {e.state, e.state.v, e.primer.p + (-1.0 / (rr * rr * rr)) * e.state.r};
+            };
+            gc.T = (0.1 + 0.9 * u(rng)) * (c.T - tau);
+            gc.end_condition = u(rng) < 0.5 ? g::EndCondition::Rendezvous : g::EndCondition::Intercept;
+            out.push_back(gc);
+        }
+        return out;
+    }
     if (set == "B") {
         for (const auto& c : atlas) {
             if (out.size() >= limit) break;
@@ -522,7 +545,7 @@ int main(int argc, char** argv) {
 
     std::vector<Case> cases = atlas_cases(stride, limit, filter);
     std::fprintf(stderr, "%zu cases\n", cases.size());
-    if (set == "B" || set == "C" || set == "D") {
+    if (set == "B" || set == "C" || set == "D" || set == "E") {
         return run_general(set, cases, limit, only, shape_terms);
     }
     if (set == "R") {

@@ -454,7 +454,6 @@ void verify_general_transfer(const std::filesystem::path& dataset_path, const Va
         const auto stm = integrator.refine_seed_stm(seed, config, [&](double) { return std::pair {r_target, theta_target}; });
         if (fd.converged && stm.converged && end.min_radius > 0.05) {  // grazing arcs: integrators differ
             const auto e = integrator.integrate_fixed_time(stm.seed, config, 2).samples.back();
-            std::cout << "  stm r err " << e.r_m / r_target - 1.0 << " th " << e.theta_rad - theta_target << " vr " << e.vr_mps / config.vtheta0_mps << " T " << stm.seed.transfer_time_days / fd.seed.transfer_time_days - 1.0 << " minr " << end.min_radius << "\n";
             require(std::abs(e.r_m / r_target - 1.0) < 1e-4, "refine_seed_stm should hit the target radius");
             require(std::abs(e.theta_rad - theta_target) < 1e-4, "refine_seed_stm should hit the target angle");
             require(std::abs(e.vr_mps) < 1e-3 * config.vtheta0_mps, "refine_seed_stm should arrive with no radial speed");
