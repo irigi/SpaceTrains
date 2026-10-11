@@ -208,3 +208,19 @@ remaining fuel, `solve_min_time` as a fallback.
 | D (hard) | 137 / 149 | 574 / 584 | 0.49 / 1.5 / 15 ms |
 
 Sub-millisecond replanning makes a pirate/police AI that re-plans every few game days cheap.
+
+## Options for the next steps (decisions for Jan)
+
+1. **Wire chases into the game.** `trajectory/ChaseSolver.hpp` (`plan_chase`, `path_target`) is ready for
+   pirates/police: earliest intercept or rendezvous of another ship's planned path for a given power and
+   propellant, ~1–3 ms; replanning after a dodge ~0.4 ms. Needs game design (who chases whom, capture rules).
+2. **Low-κ atlas extension.** 7.8% of plasma plan requests have κ below the atlas grid (0.1) and are always
+   infeasible (e.g. Mercury → Jupiter, heavy loads). The general solver serves 68% of them, but at ~36 ms
+   each; generating extra atlas κ levels offline with the C++ solver (minutes to hours) would make them cheap.
+   Caveat: the similar +6% from the direct fallback showed no economy gain.
+3. **Turn on the built options** if the gameplay wants them: `PlanningOptions::direct_fallback` (+6% plans),
+   `ShootingSettings::spend_fuel_budget` (time-optimal use of the fuel: faster, closer solar passes). Neither
+   moved the economy benchmark; both cost planning time.
+4. **Pursuit-evasion** (RocketsChaseAstra.tex): the min-time and replanning primitives are the inner loop;
+   the game-theoretic layer is not started.
+5. **3D**: the primer formulation generalises directly (d = 3); everything is 2D now, like the game.
