@@ -45,6 +45,29 @@ struct CommodityDefinition {
     double base_price {10.0};             // credits per unit at target stock level
 };
 
+// One part of a ship class (data/ship_classes/ship_components.csv, written by
+// build_ship_classes.py): engine, radiator, tank, habitat, hold, structure, and the
+// habitat's own parts (parent_id "habitat"). Top-level parts add up to the class's dry mass
+// and value. Tier 1 only describes the ship; the simulation still runs on the class totals.
+// Zero means "not applicable" for the physical fields.
+struct ShipComponentDefinition {
+    std::string id;           // "engine", "habitat.life_support", ...
+    std::string parent_id;    // "" for top-level parts
+    std::string kind;         // engine | radiator | tank | habitat | hold | structure | habitat part kinds
+    std::string name;
+    double mass_kg {0.0};
+    double price_cr {0.0};
+    double power_w {0.0};       // engines: jet power; habitat: electrical draw
+    double heat_w {0.0};        // waste heat produced (engine, habitat) or rejected (radiators)
+    double temperature_k {0.0}; // operating temperature (reactor core, radiator panel, tank, cabin)
+    double volume_m3 {0.0};
+    double area_m2 {0.0};       // radiator panel area (two-sided)
+    double capacity_kg {0.0};   // tanks: propellant; hold: rated cargo
+    double crew_capacity {0.0};
+    double isp_s {0.0};
+    double thrust_n {0.0};
+};
+
 struct ShipClassDefinition {
     std::string id;
     std::string name;
@@ -63,6 +86,7 @@ struct ShipClassDefinition {
     // Classes with the same hull differ only in their tanks; ships refit between them
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
+    std::vector<ShipComponentDefinition> components;  // in file order, parents before their parts
 };
 
 // Fleet-wide operating parameters (data/economy/ship_operations.csv).

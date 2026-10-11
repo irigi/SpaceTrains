@@ -1144,6 +1144,8 @@ int main(int argc, char** argv) {
         // The planned paths, as the bridge writes them next to its snapshot.
         std::ofstream paths(snapshot_json_path + ".paths", std::ios::binary | std::ios::trunc);
         paths << sim.build_bridge_paths_json();
+        std::ofstream designs(snapshot_json_path + ".designs", std::ios::binary | std::ios::trunc);
+        designs << sim.build_bridge_designs_json();
     }
 
     std::cout << "\n=== Final Report ===\n";

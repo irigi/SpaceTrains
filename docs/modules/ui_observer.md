@@ -36,7 +36,8 @@
   Sun halo and bloom; sunlight with a gentle falloff.
 - **Panels:** top bar (date, pause, timewarp, fleet summary, unmet demand over 30 days, money); registry (ships,
   stations, bodies); inspector: ship (mission in words, propellant, cargo lots, provisions, transit, expected trip
-  earnings, crew, home, route commitment, ledger), station (badges, market rows with stock vs target, cover and share
+  earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: mass split, engine state,
+  drive radiator temperature, every part with its mass and key numbers), station (badges, market rows with stock vs target, cover and share
   short, orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
   overview (M); comms log.
 - **Keys:** F5 quick save, F9 quick load, M economy, F focus, Space pause, `,` `.` timewarp, F11 map debug.

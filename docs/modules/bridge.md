@@ -32,10 +32,17 @@
     elements and stations their altitude/angle (the UI places them itself); ships in flight carry a `path_id`.
   - `<snapshot>.seq`: the snapshot's sequence number; the UI polls it every frame and parses the snapshot only
     when it changes.
+  - `<snapshot>.designs` / `.designs.seq`: `{"designs": {class_id: {name, hull_id, propulsion_type, dry_mass_kg, ...,
+    components: [{id, parent_id, kind, name, mass_kg, price_cr, power_w, heat_w, temperature_k, volume_m3, area_m2,
+    capacity_kg, crew_capacity, isp_s, thrust_n}]}}}`, the parts of every ship class (`ship_components.csv`). Written
+    once at start; with per-ship fits (tier 2 of `docs/plans/ship_internals.md`) whenever
+    `bridge_designs_signature()` changes. `spacetrains_headless --snapshot-json` writes it too.
   - `<snapshot>.paths` / `.paths.seq`: `{"paths": {ship_id: {path_id, trajectory_path: [{t_s,x,y,z}...],
     destination_body_at_arrival}}}`, written only when some ship's plan changes (paths were 70% of a 600 KB
     snapshot at 90 ships), always before the snapshot that refers to them.
-- Snapshot extras for the panels: ship ledger, crew, provisions, cargo lots, planned pickup, route commitment;
+- Snapshot extras for the panels: ship ledger, crew, provisions, cargo lots, planned pickup, route commitment,
+  ship systems (`engine_state` off/burning/coasting/thrusting, `radiator_temperature_k`, `cargo_mass_kg`,
+  `provisions_mass_kg`);
   station targets, demand/unmet totals, import/export flows, fuel factory, export market, ledger; an `economy`
   block (demand, unmet, exports, fleet purchases); `bridge.epoch` (changes with every load) and `bridge.status`
   (save/load result).

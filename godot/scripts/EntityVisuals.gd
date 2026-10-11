@@ -15,7 +15,7 @@ static func make_entity(kind: String, data: Dictionary) -> Node3D:
         "station":
             _build_station(container)
         "ship":
-            _build_ship(container, String(data.get("class_id", "")), String(data.get("propulsion_type", "nuclear_thermal")))
+            _build_ship(container, String(data.get("hull_id", data.get("class_id", ""))), String(data.get("propulsion_type", "nuclear_thermal")))
     return container
 
 static func _named(instance: MeshInstance3D, instance_name: String) -> MeshInstance3D:

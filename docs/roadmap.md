@@ -16,9 +16,10 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-08) — start here
+## Current Plan (updated 2026-10-11) — start here
 
-Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
+Branch `feature/bugfixes_ship_structures_and_trajectories` (from `main` after PR #12; earlier work on
+`feature/opus5_5_return`) (solo repo: commit on the branch, no PRs, push only when asked).
 Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33); overnight 2026-10-07/08 (steps 9-13 below, log in `docs/plans/overnight_2026-10-08.md`): speed, smooth display, map look, panels, save/load, unmet-demand findings (v36), mixed cargo (v37).
 
 ### Decisions so far
@@ -152,6 +153,17 @@ Diagnosed 2026-10-11 (`docs/plans/wobbly_moon_paths.md`): paths to moon stations
 meet the moon at its full orbital speed (10.9 km/s at Ganymede), which loops in the moon's frame; Kepler wait
 samples at moon stations also alias. Fix plan F1/F2 with audit checks and tests awaits the user's review.
 
+Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in `ship_structures_log.md`):
+- **Tier 1, done 2026-10-11:** every class's parts (engine, radiators, tanks, habitat split by NASA's Deep Space
+  Habitat, hold, structure) with mass, price, power, heat, temperature, volume and area in
+  `ship_components.csv`; they add up exactly to the class, so the simulation is unchanged. Inspector "Ship
+  systems" section, `<snapshot>.designs` bridge file, `Simulation::ship_design()` seam.
+- **Tier 2, next after the moon-path fix:** modules as refits (common room, hydroponics, storm shelter, cryo
+  bay, Set B radiators, passenger cabins), designs derived in C++, component condition and ship events whose
+  damage lowers drive power and κ.
+- **Visuals:** proposal for review in `docs/plans/ship_visuals_proposal.md` (not built).
+- Tier 3, stations: after tier 2.
+
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
   so an intercept is a rendezvous problem (Lambert), costly in delta-v and likeliest near departure and arrival.
@@ -247,6 +259,7 @@ Next fixes:
 
 ## Phase 5 — Ships with Individual Variation
 
+- Per-ship fits and component condition: tier 2 of `docs/plans/ship_internals.md` (the main route now).
 - Add per-ship power multiplier (±α variation) and size multiplier.
 - Size scaling preserves κ; power multiplier changes κ slightly per ship.
 - Reflect individual ship specs in UI selection panel.

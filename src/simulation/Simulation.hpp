@@ -77,6 +77,11 @@ public:
     [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s,
         bool with_paths = true) const;
     [[nodiscard]] std::string build_bridge_paths_json() const;
+    // Ship designs: every class with its parts (ship_components.csv), for the ship inspector.
+    // Static today, so the bridge writes it once as <snapshot>.designs; with refittable
+    // modules (tier 2) it changes when a ship's fit does, keyed by bridge_designs_signature().
+    [[nodiscard]] std::string build_bridge_designs_json() const;
+    [[nodiscard]] std::string bridge_designs_signature() const { return "classes"; }
     [[nodiscard]] std::string bridge_paths_signature() const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
@@ -91,12 +96,18 @@ public:
 
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
+    // The design a ship flies with. Today its class; with refittable modules (tier 2 of
+    // docs/plans/ship_internals.md) a design derived from the class and the ship's own fit.
+    // Ship-level code asks this, never get_ship_class(ship.class_id).
+    [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
     [[nodiscard]] const domain::StationState& get_station_state(const std::string& station_id) const;
     [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
     [[nodiscard]] std::string bridge_path_id(const domain::ShipState& ship) const;
+    [[nodiscard]] std::string ship_systems_json(
+        const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) const;
     void write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] std::string faction_name(const std::string& faction_id) const;

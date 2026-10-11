@@ -163,6 +163,21 @@ func _run() -> void:
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
             saved_day, float(main.get("display_time_s")) / 86400.0, String(main.get("bridge_status_text"))])
         await _shoot("after_load")
+    # The ship systems section of the inspector, for one ship of each drive.
+    for propulsion in ["variable_isp", "nuclear_thermal"]:
+        for ship_id in main.entity_details.keys():
+            var ship: Dictionary = main.entity_details[ship_id]
+            if main.entity_kinds.get(ship_id, "") == "ship" and String(ship.get("propulsion_type", "")) == propulsion \
+                    and String(ship.get("phase", "")) == "in_transit":
+                main.select_entity(ship_id, "ship", true)
+                rig.set("distance", 0.0005)
+                rig.call("_update_transform")
+                await get_tree().create_timer(0.6).timeout
+                var scroll: ScrollContainer = main.inspector_panel.get("_scroll")
+                scroll.scroll_vertical = 100000
+                await get_tree().create_timer(0.3).timeout
+                await _shoot("ship_systems_" + propulsion)
+                break
     # The economy overview.
     main.market_panel.toggle()
     main._refresh_ui(true)

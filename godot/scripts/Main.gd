@@ -292,7 +292,9 @@ func _exit_tree() -> void:
     if bridge_pid > 0:
         OS.kill(bridge_pid)
     for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp",
-            snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp", command_path]:
+            snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp",
+            snapshot_path + ".designs", snapshot_path + ".designs.tmp", snapshot_path + ".designs.seq", snapshot_path + ".designs.seq.tmp",
+            command_path]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
 
@@ -455,8 +457,24 @@ func _read_paths() -> void:
     paths_seq = int(seq_text)
     bridge_paths = json.data.get("paths", {})
 
+# Ship designs by class id ({name, ..., components: [...]}): the parts of every class for the
+# inspector's ship systems section. Written once by the bridge (per-ship fits later).
+var bridge_designs: Dictionary = {}
+var designs_seq := -1
+
+func _read_designs() -> void:
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".designs.seq")
+    if seq_text == "" or int(seq_text) == designs_seq:
+        return
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".designs")) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return
+    designs_seq = int(seq_text)
+    bridge_designs = json.data.get("designs", {})
+
 func _read_snapshot() -> void:
     _read_paths()
+    _read_designs()
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
     if seq_text != "" and int(seq_text) == current_snapshot_seq:
@@ -1178,6 +1196,7 @@ func _refresh_ui_now() -> void:
         "ships": bridge_state.get("ships", []),
         "bodies": bridge_state.get("bodies", []),
         "stations": bridge_state.get("stations", []),
+        "designs": bridge_designs,
     })
 
 func _entity_name_map() -> Dictionary:

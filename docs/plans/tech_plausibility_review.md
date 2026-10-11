@@ -133,6 +133,29 @@ a ~40 t habitat.
 | Primary structure and truss | 10% of the other dry mass | game |
 | Cargo hold (racks, containers, handling) | 10% of the rated cargo mass | game |
 
+### Component details (added 2026-10-11, ship structures tier 1)
+
+These describe the parts in `ship_components.csv`. They do not change any mass or price above (see
+`docs/plans/ship_internals.md`).
+
+| Quantity | Value | Status |
+|---|---|---|
+| Radiator areal density (two-sided heat-pipe panel) | 3 kg/m² (designs reach 2-3.6) | sourced: [NASA Glenn carbon-carbon radiator, NTRS 20080048181](https://ntrs.nasa.gov/citations/20080048181), [UNM ISNPS Tech Report 99](https://isnps.unm.edu/reports/ISNPS_Tech_Report_99.pdf); 5.2 kg/m² for a ceramic design: [TFAWS 2024](https://tfaws.nasa.gov/wp-content/uploads/TFAWS2024-PT-23-Paper.pdf) |
+| Radiator emissivity | 0.85 | estimate |
+| Drive radiator temperature, Set A (4 kW/kg) | **594 K**; Set B (10 kW/kg) would need 747 K | derived: 2εσT⁴ / (3 kg/m²) = heat per kg |
+| Plasma Freighter radiator area | 357 m² (1.07 t, 4.3 MW) | derived |
+| Solid-core reactor core temperature | 2,700 K | estimate within the NERVA range |
+| Liquid-core reactor core temperature | ~5,900 K | derived: Isp ∝ √T, (1400/950)² × 2,700 K |
+| Nuclear-thermal jet power | ½ F vₑ: Light Freighter ~330 MW, Fast Courier ~460 MW | derived |
+| LH2 density, tank temperature | 71 kg/m³, 20 K | sourced (UMD MERs above) |
+| Plasma propellant | water, 1,000 kg/m³, 293 K | game (linopt allows water or argon) |
+| Habitat split, 4 crew / 500 days, dry 32,022 kg | structures 14,116 · environment protection 4,826 · ECLSS 6,890 · thermal 2,868 · power 924 · avionics 1,321 · crew systems 807 · EVA 272 kg | sourced: [NASA Deep Space Habitat, NTRS 20120014530](https://ntrs.nasa.gov/api/citations/20120014530/downloads/20120014530.pdf), "Mass Summary" |
+| Crew systems split | crew quarters 260, galley 154, wardroom 52, medical 178, exercise 94 kg (+ restraints, laptops, lights) | sourced: same, "Crew Systems Mass by Mission" |
+| Habitat volume | 193 m³ pressurized, 90 m³ habitable for 4 crew (48 and 22.5 m³ per crew) | sourced: same |
+| Habitat heat load and power | 12.9 kW for 4 crew (3.2 kW per crew), ECLSS 6.4 kW of it | sourced: same, "DSH Thermal Control Heat Rejection" |
+| Cabin and cabin-radiator temperatures | 295 K, 277 K | estimate (ISS-style ammonia loop at 2-6 °C) |
+| Hold volume | 1 m³ per cargo unit | game |
+
 ### Open questions for the user
 
 1. Variable-Isp hardware: Set A (recommended) or Set B?

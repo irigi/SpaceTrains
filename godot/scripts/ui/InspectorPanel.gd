@@ -4,6 +4,8 @@ const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 
 var _content: VBoxContainer
 var _scroll: ScrollContainer
+# The ship systems section stays open or closed across selections.
+var _systems_open := true
 
 func _ready() -> void:
     custom_minimum_size = Vector2(360, 0)
@@ -512,6 +514,115 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
             if absf(amount) >= 0.5:
                 parts.append("%s %+.0f" % [String(key).replace("cargo_purchases", "cargo").replace("_", " "), amount])
         _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
+    _add_ship_systems(detail, context)
+
+# --- Ship systems (tier 1 of docs/plans/ship_internals.md) ----------------------------
+# The ship's parts from the bridge's designs file, its current mass and whether the engine
+# runs. Text only for now; a schematic is proposed in docs/plans/ship_visuals_proposal.md.
+func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
+    var designs: Dictionary = context.get("designs", {})
+    var design: Dictionary = designs.get(String(detail.get("class_id", "")), {})
+    if design.is_empty():
+        return
+    _add_separator()
+    var toggle := Button.new()
+    toggle.text = ("▾ " if _systems_open else "▸ ") + "SHIP SYSTEMS"
+    toggle.flat = true
+    toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    toggle.add_theme_color_override("font_color", UiTheme.ACCENT)
+    toggle.add_theme_font_size_override("font_size", 12)
+    toggle.pressed.connect(func() -> void:
+        _systems_open = not _systems_open
+        update_selection(detail, "ship", context))
+    _content.add_child(toggle)
+    if not _systems_open:
+        return
+
+    var dry := float(design.get("dry_mass_kg", 0.0))
+    var propellant := float(detail.get("propellant_kg", 0.0))
+    var cargo := float(detail.get("cargo_mass_kg", 0.0))
+    var provisions := float(detail.get("provisions_mass_kg", 0.0))
+    _add_label("Mass %s: dry %s · propellant %s · cargo %s · provisions %s" % [
+        _fmt_mass(dry + propellant + cargo + provisions), _fmt_mass(dry), _fmt_mass(propellant),
+        _fmt_mass(cargo), _fmt_mass(provisions)], UiTheme.TEXT_PRIMARY, 12)
+    _add_label(_engine_line(detail, design), UiTheme.TEXT_PRIMARY, 12)
+
+    for component in design.get("components", []):
+        var c: Dictionary = component
+        var child := String(c.get("parent_id", "")) != ""
+        var row := HBoxContainer.new()
+        row.add_theme_constant_override("separation", 8)
+        _content.add_child(row)
+        var name_label := Label.new()
+        name_label.text = ("    " if child else "") + String(c.get("name", ""))
+        name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+        name_label.add_theme_font_size_override("font_size", 11 if child else 12)
+        name_label.add_theme_color_override("font_color", UiTheme.TEXT_DIM if child else UiTheme.TEXT_PRIMARY)
+        row.add_child(name_label)
+        var mass_label := Label.new()
+        mass_label.text = _fmt_mass(float(c.get("mass_kg", 0.0)))
+        mass_label.custom_minimum_size.x = 64.0
+        mass_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+        mass_label.add_theme_font_size_override("font_size", 11)
+        mass_label.add_theme_color_override("font_color", UiTheme.TEXT_DIM)
+        row.add_child(mass_label)
+        var spec := _component_spec(c)
+        if spec != "":
+            _add_label(("      " if child else "  ") + spec, UiTheme.TEXT_DIM, 11)
+
+func _engine_line(detail: Dictionary, design: Dictionary) -> String:
+    var state := String(detail.get("engine_state", "off"))
+    var text := "Engine %s" % state
+    var radiator_k := float(detail.get("radiator_temperature_k", 0.0))
+    if radiator_k > 0.0:
+        text += " · drive radiators %.0f K" % radiator_k
+        if state != "thrusting":
+            text += " (idle, sunlit)"
+    elif state == "burning":
+        for component in design.get("components", []):
+            if String(component.get("kind", "")) == "engine" and float(component.get("temperature_k", 0.0)) > 0.0:
+                text += " · reactor core %.0f K" % float(component["temperature_k"])
+    return text
+
+func _component_spec(c: Dictionary) -> String:
+    var parts: Array[String] = []
+    var power := float(c.get("power_w", 0.0))
+    var heat := float(c.get("heat_w", 0.0))
+    var temperature := float(c.get("temperature_k", 0.0))
+    match String(c.get("kind", "")):
+        "engine":
+            if float(c.get("isp_s", 0.0)) > 0.0:
+                parts.append("Isp %.0f s" % float(c["isp_s"]))
+                parts.append("thrust %.0f kN" % (float(c.get("thrust_n", 0.0)) / 1000.0))
+            parts.append("jet %s" % _fmt_power(power))
+            if heat > 0.0:
+                parts.append("waste heat %s" % _fmt_power(heat))
+            if temperature > 0.0:
+                parts.append("core %.0f K" % temperature)
+        "radiator", "thermal_control":
+            if float(c.get("area_m2", 0.0)) > 0.0:
+                parts.append("%.0f m²" % float(c["area_m2"]))
+            parts.append("rejects %s at %.0f K" % [_fmt_power(heat), temperature])
+        "tank":
+            parts.append("%s propellant · %.0f m³ · %.0f K" % [_fmt_mass(float(c.get("capacity_kg", 0.0))),
+                float(c.get("volume_m3", 0.0)), temperature])
+        "habitat":
+            parts.append("%d crew · %.0f m³ pressurized · %s" % [int(c.get("crew_capacity", 0.0)),
+                float(c.get("volume_m3", 0.0)), _fmt_power(power)])
+        "crew_quarters":
+            parts.append("%.0f m³ habitable" % float(c.get("volume_m3", 0.0)))
+        "hold":
+            parts.append("rated %s · %.0f m³" % [_fmt_mass(float(c.get("capacity_kg", 0.0))), float(c.get("volume_m3", 0.0))])
+    return " · ".join(parts)
+
+func _fmt_mass(kg: float) -> String:
+    return "%.0f kg" % kg if absf(kg) < 1000.0 else "%.1f t" % (kg / 1000.0)
+
+func _fmt_power(w: float) -> String:
+    if w >= 1.0e6:
+        return "%.1f MW" % (w / 1.0e6)
+    return "%.1f kW" % (w / 1000.0)
 
 func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
     var strip := ColorRect.new()
