@@ -96,3 +96,22 @@ departure is above the budget), so the planner only fits up to 10% over (`max_bu
 | no-window plans (365 d) | 13064 / 75570 | 10153 / 73016 |
 | headless 365 d | 26.0 s | 30.2 s |
 | benchmark.py unmet / profitable / run | 4.8 ± 0.5 % / 51.2 / 122 s | 4.6 ± 0.5 % / 54.0 / 138 s |
+
+## Planner speed-ups (v35, 2026-10-12 night)
+
+1. **Scoring plans skip the re-integration**: `refine_seed_stm` returns the end state, the mass (from the
+   effort) and the closest approach measured at every integrator step. Cross-checked in game against the
+   old 600-sample integration: mass within 0.002 kg canonical, end radius within 1e-6; the closest approach
+   differs only on deep dives, where the 600 samples missed the true perihelion (the new value is exact).
+2. **One refinement pass**: the station-targeting pass starts from the atlas seed; the fixed-target pass
+   before it is gone (the launch wait now comes from the seed's T). Sweep: 68854 vs 67468 plans found.
+
+| 365 d headless | baseline | STM refine | + fuel fit | + v35 |
+|---|---|---|---|---|
+| wall | 44.6 s | 26.0 s | 30.2 s | 22.9 s |
+| VISP planning CPU | 356 s | 174 s | 203 s | 89 s |
+| sweep plan ms p50 / p99 | 2.9 / 44.9 | – | – | 1.4 / 10.5 |
+
+benchmark.py (4 starts × 730 d): unmet 4.8 ± 1.0 %, profitable 53.8, emergencies 5.0, **run 91 s (baseline 218 s)**.
+The sweep shows 10 new `coarse_sampling` flags (of 68.8k plans): close solar passes on long transfers that are
+now found; rendering only.

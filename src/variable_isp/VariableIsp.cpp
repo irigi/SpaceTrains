@@ -726,6 +726,18 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
     out.params[4] = -pr.w.y * (accel / time) * config.r0_m / k - vt0 * out.params[1] + vr0 * out.params[2];
     out.transfer_time_days = solution.T * days_per_unit;
     result.seed = out;
+    const auto& e = solution.end;
+    const double r_end = g::norm(e.state.r);
+    const double effort_si = e.effort * accel * accel * time;
+    result.end = {
+        solution.T * time,
+        r_end * length,
+        e.sweep_rad,
+        g::dot(e.state.r, e.state.v) / r_end * speed,
+        g::cross(e.state.r, e.state.v) / r_end * speed,
+        1.0 / (1.0 / config.m0_kg + effort_si / (2.0 * config.power_w)),
+    };
+    result.min_radius_m = e.min_radius * length;
     result.converged = true;
     return result;
 }

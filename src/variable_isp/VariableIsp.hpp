@@ -120,6 +120,10 @@ struct ShootingResult {
     std::size_t iterations {0};
     double residual_norm {0.0};     // scaled; < ~1e-3 when converged
     bool budget_fitted {false};     // refine_seed_stm lengthened T to fit the fuel
+    // refine_seed_stm only: the corrected trajectory's end (canonical units, mass from the
+    // effort) and its closest approach to the Sun, so callers need not integrate it again.
+    TrajectorySample end;
+    double min_radius_m {0.0};
 };
 
 class VariableIspIntegrator {
