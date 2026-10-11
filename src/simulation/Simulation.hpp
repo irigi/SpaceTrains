@@ -145,7 +145,7 @@ private:
     [[nodiscard]] double provisions_mass_kg(const domain::ShipState& ship) const;
     // Buys up to `kg` of propellant at the current port (missions fuel on departure).
     void buy_propellant(domain::ShipState& ship, double kg);
-    // Operating economics (docs/plans/ship_operating_costs.md).
+    // Operating economics (docs/modules/ships_and_fleet.md).
     [[nodiscard]] double daily_capital_cost(const domain::ShipClassDefinition& ship_class) const;
     [[nodiscard]] double daily_crew_cost(
         const domain::ShipClassDefinition& ship_class, const domain::StationState& market) const;
@@ -186,7 +186,7 @@ private:
     // Scheduled liners (step 22): a liner's loop (null for other ships), and its stop after `from_id`.
     [[nodiscard]] const std::vector<std::string>* liner_stops(const domain::ShipState& ship) const;
     [[nodiscard]] std::string next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const;
-    // Fleet investment (docs/plans/fleet_investment.md): owners sell ships laid up for long,
+    // Fleet investment (docs/modules/ships_and_fleet.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);

@@ -90,6 +90,14 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
   with `spacetrains_headless --write-reference-prices data/economy/reference_prices.csv`. Producers, fuel and export
   markets keep the base price. The curve is clamped to [0.25, `price_cap`] x its centre (`pricing.csv`, 4).
 
+## Science trade (step 16)
+
+- `science_samples` (physical samples and prototypes: data goes by radio) are made at Titan, Ganymede, Ceres and
+  Mercury from electronics (`station_recipes.csv`). They sell to Earth's export markets at a flat price, and
+  Lunar Gateway and Mars Transfer Port consume a little. Light and valuable, so they fill the return legs from
+  the outposts.
+- Ships, fuel factories, outer exports and the money flows around ships: `ships_and_fleet.md`.
+
 ## Station money (step 17)
 
 - A station and its residents are one account: local production is free; residents pay for what they use up at

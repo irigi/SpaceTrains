@@ -1,4 +1,7 @@
-# Ship Technology Plausibility Review (planned)
+# Ship Technology: Reference Numbers and Sources
+
+Status: the review is complete (2026-10-07). It remains the source of the era's numbers for
+`data/ship_classes/build_ship_classes.py`, which builds every class from them.
 
 ## Goal
 
@@ -238,7 +241,7 @@ Holds now rate about each freighter's dry mass of cargo (Light Freighter 200 u, 
 150, Deep Space 300, NTR Freighter 400; couriers 30). The plasma freighter's jet power went 9 -> 10 MW to keep
 α ≈ 290 W/kg with the heavier hold.
 
-Big holds exposed two economy problems (see the calibration log in `ship_operating_costs.md`, v20-v24):
+Big holds exposed two economy problems (see the v20-v24 calibration log, in git history as `docs/plans/ship_operating_costs.md`):
 
 1. **Trade pricing.** A delivery was paid entirely at the station's pre-trade price, so 150 units into a
    starving station all sold at the 16x scarcity price (Lunar Gateway -650k in v20). Trades now settle
@@ -265,7 +268,7 @@ Ships that never move are the outer-system and Mars classes noted under Pricing.
 
 ## Dependencies
 
-- Do it together with, or right before, part B of `ship_operating_costs.md` (cargo mass in the rocket
+- Do it together with, or right before, part B of the operating-cost plan (`docs/modules/ships_and_fleet.md`) (cargo mass in the rocket
   equation, mission-sized fuelling), since both change the same numbers.
 - The VariableISP atlas is dimensionless (ρ, κ, θ), so new α and masses should not need a new atlas, only
   checks that the new κ range is covered.

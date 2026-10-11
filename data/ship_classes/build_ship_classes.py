@@ -2,7 +2,7 @@
 """Build ship_classes.csv bottom-up from the reference numbers.
 
 Every class is assembled from engine, (radiators), tankage, habitat, cargo hold and
-structure, using the era numbers in docs/plans/tech_plausibility_review.md
+structure, using the era numbers in docs/ship_technology.md
 ("Reference Numbers"). Dry mass, Δv, acceleration and the variable-Isp α follow from
 the parts, so changing a reference number and re-running keeps the classes consistent.
 
@@ -16,7 +16,7 @@ exactly to each class's dry mass and value; docs/plans/ship_internals.md (tier 1
 
 Every class also gets tank variants (TANK_OPTIONS): the same hull, engine and hold with
 smaller or larger propellant tanks. Ships refit between the variants of their hull at their
-home base (part C, docs/plans/ship_operating_costs.md). The variants share the class's
+home base (part C, docs/modules/ships_and_fleet.md). The variants share the class's
 `hull_id`; the nominal variant keeps the class id.
 """
 
@@ -33,7 +33,7 @@ AU_M = 1.495978707e11
 MU_SUN = 1.32712440018e20
 KAPPA_SCALE = AU_M**2.5 / MU_SUN**1.5
 
-# --- Reference numbers (tech_plausibility_review.md) ---------------------------------
+# --- Reference numbers (docs/ship_technology.md) ---------------------------------
 # Nuclear-thermal generations: Isp [s] and engine thrust-to-weight.
 NTR = {
     "solid_core": {"isp_s": 950.0, "thrust_to_weight": 3.0},

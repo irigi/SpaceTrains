@@ -55,7 +55,7 @@ The habitat (8 t per crew member) is split in the proportions of NASA's 500-day 
 - galley, wardroom, medical and exercise 1.5%
 - airlock and EVA suits 1%
 
-Sources and status (sourced, derived, estimate, game) are listed in `tech_plausibility_review.md`, under
+Sources and status (sourced, derived, estimate, game) are listed in `docs/ship_technology.md`, under
 "Component details".
 
 Checks:
