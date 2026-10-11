@@ -148,6 +148,9 @@ ships flying to these moons show wobbles, as if the path were computed or drawn 
 subtracting its circular motion around the planet. Check first: step 25 (smooth drawing of outer-system paths),
 the endpoint/start snap onto the moon station's position, and whether path samples mix heliocentric and
 moon-relative positions. Add a `--trajectory-audit` check and a regression test.
+Diagnosed 2026-10-11 (`docs/plans/wobbly_moon_paths.md`): paths to moon stations co-move with the planet and
+meet the moon at its full orbital speed (10.9 km/s at Ganymede), which loops in the moon's frame; Kepler wait
+samples at moon stations also alias. Fix plan F1/F2 with audit checks and tests awaits the user's review.
 
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
