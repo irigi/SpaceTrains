@@ -114,8 +114,15 @@ private:
     const domain::UniverseDefinition& universe_;
     const celestial::CelestialMechanics& mechanics_;
     std::unordered_map<std::string, const domain::CelestialBodyDefinition*> bodies_by_id_;
+    // One departure row of the grid (all transit fractions), wait_s left at zero.
+    std::vector<LambertCell> lambert_row(const std::string& origin_body_id, const std::string& destination_body_id,
+        double departure_s, double hohmann_time_s, double mu) const;
+
     mutable std::mutex lambert_mutex_;
     mutable std::unordered_map<std::string, std::shared_ptr<const std::vector<LambertCell>>> lambert_grids_;
+    // Rows at departures aligned to multiples of the grid step, shared by every plan whose
+    // window covers them (plans at successive times reuse all but the newest row).
+    mutable std::unordered_map<std::string, std::shared_ptr<const std::vector<LambertCell>>> lambert_rows_;
 };
 
 }  // namespace spacetrains::trajectory

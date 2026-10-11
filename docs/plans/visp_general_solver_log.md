@@ -115,3 +115,11 @@ departure is above the budget), so the planner only fits up to 10% over (`max_bu
 benchmark.py (4 starts × 730 d): unmet 4.8 ± 1.0 %, profitable 53.8, emergencies 5.0, **run 91 s (baseline 218 s)**.
 The sweep shows 10 new `coarse_sampling` flags (of 68.8k plans): close solar passes on long transfers that are
 now found; rendering only.
+
+## Kepler planner: shared Lambert rows (2026-10-12 night)
+
+The Lambert grid (30 departures x 10 transit times) was memoised by the exact plan time, so plans at
+successive steps recomputed all 300 solves. Departure rows are now anchored to multiples of the grid step
+(plus a fresh "leave now" row) and cached by bodies and absolute departure: 0.95 → 0.14 ms per plan, the
+365-day headless run 22.7 → 19.1 s. Sweep: no Kepler flags. benchmark.py over 8 starts: unmet ≈ 5.3 % both
+before and after (5.3 ± 0.9 and 5.3 ± 2.0 on the two 4-start sets vs 4.8 ± 1.0 and 5.9 ± 2.9 before).
