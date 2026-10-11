@@ -167,21 +167,42 @@ func _run() -> void:
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
             saved_day, float(main.get("display_time_s")) / 86400.0, String(main.get("bridge_status_text"))])
         await _shoot("after_load")
-    # The ship systems section of the inspector, for one ship of each drive.
+    # The ship systems section of the inspector (schematic), for one ship of each drive: a
+    # burning thermal ship if there is one, then the same with the mouse over the schematic.
     for propulsion in ["variable_isp", "nuclear_thermal"]:
+        var pick := ""
         for ship_id in main.entity_details.keys():
             var ship: Dictionary = main.entity_details[ship_id]
-            if main.entity_kinds.get(ship_id, "") == "ship" and String(ship.get("propulsion_type", "")) == propulsion \
-                    and String(ship.get("phase", "")) == "in_transit":
-                main.select_entity(ship_id, "ship", true)
-                rig.set("distance", 0.0005)
-                rig.call("_update_transform")
-                await get_tree().create_timer(0.6).timeout
-                var scroll: ScrollContainer = main.inspector_panel.get("_scroll")
-                scroll.scroll_vertical = 100000
-                await get_tree().create_timer(0.3).timeout
-                await _shoot("ship_systems_" + propulsion)
-                break
+            if main.entity_kinds.get(ship_id, "") != "ship" or String(ship.get("propulsion_type", "")) != propulsion \
+                    or String(ship.get("phase", "")) != "in_transit":
+                continue
+            if pick == "" or String(ship.get("engine_state", "")) == "burning":
+                pick = ship_id
+        if pick == "":
+            continue
+        main.select_entity(pick, "ship", true)
+        rig.set("distance", 0.0005)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        var scroll: ScrollContainer = main.inspector_panel.get("_scroll")
+        scroll.scroll_vertical = 100000
+        await get_tree().create_timer(0.3).timeout
+        await _shoot("ship_systems_" + propulsion)
+        var schematic := _find_schematic(main.inspector_panel)
+        if schematic != null:
+            var spot := schematic.get_global_rect().position + Vector2(schematic.size.x * 0.5, 75.0)
+            get_viewport().warp_mouse(spot)
+            await get_tree().create_timer(0.3).timeout
+            schematic = _find_schematic(main.inspector_panel)
+            await _shoot("ship_systems_%s_hover" % propulsion)
+            # Burns are short and rarely caught: the same ship drawn as if burning, before
+            # the next inspector refresh replaces it.
+            if propulsion == "nuclear_thermal":
+                var burning: Dictionary = main.entity_details[pick].duplicate()
+                burning["engine_state"] = "burning"
+                var designs: Dictionary = main.get("bridge_designs")
+                schematic.set_ship(designs.get(String(burning.get("class_id", "")), {}), burning)
+                await _shoot("ship_systems_nuclear_thermal_burning")
     # The 3D models up close, one per hull that is flying (paused, so they hold still).
     main._on_pause_toggled()
     await get_tree().create_timer(0.5).timeout
@@ -204,6 +225,15 @@ func _run() -> void:
     await get_tree().create_timer(0.6).timeout
     await _shoot("market_panel")
     get_tree().quit()
+
+func _find_schematic(node: Node) -> Control:
+    for child in node.get_children():
+        if child is Control and (child as Control).has_method("set_ship"):
+            return child
+        var found := _find_schematic(child)
+        if found != null:
+            return found
+    return null
 
 # Ships flying to or from an outer moon, at three zooms, to check their drawn paths.
 func _shoot_moon_paths(rig: Node3D) -> void:

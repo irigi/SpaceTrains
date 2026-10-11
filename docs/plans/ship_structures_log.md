@@ -68,4 +68,26 @@ module catalogue with slots, refits through `consider_refit`, condition, and shi
 Damage acts through physics: less radiator capacity → less drive power → lower κ.
 
 ## Step 4: Visuals proposal
-`docs/plans/ship_visuals_proposal.md` (see there).
+Proposals A-D. The user's answers (2026-10-11): top view and false colour; A (inspector schematic) and D (map
+hints) are built, described in `docs/modules/ui_observer.md`. B (shipyard panel) and C (3D close-up) are
+archived, not planned: `docs/archive/ship_visuals_shelved.md`.
+
+## Follow-up the same day (user feedback)
+- **Moon paths:** the user sees the wobble in the heliocentric frame. Cause: Godot's linear r/θ interpolation
+  between samples. Fixed with a cubic Hermite (see `wobbly_moon_paths.md`, "Revisited"). F1 and F2 stay open,
+  at lower priority.
+- **Plans cleanup:** 11 finished plans were removed; their mechanisms are condensed in
+  `docs/modules/ships_and_fleet.md` and `economy.md`. The tech review is now `docs/ship_technology.md`.
+- **A built (decisions):**
+  - The schematic sits under the engine line. The parts list is folded below it, closed by default.
+  - Habitat systems are drawn as bands by mass inside a frame for the pressure hull and shielding.
+  - Hover shows the spec line in the widget, not a popup tooltip, because the inspector rebuilds twice a second.
+    For the same reason one schematic instance is kept across rebuilds.
+  - Cargo uses one colour per commodity (`UiTheme.COMMODITY_COLORS`).
+- **D built (decisions):**
+  - The bridge sends `engine_burn_s`, so the map glow follows each burn's real length (the old window was a
+    fixed 6 h).
+  - Glow size is 0.45 · log₁₀(jet power / 100 kW) model units, clamped to 0.5-2.4.
+  - Wings show false colour only while thrusting, and the old blue panels otherwise.
+- **Bug fixed on the way:** both radiator wings of the plasma map model were named "wing". Godot renamed the
+  second, which then lost its material and drew untextured. They are now `wing_left` and `wing_right`.

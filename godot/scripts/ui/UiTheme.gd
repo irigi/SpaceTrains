@@ -23,6 +23,27 @@ const CATEGORY_COLORS := {
     "general": Color(0.7, 0.75, 0.8),
 }
 
+# Cargo in the ship schematic's hold.
+const COMMODITY_COLORS := {
+    "food": Color(0.55, 0.78, 0.35),
+    "water": Color(0.35, 0.6, 0.95),
+    "oxygen": Color(0.6, 0.85, 0.95),
+    "metals": Color(0.62, 0.62, 0.68),
+    "fuel": Color(0.85, 0.65, 0.95),
+    "electronics": Color(0.3, 0.85, 0.7),
+    "machinery": Color(0.8, 0.55, 0.3),
+    "medicine": Color(0.95, 0.45, 0.5),
+    "reactor_fuel": Color(0.85, 0.9, 0.3),
+    "platinum": Color(0.88, 0.88, 0.95),
+    "deuterium": Color(0.5, 0.75, 1.0),
+    "science_samples": Color(0.95, 0.8, 0.45),
+}
+
+static func commodity_color(commodity_id: String) -> Color:
+    if COMMODITY_COLORS.has(commodity_id):
+        return COMMODITY_COLORS[commodity_id]
+    return Color.from_hsv(float(abs(commodity_id.hash()) % 360) / 360.0, 0.5, 0.85)
+
 static func panel_style(bg := PANEL_BG, border := ACCENT_DIM) -> StyleBoxFlat:
     var style := StyleBoxFlat.new()
     style.bg_color = bg

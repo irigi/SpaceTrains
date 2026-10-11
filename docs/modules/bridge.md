@@ -41,7 +41,7 @@
     destination_body_at_arrival}}}`, written only when some ship's plan changes (paths were 70% of a 600 KB
     snapshot at 90 ships), always before the snapshot that refers to them.
 - Snapshot extras for the panels: ship ledger, crew, provisions, cargo lots, planned pickup, route commitment,
-  ship systems (`engine_state` off/burning/coasting/thrusting, `radiator_temperature_k`, `cargo_mass_kg`,
+  ship systems (`engine_state` off/burning/coasting/thrusting, `engine_burn_s` (length of each nuclear-thermal burn, for the map glow), `radiator_temperature_k`, `cargo_mass_kg`,
   `provisions_mass_kg`);
   station targets, demand/unmet totals, import/export flows, fuel factory, export market, ledger; an `economy`
   block (demand, unmet, exports, fleet purchases); `bridge.epoch` (changes with every load) and `bridge.status`

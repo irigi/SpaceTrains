@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Mock-ups of to-scale ship schematics (top view) from data/ship_classes/ship_components.csv.
 
-Reference for the layout rules proposed in docs/plans/ship_visuals_proposal.md (the Godot
-inspector widget would draw the same blocks); not game code.
+The same layout rules as the inspector's godot/scripts/ui/ShipSchematic.gd; it also draws the
+fleet at one scale (docs/archive/ship_visuals_shelved.md). Not game code.
 
-    python3 tools/ship_schematic_mockup.py . docs/plans/ship_visuals
+    python3 tools/ship_schematic_mockup.py . <out_dir>
 """
 import csv, math, sys
 from collections import defaultdict

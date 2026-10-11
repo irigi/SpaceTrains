@@ -36,13 +36,34 @@
   Sun halo and bloom; sunlight with a gentle falloff.
 - **Panels:** top bar (date, pause, timewarp, fleet summary, unmet demand over 30 days, money); registry (ships,
   stations, bodies); inspector: ship (mission in words, propellant, cargo lots, provisions, transit, expected trip
-  earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: mass split, engine state,
-  drive radiator temperature, every part with its mass and key numbers), station (badges, market rows with stock vs target, cover and share
+  earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: engine state and drive
+  radiator temperature, a to-scale top-view schematic (`ui/ShipSchematic.gd`, below), and every part with its mass
+  and key numbers in a folded parts list), station (badges, market rows with stock vs target, cover and share
   short, orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
   overview (M); comms log.
+- **Ship schematic** (`ui/ShipSchematic.gd`): drawn from the design's components (the bridge's `.designs` file), bow
+  on the left, sizes in metres. The habitat is a 4.5 m cylinder of its pressurized volume, with its rooms and systems
+  as bands by mass. The hold is a box of its volume, the tanks a cylinder of the propellant volume. Thermal ships
+  get a shadow shield, reactor and nozzle; plasma ships a drive, magnetic nozzle and two radiator wings (2.5:1) of
+  the panel area.
+  - Live state: tank fill (LH2 frost white, water blue), hold lots by commodity colour, crew dots, and the plume
+    while the engine burns or thrusts.
+  - Temperatures in false colour (inferno scale, `ThermalPalette.gd`, 200-6000 K, with a legend and a tick at
+    the current value): the radiators at `radiator_temperature_k`, and the reactor at its core temperature while
+    burning.
+  - Below the drawing: a scale bar and a bar of the current mass by part (dry parts, propellant, cargo,
+    provisions). Hovering a part or a segment highlights both and shows the spec line. The inspector keeps one
+    instance across refreshes, so a hover survives them.
+- **Map ship hints** (`EntityVisuals.update_engine_glow`):
+  - Nuclear-thermal ships glow while burning, for the bridge's `engine_burn_s` after departure and before
+    arrival.
+  - The glow's size follows the engine's jet power, log-scaled.
+  - Plasma ships' radiator wings glow in false colour while thrusting.
 - **Keys:** F5 quick save, F9 quick load, M economy, F focus, Space pause, `,` `.` timewarp, F11 map debug.
 - **Dev:** `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
-  `--shot-smooth=SECONDS` counts stalled frames); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  `--shot-smooth=SECONDS` counts stalled frames, `--shot-moon-paths` shoots ships bound to or from Ganymede and
+  Titan at three zooms; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
+  burning); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
 
 ## Data Flow
 

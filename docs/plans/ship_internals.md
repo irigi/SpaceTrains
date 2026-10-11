@@ -11,8 +11,9 @@ Three tiers:
 2. **Modules as refit choices**, with component condition and damage. Designed below; queued in `docs/roadmap.md`.
 3. **Stations** get the same treatment. Sketch at the end.
 
-The decisions are logged in `ship_structures_log.md`. Graphics are proposed separately in
-`ship_visuals_proposal.md`.
+The decisions are logged in `ship_structures_log.md`. The graphics are the inspector's ship schematic and the
+map hints (`docs/modules/ui_observer.md`). A shipyard panel and 3D close-ups are shelved
+(`docs/archive/ship_visuals_shelved.md`).
 
 ## Tier 1: The Structure, Shown (built 2026-10-11)
 

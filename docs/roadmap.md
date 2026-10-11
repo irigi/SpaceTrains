@@ -162,7 +162,9 @@ Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in 
 - **Tier 2, next after the moon-path fix:** modules as refits (common room, hydroponics, storm shelter, cryo
   bay, Set B radiators, passenger cabins), designs derived in C++, component condition and ship events whose
   damage lowers drive power and κ.
-- **Visuals:** proposal for review in `docs/plans/ship_visuals_proposal.md` (not built).
+- **Visuals, done 2026-10-11:** a to-scale ship schematic in the inspector (false-colour temperatures, live
+  tank, hold, crew and plume, mass bar, hover) and map hints (burn-length glow sized by jet power, radiator
+  wings in false colour). A shipyard panel and 3D close-ups are archived (`docs/archive/`), not planned.
 - Tier 3, stations: after tier 2.
 
 Deferred (user, 2026-10-08):

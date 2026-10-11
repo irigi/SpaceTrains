@@ -3612,6 +3612,7 @@ std::string Simulation::build_bridge_paths_json() const {
 std::string Simulation::ship_systems_json(
     const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) const {
     std::string engine_state = "off";
+    double burn_s = 0.0;
     const domain::ShipComponentDefinition* engine = nullptr;
     const domain::ShipComponentDefinition* radiator = nullptr;
     for (const auto& c : ship_class.components) {
@@ -3624,7 +3625,7 @@ std::string Simulation::ship_systems_json(
             engine_state = "thrusting";
         } else if (engine != nullptr && engine->thrust_n > 0.0 && engine->isp_s > 0.0) {
             const double mass_flow_kg_s = engine->thrust_n / (engine->isp_s * 9.80665);
-            const double burn_s = 0.5 * std::max(0.0, mission.propellant_cost_kg) / mass_flow_kg_s;
+            burn_s = 0.5 * std::max(0.0, mission.propellant_cost_kg) / mass_flow_kg_s;
             const bool burning = game_time_s_ - mission.departure_time_s < burn_s || mission.arrival_time_s - game_time_s_ < burn_s;
             engine_state = burning ? "burning" : "coasting";
         }
@@ -3634,7 +3635,8 @@ std::string Simulation::ship_systems_json(
         const double r_au = std::max(0.05, std::hypot(position.x, position.z) / 1.495978707e11);
         radiator_temperature_k = engine_state == "thrusting" ? radiator->temperature_k : 278.6 / std::sqrt(r_au);
     }
-    return std::format("\"engine_state\":\"{}\",\"radiator_temperature_k\":{:.1f},", engine_state, radiator_temperature_k);
+    return std::format("\"engine_state\":\"{}\",\"engine_burn_s\":{:.1f},\"radiator_temperature_k\":{:.1f},",
+        engine_state, burn_s, radiator_temperature_k);
 }
 
 std::string Simulation::build_bridge_designs_json() const {

@@ -460,6 +460,7 @@ func _read_paths() -> void:
 # Ship designs by class id ({name, ..., components: [...]}): the parts of every class for the
 # inspector's ship systems section. Written once by the bridge (per-ship fits later).
 var bridge_designs: Dictionary = {}
+var jet_power_by_class: Dictionary = {}
 var designs_seq := -1
 
 func _read_designs() -> void:
@@ -471,6 +472,7 @@ func _read_designs() -> void:
         return
     designs_seq = int(seq_text)
     bridge_designs = json.data.get("designs", {})
+    jet_power_by_class.clear()
 
 func _read_snapshot() -> void:
     _read_paths()
@@ -655,7 +657,8 @@ func _update_nodes(delta: float) -> void:
             if String(detail.get("phase", "idle")) != "in_transit":
                 node.position += _docked_ship_offset(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
-            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0))
+            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0),
+                _jet_power_w(String(detail.get("class_id", ""))))
     _update_history_trails(delta)
     if space_env != null:
         space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
@@ -820,6 +823,20 @@ func _sample_rates(times: PackedFloat64Array, y: PackedFloat64Array, first: int,
             continue
         rates[i] = (h1 * (y[i] - y[lo]) / h0 + h0 * (y[hi] - y[i]) / h1) / (h0 + h1)
     return rates
+
+# A class's engine jet power from the designs file (0 until it has been read).
+func _jet_power_w(class_id: String) -> float:
+    if jet_power_by_class.has(class_id):
+        return jet_power_by_class[class_id]
+    var design: Dictionary = bridge_designs.get(class_id, {})
+    if design.is_empty():
+        return 0.0
+    var power := 0.0
+    for component in design.get("components", []):
+        if String(component.get("kind", "")) == "engine":
+            power = float(component.get("power_w", 0.0))
+    jet_power_by_class[class_id] = power
+    return power
 
 # The planet a body belongs to (itself for a planet, its parent for a moon); "" for the Sun.
 func _planet_of(body_id: String) -> String:
