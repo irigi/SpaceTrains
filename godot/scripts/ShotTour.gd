@@ -109,10 +109,6 @@ func _run() -> void:
                 (paused_at - before) / 86400.0, before / 86400.0, (after - paused_at) / 86400.0])
             get_tree().quit()
             return
-        if arg == "--shot-moon-paths":
-            await _shoot_moon_paths(rig)
-            get_tree().quit()
-            return
         if arg.begins_with("--shot-smooth="):
             await _measure_smoothness(float(arg.trim_prefix("--shot-smooth=")), 432000.0)
             await _measure_smoothness(20.0, 86400.0)
@@ -195,6 +191,27 @@ func _run() -> void:
             await get_tree().create_timer(0.3).timeout
             schematic = _find_schematic(main.inspector_panel)
             await _shoot("ship_systems_%s_hover" % propulsion)
+            # The hover must hold through inspector refreshes (it blinked), and the wheel over
+            # the panel, already scrolled to the end, must not zoom the map.
+            var lost := 0
+            var frames := 0
+            var started := Time.get_ticks_msec()
+            while Time.get_ticks_msec() - started < 3000:
+                await RenderingServer.frame_post_draw
+                frames += 1
+                if String(schematic.get("_hover_key")) == "":
+                    lost += 1
+            var distance_before := float(rig.get("distance"))
+            for i in 5:
+                var wheel := InputEventMouseButton.new()
+                wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+                wheel.pressed = true
+                wheel.position = spot
+                wheel.global_position = spot
+                Input.parse_input_event(wheel)
+                await get_tree().process_frame
+            print("[ShotTour] schematic hover lost in %d of %d frames; wheel over the inspector: map distance %.6f -> %.6f" % [
+                lost, frames, distance_before, float(rig.get("distance"))])
             # Burns are short and rarely caught: the same ship drawn as if burning, before
             # the next inspector refresh replaces it.
             if propulsion == "nuclear_thermal":
@@ -234,26 +251,6 @@ func _find_schematic(node: Node) -> Control:
         if found != null:
             return found
     return null
-
-# Ships flying to or from an outer moon, at three zooms, to check their drawn paths.
-func _shoot_moon_paths(rig: Node3D) -> void:
-    var shot := 0
-    for ship_id in main.entity_details.keys():
-        var ship: Dictionary = main.entity_details[ship_id]
-        if main.entity_kinds.get(ship_id, "") != "ship" or String(ship.get("phase", "")) != "in_transit":
-            continue
-        var ends := String(ship.get("origin_station_id", "")) + ">" + String(ship.get("destination_station_id", ""))
-        if not (ends.contains("ganymede") or ends.contains("titan")):
-            continue
-        main.select_entity(ship_id, "ship", true)
-        for distance in [0.3, 3.0, 30.0]:
-            rig.set("distance", distance)
-            rig.call("_update_transform")
-            await get_tree().create_timer(0.6).timeout
-            await _shoot("moon_path_%s_%s" % [ship_id, str(distance)])
-        shot += 1
-        if shot >= 4:
-            return
 
 # Debug aid: meshes that cover a large part of the view (a glow or overlay out of scale).
 func _report_big_meshes(node: Node, stop_name: String) -> void:

@@ -11,7 +11,7 @@ Every choice is listed here for review.
 - "origin/master" in the request: GitHub has no master, so I took `main`.
 
 ## Step 1: Wobbly moon paths (diagnosed, not fixed)
-`docs/plans/wobbly_moon_paths.md`.
+(the diagnosis doc was removed once the wobble was resolved).
 - **Cause:** moon legs co-move with the planet (0.4-1.4 km/s relative to Jupiter) but meet the moon at its
   orbital speed (10.9 km/s at Ganymede). In the moon's frame the approach loops at the moon's period.
 - **Latent second cause:** Kepler wait samples at moon stations alias.
@@ -74,8 +74,8 @@ archived, not planned: `docs/archive/ship_visuals_shelved.md`.
 
 ## Follow-up the same day (user feedback)
 - **Moon paths:** the user sees the wobble in the heliocentric frame. Cause: Godot's linear r/θ interpolation
-  between samples. Fixed with a cubic Hermite (see `wobbly_moon_paths.md`, "Revisited"). F1 and F2 stay open,
-  at lower priority.
+  between samples. Fixed with a cubic Hermite; the user confirmed it, so the
+  diagnosis doc and the moon-frame ideas (F1, F2) were dropped.
 - **Plans cleanup:** 11 finished plans were removed; their mechanisms are condensed in
   `docs/modules/ships_and_fleet.md` and `economy.md`. The tech review is now `docs/ship_technology.md`.
 - **A built (decisions):**

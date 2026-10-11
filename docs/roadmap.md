@@ -144,15 +144,8 @@ Next: the user reviews `steps_23_28_log.md`. Open: Mars fuel (depot buffer targe
 the Earth cluster's local supply (Low Earth Logistics metals and food, Earth L1 water at 10-17%), fuel-factory
 events.
 
-Bug to fix next coding session (user, 2026-10-09): **wobbly paths to Ganymede and Titan.** Drawn trajectories of
-ships flying to these moons show wobbles, as if the path were computed or drawn in the moon's frame without
-subtracting its circular motion around the planet. Check first: step 25 (smooth drawing of outer-system paths),
-the endpoint/start snap onto the moon station's position, and whether path samples mix heliocentric and
-moon-relative positions. Add a `--trajectory-audit` check and a regression test.
-Fixed 2026-10-11 (`docs/plans/wobbly_moon_paths.md`): the wobble the user saw in the heliocentric frame came from
-Godot's linear r/θ interpolation between path samples, which bowed long near-radial outer-system legs by up to
-0.03 AU. Cubic Hermite now (≤ 0.005 AU). Still open, lower priority: moon legs meet the moon at its orbital speed
-(F1, only visible in the moon's frame), and Kepler wait samples at moon stations alias (F2).
+Wobbly outer-moon paths (user, 2026-10-09): resolved 2026-10-11, confirmed by the user. Godot interpolated r/θ
+linearly between path samples, which bowed long near-radial legs by up to 0.03 AU; it now uses a cubic Hermite.
 
 Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in `ship_structures_log.md`):
 - **Tier 1, done 2026-10-11:** every class's parts (engine, radiators, tanks, habitat split by NASA's Deep Space

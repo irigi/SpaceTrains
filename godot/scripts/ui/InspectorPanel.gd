@@ -9,6 +9,14 @@ var _scroll: ScrollContainer
 var _systems_open := true
 var _parts_open := false
 var _schematic: ShipSchematicScript
+var _schematic_used := false
+
+# The wheel scrolls this panel only: once its list is at the end, the event would
+# otherwise fall through to the camera and zoom the map behind the panel.
+func _gui_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+            MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+        accept_event()
 
 func _ready() -> void:
     custom_minimum_size = Vector2(360, 0)
@@ -26,11 +34,18 @@ func _exit_tree() -> void:
         _schematic.free()
 
 func _clear() -> void:
-    # The schematic is kept across refreshes, so a part under a still mouse stays hovered.
-    if _schematic != null and _schematic.get_parent() == _content:
-        _content.remove_child(_schematic)
+    # The schematic stays in the tree across refreshes (removing it would drop its hover and
+    # make the hovered part blink); it is detached only if the rebuilt view has no schematic.
+    _schematic_used = false
     for child in _content.get_children():
-        child.queue_free()
+        if child != _schematic:
+            child.queue_free()
+    if _schematic != null and _schematic.get_parent() == _content:
+        _park_schematic.call_deferred()
+
+func _park_schematic() -> void:
+    if not _schematic_used and _schematic != null and _schematic.get_parent() == _content:
+        _content.remove_child(_schematic)
 
 func _add_label(text: String, color := UiTheme.TEXT_PRIMARY, font_size := 13) -> Label:
     var label := Label.new()
@@ -544,7 +559,11 @@ func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
     if _schematic == null:
         _schematic = ShipSchematicScript.new()
         _schematic.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _content.add_child(_schematic)
+    if _schematic.get_parent() == _content:
+        _content.move_child(_schematic, -1)
+    else:
+        _content.add_child(_schematic)
+    _schematic_used = true
     _schematic.set_ship(design, detail)
 
     _add_toggle("Parts list", _parts_open, 11, UiTheme.TEXT_DIM, func() -> void:

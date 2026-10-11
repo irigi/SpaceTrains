@@ -59,11 +59,13 @@
     arrival.
   - The glow's size follows the engine's jet power, log-scaled.
   - Plasma ships' radiator wings glow in false colour while thrusting.
+- **Wheel:** zooms the map, except over the inspector, browser or market panel, which take it even at the
+  end of their scroll.
 - **Keys:** F5 quick save, F9 quick load, M economy, F focus, Space pause, `,` `.` timewarp, F11 map debug.
 - **Dev:** `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
-  `--shot-smooth=SECONDS` counts stalled frames, `--shot-moon-paths` shoots ships bound to or from Ganymede and
-  Titan at three zooms; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
-  burning); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
+  burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
+  the map alone); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
 
 ## Data Flow
 

@@ -57,12 +57,13 @@ var _segments: Array = []
 var _scale := 1.0
 var _offset := Vector2.ZERO
 var _hover_key := ""
+# Last mouse position over the widget, from motion events only, so a relayout or rebuild
+# under a still mouse cannot drop the hover for a frame.
+var _mouse := Vector2.INF
 
 func _init() -> void:
     custom_minimum_size = Vector2(0, SHIP_H + FOOTER_H + BAR_H + INFO_H + 10.0)
     mouse_filter = Control.MOUSE_FILTER_PASS
-    # Hover is read from the mouse position when drawing, so redraw once laid out too.
-    set_notify_transform(true)
 
 func set_ship(design: Dictionary, ship: Dictionary) -> void:
     _design = design
@@ -76,10 +77,14 @@ func set_ship(design: Dictionary, ship: Dictionary) -> void:
 
 func _gui_input(event: InputEvent) -> void:
     if event is InputEventMouseMotion:
+        _mouse = (event as InputEventMouseMotion).position
         queue_redraw()
 
 func _notification(what: int) -> void:
-    if what == NOTIFICATION_MOUSE_EXIT or what == NOTIFICATION_RESIZED or what == NOTIFICATION_TRANSFORM_CHANGED:
+    if what == NOTIFICATION_MOUSE_EXIT:
+        _mouse = Vector2.INF
+        queue_redraw()
+    elif what == NOTIFICATION_RESIZED:
         queue_redraw()
 
 func _f(component: Dictionary, key: String) -> float:
@@ -215,9 +220,9 @@ func _draw() -> void:
 
 func _find_hover() -> String:
     _hover_key = ""
-    if not is_visible_in_tree() or not get_global_rect().has_point(get_global_mouse_position()):
+    if not is_visible_in_tree() or _mouse == Vector2.INF:
         return ""
-    var mouse := get_local_mouse_position()
+    var mouse := _mouse
     if _bar_rect().has_point(mouse):
         var bar := _bar_rect()
         var at := (mouse.x - bar.position.x) / bar.size.x
