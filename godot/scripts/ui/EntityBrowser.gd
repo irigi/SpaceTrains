@@ -19,6 +19,13 @@ var _last_details: Dictionary = {}
 var _last_kinds: Dictionary = {}
 var _selected_id := ""
 
+# The wheel scrolls this panel only: once its list is at the end, the event would
+# otherwise fall through to the camera and zoom the map behind the panel.
+func _gui_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+            MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+        accept_event()
+
 func _ready() -> void:
     custom_minimum_size = Vector2(290, 0)
     _content = VBoxContainer.new()

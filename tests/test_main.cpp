@@ -5,7 +5,9 @@
 #include <limits>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -120,6 +122,51 @@ int main() {
         require((!bigger || (variant.dry_mass_kg > nominal.dry_mass_kg && variant.ship_value_cr > nominal.ship_value_cr))
                 && (!smaller || (variant.dry_mass_kg < nominal.dry_mass_kg && variant.ship_value_cr < nominal.ship_value_cr)),
             "bigger tanks should weigh and cost more, smaller ones less");
+    }
+
+    // Ship components (tier 1 of docs/plans/ship_internals.md): every class lists its parts,
+    // they add up to the class, plasma ships carry hot radiators and thermal ships none.
+    for (const auto& ship_class : universe.ship_classes) {
+        double mass = 0.0;
+        int engines = 0;
+        int radiators = 0;
+        int crew_quarters = 0;
+        for (const auto& c : ship_class.components) {
+            mass += c.parent_id.empty() ? c.mass_kg : 0.0;
+            engines += c.kind == "engine";
+            radiators += c.kind == "radiator";
+            crew_quarters += c.kind == "crew_quarters";
+            if (c.kind == "radiator") {
+                require(c.temperature_k > 500.0 && c.temperature_k < 700.0 && c.area_m2 > 0.0 && c.heat_w > 0.0,
+                    "drive radiators should run hot (Set A: ~594 K) and have an area");
+            }
+        }
+        require_near(mass, ship_class.dry_mass_kg, 1.0, "ship components should add up to the dry mass");
+        require(engines == 1 && crew_quarters == 1, "every class should have one engine and crew quarters");
+        require((radiators == 1) == (ship_class.propulsion_type == "variable_isp"),
+            "plasma ships should have drive radiators, nuclear-thermal ships none");
+    }
+    {
+        // The loader rejects parts that do not add up to their class.
+        const auto broken = std::filesystem::temp_directory_path() / "spacetrains_components_test";
+        std::filesystem::remove_all(broken);
+        std::filesystem::copy(repo_root / "data", broken, std::filesystem::copy_options::recursive);
+        const auto csv = broken / "ship_classes" / "ship_components.csv";
+        std::ifstream in(csv);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        const auto at = text.find("light_freighter,structure,,structure,Truss and structure,");
+        require(at != std::string::npos, "test fixture: light freighter structure row");
+        text.insert(at + std::string("light_freighter,structure,,structure,Truss and structure,").size(), "9");
+        std::ofstream(csv) << text;
+        bool rejected = false;
+        try {
+            (void)loader.load_universe(broken);
+        } catch (const std::runtime_error&) {
+            rejected = true;
+        }
+        std::filesystem::remove_all(broken);
+        require(rejected, "the loader should reject components that do not add up to the class");
     }
 
     spacetrains::celestial::CelestialMechanics mechanics(universe);

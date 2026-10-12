@@ -221,7 +221,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     // Ships start with their full life-support endurance aboard, as if fresh from the yard.
     constexpr double INITIAL_PROVISION_DAYS = PROVISION_ENDURANCE_DAYS;
     for (auto& ship : ships_) {
-        const auto& ship_class = get_ship_class(ship.class_id);
+        const auto& ship_class = ship_design(ship);
         for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
             ship.provisions[commodity_id] = ship_class.crew_size * units_per_crew_day * INITIAL_PROVISION_DAYS;
         }
@@ -316,6 +316,10 @@ const domain::UniverseDefinition& Simulation::universe() const {
 
 const economy::EconomySystem& Simulation::economy_system() const {
     return economy_;
+}
+
+const domain::ShipClassDefinition& Simulation::ship_design(const domain::ShipState& ship) const {
+    return get_ship_class(ship.class_id);
 }
 
 const domain::ShipClassDefinition& Simulation::get_ship_class(const std::string& class_id) const {
@@ -873,7 +877,7 @@ double fuel_for_sale_on_arrival_kg(
 }  // namespace
 
 double Simulation::provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const {
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     const auto& market_def = get_station_definition(market.station_id);
     double days = std::numeric_limits<double>::infinity();
     for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
@@ -889,7 +893,7 @@ double Simulation::provisionable_days(const domain::ShipState& ship, const domai
 }
 
 void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing) {
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     const auto& market_def = get_station_definition(market.station_id);
     for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
         const double missing = ship_class.crew_size * units_per_crew_day * days - ship.provisions[commodity_id];
@@ -926,7 +930,7 @@ void Simulation::pay_home_station(domain::ShipState& ship, double amount) {
 }
 
 void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     const double days = dt_s / 86400.0;
 
     // Capital (interest + amortisation) is owed whatever the ship does.
@@ -979,7 +983,7 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
 
 double Simulation::purchasable_propellant_kg(const domain::ShipState& ship) const {
     const auto& station = get_station_state(ship.current_station_id);
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     // Leave the station its own working reserve (it may consume fuel too) — except for a
     // nearly-dry ship, which may tap the reserve to get unstuck.
     const bool emergency = ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.05;
@@ -1405,7 +1409,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             }
             auto largest = std::max_element(surplus_by_commodity.begin(), surplus_by_commodity.end(),
                 [](const auto& a, const auto& b) { return a.second < b.second; });
-            largest->second -= std::max(0.0, std::min(largest->second, get_ship_class(other->class_id).cargo_capacity_units));
+            largest->second -= std::max(0.0, std::min(largest->second, ship_design(*other).cargo_capacity_units));
         }
         return surplus_by_commodity;
     };
@@ -2069,7 +2073,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     static const char* const trace_ship = std::getenv("SPACETRAINS_TRACE_SHIP");
     const bool trace = trace_ship != nullptr && ship.name == trace_ship;
 
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     const auto review_start = std::chrono::steady_clock::now();
     const auto choice = choose_mission(ship, ship_class, trace, game_time_s_);
     // Debug aid: with SPACETRAINS_PROFILE, reviews over half a second are reported (stderr).
@@ -2280,7 +2284,7 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
         return false;
     }
     ship.next_refit_review_s = game_time_s_ + REFIT_REVIEW_DAYS * 86400.0;
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     const double refit_days = universe_.ship_operations.refit_days;
     // What the ship earns as it is: dispatch's profit rate, or nothing (a repositioning
     // score is not a profit, and such a ship has no paying work here either).
@@ -2389,7 +2393,7 @@ void Simulation::step_refitting_ship(domain::ShipState& ship) {
     ship.idle_since_s = game_time_s_;
     ship.next_review_s = game_time_s_;
     add_event(std::format("{} left the yard at {} as {}",
-        ship.name, get_station_definition(ship.current_station_id).name, get_ship_class(ship.class_id).name), "mission");
+        ship.name, get_station_definition(ship.current_station_id).name, ship_design(ship).name), "mission");
 }
 
 void Simulation::step_awaiting_departure_ship(domain::ShipState& ship) {
@@ -2704,7 +2708,7 @@ double Simulation::fleet_hold_units() const {
     double units = 0.0;
     for (const auto& ship : ships_) {
         if (liner_stops(ship) == nullptr) {  // liners are a public service, outside the cap
-            units += get_ship_class(ship.class_id).cargo_capacity_units;
+            units += ship_design(ship).cargo_capacity_units;
         }
     }
     return units;
@@ -2859,7 +2863,7 @@ double Simulation::faction_credit_limit(const std::string& faction_id) const {
     double fleet_value = 0.0;
     for (const auto& ship : ships_) {
         if (ship.faction_id == faction_id) {
-            fleet_value += get_ship_class(ship.class_id).ship_value_cr;
+            fleet_value += ship_design(ship).ship_value_cr;
         }
     }
     // Its stations' stock is collateral too, at reference prices (step 26): after step 23 a
@@ -2979,7 +2983,7 @@ void Simulation::step_fleet_investment() {
 
 void Simulation::sell_ship(std::size_t index) {
     auto& ship = ships_[index];
-    const auto& ship_class = get_ship_class(ship.class_id);
+    const auto& ship_class = ship_design(ship);
     // The outside economy buys the hull (with what is left in its tanks and stores) for its
     // salvage value, paid to the owner's treasury. The ship's cash, or its debt, goes to the
     // home station, like its dividends.
@@ -3118,7 +3122,7 @@ Simulation::CommissionStep Simulation::commission_step() {
             // A ship of this hull docked idle or laid up here could already take the work.
             bool idle_here = false;
             for (const auto& ship : ships_) {
-                const auto& other_class = get_ship_class(ship.class_id);
+                const auto& other_class = ship_design(ship);
                 const bool same_hull = (other_class.hull_id.empty() ? other_class.id : other_class.hull_id) == ship_class.id;
                 idle_here = idle_here
                     || (same_hull && ship.current_station_id == yard.id
@@ -3600,6 +3604,87 @@ std::string Simulation::build_bridge_paths_json() const {
     return output.str();
 }
 
+// Live state of a ship's systems for the inspector (tier 1 of docs/plans/ship_internals.md):
+// whether the engine runs, and how hot the drive radiators are. Nuclear-thermal burns are
+// impulsive in the planners; for display each burn lasts its share of the mission's
+// propellant (half each) at the engine's mass flow. Variable-Isp ships thrust the whole way.
+// Idle radiators sit near the sunlit equilibrium of a grey body, 278.6 K / sqrt(r in AU).
+std::string Simulation::ship_systems_json(
+    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) const {
+    std::string engine_state = "off";
+    double burn_s = 0.0;
+    const domain::ShipComponentDefinition* engine = nullptr;
+    const domain::ShipComponentDefinition* radiator = nullptr;
+    for (const auto& c : ship_class.components) {
+        engine = c.kind == "engine" ? &c : engine;
+        radiator = c.kind == "radiator" ? &c : radiator;
+    }
+    if (ship.phase == domain::ShipMissionPhase::InTransit) {
+        const auto& mission = ship.active_mission;
+        if (ship_class.propulsion_type == "variable_isp") {
+            engine_state = "thrusting";
+        } else if (engine != nullptr && engine->thrust_n > 0.0 && engine->isp_s > 0.0) {
+            const double mass_flow_kg_s = engine->thrust_n / (engine->isp_s * 9.80665);
+            burn_s = 0.5 * std::max(0.0, mission.propellant_cost_kg) / mass_flow_kg_s;
+            const bool burning = game_time_s_ - mission.departure_time_s < burn_s || mission.arrival_time_s - game_time_s_ < burn_s;
+            engine_state = burning ? "burning" : "coasting";
+        }
+    }
+    double radiator_temperature_k = 0.0;
+    if (radiator != nullptr) {
+        const double r_au = std::max(0.05, std::hypot(position.x, position.z) / 1.495978707e11);
+        radiator_temperature_k = engine_state == "thrusting" ? radiator->temperature_k : 278.6 / std::sqrt(r_au);
+    }
+    return std::format("\"engine_state\":\"{}\",\"engine_burn_s\":{:.1f},\"radiator_temperature_k\":{:.1f},",
+        engine_state, burn_s, radiator_temperature_k);
+}
+
+std::string Simulation::build_bridge_designs_json() const {
+    std::ostringstream output;
+    output << std::setprecision(10);
+    output << "{\"designs\":{";
+    bool first_class = true;
+    for (const auto& ship_class : universe_.ship_classes) {
+        output << (first_class ? "" : ",") << "\"" << json_escape(ship_class.id) << "\":{"
+               << "\"name\":\"" << json_escape(ship_class.name) << "\","
+               << "\"hull_id\":\"" << json_escape(ship_class.hull_id) << "\","
+               << "\"propulsion_type\":\"" << json_escape(ship_class.propulsion_type) << "\","
+               << "\"dry_mass_kg\":" << ship_class.dry_mass_kg << ","
+               << "\"propellant_capacity_kg\":" << ship_class.propellant_capacity_kg << ","
+               << "\"cargo_capacity_units\":" << ship_class.cargo_capacity_units << ","
+               << "\"crew_size\":" << ship_class.crew_size << ","
+               << "\"ship_value_cr\":" << ship_class.ship_value_cr << ","
+               << "\"max_delta_v_mps\":" << ship_class.max_delta_v_mps << ","
+               << "\"cruise_accel_mps2\":" << ship_class.cruise_accel_mps2 << ","
+               << "\"specific_engine_power_w_per_kg\":" << ship_class.specific_engine_power_w_per_kg << ","
+               << "\"components\":[";
+        bool first = true;
+        for (const auto& c : ship_class.components) {
+            output << (first ? "" : ",") << "{"
+                   << "\"id\":\"" << json_escape(c.id) << "\","
+                   << "\"parent_id\":\"" << json_escape(c.parent_id) << "\","
+                   << "\"kind\":\"" << json_escape(c.kind) << "\","
+                   << "\"name\":\"" << json_escape(c.name) << "\","
+                   << "\"mass_kg\":" << c.mass_kg << ","
+                   << "\"price_cr\":" << c.price_cr << ","
+                   << "\"power_w\":" << c.power_w << ","
+                   << "\"heat_w\":" << c.heat_w << ","
+                   << "\"temperature_k\":" << c.temperature_k << ","
+                   << "\"volume_m3\":" << c.volume_m3 << ","
+                   << "\"area_m2\":" << c.area_m2 << ","
+                   << "\"capacity_kg\":" << c.capacity_kg << ","
+                   << "\"crew_capacity\":" << c.crew_capacity << ","
+                   << "\"isp_s\":" << c.isp_s << ","
+                   << "\"thrust_n\":" << c.thrust_n << "}";
+            first = false;
+        }
+        output << "]}";
+        first_class = false;
+    }
+    output << "}}";
+    return output.str();
+}
+
 std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s, bool with_paths) const {
     const profiling::Scope profile_scope(profiling::Phase::Snapshot);
     auto inventory_value = [](const domain::Inventory& inventory, const std::string& commodity_id) {
@@ -3888,7 +3973,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "\"ships\":[";
     for (std::size_t i = 0; i < ships_.size(); ++i) {
         const auto& ship = ships_[i];
-        const auto& ship_class = get_ship_class(ship.class_id);
+        const auto& ship_class = ship_design(ship);
         const auto position = get_ship_render_position(ship);
         if (i > 0) {
             output << ",";
@@ -3929,6 +4014,15 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"class_name\":\"" << json_escape(ship_class.name) << "\","
                << "\"hull_id\":\"" << json_escape(ship_class.hull_id.empty() ? ship_class.id : ship_class.hull_id) << "\","
                << "\"crew_size\":" << ship_class.crew_size << ","
+               << "\"cargo_mass_kg\":" << [&] {
+                      double kg = 0.0;
+                      for (const auto& lot : ship.active_mission.cargo) {
+                          kg += lot.units * get_commodity(lot.commodity_id).mass_per_unit_kg;
+                      }
+                      return kg;
+                  }() << ","
+               << "\"provisions_mass_kg\":" << provisions_mass_kg(ship) << ","
+               << ship_systems_json(ship, ship_class, position)
                << "\"provision_days\":" << [&] {
                       double days = std::numeric_limits<double>::infinity();
                       for (const auto& [commodity_id, per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {

@@ -16,10 +16,11 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-08) — start here
+## Current Plan (updated 2026-10-11) — start here
 
-Branch `feature/opus5_5_return` (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33); overnight 2026-10-07/08 (steps 9-13 below, log in `docs/plans/overnight_2026-10-08.md`): speed, smooth display, map look, panels, save/load, unmet-demand findings (v36), mixed cargo (v37).
+Branch `feature/bugfixes_ship_structures_and_trajectories` (from `main` after PR #12; earlier work on
+`feature/opus5_5_return`) (solo repo: commit on the branch, no PRs, push only when asked).
+Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33); overnight 2026-10-07/08 (steps 9-13 below, log removed 2026-10-11, in git history): speed, smooth display, map look, panels, save/load, unmet-demand findings (v36), mixed cargo (v37).
 
 ### Decisions so far
 
@@ -45,28 +46,28 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
 - **Fuel supply (user, 2026-10-07):** fuel comes from **fuel factories** at a few particular places
   (not Earth: lifting from a planet surface costs extra) and very large freighters (or many of them) carry it
   to the stations that buy it; the planner sees that a destination will be short of fuel. Done in v29
-  (`docs/plans/fuel_factories.md`): ships carry their return fuel and fly cheaper transfers where fuel is
+  (`docs/modules/ships_and_fleet.md`): ships carry their return fuel and fly cheaper transfers where fuel is
   scarce, and reject a trip only when even that is impossible.
 
 ### Next steps, in order
 
-1. **Tech plausibility review** (`docs/plans/tech_plausibility_review.md`): fix reference numbers for the
+1. **Tech plausibility review** (`docs/ship_technology.md`): fix reference numbers for the
    era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
    price ships from the breakdown (naming already confirmed). Done so far: reference numbers, class
    rebuild (`7cdb236`), fuel depots (`dad132c`), pricing (`1808fe6`), renaming (propulsion types
    `nuclear_thermal` / `variable_isp`, classes `plasma_freighter` / `plasma_courier`), cargo holds with
    price-curve trades and an economy scaled with population (v24). The tech review is complete.
-2. **Part C: modular tanks and refits** (`docs/plans/ship_operating_costs.md`): done (v25). Every class
+2. **Part C: modular tanks and refits** (`docs/modules/ships_and_fleet.md`): done (v25). Every class
    has 50/100/150/200% tank variants on one hull; ships refit at their home base when the missions the
    neighbouring tank size opens repay a 20-day yard stay and a bill of 30% of the hardware change.
    Mostly inner-system ships shrink their tanks. Consumer stations bled faster (LEO −458k), so the open
    economy went next.
-3. **Open economy** (`docs/plans/open_economy.md`): done (v26), moved ahead of fleet investment. Residents
+3. **Open economy** (`docs/modules/ships_and_fleet.md`): done (v26), moved ahead of fleet investment. Residents
    pay for consumed goods and stations pay local producers (at most the base price) against an external
    account; ships pay cash above a 50k reserve to their home station; faction treasuries keep station
    cash between 25k and 250k; a 60-day controller holds the money in stations and ships near the seeded
    amount (v26: +16.7% at day 730, driven by food scarcity at Low Earth Logistics). Money drift 0.
-4. **Fleet investment** (`docs/plans/fleet_investment.md`): done (v27). Ships laid up for 180 days are
+4. **Fleet investment** (`docs/modules/ships_and_fleet.md`): done (v27). Ships laid up for 180 days are
    sold for 40% salvage to their treasury; every 60 days the treasuries buy the one ship (hull, tank
    variant, yard) with the best sustained return (margin per unit × min(hold per round trip, the
    destination's consumption), minus running costs; hurdle 30%/yr). v27: 7 bought, 4 sold, 15/29
@@ -77,7 +78,7 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    with other ships' observed imports and exports (fleet profit 891k vs 444k in v29, 16/32 profitable).
    Open: treasuries buy only one ship per review and end with 542k unspent while 72% of demand goes
    unmet.
-5. **Fuel factories and bulk tankers** (`docs/plans/fuel_factories.md`): done (v29). Fuel factories at
+5. **Fuel factories and bulk tankers** (`docs/modules/ships_and_fleet.md`): done (v29). Fuel factories at
    Venus, Titan, Lunar Gateway, Ceres and Ganymede (none in Earth orbit); other depots only hold what
    ships deliver and price against their buffer. Bulk Tanker and Plasma Bulk Tanker classes (2000 units)
    bought by fleet investment. Fuel-aware planning: ships carry return fuel into ports that cannot refuel
@@ -88,7 +89,7 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
 6. **Investment rate**: done (v31). A review buys until no candidate clears the hurdle (at most 8),
    each valued against the flow of the ships already ordered. 19 ships bought (v30 10), fleet profit
    981k, 19/41 profitable, treasuries end with 69k (v30 542k); unmet demand 71.4% (71.7%).
-7. **Outer-system exports** (`docs/plans/outer_exports.md`): done (v32, v33). Ceres mines platinum,
+7. **Outer-system exports** (`docs/modules/ships_and_fleet.md`): done (v32, v33). Ceres mines platinum,
    Ganymede and Titan deuterium; Earth's two stations buy any amount at the base price for the outside
    economy. v32 started a rush to Ceres; v33a: follow-ups forecast the producer's stock at arrival and
    leave other ships' planned pickups to them. v33 (with step 8): 1.02M cr exported by day 730, fleet
@@ -102,7 +103,7 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    physical (Hohmann about 3700 days) and lose on cost. Left: theta branches, atlas time-optimality
    (needs a regenerated atlas).
 
-Steps 9-13 (plan `docs/plans/speed_gui_orders.md`, the user's 2026-10-07 priorities):
+Steps 9-13 (the user's 2026-10-07 priorities):
 
 9. **Speed:** done. Profiling timers (`--profile`), double-precision integration, exact parallel mission
    planning (passes over a thread pool), a memoised Lambert grid, candidates planned without paths, fleet reviews
@@ -143,11 +144,21 @@ Next: the user reviews `steps_23_28_log.md`. Open: Mars fuel (depot buffer targe
 the Earth cluster's local supply (Low Earth Logistics metals and food, Earth L1 water at 10-17%), fuel-factory
 events.
 
-Bug to fix next coding session (user, 2026-10-09): **wobbly paths to Ganymede and Titan.** Drawn trajectories of
-ships flying to these moons show wobbles, as if the path were computed or drawn in the moon's frame without
-subtracting its circular motion around the planet. Check first: step 25 (smooth drawing of outer-system paths),
-the endpoint/start snap onto the moon station's position, and whether path samples mix heliocentric and
-moon-relative positions. Add a `--trajectory-audit` check and a regression test.
+Wobbly outer-moon paths (user, 2026-10-09): resolved 2026-10-11, confirmed by the user. Godot interpolated r/θ
+linearly between path samples, which bowed long near-radial legs by up to 0.03 AU; it now uses a cubic Hermite.
+
+Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in `ship_structures_log.md`):
+- **Tier 1, done 2026-10-11:** every class's parts (engine, radiators, tanks, habitat split by NASA's Deep Space
+  Habitat, hold, structure) with mass, price, power, heat, temperature, volume and area in
+  `ship_components.csv`; they add up exactly to the class, so the simulation is unchanged. Inspector "Ship
+  systems" section, `<snapshot>.designs` bridge file, `Simulation::ship_design()` seam.
+- **Tier 2, next after the moon-path fix:** modules as refits (common room, hydroponics, storm shelter, cryo
+  bay, Set B radiators, passenger cabins), designs derived in C++, component condition and ship events whose
+  damage lowers drive power and κ.
+- **Visuals, done 2026-10-11:** a to-scale ship schematic in the inspector (false-colour temperatures, live
+  tank, hold, crew and plume, mass bar, hover) and map hints (burn-length glow sized by jet power, radiator
+  wings in false colour). A shipyard panel and 3D close-ups are archived (`docs/archive/`), not planned.
+- Tier 3, stations: after tier 2.
 
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
@@ -158,7 +169,7 @@ Checks after each step: the three test suites, `tools/benchmark.py` (four starti
 run is too noisy to judge a change) and `--trajectory-audit`. v39d (2026-10-08, four starts): 730 days unmet
 demand 49.8 +- 1.0%, 32.5 +- 1.6% in the last fifth, 50.8/91 profitable, holds 99,000 u, money +1.3 +- 7.4%;
 **1460 days 32.3 +- 1.2%, the last ~290 days 10.5 +- 1.9%, 84.5/93 profitable**, exports 1.84M, money +10.5 +- 12%;
-0 trajectory flags, drift 0; a single 730-day run takes about a minute. Earlier: v37b 63.3 +- 2.2% at 730 days. Older single-run figures, for history: compare with the calibration log in `ship_operating_costs.md`
+0 trajectory flags, drift 0; a single 730-day run takes about a minute. Earlier: v37b 63.3 +- 2.2% at 730 days. Older single-run figures, for history: compare with the calibration log in git history (`docs/plans/ship_operating_costs.md`, removed 2026-10-11)
 (v33: 17/43 profitable, fleet profit 1.035M, cargo margin 2.06M, fuel 599k cr, exports 1.02M, unmet demand
 72.9%, 34 CRITICAL lines, money supply +6.7%, drift 0, run 11m10; trajectory audit 0 of 277 plans flagged;
 v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'
@@ -213,21 +224,13 @@ Next fixes:
   generation. Sweep: chemical plans 0 flagged; ion 1 `coarse_sampling` left (was 3,034).
 - Regression tests for each fixed case.
 
-## Economy Follow-ups
+## Economy Ideas (kept from finished plans)
 
-- Re-run the 730-day audit; check whether goods still pile up at producers while consumers starve.
-- Check whether short-hop clustering around Earth L1 survived the profit-based dispatch.
-- **Ship operating costs**, parts A (done, calibrating) -> B mission-sized fuelling with cargo mass in the
-  rocket equation -> C modular tanks and refits. See `docs/plans/ship_operating_costs.md`.
-- **Technology plausibility review** of all ship classes (one consistent near-future tech level). See
-  `docs/plans/tech_plausibility_review.md`. Do it with or before part B.
-- **Fleet investment:** done (v27, route commitment v28), see `docs/plans/fleet_investment.md`.
-- **Open economy with exact accounting:** done (v26), see `docs/plans/open_economy.md`.
-- **Outer-system exports.** Give outer stations something worth shipping inward, not exotic matter.
-  Candidates: platinum-group metals and other high-value metals from the Ceres belt; deuterium (heavy water)
-  from Ganymede and Titan ice for fusion research and reactors; nitrogen and ammonia from Titan for the
-  nitrogen-poor Moon and Mars; physical science samples (low mass, high value, limited demand). Earth's
-  economy (the external account) buys them through the Earth stations at stable prices.
+Operating costs, tank refits, the open economy, fleet investment, fuel factories, outer exports and science are
+done (`docs/modules/ships_and_fleet.md`, `economy.md`). Ideas from those plans not taken up yet:
+- Nitrogen and ammonia from Titan for the nitrogen-poor Moon and Mars.
+- Science samples that lose value with age (would favour fast couriers); research stations as a station type.
+- Demand elasticity: residents cut consumption at high prices, not only the station ordering less.
 
 ## Phase 3 — Persistence and Scenario Control
 
@@ -244,6 +247,7 @@ Next fixes:
 
 ## Phase 5 — Ships with Individual Variation
 
+- Per-ship fits and component condition: tier 2 of `docs/plans/ship_internals.md` (the main route now).
 - Add per-ship power multiplier (±α variation) and size multiplier.
 - Size scaling preserves κ; power multiplier changes κ slightly per ship.
 - Reflect individual ship specs in UI selection panel.

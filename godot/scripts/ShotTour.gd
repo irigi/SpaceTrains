@@ -163,12 +163,94 @@ func _run() -> void:
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
             saved_day, float(main.get("display_time_s")) / 86400.0, String(main.get("bridge_status_text"))])
         await _shoot("after_load")
+    # The ship systems section of the inspector (schematic), for one ship of each drive: a
+    # burning thermal ship if there is one, then the same with the mouse over the schematic.
+    for propulsion in ["variable_isp", "nuclear_thermal"]:
+        var pick := ""
+        for ship_id in main.entity_details.keys():
+            var ship: Dictionary = main.entity_details[ship_id]
+            if main.entity_kinds.get(ship_id, "") != "ship" or String(ship.get("propulsion_type", "")) != propulsion \
+                    or String(ship.get("phase", "")) != "in_transit":
+                continue
+            if pick == "" or String(ship.get("engine_state", "")) == "burning":
+                pick = ship_id
+        if pick == "":
+            continue
+        main.select_entity(pick, "ship", true)
+        rig.set("distance", 0.0005)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        var scroll: ScrollContainer = main.inspector_panel.get("_scroll")
+        scroll.scroll_vertical = 100000
+        await get_tree().create_timer(0.3).timeout
+        await _shoot("ship_systems_" + propulsion)
+        var schematic := _find_schematic(main.inspector_panel)
+        if schematic != null:
+            var spot := schematic.get_global_rect().position + Vector2(schematic.size.x * 0.5, 75.0)
+            get_viewport().warp_mouse(spot)
+            await get_tree().create_timer(0.3).timeout
+            schematic = _find_schematic(main.inspector_panel)
+            await _shoot("ship_systems_%s_hover" % propulsion)
+            # The hover must hold through inspector refreshes (it blinked), and the wheel over
+            # the panel, already scrolled to the end, must not zoom the map.
+            var lost := 0
+            var frames := 0
+            var started := Time.get_ticks_msec()
+            while Time.get_ticks_msec() - started < 3000:
+                await RenderingServer.frame_post_draw
+                frames += 1
+                if String(schematic.get("_hover_key")) == "":
+                    lost += 1
+            var distance_before := float(rig.get("distance"))
+            for i in 5:
+                var wheel := InputEventMouseButton.new()
+                wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+                wheel.pressed = true
+                wheel.position = spot
+                wheel.global_position = spot
+                Input.parse_input_event(wheel)
+                await get_tree().process_frame
+            print("[ShotTour] schematic hover lost in %d of %d frames; wheel over the inspector: map distance %.6f -> %.6f" % [
+                lost, frames, distance_before, float(rig.get("distance"))])
+            # Burns are short and rarely caught: the same ship drawn as if burning, before
+            # the next inspector refresh replaces it.
+            if propulsion == "nuclear_thermal":
+                var burning: Dictionary = main.entity_details[pick].duplicate()
+                burning["engine_state"] = "burning"
+                var designs: Dictionary = main.get("bridge_designs")
+                schematic.set_ship(designs.get(String(burning.get("class_id", "")), {}), burning)
+                await _shoot("ship_systems_nuclear_thermal_burning")
+    # The 3D models up close, one per hull that is flying (paused, so they hold still).
+    main._on_pause_toggled()
+    await get_tree().create_timer(0.5).timeout
+    var shot_hulls := {}
+    for ship_id in main.entity_details.keys():
+        var ship: Dictionary = main.entity_details[ship_id]
+        var hull := String(ship.get("hull_id", ""))
+        if main.entity_kinds.get(ship_id, "") != "ship" or shot_hulls.has(hull) or String(ship.get("phase", "")) != "in_transit":
+            continue
+        shot_hulls[hull] = true
+        main.select_entity(ship_id, "ship", true)
+        rig.set("distance", 0.0003)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        await _shoot("ship_model_" + hull)
+    main._on_pause_toggled()
     # The economy overview.
     main.market_panel.toggle()
     main._refresh_ui(true)
     await get_tree().create_timer(0.6).timeout
     await _shoot("market_panel")
     get_tree().quit()
+
+func _find_schematic(node: Node) -> Control:
+    for child in node.get_children():
+        if child is Control and (child as Control).has_method("set_ship"):
+            return child
+        var found := _find_schematic(child)
+        if found != null:
+            return found
+    return null
 
 # Debug aid: meshes that cover a large part of the view (a glow or overlay out of scale).
 func _report_big_meshes(node: Node, stop_name: String) -> void:

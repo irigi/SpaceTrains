@@ -180,6 +180,9 @@ func _ready() -> void:
     var session_id := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
     snapshot_path = ProjectSettings.globalize_path("user://spacetrains_snapshot_%s.json" % session_id)
     command_path = ProjectSettings.globalize_path("user://spacetrains_commands_%s.json" % session_id)
+    # Debug aid: SPACETRAINS_TIMEWARP=432000 starts at that speed (profiling without a keyboard).
+    if OS.has_environment("SPACETRAINS_TIMEWARP"):
+        current_timewarp = float(OS.get_environment("SPACETRAINS_TIMEWARP"))
     _write_bridge_commands()
     _start_bridge()
     # Entities are placed relative to the focus (in double precision, then cast), so a
@@ -292,7 +295,9 @@ func _exit_tree() -> void:
     if bridge_pid > 0:
         OS.kill(bridge_pid)
     for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp",
-            snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp", command_path]:
+            snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp",
+            snapshot_path + ".designs", snapshot_path + ".designs.tmp", snapshot_path + ".designs.seq", snapshot_path + ".designs.seq.tmp",
+            command_path]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
 
@@ -455,8 +460,26 @@ func _read_paths() -> void:
     paths_seq = int(seq_text)
     bridge_paths = json.data.get("paths", {})
 
+# Ship designs by class id ({name, ..., components: [...]}): the parts of every class for the
+# inspector's ship systems section. Written once by the bridge (per-ship fits later).
+var bridge_designs: Dictionary = {}
+var jet_power_by_class: Dictionary = {}
+var designs_seq := -1
+
+func _read_designs() -> void:
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".designs.seq")
+    if seq_text == "" or int(seq_text) == designs_seq:
+        return
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".designs")) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return
+    designs_seq = int(seq_text)
+    bridge_designs = json.data.get("designs", {})
+    jet_power_by_class.clear()
+
 func _read_snapshot() -> void:
     _read_paths()
+    _read_designs()
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
     if seq_text != "" and int(seq_text) == current_snapshot_seq:
@@ -637,7 +660,8 @@ func _update_nodes(delta: float) -> void:
             if String(detail.get("phase", "idle")) != "in_transit":
                 node.position += _docked_ship_offset(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
-            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0))
+            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0),
+                _jet_power_w(String(detail.get("class_id", ""))))
     _update_history_trails(delta)
     if space_env != null:
         space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
@@ -749,7 +773,73 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
     cached["off"] = offsets
     cached["raw"] = raw
     cached["sense"] = _path_sense(times, raw, float(cached["departure"]), float(cached["arrival"]))
+    if bool(cached["helio"]):
+        _cache_helio_polar(cached)
     ship_paths[ship_id] = cached
+
+# Radius and unwound angle of each heliocentric sample, with their rates at the samples
+# (from the neighbours within the flight, so the wait samples before departure don't
+# bend the start), for the cubic drawing in _helio_point_m.
+func _cache_helio_polar(path: Dictionary) -> void:
+    var times: PackedFloat64Array = path["t"]
+    var raw: PackedFloat64Array = path["raw"]
+    var sense := float(path["sense"])
+    var count := times.size()
+    var radius := PackedFloat64Array()
+    var angle := PackedFloat64Array()
+    radius.resize(count)
+    angle.resize(count)
+    for i in range(count):
+        radius[i] = sqrt(raw[3 * i] * raw[3 * i] + raw[3 * i + 2] * raw[3 * i + 2])
+        var a := atan2(raw[3 * i + 2], raw[3 * i])
+        if i == 0:
+            angle[i] = a
+            continue
+        var turn := wrapf(a - atan2(raw[3 * i - 1], raw[3 * i - 3]), -PI, PI)
+        if turn * sense < 0.0 and absf(turn) > 0.5 * PI:
+            turn += TAU * sense
+        angle[i] = angle[i - 1] + turn
+    var first := clampi(times.bsearch(float(path["departure"]), true), 0, count - 1)
+    var last := clampi(times.bsearch(float(path["arrival"]), false) - 1, first, count - 1)
+    path["r"] = radius
+    path["a"] = angle
+    path["dr"] = _sample_rates(times, radius, first, last)
+    path["da"] = _sample_rates(times, angle, first, last)
+
+# Rate of y at each sample: the time-weighted mean of the slopes on either side, one-sided
+# at the ends of [first, last].
+func _sample_rates(times: PackedFloat64Array, y: PackedFloat64Array, first: int, last: int) -> PackedFloat64Array:
+    var rates := PackedFloat64Array()
+    rates.resize(times.size())
+    for i in range(times.size()):
+        var lo := clampi(i - 1, first, last)
+        var hi := clampi(i + 1, first, last)
+        if i <= lo or i >= hi:
+            lo = mini(lo, i)
+            hi = maxi(hi, i)
+            rates[i] = (y[hi] - y[lo]) / (times[hi] - times[lo]) if hi > lo and times[hi] > times[lo] else 0.0
+            continue
+        var h0 := times[i] - times[lo]
+        var h1 := times[hi] - times[i]
+        if h0 <= 0.0 or h1 <= 0.0:
+            rates[i] = (y[hi] - y[lo]) / maxf(times[hi] - times[lo], 1.0)
+            continue
+        rates[i] = (h1 * (y[i] - y[lo]) / h0 + h0 * (y[hi] - y[i]) / h1) / (h0 + h1)
+    return rates
+
+# A class's engine jet power from the designs file (0 until it has been read).
+func _jet_power_w(class_id: String) -> float:
+    if jet_power_by_class.has(class_id):
+        return jet_power_by_class[class_id]
+    var design: Dictionary = bridge_designs.get(class_id, {})
+    if design.is_empty():
+        return 0.0
+    var power := 0.0
+    for component in design.get("components", []):
+        if String(component.get("kind", "")) == "engine":
+            power = float(component.get("power_w", 0.0))
+    jet_power_by_class[class_id] = power
+    return power
 
 # The planet a body belongs to (itself for a planet, its parent for a moon); "" for the Sun.
 func _planet_of(body_id: String) -> String:
@@ -821,24 +911,23 @@ func _rail_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
 
 # Between two heliocentric samples: radius and angle (the short way, unless that runs
 # against the flight's sense of motion) are interpolated, so spirals and conic arcs stay
-# smooth however far apart the samples are.
+# smooth however far apart the samples are. The interpolation is cubic (Hermite, with the
+# rates at the samples): a linear one bowed the long, nearly radial stretches of
+# outer-system flights by up to 0.03 AU, with a corner at every sample.
 func _helio_point_m(path: Dictionary, i: int, f: float) -> PackedFloat64Array:
     var raw: PackedFloat64Array = path["raw"]
-    var x0 := raw[3 * i]
-    var z0 := raw[3 * i + 2]
-    var x1 := raw[3 * i + 3]
-    var z1 := raw[3 * i + 5]
-    var r0 := sqrt(x0 * x0 + z0 * z0)
-    var r1 := sqrt(x1 * x1 + z1 * z1)
-    var a0 := atan2(z0, x0)
-    var turn := wrapf(atan2(z1, x1) - a0, -PI, PI)
-    var sense := float(path.get("sense", 1.0))
-    if turn * sense < 0.0 and absf(turn) > 0.5 * PI:
-        turn += TAU * sense
-    var r := r0 + (r1 - r0) * f
-    var a := a0 + turn * f
+    var times: PackedFloat64Array = path["t"]
+    var span := times[i + 1] - times[i]
+    var r := _hermite(path["r"], path["dr"], i, f, span)
+    var a := _hermite(path["a"], path["da"], i, f, span)
     var y := raw[3 * i + 1] + (raw[3 * i + 4] - raw[3 * i + 1]) * f
     return PackedFloat64Array([cos(a) * r, y, sin(a) * r])
+
+func _hermite(y: PackedFloat64Array, rate: PackedFloat64Array, i: int, f: float, span: float) -> float:
+    var f2 := f * f
+    var f3 := f2 * f
+    return (2.0 * f3 - 3.0 * f2 + 1.0) * y[i] + (f3 - 2.0 * f2 + f) * span * rate[i] \
+        + (3.0 * f2 - 2.0 * f3) * y[i + 1] + (f3 - f2) * span * rate[i + 1]
 
 # A body's position at any time t (the per-frame _body_m caches the display time only).
 func _body_at_m(body_id: String, t: float) -> PackedFloat64Array:
@@ -1178,6 +1267,7 @@ func _refresh_ui_now() -> void:
         "ships": bridge_state.get("ships", []),
         "bodies": bridge_state.get("bodies", []),
         "stations": bridge_state.get("stations", []),
+        "designs": bridge_designs,
     })
 
 func _entity_name_map() -> Dictionary:

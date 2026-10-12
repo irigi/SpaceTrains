@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <format>
 #include <iostream>
@@ -18,6 +19,8 @@ constexpr double PI = 3.14159265358979323846;
 constexpr double TAU = 6.28318530717958647692;
 constexpr double LOCAL_TRANSFER_MIN_TIME_S = 30.0 * 60.0;
 constexpr double LOCAL_TRANSFER_MAX_TIME_S = 24.0 * 3600.0;
+// Transit fractions per departure row of the Lambert grid (0.3 to 1.5 Hohmann times).
+constexpr int N_TRANSIT_CELLS = 10;
 
 double normalize_positive_angle(double angle_rad) {
     angle_rad = std::fmod(angle_rad, TAU);
@@ -313,40 +316,39 @@ std::shared_ptr<const std::vector<KeplerTrajectoryPlanner::LambertCell>> KeplerT
             return it->second;
         }
     }
-    // N_DEP departure offsets x N_TRANSIT transit fractions of the Hohmann time.
+    // N_DEP departures x N_TRANSIT transit fractions of the Hohmann time: leaving now, then at
+    // the multiples of the step (search window / N_DEP) inside the window. The aligned rows
+    // depend only on the bodies and their absolute departure time, so they are cached and
+    // shared across plans and simulation steps.
     constexpr int N_DEP = 30;
-    constexpr int N_TRANSIT = 10;
+    const double step_s = search_window_s / N_DEP;
     auto cells = std::make_shared<std::vector<LambertCell>>();
-    cells->reserve(N_DEP * N_TRANSIT);
-    for (int di = 0; di < N_DEP; ++di) {
-        const double wait_k = search_window_s * static_cast<double>(di) / N_DEP;
-        const double dep_time_k = current_time_s + wait_k;
-        const auto r1_pos = mechanics_.get_body_position(origin_body_id, dep_time_k);
-        const double r1_m_k = std::max(1.0, r1_pos.length());
-        const double vc1 = std::sqrt(mu / r1_m_k);
-        const math::Vec3d v_circ1{-r1_pos.z / r1_m_k * vc1, 0.0, r1_pos.x / r1_m_k * vc1};
-
-        for (int ti = 0; ti < N_TRANSIT; ++ti) {
-            const double frac = 0.3 + 1.2 * static_cast<double>(ti) / (N_TRANSIT - 1);
-            const double transit_k = hohmann_time_s * frac;
-            const auto r2_pos = mechanics_.get_body_position(destination_body_id, dep_time_k + transit_k);
-            const double r2_m_k = std::max(1.0, r2_pos.length());
-
-            const auto lam = solve_lambert(r1_pos, r2_pos, transit_k, mu);
-            if (!lam.found) continue;
-            if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) continue;
-
-            const double vc2 = std::sqrt(mu / r2_m_k);
-            const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
-            cells->push_back({
-                .wait_s = wait_k,
-                .transit_s = transit_k,
-                .dv_departure = (lam.v1 - v_circ1).length(),
-                .dv_arrival = (lam.v2 - v_circ2).length(),
-                .r1 = r1_pos,
-                .r2 = r2_pos,
-                .v1 = lam.v1,
-            });
+    cells->reserve(N_DEP * N_TRANSIT_CELLS);
+    const auto append = [&](const std::vector<LambertCell>& row, double wait_s) {
+        for (auto cell : row) {
+            cell.wait_s = wait_s;
+            cells->push_back(cell);
+        }
+    };
+    append(lambert_row(origin_body_id, destination_body_id, current_time_s, hohmann_time_s, mu), 0.0);
+    if (step_s > 0.0) {
+        const auto first = static_cast<std::int64_t>(std::floor(current_time_s / step_s)) + 1;
+        for (std::int64_t index = first; index < first + N_DEP - 1; ++index) {
+            const double departure_s = static_cast<double>(index) * step_s;
+            const auto key = std::format("{}|{}|{}|{:a}", origin_body_id, destination_body_id, index, step_s);
+            std::shared_ptr<const std::vector<LambertCell>> row;
+            {
+                const std::lock_guard lock(lambert_mutex_);
+                if (const auto it = lambert_rows_.find(key); it != lambert_rows_.end()) row = it->second;
+            }
+            if (!row) {
+                auto computed = std::make_shared<const std::vector<LambertCell>>(
+                    lambert_row(origin_body_id, destination_body_id, departure_s, hohmann_time_s, mu));
+                const std::lock_guard lock(lambert_mutex_);
+                if (lambert_rows_.size() >= 65536) lambert_rows_.clear();
+                row = lambert_rows_.emplace(key, std::move(computed)).first->second;
+            }
+            append(*row, departure_s - current_time_s);
         }
     }
     const std::lock_guard lock(lambert_mutex_);
@@ -355,6 +357,39 @@ std::shared_ptr<const std::vector<KeplerTrajectoryPlanner::LambertCell>> KeplerT
         lambert_grids_.clear();
     }
     return lambert_grids_.emplace(key, std::move(cells)).first->second;
+}
+
+std::vector<KeplerTrajectoryPlanner::LambertCell> KeplerTrajectoryPlanner::lambert_row(
+    const std::string& origin_body_id, const std::string& destination_body_id,
+    double departure_s, double hohmann_time_s, double mu) const {
+    std::vector<LambertCell> row;
+    const auto r1_pos = mechanics_.get_body_position(origin_body_id, departure_s);
+    const double r1_m_k = std::max(1.0, r1_pos.length());
+    const double vc1 = std::sqrt(mu / r1_m_k);
+    const math::Vec3d v_circ1{-r1_pos.z / r1_m_k * vc1, 0.0, r1_pos.x / r1_m_k * vc1};
+    for (int ti = 0; ti < N_TRANSIT_CELLS; ++ti) {
+        const double frac = 0.3 + 1.2 * static_cast<double>(ti) / (N_TRANSIT_CELLS - 1);
+        const double transit_k = hohmann_time_s * frac;
+        const auto r2_pos = mechanics_.get_body_position(destination_body_id, departure_s + transit_k);
+        const double r2_m_k = std::max(1.0, r2_pos.length());
+
+        const auto lam = solve_lambert(r1_pos, r2_pos, transit_k, mu);
+        if (!lam.found) continue;
+        if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) continue;
+
+        const double vc2 = std::sqrt(mu / r2_m_k);
+        const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
+        row.push_back({
+            .wait_s = 0.0,
+            .transit_s = transit_k,
+            .dv_departure = (lam.v1 - v_circ1).length(),
+            .dv_arrival = (lam.v2 - v_circ2).length(),
+            .r1 = r1_pos,
+            .r2 = r2_pos,
+            .v1 = lam.v1,
+        });
+    }
+    return row;
 }
 
 domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(

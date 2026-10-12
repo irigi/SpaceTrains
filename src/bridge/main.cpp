@@ -129,6 +129,8 @@ int main(int argc, char** argv) {
     std::string command_status;
     std::string paths_signature = "-";
     std::uint64_t paths_seq = 0;
+    std::string designs_signature = "-";
+    std::uint64_t designs_seq = 0;
     const auto write_snapshot = [&]() {
         const auto now = std::chrono::steady_clock::now();
         const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
@@ -139,6 +141,12 @@ int main(int argc, char** argv) {
             paths_signature = std::move(signature);
             write_text_file(config.snapshot_file + ".paths", simulation.build_bridge_paths_json());
             write_text_file(config.snapshot_file + ".paths.seq", std::to_string(paths_seq++));
+        }
+        // Ship designs (classes and their parts) are static until ships carry their own fits.
+        if (auto signature = simulation.bridge_designs_signature(); signature != designs_signature) {
+            designs_signature = std::move(signature);
+            write_text_file(config.snapshot_file + ".designs", simulation.build_bridge_designs_json());
+            write_text_file(config.snapshot_file + ".designs.seq", std::to_string(designs_seq++));
         }
         auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s, false);
         json.pop_back();  // the closing brace

@@ -17,12 +17,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/celestial/CelestialMechanics.cpp
+    src/trajectory/ChaseSolver.cpp
     src/trajectory/Lambert.cpp
     src/trajectory/PathSampling.cpp
     src/trajectory/TrajectoryAudit.cpp
     src/trajectory/TrajectoryPlanner.cpp
     src/trajectory/VariableIspTrajectoryPlanner.cpp
     src/variable_isp/VariableIsp.cpp
+    src/variable_isp/GeneralTransfer.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
     src/util/Profiling.cpp
@@ -42,6 +44,9 @@ target_link_libraries(spacetrains_headless PRIVATE spacetrains_core Threads::Thr
 add_executable(spacetrains_bridge src/bridge/main.cpp)
 target_link_libraries(spacetrains_bridge PRIVATE spacetrains_core)
 
+add_executable(spacetrains_visp_bench tools/visp_bench/main.cpp)
+target_link_libraries(spacetrains_visp_bench PRIVATE spacetrains_core)
+
 enable_testing()
 add_executable(spacetrains_tests tests/test_main.cpp)
 target_link_libraries(spacetrains_tests PRIVATE spacetrains_core)
@@ -57,3 +62,9 @@ add_executable(spacetrains_economy_tests tests/economy_test.cpp)
 target_link_libraries(spacetrains_economy_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_economy_tests COMMAND spacetrains_economy_tests)
 set_tests_properties(spacetrains_economy_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME ship_class_builder COMMAND ${Python3_EXECUTABLE} tests/test_build_ship_classes.py)
+    set_tests_properties(ship_class_builder PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endif()
