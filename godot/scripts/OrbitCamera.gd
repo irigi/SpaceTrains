@@ -52,8 +52,9 @@ func _update_transform() -> void:
     ) * distance
     global_position = pivot
     rotation = Vector3.ZERO
-    camera.position = offset
-    camera.look_at(pivot, Vector3.UP)
+    # Build the basis from the normalized offset: look_at() rejects tiny
+    # (ship-scale) offsets because its alignment check is not scale-invariant.
+    camera.transform = Transform3D(Basis.looking_at(-offset.normalized(), Vector3.UP), offset)
     # Ship/station meshes are ~1e-4 world units; shrink the near plane as we
     # zoom in so they stay renderable (reverse-Z keeps depth precision fine).
     camera.near = clampf(distance * 0.03, 0.0002, 0.1)
