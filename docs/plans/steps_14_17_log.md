@@ -233,4 +233,5 @@ The user approved decisions 1–12, 14 and 16–19 as recommended, and these two
 - **13:** the station budget gate is **deleted** (`affordability_days`, `station_credit_days`, the payable
   bookkeeping and the snapshot's `affordability` field). It was already switched off, so behaviour does not change.
 
-Still under discussion: **15** (faction credit, which step 26 extended with station stock as collateral).
+- **15:** faction credit stays as it is (with step 26's stock collateral). No faction goes over its limit any
+  more; if austerity is wanted later, it should come from visible events, not from the credit cap.
