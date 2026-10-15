@@ -130,3 +130,13 @@ emergencies in four years.
   shuttles.
 - The money supply sits at −20 to −30% of target (stock on station shelves is not counted as money).
 - Fuel-factory events; piracy (deferred by the user).
+
+## Review (2026-10-15)
+
+The user approved decisions 20 (round-trip cover only between planets), 23 (savings cover a station's whole
+deficit) and 24 (growth rates) as recommended. In the numbering used for the review (23 → 20, 21; 24 → 22;
+26 → 23; 27 → 24; 28 → 25), these are still under discussion:
+
+- **21:** depot fuel keeps the depot buffer as its target, which is the cause of Mars fuel being unmet.
+- **22:** the input price cap of 12×, which the user thinks is too steep.
+- **25:** the event list, and whether fuel factories should have outages.

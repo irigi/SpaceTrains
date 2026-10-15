@@ -171,13 +171,6 @@ private:
     // What a faction may still spend on ships: its treasury plus what it may borrow.
     [[nodiscard]] double faction_credit_limit(const std::string& faction_id) const;
     [[nodiscard]] double faction_spendable(const std::string& faction_id) const;
-    // Each station's cash plus credit line, less the contracts on their way to it; refreshed
-    // every tick and lowered as contracts are made. A station that cannot pay offers less.
-    void refresh_station_payable();
-    // The share of a contract due at this time that reserves its station's money now.
-    [[nodiscard]] double contract_reserve_share(double arrival_time_s) const;
-    [[nodiscard]] double station_affordability(const domain::StationDefinition& station) const;
-    void record_affordability();
     [[nodiscard]] double internal_money_supply() const;
     // The fleet's total hold, against max_fleet_hold_units (step 21).
     [[nodiscard]] double fleet_hold_units() const;
@@ -317,11 +310,9 @@ private:
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;
-    // Step 17: taxes each faction collects per day (365-day average), interest paid on debt,
-    // and what each station can still pay for (not saved: recomputed every tick).
+    // Step 17: taxes each faction collects per day (365-day average) and interest paid on debt.
     std::map<std::string, double> faction_tax_per_day_;
     double faction_interest_paid_ {0.0};
-    std::unordered_map<std::string, double> station_payable_;
     // Emergency deliveries open now, and the totals since the start.
     std::vector<domain::Emergency> emergencies_;
     int emergencies_opened_ {0};

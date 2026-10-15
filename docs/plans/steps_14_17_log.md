@@ -224,3 +224,13 @@ from Mercury; Lunar Gateway and Mars bought more along their curves.
 17. **Science producers and rates** as above; Venus makes no science.
 18. **Earth's science price is flat** (export market, like platinum); Lunar Gateway and Mars pay their curve.
 19. **Science value does not decay with age** (left for later, as the plan says).
+
+## Review (2026-10-15)
+
+The user approved decisions 1–12, 14 and 16–19 as recommended, and these two:
+
+- **6:** penalties keep multiplying.
+- **13:** the station budget gate is **deleted** (`affordability_days`, `station_credit_days`, the payable
+  bookkeeping and the snapshot's `affordability` field). It was already switched off, so behaviour does not change.
+
+Still under discussion: **15** (faction credit, which step 26 extended with station stock as collateral).

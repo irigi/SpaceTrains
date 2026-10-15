@@ -695,10 +695,6 @@ const domain::Emergency* Simulation::find_emergency(const std::string& station_i
 Simulation::SaleSplit Simulation::sale_split(const domain::StationDefinition& station, const std::string& commodity_id,
     double stock, double units) const {
     SaleSplit split {.total = economy_.get_trade_value(station, commodity_id, stock, units, get_commodity(commodity_id).base_price)};
-    // A station that cannot pay offers less (step 17); Earth's export markets always pay.
-    if (units > 0.0 && !economy_.is_export_market(station, commodity_id)) {
-        split.total *= station_affordability(station);
-    }
     const auto* emergency = units > 0.0 ? find_emergency(station.id, commodity_id) : nullptr;
     if (emergency == nullptr) {
         return split;
@@ -2158,7 +2154,6 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const auto split = sale_split_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
         lot.contract_value = split.total;
         lot.emergency_premium = split.faction;
-        station_payable_[best_destination->id] -= contract_reserve_share(plan.arrival_time_s) * (split.total - split.faction);
         if (split.faction > 0.0) {
             for (auto& emergency : emergencies_) {
                 if (emergency.station_id == best_destination->id && emergency.commodity_id == lot.commodity_id) {
@@ -2555,8 +2550,6 @@ void Simulation::tick() {
     step_events(dt_s);
     step_treasuries(dt_s);
     step_emergencies();
-    refresh_station_payable();
-    record_affordability();
     step_fleet_investment();
 
     for (auto& ship : ships_) {
@@ -2887,52 +2880,6 @@ double Simulation::faction_credit_limit(const std::string& faction_id) const {
 double Simulation::faction_spendable(const std::string& faction_id) const {
     const auto it = faction_treasuries_.find(faction_id);
     return (it == faction_treasuries_.end() ? 0.0 : it->second) + faction_credit_limit(faction_id);
-}
-
-void Simulation::refresh_station_payable() {
-    const auto& open = universe_.open_economy;
-    station_payable_.clear();
-    for (const auto& station : stations_) {
-        const auto& definition = get_station_definition(station.station_id);
-        station_payable_[station.station_id] = station.credits
-            + open.station_credit_days * consumption_value_per_day(definition, false);
-    }
-    // Contracts on their way reserve the station's money in full when due within the credit
-    // window, and in proportion (window / days to arrival) when later: those are paid partly
-    // out of the income until then. (Counting every contract in full left Low Earth Logistics
-    // unable to pay for food from Earth L1, 0.1 days away, because freighters from Ganymede
-    // were booked to arrive in years; counting only those due within the window let Mars,
-    // 200 days from its suppliers, order 1.3M cr of goods it could not pay for.)
-    for (const auto& ship : ships_) {
-        if (ship.phase != domain::ShipMissionPhase::InTransit && ship.phase != domain::ShipMissionPhase::AwaitingDeparture) {
-            continue;
-        }
-        const double share = contract_reserve_share(ship.active_mission.arrival_time_s);
-        for (const auto& lot : ship.active_mission.cargo) {
-            station_payable_[ship.active_mission.destination_station_id] -= share * (lot.contract_value - lot.emergency_premium);
-        }
-    }
-}
-
-void Simulation::record_affordability() {
-    for (auto& station : stations_) {
-        station.affordability = station_affordability(get_station_definition(station.station_id));
-    }
-}
-
-double Simulation::contract_reserve_share(double arrival_time_s) const {
-    const double window_days = universe_.open_economy.station_credit_days;
-    const double days = (arrival_time_s - game_time_s_) / 86400.0;
-    return days <= window_days ? 1.0 : window_days / days;
-}
-
-double Simulation::station_affordability(const domain::StationDefinition& station) const {
-    const double need = universe_.open_economy.affordability_days * consumption_value_per_day(station, false);
-    const auto it = station_payable_.find(station.id);
-    if (need <= 0.0 || it == station_payable_.end()) {
-        return 1.0;
-    }
-    return std::clamp(it->second / need, 0.0, 1.0);
 }
 
 void Simulation::step_fleet_investment() {
@@ -3947,7 +3894,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         }
         output << "},\"import_unit_cost\":";
         write_goods(station_state.import_unit_cost);
-        output << ",\"affordability\":" << station_state.affordability << ",\"emergencies\":[";
+        output << ",\"emergencies\":[";
         bool first_emergency = true;
         for (const auto& emergency : emergencies_) {
             if (emergency.station_id != station.id) {

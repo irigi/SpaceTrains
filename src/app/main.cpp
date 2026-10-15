@@ -329,9 +329,8 @@ void print_economy_audit(
                 slow += std::format(" {}={:.0f}%", c, 100.0 * run);
             }
         }
-        if (!slow.empty() || ss.upkeep_multiplier < 0.99 || ss.affordability < 0.99) {
-            std::cout << std::format("    {:30s}  upkeep {:5.1f}%  can pay {:5.1f}% {}\n", name, 100.0 * ss.upkeep_multiplier,
-                100.0 * ss.affordability, slow);
+        if (!slow.empty() || ss.upkeep_multiplier < 0.99) {
+            std::cout << std::format("    {:30s}  upkeep {:5.1f}% {}\n", name, 100.0 * ss.upkeep_multiplier, slow);
         }
     }
     std::cout << std::format("    Emergencies: {} opened, {} open now, {:.0f} cr paid by the factions\n",

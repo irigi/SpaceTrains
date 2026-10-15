@@ -125,8 +125,6 @@ struct OpenEconomyDefinition {
     double money_supply_days {0.0};        // controller time constant; 0 = no controller
     // Station money (step 17).
     double core_crew_fraction {0.0};       // of the population whose upkeep the faction guarantees
-    double station_credit_days {0.0};      // a station's credit line: days of its consumption at reference prices
-    double affordability_days {0.0};       // a station offers full price while it can pay this many days of imports
     double faction_loan_to_value {0.0};    // factions borrow this share of their fleet's hull value...
     double faction_tax_years {0.0};        // ...plus this many years of their tax income
 };
@@ -481,8 +479,6 @@ struct StationState {
     Inventory output_factor {};
     std::map<std::string, std::string> output_limited_by {};  // the input that limits each output, if any
     Inventory upkeep_availability {};                         // stock over a 7-day buffer, per upkeep good
-    // The share of its curve the station can offer ships now (step 17; 1 = all of it).
-    double affordability {1.0};
     // Residents now (step 27; the definition's population is the seeded one), the average
     // availability of the worst-supplied upkeep good, and the population last announced.
     double population {0.0};
