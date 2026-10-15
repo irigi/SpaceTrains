@@ -65,7 +65,10 @@ The order's unit price P moves around the going rate:
 - **Raising:** while the position is below R and no ship has taken the open quantity for `raise_days`, P
   rises by a factor ρ (for example 1.1), at most to the ceiling V. A contract taken resets the clock.
   Raising stops as soon as contracts on their way bring the position back above R, so a station with a
-  freighter months out does not keep escalating.
+  freighter months out does not keep escalating. For this check a contract counts only if it arrives
+  before the stock (with the earlier contracts) would fall below the safety level: a slow freighter due
+  after the station has run dry does not stop it from looking for a faster ship. A late contract is still
+  paid its full price (user, 2026-10-15: its units are worth no less when they arrive).
 - **Accepted price:** a ship takes a slice at the P it saw; P is locked into the contract. Ships do not wait
   for higher prices, so the price stops one step above what the first willing ship needs (overshoot at
   most ρ).
@@ -79,7 +82,7 @@ because it raises only until a ship comes.
 |---|---|
 | **Input** (feeds an output) | its marginal profit: value of the outputs one unit makes, less the going cost of the other inputs they need, times `(1 − keep_share)`. If G stays above V for `give_up_days`, the order is withdrawn and the plant runs on what stock it has: producing does not pay. It is tried again every `retry_days` at V. |
 | **Upkeep** (spare parts, power, crew needs) | the output lost per unit short: `(1 − m) x station output value per day / u`, with m from `upkeep_penalties.csv`. |
-| **Life-critical upkeep** (oxygen, water: today's emergency goods) | as above, but the faction tops the price up to `life_value x reference` (24x, today's emergency maximum). The part above the station's own V is paid by the faction, as emergency premiums are today. Headlines when it rises, as now. |
+| **Life-critical upkeep** (oxygen, water: today's emergency goods) | as above, but the faction tops the price up to `life_value x reference` (24x, today's emergency maximum). The part above the station's own V is paid by the faction, as emergency premiums are today (confirmed by the user, 2026-10-15). Headlines when it rises, as now. |
 | **Consumed** (construction metals, science samples at Lunar Gateway and Mars) | `consume_value x reference` from data (4x for a start, today's cap). |
 | **Depot fuel** (Mars, a depot without a factory) | 4x reference for a start; its sale price to ships is its import cost plus a margin (as residents pay import cost since step 17). |
 
@@ -97,11 +100,37 @@ ship sent to a starving port expects the same open quantity (fixed in v36). With
 booked to arrive in two years blocks a shuttle due tomorrow (the step 17a failure). With the window, at
 most one extra cycle can be on order.
 
-Dispatch keeps its lot sizes and two-leg scores; the price per unit is now flat within each piece, so a
-full hold is not penalised. The **urgency weight** (1–5x by days of stock left) is removed in a variant
+### 5b. What a ship loads (the manifest)
+
+Ships optimise for themselves and take the most lucrative business; if that means leaving with a small
+load, so be it, but not because the ship sizes its load badly (user, 2026-10-15). There are no player
+ships: every ship is autonomous.
+
+Today a lot is one of 100%, 50% or 25% of the most the ship could carry (`LOAD_FRACTIONS`), and a mixed
+hold is a separate code path. With flat order prices, a ship's revenue for a good is piecewise flat, so the
+best load of that good is at a breakpoint, not at a fixed fraction: the open quantity, the end of the extra
+buffer, the origin's surplus, the hold, or the heaviest load that still flies. One **manifest builder**
+replaces both paths, per candidate destination:
+
+1. List every good the origin has a surplus of and the destination will pay for (an open order, the extra
+   buffer, the floor).
+2. Each unit's **margin** = what the destination pays for it − what it costs here (marginal, along the
+   producer's curve) − the **marginal propellant** for its mass. Marginal propellant comes from the plans
+   already cached per tonne of cargo: the difference between the plan for this mass and the next tonne up.
+3. Fill the hold greedily by margin per unit of hold, order slices first, down to the first unit with a
+   negative margin, until the hold, the mass limit, the ship's credit or the surplus runs out.
+4. Plan the transfer for the total mass (one plan per destination and tonne, cached as today) and score
+   the mission over two legs as today.
+
+**Filling the hold once the trip pays.** Step 3 is the fill: once an order slice has paid for the trip,
+the next units cost only their purchase price and their propellant, so the ship tops up with anything whose
+margin is still positive. At the destination such units land in that station's other orders or its extra
+buffer at a discount. The extra buffer is exactly the slot for them: the station takes a little more than
+it needs when it is cheap. Cargo that stays aboard to be sold one stop later (tramp trading) is left for
+later; it needs cargo carried across legs and contracts at a station the ship has not chosen yet. The **urgency weight** (1–5x by days of stock left) is removed in a variant
 and benchmarked: the order price now carries urgency.
 
-Fleet investment uses the same seam (cargo-only probes), so open orders with their prices become the
+The two-leg score is unchanged. Fleet investment uses the same seam (cargo-only probes), so open orders with their prices become the
 demand that new ships are bought for. Liners take slices like everyone else.
 
 ### 6. What it replaces
@@ -128,7 +157,8 @@ Each step ends with tests passing and a four-start benchmark (`tools/benchmark.p
 2. **Orders replace the consumer curve.** New `data/economy/orders.csv` (k, δ, ρ, `raise_days`, d, EMA
    windows, `keep_share`, `life_value`, `consume_value`, `give_up_days`, `retry_days`). Order state in
    `StationState`, a `step_orders()` in the tick where `step_emergencies()` is, the piecewise-flat
-   `sale_split` for consumers, contracts reserving their slice. Ceilings all at today's caps (4x, inputs
+   `sale_split` for consumers, contracts reserving their slice, and the manifest builder (5b) in place of
+   `LOAD_FRACTIONS` and the separate mixed-cargo path. Ceilings all at today's caps (4x, inputs
    12x) at first, so this step measures the mechanism alone. Benchmark.
 3. **Ceilings.** V as in section 4, withdrawal of inputs that do not pay, the faction paying above V for
    oxygen and water. Emergencies are folded into this; their events, counts and benchmark columns stay
@@ -143,20 +173,19 @@ Each step ends with tests passing and a four-start benchmark (`tools/benchmark.p
 - Mean unit price paid per (station, good) within 1.5x of its landed reference for routes that are served
   (orders find the carriage cost, not the ceiling); report the ones above.
 - No station's stock above S_max except right after a delivery that was contracted below it.
-- Larger lots on long routes (mean lot size to Mars, Titan and Ganymede up).
+- Larger lots on long routes (mean lot size to Mars, Titan and Ganymede up); share of hold filled per
+  departure reported before and after.
 - Trajectory flags 0, money drift 0, run time within +10%.
 
-## Open points for the user
+## Decisions (user, 2026-10-15)
 
-1. **Late deliveries:** with the "within I" window a slow ship can still book a slice far ahead. Should a
-   contract that arrives after the station's projected run-out be paid less? The plan says no for a start
-   (simpler; the raise phase already rewards fast ships by being the price they see first).
-2. **Oxygen and water above V:** the faction pays, as with emergencies. Alternative: the station pays and
-   borrows. The plan keeps the faction.
-3. **Minimum slice:** may a ship take 5 u of a 3,000 u order? The plan allows any slice and lets dispatch's
-   lot sizes decide; a minimum (10% of N) is a one-line change if small slices clutter the order book.
-4. **Player view:** the order list is a natural contract board for player ships later. Nothing in this
-   step depends on that.
+1. **Late deliveries are paid in full.** Lateness matters only for whether a contract stops the station from
+   raising its price (section 3).
+2. **Oxygen and water above V:** the faction pays, as with emergencies.
+3. **No minimum slice.** Ships size their own loads (section 5b); small loads are fine when they are the
+   ship's best business, not when they come from coarse lot sizes.
+4. **No player ships.** The player may later influence ships or stations (for example a station's orders),
+   not fly them.
 
 ## Later (not in this step)
 
