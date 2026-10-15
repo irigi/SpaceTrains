@@ -1,0 +1,165 @@
+# Step 29: station purchase orders (plan, 2026-10-15)
+
+The user's direction (review of 2026-10-15, option A): demand should have a rational basis. A station
+works out what it needs to last between ship visits and buys that; the price moves until ships are willing
+to come; the mean price follows from need, not from where the station happens to be in its delivery cycle.
+A station may buy a little extra when it is cheap. A good the station does not strictly need (an input
+whose output may not pay) is worth at most the profit it makes possible.
+
+This replaces the consumer side of today's price curve. Producers keep their curve for now (see Later).
+
+## What is wrong today
+
+Consumers price on current stock: `reference x (target / stock)^1.3`, clamped to [0.25, cap].
+
+1. **The price is a sawtooth.** With rare deliveries the stock is a sawtooth, so the price says where the
+   station is in its cycle, not what it needs.
+2. **A big load lowers its own price.** A sale is the integral along the curve, so the last units of a full
+   hold go cheap. Ships bring small loads to distant stations (Mars fuel, 60% unmet in year 4).
+3. **Targets are formulas** (21 days, 1.2 x the reference round trip, 3000 u of depot fuel), not what the
+   station observes about how often ships come and how late they are.
+4. **The price never learns.** Nothing changes when ships do not come, except for oxygen and water
+   (emergencies, step 14). The rest is patches: urgency weights in dispatch, input caps (step 24), the
+   emergency premium, the depot buffer.
+
+## Design
+
+Each station keeps, per good it consumes (net consumer, export markets excepted), an **order**: how many
+units it wants, by when, at what price. Ships see the orders, take slices of them as contracts at
+departure (as they agree a contract price today), and are paid that flat unit price on arrival.
+
+### 1. What the station observes (per station and good)
+
+| Quantity | Meaning | Seed at start | Updated |
+|---|---|---|---|
+| `use` u | units/day used | recipe net rate | recipe rate + EMA of units sold to ships (crews' provisions, depot fuel: `ship_fuel_units_per_day`) |
+| `lead` L | days from a contract to its delivery | reference one-way (round trip / 2), at least 1 | EMA over delivered contracts |
+| `interval` I | days between deliveries | reference round trip for another planet's producer, 21 days locally | EMA over deliveries |
+| `spread` σ | how much I and L vary | 0.5 x L | EMA of absolute deviation |
+| `going rate` G | what the station has recently paid per unit | reference price (`reference_prices.csv`) | EMA over accepted contracts, weighted by units |
+
+The EMAs use a window of a few deliveries (data). These are the station's own experience, so a station
+that ships rarely visit plans for rare visits, without a formula about Hohmann times.
+
+### 2. How much to buy (an (s, S) inventory policy)
+
+- **Position** = stock + contracted cargo on its way (rule for late contracts in 5).
+- **Reorder point** R = u x (L + k x σ). Below R the station is in danger of running out before a new
+  contract can arrive.
+- **Order-up-to level** S = R + u x I: enough to last until the next usual delivery. Capped by storage and by
+  `max_cover_days`.
+- **Open quantity** N = S − position when positive.
+- **Extra buffer** up to S_max = S + u x E, where E is the number of extra days that pays: stock bought now
+  instead of later costs interest (the faction's 5%/yr) plus decay. The station buys into it only at a
+  discount d on the going rate, so E is where `holding cost x E` equals the discount. This is the "slightly
+  overspend at a lower price" layer. The mean stays at S.
+
+Quantity never depends on price, so a low price cannot produce a big stock: it produces no takers.
+
+### 3. What to pay (price discovery)
+
+The order's unit price P moves around the going rate:
+
+- **Probing down:** while the position is between R and S (no hurry), P = G x (1 − δ), a little below the
+  going rate. If ships take that, G drifts down. This is how the price finds the cheapest willing carrier.
+- **Raising:** while the position is below R and no ship has taken the open quantity for `raise_days`, P
+  rises by a factor ρ (for example 1.1), at most to the ceiling V. A contract taken resets the clock.
+  Raising stops as soon as contracts on their way bring the position back above R, so a station with a
+  freighter months out does not keep escalating.
+- **Accepted price:** a ship takes a slice at the P it saw; P is locked into the contract. Ships do not wait
+  for higher prices, so the price stops one step above what the first willing ship needs (overshoot at
+  most ρ).
+
+The ceiling is not the price. With a ceiling of 40x the station still pays roughly the cost of carriage,
+because it raises only until a ship comes.
+
+### 4. What a good is worth: the ceiling V
+
+| Good at this station | Ceiling V per unit |
+|---|---|
+| **Input** (feeds an output) | its marginal profit: value of the outputs one unit makes, less the going cost of the other inputs they need, times `(1 − keep_share)`. If G stays above V for `give_up_days`, the order is withdrawn and the plant runs on what stock it has: producing does not pay. It is tried again every `retry_days` at V. |
+| **Upkeep** (spare parts, power, crew needs) | the output lost per unit short: `(1 − m) x station output value per day / u`, with m from `upkeep_penalties.csv`. |
+| **Life-critical upkeep** (oxygen, water: today's emergency goods) | as above, but the faction tops the price up to `life_value x reference` (24x, today's emergency maximum). The part above the station's own V is paid by the faction, as emergency premiums are today. Headlines when it rises, as now. |
+| **Consumed** (construction metals, science samples at Lunar Gateway and Mars) | `consume_value x reference` from data (4x for a start, today's cap). |
+| **Depot fuel** (Mars, a depot without a factory) | 4x reference for a start; its sale price to ships is its import cost plus a margin (as residents pay import cost since step 17). |
+
+### 5. How ships see it (dispatch)
+
+`sale_value_on_arrival(station, good, units, days_ahead, ship)` stays the seam. It becomes piecewise flat:
+
+1. units up to the open quantity for that arrival at P;
+2. units into the extra buffer at G x (1 − d);
+3. anything beyond at the floor price (0.25 x G, as today's minimum), so no ship is ever stuck with cargo.
+
+**Open quantity for an arrival at time t:** S − (forecast stock at t, counting contracts that arrive
+before t in full and contracts that arrive after t only if within I of t). Without the first part every
+ship sent to a starving port expects the same open quantity (fixed in v36). Without the second, a freighter
+booked to arrive in two years blocks a shuttle due tomorrow (the step 17a failure). With the window, at
+most one extra cycle can be on order.
+
+Dispatch keeps its lot sizes and two-leg scores; the price per unit is now flat within each piece, so a
+full hold is not penalised. The **urgency weight** (1–5x by days of stock left) is removed in a variant
+and benchmarked: the order price now carries urgency.
+
+Fleet investment uses the same seam (cargo-only probes), so open orders with their prices become the
+demand that new ships are bought for. Liners take slices like everyone else.
+
+### 6. What it replaces
+
+| Today | With orders |
+|---|---|
+| Consumer price curve on stock, `cover_days`, step 23 cover rule | (s, S) quantity, flat order price |
+| Step 24 input caps | input ceiling V |
+| Emergencies (step 14) | the raise phase of an oxygen or water order, with the faction paying above V |
+| Depot fuel buffer target at depots without a factory | order on measured fuel sales |
+| Urgency weight in dispatch | removed (variant) |
+| Reference prices (step 15) | the seed of the going rate; the table stays |
+
+Unchanged: producers' curve (what ships pay at a source), export markets, residents paying import cost,
+faction credit and treasuries, `import_unit_cost`.
+
+## Implementation steps
+
+Each step ends with tests passing and a four-start benchmark (`tools/benchmark.py --days 1460`).
+
+1. **Observe (no behaviour change).** Per station and good: u with sales to ships, L, I, σ, G, plus the
+   derived R, S, S_max, N and V. Shown in the station panel and the audit, saved. Check that they make
+   sense: Titan electronics, Mars fuel, Earth L1 water, Low Earth Logistics food and metals.
+2. **Orders replace the consumer curve.** New `data/economy/orders.csv` (k, δ, ρ, `raise_days`, d, EMA
+   windows, `keep_share`, `life_value`, `consume_value`, `give_up_days`, `retry_days`). Order state in
+   `StationState`, a `step_orders()` in the tick where `step_emergencies()` is, the piecewise-flat
+   `sale_split` for consumers, contracts reserving their slice. Ceilings all at today's caps (4x, inputs
+   12x) at first, so this step measures the mechanism alone. Benchmark.
+3. **Ceilings.** V as in section 4, withdrawal of inputs that do not pay, the faction paying above V for
+   oxygen and water. Emergencies are folded into this; their events, counts and benchmark columns stay
+   under the same names. Benchmark.
+4. **Urgency weight off** (variant), then **clean up**: remove `cover_days`, the step 24 caps, the depot
+   buffer for depots without a factory, the emergency code; save version bump; roadmap; log of decisions.
+
+## Acceptance checks (1460 days, four starts, against the steps 23–28 final)
+
+- Unmet no worse: 4.4 ± 0.4%, last fifth 2.3 ± 0.9%.
+- Mars fuel under 20% unmet in year 4 (60% now).
+- Mean unit price paid per (station, good) within 1.5x of its landed reference for routes that are served
+  (orders find the carriage cost, not the ceiling); report the ones above.
+- No station's stock above S_max except right after a delivery that was contracted below it.
+- Larger lots on long routes (mean lot size to Mars, Titan and Ganymede up).
+- Trajectory flags 0, money drift 0, run time within +10%.
+
+## Open points for the user
+
+1. **Late deliveries:** with the "within I" window a slow ship can still book a slice far ahead. Should a
+   contract that arrives after the station's projected run-out be paid less? The plan says no for a start
+   (simpler; the raise phase already rewards fast ships by being the price they see first).
+2. **Oxygen and water above V:** the faction pays, as with emergencies. Alternative: the station pays and
+   borrows. The plan keeps the faction.
+3. **Minimum slice:** may a ship take 5 u of a 3,000 u order? The plan allows any slice and lets dispatch's
+   lot sizes decide; a minimum (10% of N) is a one-line change if small slices clutter the order book.
+4. **Player view:** the order list is a natural contract board for player ships later. Nothing in this
+   step depends on that.
+
+## Later (not in this step)
+
+- Producers post **sell orders** the same way (an ask price that falls while stock piles up).
+- **Quotes from ships** (option C): the station picks among offers by price and delivery date.
+- Late-delivery pricing, if open point 1 turns out to matter.

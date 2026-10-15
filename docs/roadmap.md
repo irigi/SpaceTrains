@@ -140,9 +140,12 @@ surplus covering station deficits, 27 station growth, 28 random events and stori
 on: unmet 4.4 +- 0.4%, last ~290 days 2.3 +- 0.9%, 77/94 profitable, ~13 emergencies, no faction over its limit,
 ~4.6 events a year, drift 0.
 
-Next: the user reviews `steps_23_28_log.md`. Open: Mars fuel (depot buffer target, not the round-trip cover),
-the Earth cluster's local supply (Low Earth Logistics metals and food, Earth L1 water at 10-17%), fuel-factory
-events.
+Reviewed by the user 2026-10-15 (logs updated; the station budget gate deleted). Next: **step 29, station
+purchase orders** (`docs/plans/station_orders.md`): demand from need ((s, S) per good from observed delivery
+intervals), a price that rises until ships come and probes down when they do, ceilings from what a good is
+worth. It replaces the consumer price curve, the step 24 caps, emergencies and the depot fuel buffer, and is
+meant to fix Mars fuel. Still open: the Earth cluster's local supply (Low Earth Logistics metals and food, Earth
+L1 water at 10-17%).
 
 Wobbly outer-moon paths (user, 2026-10-09): resolved 2026-10-11, confirmed by the user. Godot interpolated r/θ
 linearly between path samples, which bowed long near-radial legs by up to 0.03 AU; it now uses a cubic Hermite.
