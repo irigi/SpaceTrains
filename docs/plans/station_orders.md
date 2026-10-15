@@ -41,14 +41,27 @@ departure (as they agree a contract price today), and are paid that flat unit pr
 The EMAs use a window of a few deliveries (data). These are the station's own experience, so a station
 that ships rarely visit plans for rare visits, without a formula about Hohmann times.
 
-### 2. How much to buy (an (s, S) inventory policy)
+### 2. How much to buy (an (s, S) inventory policy over a stock profile)
 
-- **Position** = stock + contracted cargo on its way (rule for late contracts in 5).
-- **Reorder point** R = u x (L + k x σ). Below R the station is in danger of running out before a new
-  contract can arrive.
-- **Order-up-to level** S = R + u x I: enough to last until the next usual delivery. Capped by storage and by
-  `max_cover_days`.
-- **Open quantity** N = S − position when positive.
+**Contracts are binding** (user, 2026-10-15). Once a ship takes a slice, the station pays it in full on
+arrival, however late, and plans around it. It does not order the same units twice; it orders only for the
+windows its contracts leave uncovered.
+
+- **Projected stock** p(τ): today's stock, falling at u per day, rising at each contracted arrival. This
+  is today's `forecast_stock_on_arrival`, kept as a whole profile.
+- **Safety stock** B = u x k x σ.
+- **Reorder point** R = u x (L + k x σ) and **order-up-to level** S = R + u x I, as in an (s, S) policy:
+  with no contracts on their way, a delivery tops the stock up to S, which lasts the usual interval plus
+  the lead time of the next order. Capped by storage and by `max_cover_days`.
+- **Open quantity for a delivery at time t:** what keeps the profile above B from t until the usual next
+  order could arrive:
+
+  N(t) = max over τ in [t, t + I + L] of (B − p(τ)), when positive.
+
+  With no contracts this is exactly S − p(t). With contracts it is the gap they leave. A slow freighter
+  due at t2 leaves a bridging order for deliveries before t2, sized to the use until t2; a ship that can
+  only arrive after t2 sees just what the freighter does not cover. So a faster ship is worth sending, or
+  buying (fleet investment uses the same orders), only for the window before the slow one arrives.
 - **Extra buffer** up to S_max = S + u x E, where E is the number of extra days that pays: stock bought now
   instead of later costs interest (the faction's 5%/yr) plus decay. The station buys into it only at a
   discount d on the going rate, so E is where `holding cost x E` equals the discount. This is the "slightly
@@ -60,15 +73,13 @@ Quantity never depends on price, so a low price cannot produce a big stock: it p
 
 The order's unit price P moves around the going rate:
 
-- **Probing down:** while the position is between R and S (no hurry), P = G x (1 − δ), a little below the
-  going rate. If ships take that, G drifts down. This is how the price finds the cheapest willing carrier.
-- **Raising:** while the position is below R and no ship has taken the open quantity for `raise_days`, P
-  rises by a factor ρ (for example 1.1), at most to the ceiling V. A contract taken resets the clock.
-  Raising stops as soon as contracts on their way bring the position back above R, so a station with a
-  freighter months out does not keep escalating. For this check a contract counts only if it arrives
-  before the stock (with the earlier contracts) would fall below the safety level: a slow freighter due
-  after the station has run dry does not stop it from looking for a faster ship. A late contract is still
-  paid its full price (user, 2026-10-15: its units are worth no less when they arrive).
+- **Probing down:** while the profile stays above B for the next L + kσ days (no hurry), P = G x (1 − δ), a
+  little below the going rate. If ships take that, G drifts down. This is how the price finds the cheapest
+  willing carrier.
+- **Raising:** while the profile, with every contract, falls below B within the next L + kσ days and no ship
+  has taken the open quantity for `raise_days`, P rises by a factor ρ (for example 1.1), at most to the
+  ceiling V. A contract taken resets the clock. A freighter due before the dip ends the raising; one due
+  after the station has run dry does not, so the station keeps looking for a ship that can bridge the gap.
 - **Accepted price:** a ship takes a slice at the P it saw; P is locked into the contract. Ships do not wait
   for higher prices, so the price stops one step above what the first willing ship needs (overshoot at
   most ρ).
@@ -94,11 +105,10 @@ because it raises only until a ship comes.
 2. units into the extra buffer at G x (1 − d);
 3. anything beyond at the floor price (0.25 x G, as today's minimum), so no ship is ever stuck with cargo.
 
-**Open quantity for an arrival at time t:** S − (forecast stock at t, counting contracts that arrive
-before t in full and contracts that arrive after t only if within I of t). Without the first part every
-ship sent to a starving port expects the same open quantity (fixed in v36). Without the second, a freighter
-booked to arrive in two years blocks a shuttle due tomorrow (the step 17a failure). With the window, at
-most one extra cycle can be on order.
+**Open quantity for an arrival at time t** is N(t) from section 2. Contracts before t lower it (without
+that, every ship sent to a starving port expects the same open quantity, fixed in v36). A contract after t
+lowers it only for the stock it covers after its own arrival, so a freighter booked to arrive in two years
+does not block a shuttle due tomorrow from bridging the gap (the step 17a failure).
 
 ### 5b. What a ship loads (the manifest)
 
@@ -179,8 +189,9 @@ Each step ends with tests passing and a four-start benchmark (`tools/benchmark.p
 
 ## Decisions (user, 2026-10-15)
 
-1. **Late deliveries are paid in full.** Lateness matters only for whether a contract stops the station from
-   raising its price (section 3).
+1. **Contracts are binding and paid in full**, however late. The station plans around them: it orders only
+   for the windows they leave uncovered (section 2), and a late contract does not stop it raising its price
+   for a gap before that contract arrives (section 3).
 2. **Oxygen and water above V:** the faction pays, as with emergencies.
 3. **No minimum slice.** Ships size their own loads (section 5b); small loads are fine when they are the
    ship's best business, not when they come from coarse lot sizes.
