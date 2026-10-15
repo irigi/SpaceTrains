@@ -223,4 +223,4 @@ Sub-millisecond replanning makes a pirate/police AI that re-plans every few game
    moved the economy benchmark; both cost planning time.
 4. **Pursuit-evasion** (RocketsChaseAstra.tex): the min-time and replanning primitives are the inner loop;
    the game-theoretic layer is not started.
-5. **3D**: the primer formulation generalises directly (d = 3); everything is 2D now, like the game.
+5. ~~**3D**~~: not planned. The game is 2D by design (user, 2026-10-15); see `docs/game_design.md`.

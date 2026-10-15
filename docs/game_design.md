@@ -8,7 +8,7 @@ SpaceTrains is a **self-playing Solar System economy simulation**. The player is
 
 The game models the inner Solar System with space stations orbiting planets. Stations receive regular goods from their parent planet (via economy production rules) and trade surplus goods with stations elsewhere in the system. Some stations are subsidized science outposts that are net consumers — they receive money for doing science but depend on imports for materials and supplies.
 
-The celestial mechanics are circular Keplerian orbits. Bodies are data-driven (loaded from CSV), so the Solar System content can be extended without code changes.
+The celestial mechanics are circular Keplerian orbits. **The game is 2D by design:** every orbit, station and trajectory lies in one plane (the ecliptic), and every planner and solver works in 2D. This is a deliberate choice for a readable map and exact physics within the model, not a simplification awaiting 3D; 3D is not planned. Bodies are data-driven (loaded from CSV), so the Solar System content can be extended without code changes.
 
 ## Ships and Propulsion
 
