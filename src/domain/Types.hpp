@@ -104,11 +104,10 @@ struct ShipOperationsDefinition {
 };
 
 // Propellant supply (data/economy/fuel_supply.csv, fuel_factories.csv). Every station has a
-// depot outside its cargo storage; only fuel factories fill theirs, at their output rate.
-// Other depots hold what ships deliver. Prices follow each depot's buffer.
+// depot outside its cargo storage; only fuel factories fill theirs, at their output rate, and
+// price it on their buffer. Other depots hold what ships deliver, bought under orders (step 29).
 struct FuelSupplyDefinition {
-    double depot_buffer_units {0.0};          // 0 = no depots
-    double factory_buffer_days {0.0};         // a factory's depot holds this many days of output (at least the depot buffer)
+    double factory_buffer_days {0.0};         // a factory's depot holds this many days of output
     std::unordered_map<std::string, double> factory_output_units_per_day;  // by station id
 };
 
@@ -187,9 +186,7 @@ struct PricingDefinition {
     double price_cap {16.0};            // a curve's highest multiple of its centre (empty stock)
     double carrier_margin {1.2};        // on the transport cost, in the reference prices
     double reference_departures {6.0};  // departure dates over a year the reference trips are planned at
-    // A consumer's target stock covers at least this multiple of the reference round trip for
-    // the good (step 23), at most max_cover_days: a delivery has to last until the next one.
-    double cover_round_trip_factor {0.0};
+    // An order-up-to level covers at most this many days of use (step 29).
     double max_cover_days {365.0};
     // A consumer's reference price (the centre of its curve) by station id and good: the
     // landed cost from the cheapest producer. Goods not listed are centred on their base price.

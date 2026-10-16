@@ -552,15 +552,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             if (value < 0.0) {
                 throw std::runtime_error("'" + row[0] + "' must not be negative in " + fuel_supply_path.string());
             }
-            if (row[0] == "depot_buffer_units") {
-                fuel_supply.depot_buffer_units = value;
-            } else if (row[0] == "factory_buffer_days") {
+            if (row[0] == "factory_buffer_days") {
                 fuel_supply.factory_buffer_days = value;
             } else {
                 throw std::runtime_error("Unknown key '" + row[0] + "' in " + fuel_supply_path.string());
             }
         }
-        for (const char* required : {"depot_buffer_units", "factory_buffer_days"}) {
+        for (const char* required : {"factory_buffer_days"}) {
             if (!seen_keys.contains(required)) {
                 throw std::runtime_error(std::string("Missing key '") + required + "' in " + fuel_supply_path.string());
             }
@@ -845,7 +843,6 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"price_cap", &pricing.price_cap},
             {"carrier_margin", &pricing.carrier_margin},
             {"reference_departures", &pricing.reference_departures},
-            {"cover_round_trip_factor", &pricing.cover_round_trip_factor},
             {"max_cover_days", &pricing.max_cover_days},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
@@ -866,8 +863,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         if (pricing.price_cap < 1.0 || pricing.carrier_margin < 0.0 || pricing.reference_departures < 1.0) {
             throw std::runtime_error("price_cap and reference_departures must be at least 1 in " + pricing_path.string());
         }
-        if (pricing.cover_round_trip_factor < 0.0 || pricing.max_cover_days < 21.0) {
-            throw std::runtime_error("cover_round_trip_factor must be >= 0 and max_cover_days >= 21 in " + pricing_path.string());
+        if (pricing.max_cover_days < 21.0) {
+            throw std::runtime_error("max_cover_days must be >= 21 in " + pricing_path.string());
         }
     }
 

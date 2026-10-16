@@ -425,19 +425,20 @@ const domain::CommodityDefinition& Simulation::get_commodity(const std::string& 
 
 domain::Inventory Simulation::starting_inventory(const domain::StationDefinition& station) const {
     // A station starts with what it would hold if it had been supplied all along: each good it
-    // consumes at least at its target stock (its resupply cover: three weeks, or 1.4x the
-    // transfer from the nearest producer, at most a year). With the few weeks of the data
-    // files, Ceres and Ganymede ran out of oxygen on day 20 and the outposts' first emergencies
-    // stayed open for 450-660 days while the first freighters were on their way. The raise is
-    // scaled down to fit 85% of the station's storage.
+    // consumes at least at its seeded order-up-to level (step 29; until then its resupply cover).
+    // With the few weeks of the data files, Ceres and Ganymede ran out of oxygen on day 20 and
+    // the outposts' first emergencies stayed open for 450-660 days while the first freighters
+    // were on their way. The raise is scaled down to fit 85% of the station's storage. Depot
+    // fuel starts as the data has it: its use is what ships buy there, unknown until they do.
     domain::Inventory inventory = station.initial_inventory;
     domain::Inventory raises;
+    const domain::StationState seeded {.station_id = station.id};
     for (const auto& [commodity_id, rate] : economy_.get_station_net_rates(station)) {
-        if (rate >= 0.0 || economy_.is_export_market(station, commodity_id)) {
+        if (rate >= 0.0 || !has_order(station, commodity_id)) {
             continue;
         }
         const double stock = inventory.contains(commodity_id) ? inventory.at(commodity_id) : 0.0;
-        const double raise = economy_.get_target_stock(station, commodity_id) - stock;
+        const double raise = order_levels(seeded, commodity_id, seed_order_stats(station, commodity_id)).order_up_to_units - stock;
         if (raise > 0.0) {
             raises[commodity_id] = raise;
         }
@@ -4291,8 +4292,11 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
             if (!net_rates.contains(commodity.id) && !(commodity.id == economy::FUEL_ID)) {
                 continue;
             }
+            // Ordered goods: the order-up-to level S (step 29).
+            const auto order = station_state.order_stats.find(commodity.id);
             output << (first_target ? "" : ",") << "\"" << json_escape(commodity.id) << "\":"
-                   << economy_.get_target_stock(station, commodity.id);
+                   << (order == station_state.order_stats.end() ? economy_.get_target_stock(station, commodity.id)
+                       : order_levels(station_state, commodity.id, order->second).order_up_to_units);
             first_target = false;
         }
         output << "},\"demand_units\":";

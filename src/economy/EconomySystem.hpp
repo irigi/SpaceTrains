@@ -35,7 +35,7 @@ public:
 
     // Fuel a station's factory makes per day (0 where there is none).
     [[nodiscard]] double fuel_factory_output(const domain::StationDefinition& station) const;
-    // A station's depot holds this much fuel: the depot buffer, more at a factory.
+    // A fuel factory's depot holds this much fuel: factory_buffer_days of output (0 elsewhere).
     [[nodiscard]] double fuel_buffer_units(const domain::StationDefinition& station) const;
     // A producer stops adding to its stock of a good it makes at this many units.
     [[nodiscard]] double production_cap_units(const domain::StationDefinition& station, const std::string& commodity_id,
@@ -46,12 +46,10 @@ public:
     // Earth's economy buys this good here at its base price, in any amount.
     [[nodiscard]] bool is_export_market(const domain::StationDefinition& station, const std::string& commodity_id) const;
 
-    // Stock level (units) at which the local price equals the commodity's base price.
-    // Consumers target a 21-day buffer, producers a 14-day buffer, non-traders a flat 20 units.
-    // Depot fuel targets the station's depot buffer.
+    // Stock level (units) at which the curve's price equals its centre: producers a 14-day
+    // buffer, non-traders a flat 20 units, a fuel factory its buffer. Consumers and depot fuel buy
+    // under station orders (step 29); for them it is a nominal three weeks.
     [[nodiscard]] double get_target_stock(const domain::StationDefinition& station, const std::string& commodity_id) const;
-    // Days of consumption a consumer's target stock covers (21 if it does not consume the good).
-    [[nodiscard]] double cover_days(const domain::StationDefinition& station, const std::string& commodity_id) const;
 
     // Local unit price: base_price * (target/stock)^elasticity, clamped to [0.25x, 16x] base;
     // the base price at an export market, and 0.25x base for an export good where it is
@@ -85,15 +83,11 @@ public:
     // stock): price_cap. Station orders cap their bids themselves (step 29).
     [[nodiscard]] double price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const;
     void set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices);
-    // The stock at which the station's curve (before clamping) is at `multiplier` x its centre.
-    [[nodiscard]] double stock_at_multiplier(
-        const domain::StationDefinition& station, const std::string& commodity_id, double multiplier) const;
 
     // The profile's recipes and the station's own.
     [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
 
 private:
-    void compute_cover_days();
     // The multiple of a recipe's rate the events running at a station allow (step 28).
     [[nodiscard]] double event_factor(const domain::StationState& station, const domain::RecipeDefinition& recipe) const;
     // reference_price for a caller that passes the base price.
@@ -110,9 +104,6 @@ private:
     // Export goods by station id.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> export_markets_;
     std::unordered_set<std::string> export_goods_;
-    // Days of its consumption a consumer wants in stock, by station id and good: three weeks,
-    // or longer where the nearest producer is far (see resupply_cover_days in the .cpp).
-    std::unordered_map<std::string, std::unordered_map<std::string, double>> cover_days_;
     // Landed-cost reference prices by station id and good (empty: base prices).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
     // Events by id (step 28).

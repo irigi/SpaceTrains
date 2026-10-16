@@ -822,17 +822,18 @@ int main() {
         require(parsed.get("text").string() == "a \"quoted\" line\nand a tab\t", "a string should survive a JSON round trip");
     }
 
-    // --- Resupply-aware targets: a consumer far from its producers wants more stock than three
-    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer). ---
+    // --- Resupply-aware orders: a consumer far from its producers orders more stock than a few
+    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer; step 29). ---
     {
-        const auto economy_sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
-        const auto& economy = economy_sim.economy_system();
-        const auto& mars = *std::find_if(universe.stations.begin(), universe.stations.end(),
-            [](const auto& station) { return station.id == "mars_transfer"; });
-        const auto& lunar = *std::find_if(universe.stations.begin(), universe.stations.end(),
-            [](const auto& station) { return station.id == "luna_base"; });
-        require(economy.cover_days(mars, "food") > 200.0, "Mars should want food for its long resupply");
-        require(economy.cover_days(lunar, "food") == 21.0, "the Moon, days from Earth L1, should want three weeks of food");
+        const auto snap = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string()).snapshot();
+        const auto cover = [&](const char* station_id, const char* good) {
+            const auto& station = *std::find_if(snap.stations.begin(), snap.stations.end(),
+                [&](const auto& s) { return s.station_id == station_id; });
+            const auto& order = station.orders.at(good);
+            return order.order_up_to_units / order.use_per_day;
+        };
+        require(cover("mars_transfer", "food") > 200.0, "Mars should order food for its long resupply");
+        require(cover("luna_base", "food") < 40.0, "the Moon, days from Earth L1, should order a few weeks of food");
     }
 
     // --- Save and load: a game continued after a load plays exactly as one that never

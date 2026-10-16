@@ -39,7 +39,6 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
         export_markets_[market.station_id][market.commodity_id] = market.units_per_day;
         export_goods_.insert(market.commodity_id);
     }
-    compute_cover_days();
     reference_prices_ = universe_.pricing.reference_prices;
     for (const auto& event : universe_.events) {
         events_by_id_[event.id] = &event;
@@ -63,15 +62,8 @@ double EconomySystem::event_factor(const domain::StationState& station, const do
     return factor;
 }
 
-// A consumer's target stock (where its price is the base price) covers three weeks of
-// consumption, or, where the nearest producer is far, 1.4 x the one-way transfer time or
-// cover_round_trip_factor x the reference round trip, whichever is longer (at most
-// max_cover_days): a delivery has to last until the next one can come. With three weeks
-// everywhere, a hold big enough for a 200-day route flooded a Mars price down to a quarter
-// of base, so nobody supplied the distant stations (v36: about 45,000 u of holds would be
-// needed for steady supply, the fleet had 5,000-10,000 u). Transfer times are Hohmann
-// half-orbits between the parent planets (a few days within one planet's system), a
-// map-level estimate that does not depend on where the planets are.
+// Transfer times are Hohmann half-orbits between the parent planets (a few days within one
+// planet's system), a map-level estimate that does not depend on where the planets are.
 double EconomySystem::transfer_days(const domain::StationDefinition& a, const domain::StationDefinition& b) const {
     const auto body_of = [&](const std::string& id) -> const domain::CelestialBodyDefinition* {
         for (const auto& body : universe_.bodies) {
@@ -108,51 +100,6 @@ double EconomySystem::transfer_days(const domain::StationDefinition& a, const do
     }
     const double axis = 0.5 * (pa->orbit.semi_major_axis_m + pb->orbit.semi_major_axis_m);
     return 3.14159265358979323846 * std::sqrt(axis * axis * axis / mu_sun) / 86400.0;
-}
-
-void EconomySystem::compute_cover_days() {
-    const auto one_way_days = [&](const domain::StationDefinition& a, const domain::StationDefinition& b) {
-        return transfer_days(a, b);
-    };
-    for (const auto& consumer : universe_.stations) {
-        for (const auto* recipe : recipes_of(consumer)) {
-            if (recipe->units_per_day >= 0.0) {
-                continue;
-            }
-            double nearest = std::numeric_limits<double>::infinity();
-            for (const auto& producer : universe_.stations) {
-                for (const auto* other : recipes_of(producer)) {
-                    if (other->commodity_id == recipe->commodity_id && other->units_per_day > 0.0) {
-                        nearest = std::min(nearest, one_way_days(producer, consumer));
-                    }
-                }
-            }
-            if (!std::isfinite(nearest)) {
-                continue;
-            }
-            // Step 23: at least the reference round trip times a factor, so an outer outpost's
-            // order lasts until the next ship can come back (Titan: ~1,250 days, not a year).
-            // Only across planets: within one planet's system the reference plasma ship's slow
-            // spirals overstate how long a local shuttle takes.
-            double cover = 1.4 * nearest;
-            const auto& trips = universe_.pricing.round_trip_days;
-            if (const auto station_it = trips.find(consumer.id); nearest > 5.0 && station_it != trips.end()) {
-                if (const auto it = station_it->second.find(recipe->commodity_id); it != station_it->second.end()) {
-                    cover = std::max(cover, universe_.pricing.cover_round_trip_factor * it->second);
-                }
-            }
-            cover_days_[consumer.id][recipe->commodity_id] = std::clamp(cover, 21.0, universe_.pricing.max_cover_days);
-        }
-    }
-}
-
-double EconomySystem::cover_days(const domain::StationDefinition& station, const std::string& commodity_id) const {
-    const auto station_it = cover_days_.find(station.id);
-    if (station_it == cover_days_.end()) {
-        return 21.0;
-    }
-    const auto it = station_it->second.find(commodity_id);
-    return it == station_it->second.end() ? 21.0 : it->second;
 }
 
 double EconomySystem::flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -353,10 +300,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
 }
 
 double EconomySystem::storage_used_units(const domain::Inventory& inventory) const {
-    const bool depot_fuel = universe_.fuel_supply.depot_buffer_units > 0.0;
+    // Fuel stands in the depot, outside cargo storage.
     double stored = 0.0;
     for (const auto& [commodity_id, units] : inventory) {
-        if (!(depot_fuel && commodity_id == FUEL_ID)) {
+        if (commodity_id != FUEL_ID) {
             stored += std::max(0.0, units);
         }
     }
@@ -370,11 +317,7 @@ double EconomySystem::fuel_factory_output(const domain::StationDefinition& stati
 }
 
 double EconomySystem::fuel_buffer_units(const domain::StationDefinition& station) const {
-    const auto& fuel_supply = universe_.fuel_supply;
-    if (fuel_supply.depot_buffer_units <= 0.0) {
-        return 0.0;
-    }
-    return std::max(fuel_supply.depot_buffer_units, fuel_factory_output(station) * fuel_supply.factory_buffer_days);
+    return fuel_factory_output(station) * universe_.fuel_supply.factory_buffer_days;
 }
 
 double EconomySystem::fuel_stock_after_days(const domain::StationDefinition& station, double stock, double days) const {
@@ -396,14 +339,15 @@ double EconomySystem::commodity_base_price(const std::string& commodity_id) cons
 }
 
 double EconomySystem::get_target_stock(const domain::StationDefinition& station, const std::string& commodity_id) const {
-    // A depot's fuel sells at base price when its buffer is full.
-    if (commodity_id == FUEL_ID && universe_.fuel_supply.depot_buffer_units > 0.0) {
+    // A factory's fuel sells at base price when its buffer is full.
+    if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
         return fuel_buffer_units(station);
     }
     const auto rates = get_station_net_rates(station);
     const double net_rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
+    // A consumer buys under its orders (step 29); three weeks only places the curve.
     if (net_rate < 0.0) {
-        return std::abs(net_rate) * cover_days(station, commodity_id);
+        return std::abs(net_rate) * 21.0;
     }
     if (net_rate > 0.0) {
         return net_rate * 14.0;
@@ -438,11 +382,6 @@ bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const st
 
 double EconomySystem::price_cap(const domain::StationDefinition& /*station*/, const std::string& /*commodity_id*/) const {
     return universe_.pricing.price_cap;
-}
-
-double EconomySystem::stock_at_multiplier(
-    const domain::StationDefinition& station, const std::string& commodity_id, double multiplier) const {
-    return get_target_stock(station, commodity_id) * std::pow(std::max(multiplier, 1.0e-9), -1.0 / PRICE_ELASTICITY);
 }
 
 double EconomySystem::get_price(
