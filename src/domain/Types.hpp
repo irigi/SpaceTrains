@@ -203,6 +203,18 @@ struct PricingDefinition {
     std::unordered_map<std::string, std::unordered_map<std::string, double>> round_trip_days;
 };
 
+// Station purchase orders (step 29, docs/plans/station_orders.md; data/economy/orders.csv).
+// Step 1 only observes: these shape nothing yet.
+struct OrdersDefinition {
+    double safety_factor {1.5};        // k: the safety stock is k x the spread of a delivery cycle
+    double ema_deliveries {4.0};       // the observed lead, interval and spread average over this many deliveries
+    double extra_discount {0.1};       // d: the station buys past its order-up-to level only this far below its going rate
+    double keep_share {0.2};           // of an input's marginal profit the station keeps (the rest is its ceiling)
+    double life_value {24.0};          // x reference: what the faction pays for oxygen and water at most
+    double consume_value {4.0};        // x reference: the ceiling for goods used up without output (construction, science)
+    double depot_fuel_value {4.0};     // x reference: the ceiling for fuel at a depot without a factory
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -270,6 +282,7 @@ struct UniverseDefinition {
     OpenEconomyDefinition open_economy;
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
+    OrdersDefinition orders;
     GrowthDefinition growth;
     std::vector<EventDefinition> events;
     std::uint64_t event_seed {0};
@@ -452,6 +465,40 @@ struct ActiveEvent {
     double end_s {0.0};
 };
 
+// What a station has observed about resupplying one good it consumes (step 29). Saved.
+struct OrderStats {
+    double ship_sales_per_day {0.0};   // provisions sold to ships, units per day (depot fuel: ship_fuel_units_per_day)
+    double lead_days {0.0};            // L: from a contract to its delivery
+    double interval_days {0.0};        // I: between deliveries
+    double spread_days {0.0};          // sigma: mean absolute deviation of L and I samples
+    double going_rate {0.0};           // G: what it has agreed to pay per unit, units-weighted
+    double last_delivery_s {-1.0};     // -1: none yet
+    int deliveries {0};
+};
+
+// The order a station would post for a good, derived from its OrderStats, its stock and the
+// contracts on their way (step 29). Not saved; filled for snapshots.
+struct OrderView {
+    std::string ceiling_kind;          // input | upkeep | life | consume | depot_fuel
+    double use_per_day {0.0};          // u: recipe use plus sales to ships
+    double lead_days {0.0};
+    double interval_days {0.0};
+    double spread_days {0.0};
+    double going_rate {0.0};
+    double reference_price {0.0};
+    double safety_units {0.0};         // B = u k sigma
+    double reorder_units {0.0};        // R = u (L + k sigma)
+    double order_up_to_units {0.0};    // S = R + u I, capped by storage and max_cover_days
+    double extra_days {0.0};           // E: days past S whose holding cost the discount pays
+    double max_units {0.0};            // S_max = S + u E, same caps
+    double stock {0.0};
+    double contracted_units {0.0};     // on their way under contract
+    double open_units {0.0};           // N for a delivery one lead time from now
+    double days_to_safety {-1.0};      // when the projected stock falls below B (-1: not within L + k sigma)
+    double ceiling {0.0};              // V per unit
+    double station_ceiling {0.0};      // V from the station's own output (life goods: before the faction tops it up)
+};
+
 struct StationState {
     std::string station_id;
     Inventory inventory;
@@ -473,6 +520,10 @@ struct StationState {
     // What the station paid ships per unit, averaged over about 30 days of its use (step 17):
     // its residents pay this for what they use up (the reference price until a delivery).
     Inventory import_unit_cost {};
+    // Step 29: what the station has observed about resupplying each good it consumes, and (for
+    // snapshots only) the orders derived from it.
+    std::map<std::string, OrderStats> order_stats {};
+    std::map<std::string, OrderView> orders {};
     // Diagnostics of the last economy step (not saved): the product of the upkeep penalties
     // in force, and each output's run rate (upkeep included).
     double upkeep_multiplier {1.0};

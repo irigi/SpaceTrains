@@ -226,6 +226,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             ship.provisions[commodity_id] = ship_class.crew_size * units_per_crew_day * INITIAL_PROVISION_DAYS;
         }
     }
+    seed_order_stats();
 }
 
 namespace {
@@ -811,6 +812,280 @@ double Simulation::forecast_stock_on_arrival(const domain::StationState& state, 
     return std::max(0.0, stock + rate * std::max(0.0, arrival_s - time_s) / 86400.0);
 }
 
+bool Simulation::has_order(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    if (economy_.is_export_market(station, commodity_id)) {
+        return false;
+    }
+    if (commodity_id == economy::FUEL_ID && universe_.fuel_supply.depot_buffer_units > 0.0) {
+        return economy_.fuel_factory_output(station) <= 0.0;
+    }
+    const auto rates = economy_.get_station_net_rates(station);
+    const auto rate = rates.find(commodity_id);
+    return rate != rates.end() && rate->second < 0.0;
+}
+
+domain::OrderStats Simulation::seed_order_stats(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    // The nearest producer, by the map-level transfer estimate (fuel: the nearest factory).
+    double nearest = std::numeric_limits<double>::infinity();
+    for (const auto& producer : universe_.stations) {
+        bool makes = commodity_id == economy::FUEL_ID && economy_.fuel_factory_output(producer) > 0.0;
+        for (const auto* recipe : economy_.recipes_of(producer)) {
+            makes = makes || (recipe->commodity_id == commodity_id && recipe->units_per_day > 0.0);
+        }
+        if (makes && producer.id != station.id) {
+            nearest = std::min(nearest, economy_.transfer_days(producer, station));
+        }
+    }
+    double round_trip = std::isfinite(nearest) ? 2.0 * nearest : 42.0;
+    const auto& trips = universe_.pricing.round_trip_days;
+    if (const auto station_it = trips.find(station.id); station_it != trips.end()) {
+        if (const auto it = station_it->second.find(commodity_id); it != station_it->second.end()) {
+            round_trip = it->second;
+        }
+    }
+    // Within one planet's system the reference plasma ship's spirals overstate a local
+    // shuttle's trip (as in step 23's cover rule): plan for three weeks between deliveries.
+    const bool local = std::isfinite(nearest) && nearest <= 5.0;
+    domain::OrderStats stats;
+    stats.lead_days = local ? std::max(1.0, nearest) : std::max(1.0, 0.5 * round_trip);
+    stats.interval_days = local ? 21.0 : std::max(21.0, round_trip);
+    stats.spread_days = 0.5 * stats.lead_days;
+    stats.going_rate = economy_.reference_price(station, commodity_id);
+    return stats;
+}
+
+void Simulation::seed_order_stats() {
+    for (auto& state : stations_) {
+        const auto& definition = get_station_definition(state.station_id);
+        for (const auto& commodity : universe_.commodities) {
+            if (has_order(definition, commodity.id) && !state.order_stats.contains(commodity.id)) {
+                state.order_stats[commodity.id] = seed_order_stats(definition, commodity.id);
+            }
+        }
+    }
+}
+
+void Simulation::observe_contract(domain::StationState& state, const std::string& commodity_id, double units, double unit_price) {
+    const auto it = state.order_stats.find(commodity_id);
+    if (it == state.order_stats.end() || units <= 0.0) {
+        return;
+    }
+    // Weighted by units: a lot of one interval's use moves the going rate by 1/ema_deliveries.
+    auto& stats = it->second;
+    const double use = order_view(state, commodity_id).use_per_day;
+    const double history = use * stats.interval_days * (universe_.orders.ema_deliveries - 1.0);
+    stats.going_rate += (unit_price - stats.going_rate) * units / (units + history);
+}
+
+void Simulation::observe_delivery(domain::StationState& state, const std::string& commodity_id, double contracted_s) {
+    const auto it = state.order_stats.find(commodity_id);
+    if (it == state.order_stats.end()) {
+        return;
+    }
+    auto& stats = it->second;
+    const double alpha = 1.0 / universe_.orders.ema_deliveries;
+    const auto fold = [&](double& mean, double sample) {
+        stats.spread_days += alpha * (std::abs(sample - mean) - stats.spread_days);
+        mean += alpha * (sample - mean);
+    };
+    fold(stats.lead_days, std::max(0.0, game_time_s_ - contracted_s) / 86400.0);
+    // Ships landing within a day of each other make one delivery.
+    if (stats.last_delivery_s >= 0.0 && game_time_s_ - stats.last_delivery_s >= 86400.0) {
+        fold(stats.interval_days, (game_time_s_ - stats.last_delivery_s) / 86400.0);
+    }
+    stats.last_delivery_s = game_time_s_;
+    ++stats.deliveries;
+}
+
+double Simulation::order_ceiling(const domain::StationState& state, const std::string& commodity_id,
+    std::string& kind, double& station_ceiling) const {
+    const auto& definition = get_station_definition(state.station_id);
+    const auto& orders = universe_.orders;
+    const double reference = economy_.reference_price(definition, commodity_id);
+    if (commodity_id == economy::FUEL_ID && economy_.fuel_factory_output(definition) <= 0.0) {
+        kind = "depot_fuel";
+        station_ceiling = orders.depot_fuel_value * reference;
+        return station_ceiling;
+    }
+    const auto& recipes = economy_.recipes_of(definition);
+    const auto going_rate = [&](const std::string& id) {
+        const auto it = state.order_stats.find(id);
+        return it == state.order_stats.end() ? economy_.reference_price(definition, id) : it->second.going_rate;
+    };
+    // Output value per day at reference prices (population scaling cancels out below).
+    const auto output_value = [&](const std::string& output_id) {
+        double value = 0.0;
+        for (const auto* recipe : recipes) {
+            if (recipe->role == domain::RecipeRole::Output && recipe->units_per_day > 0.0
+                && (output_id.empty() || recipe->commodity_id == output_id)) {
+                value += recipe->units_per_day * economy_.reference_price(definition, recipe->commodity_id);
+            }
+        }
+        return value;
+    };
+    // The most a unit is worth over the recipes that use it.
+    double best = 0.0;
+    bool found = false;
+    kind = "consume";
+    for (const auto* recipe : recipes) {
+        if (recipe->commodity_id != commodity_id || recipe->units_per_day >= 0.0) {
+            continue;
+        }
+        const double use = -recipe->units_per_day;
+        double value = 0.0;
+        std::string role;
+        switch (recipe->role) {
+            case domain::RecipeRole::Input: {
+                // The outputs it feeds, less the going cost of the other inputs they need.
+                double margin = 0.0;
+                for (const auto& output_id : recipe->feeds) {
+                    double others = 0.0;
+                    for (const auto* other : recipes) {
+                        if (other->role == domain::RecipeRole::Input && other->commodity_id != commodity_id
+                            && other->units_per_day < 0.0 && !other->feeds.empty()
+                            && std::find(other->feeds.begin(), other->feeds.end(), output_id) != other->feeds.end()) {
+                            others += -other->units_per_day / static_cast<double>(other->feeds.size())
+                                * going_rate(other->commodity_id);
+                        }
+                    }
+                    margin += std::max(0.0, output_value(output_id) - others);
+                }
+                value = (1.0 - orders.keep_share) * margin / use;
+                role = "input";
+                break;
+            }
+            case domain::RecipeRole::Upkeep: {
+                // The output a full shortage would cost, per unit of use.
+                const auto penalty = universe_.upkeep_penalties.find(commodity_id);
+                const double lost = penalty == universe_.upkeep_penalties.end() ? 0.0 : 1.0 - penalty->second;
+                value = lost * output_value({}) / use;
+                role = "upkeep";
+                break;
+            }
+            default:
+                value = orders.consume_value * reference;
+                role = "consume";
+                break;
+        }
+        if (!found || value > best) {
+            best = value;
+            kind = role;
+            found = true;
+        }
+    }
+    station_ceiling = best;
+    if (universe_.emergency_goods.contains(commodity_id) && economy_.is_upkeep(definition, commodity_id)) {
+        kind = "life";
+        return std::max(best, orders.life_value * reference);
+    }
+    return best;
+}
+
+domain::OrderView Simulation::order_view(const domain::StationState& state, const std::string& commodity_id) const {
+    const auto& definition = get_station_definition(state.station_id);
+    const auto& orders = universe_.orders;
+    const auto stats_it = state.order_stats.find(commodity_id);
+    const auto stats = stats_it == state.order_stats.end() ? seed_order_stats(definition, commodity_id) : stats_it->second;
+    const bool depot_fuel = commodity_id == economy::FUEL_ID && universe_.fuel_supply.depot_buffer_units > 0.0;
+    const auto rates = economy_.get_station_net_rates(definition);
+    const auto rate = rates.find(commodity_id);
+    const double recipe_use = rate == rates.end() ? 0.0 : std::max(0.0, -rate->second);
+    const auto& commodity = get_commodity(commodity_id);
+
+    domain::OrderView view;
+    view.use_per_day = recipe_use + (depot_fuel ? state.ship_fuel_units_per_day : stats.ship_sales_per_day);
+    view.lead_days = stats.lead_days;
+    view.interval_days = stats.interval_days;
+    view.spread_days = stats.spread_days;
+    view.going_rate = stats.going_rate;
+    view.reference_price = economy_.reference_price(definition, commodity_id);
+    const double u = view.use_per_day;
+    const double cover = orders.safety_factor * stats.spread_days;
+    view.safety_units = u * cover;
+    view.reorder_units = u * (stats.lead_days + cover);
+    // Storage is shared by every good (depot fuel stands outside it).
+    double cap = u * universe_.pricing.max_cover_days;
+    if (definition.storage_capacity_units > 0.0 && !depot_fuel) {
+        cap = std::min(cap, definition.storage_capacity_units);
+    }
+    view.order_up_to_units = std::min(cap, view.reorder_units + u * stats.interval_days);
+    // Extra days the discount pays for: holding a unit costs interest plus its spoilage.
+    const double holding_per_day = universe_.ship_operations.interest_rate_per_year / 365.0 + commodity.decay_fraction_per_day;
+    view.extra_days = holding_per_day > 0.0 ? orders.extra_discount / holding_per_day : universe_.pricing.max_cover_days;
+    view.max_units = std::min(cap, view.order_up_to_units + u * view.extra_days);
+    const auto stock_it = state.inventory.find(commodity_id);
+    view.stock = stock_it == state.inventory.end() ? 0.0 : std::max(0.0, stock_it->second);
+
+    // The projected stock: today's, falling at u, rising at each contracted arrival (what
+    // survives the trip). Before the delivery it can go no lower than empty; after it, the
+    // delivery's own units are what fills the dip, so it runs on below zero.
+    std::vector<std::pair<double, double>> arrivals;
+    for (const auto& ship : ships_) {
+        if ((ship.phase == domain::ShipMissionPhase::InTransit || ship.phase == domain::ShipMissionPhase::AwaitingDeparture)
+            && ship.active_mission.destination_station_id == state.station_id) {
+            if (const double units = domain::units_of(ship.active_mission.cargo, commodity_id); units > 0.0) {
+                const double surviving = units * std::pow(1.0 - commodity.decay_fraction_per_day,
+                    ship.active_mission.total_travel_time_s / 86400.0);
+                arrivals.emplace_back(ship.active_mission.arrival_time_s, surviving);
+                view.contracted_units += surviving;
+            }
+        }
+    }
+    std::sort(arrivals.begin(), arrivals.end());
+    const double day_s = 86400.0;
+    const double now = game_time_s_;
+    // N(t) = max over [t, t + I + L] of (B - p), for a delivery one lead time from now.
+    const double t = now + stats.lead_days * day_s;
+    const double end = t + (stats.interval_days + stats.lead_days) * day_s;
+    double p = view.stock;
+    double time = now;
+    std::size_t next = 0;
+    for (; next < arrivals.size() && arrivals[next].first <= t; ++next) {
+        p = std::max(0.0, p - u * std::max(0.0, arrivals[next].first - time) / day_s) + arrivals[next].second;
+        time = std::max(time, arrivals[next].first);
+    }
+    p = std::max(0.0, p - u * (t - time) / day_s);
+    time = t;
+    double low = p;
+    for (; next < arrivals.size() && arrivals[next].first <= end; ++next) {
+        p -= u * (arrivals[next].first - time) / day_s;
+        low = std::min(low, p);
+        p += arrivals[next].second;
+        time = arrivals[next].first;
+    }
+    low = std::min(low, p - u * (end - time) / day_s);
+    view.open_units = std::max(0.0, view.safety_units - low);
+
+    // When the projected stock (with every contract) first falls below B, within L + k sigma:
+    // while it does and nobody takes the order, step 2 raises the price.
+    const double horizon = now + (stats.lead_days + cover) * day_s;
+    p = view.stock;
+    time = now;
+    const auto crossing = [&](double until) {
+        // p falls linearly from `time` to `until`; the first moment below B, if any.
+        if (p < view.safety_units) {
+            return time;
+        }
+        const double below_s = u > 0.0 ? time + (p - view.safety_units) / u * day_s : std::numeric_limits<double>::infinity();
+        return below_s < until ? below_s : -1.0;
+    };
+    double when = -1.0;
+    for (const auto& [arrival_s, units] : arrivals) {
+        if (arrival_s > horizon || when >= 0.0) {
+            break;
+        }
+        when = crossing(arrival_s);
+        p = std::max(0.0, p - u * std::max(0.0, arrival_s - time) / day_s) + units;
+        time = std::max(time, arrival_s);
+    }
+    if (when < 0.0) {
+        when = crossing(horizon);
+    }
+    view.days_to_safety = when < 0.0 || u <= 0.0 ? -1.0 : (when - now) / day_s;
+    view.ceiling = order_ceiling(state, commodity_id, view.ceiling_kind, view.station_ceiling);
+    return view;
+}
+
 double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_class) const {
     const auto& operations = universe_.ship_operations;
     return ship_class.ship_value_cr
@@ -902,6 +1177,9 @@ void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& m
         const double bill = units * unit_price;
         market.inventory[commodity_id] -= units;
         market.credits += bill;
+        if (const auto stats = market.order_stats.find(commodity_id); stats != market.order_stats.end()) {
+            stats->second.ship_sales_per_day += units / TRADE_FLOW_DAYS;
+        }
         ship.provisions[commodity_id] += units;
         ship.credits -= bill;
         ship.lifetime_profit -= bill;
@@ -2154,6 +2432,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         const auto split = sale_split_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
         lot.contract_value = split.total;
         lot.emergency_premium = split.faction;
+        if (surviving > 0.0) {
+            observe_contract(get_station_state(best_destination->id), lot.commodity_id, surviving, split.total / surviving);
+        }
         if (split.faction > 0.0) {
             for (auto& emergency : emergencies_) {
                 if (emergency.station_id == best_destination->id && emergency.commodity_id == lot.commodity_id) {
@@ -2483,6 +2764,10 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             }
             destination.inventory[lot.commodity_id] += arrived;
             destination.import_units_per_day[lot.commodity_id] += arrived / TRADE_FLOW_DAYS;
+            if (arrived > 0.0) {
+                observe_delivery(destination, lot.commodity_id,
+                    ship.active_mission.departure_time_s - ship.active_mission.wait_time_s);
+            }
             destination.credits -= revenue - faction_share;
             ship.credits += revenue;
             ship.lifetime_profit += revenue;
@@ -2543,6 +2828,9 @@ void Simulation::tick() {
             for (auto& [commodity_id, units_per_day] : *flows) {
                 units_per_day *= decay;
             }
+        }
+        for (auto& [commodity_id, stats] : station.order_stats) {
+            stats.ship_sales_per_day *= decay;
         }
     }
     settle_local_economy(stocks_before);
@@ -3410,7 +3698,7 @@ Simulation::CommissionStep Simulation::commission_step() {
 }
 
 domain::SimulationSnapshot Simulation::snapshot() const {
-    return {
+    domain::SimulationSnapshot snapshot {
         .game_time_s = game_time_s_,
         .outside_economy_credits = outside_economy_credits_,
         .faction_treasuries = faction_treasuries_,
@@ -3433,6 +3721,12 @@ domain::SimulationSnapshot Simulation::snapshot() const {
         .events_started = events_started_,
         .emergency_paid = emergency_paid_,
     };
+    for (auto& station : snapshot.stations) {
+        for (const auto& [commodity_id, stats] : station.order_stats) {
+            station.orders[commodity_id] = order_view(station, commodity_id);
+        }
+    }
+    return snapshot;
 }
 
 std::string Simulation::mission_phase_name(domain::ShipMissionPhase phase) const {
@@ -3894,6 +4188,32 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         }
         output << "},\"import_unit_cost\":";
         write_goods(station_state.import_unit_cost);
+        // Step 29, observed only: the purchase order the station would post for each good.
+        output << ",\"orders\":{";
+        bool first_order = true;
+        for (const auto& [commodity_id, stats] : station_state.order_stats) {
+            const auto view = order_view(station_state, commodity_id);
+            output << (first_order ? "" : ",") << "\"" << json_escape(commodity_id) << "\":{"
+                   << "\"kind\":\"" << view.ceiling_kind << "\""
+                   << ",\"use_per_day\":" << view.use_per_day
+                   << ",\"lead_days\":" << view.lead_days
+                   << ",\"interval_days\":" << view.interval_days
+                   << ",\"spread_days\":" << view.spread_days
+                   << ",\"going_rate\":" << view.going_rate
+                   << ",\"reference_price\":" << view.reference_price
+                   << ",\"safety_units\":" << view.safety_units
+                   << ",\"reorder_units\":" << view.reorder_units
+                   << ",\"order_up_to_units\":" << view.order_up_to_units
+                   << ",\"max_units\":" << view.max_units
+                   << ",\"contracted_units\":" << view.contracted_units
+                   << ",\"open_units\":" << view.open_units
+                   << ",\"days_to_safety\":" << view.days_to_safety
+                   << ",\"ceiling\":" << view.ceiling
+                   << ",\"station_ceiling\":" << view.station_ceiling
+                   << ",\"deliveries\":" << stats.deliveries << "}";
+            first_order = false;
+        }
+        output << "}";
         output << ",\"emergencies\":[";
         bool first_emergency = true;
         for (const auto& emergency : emergencies_) {

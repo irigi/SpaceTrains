@@ -135,6 +135,25 @@ private:
         double stock, double units) const;
     [[nodiscard]] SaleSplit sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
+    // Station purchase orders (step 29, docs/plans/station_orders.md). Step 1 only observes:
+    // nothing reads these yet. A station posts an order for a good it is a net consumer of, and
+    // for depot fuel where it has no factory, never at an export market.
+    [[nodiscard]] bool has_order(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // What a station expects before its first delivery: the reference trip's lead and interval
+    // (21 days within one planet's system), half the lead as spread, the reference price.
+    [[nodiscard]] domain::OrderStats seed_order_stats(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Seeds every order a station has no observations for yet.
+    void seed_order_stats();
+    // Folds a contract (its unit price) or a delivery (its lead and the interval since the last
+    // one) into a station's observations; nothing if the station posts no order for the good.
+    void observe_contract(domain::StationState& state, const std::string& commodity_id, double units, double unit_price);
+    void observe_delivery(domain::StationState& state, const std::string& commodity_id, double contracted_s);
+    // The order derived from the observations, the stock and the contracts on their way.
+    [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
+    // V: what a unit is worth to the station (see the plan's section 4); `station_ceiling` is
+    // the part from its own output, before the faction tops up a life-critical good.
+    [[nodiscard]] double order_ceiling(const domain::StationState& state, const std::string& commodity_id,
+        std::string& kind, double& station_ceiling) const;
     [[nodiscard]] const domain::Emergency* find_emergency(const std::string& station_id, const std::string& commodity_id) const;
     // Opens, raises and closes emergency deliveries of life-support goods (step 14).
     void step_emergencies();

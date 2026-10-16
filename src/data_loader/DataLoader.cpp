@@ -877,6 +877,44 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
 
     {
+        // Station purchase orders (step 29).
+        const auto orders_path = root / "economy" / "orders.csv";
+        const auto rows = read_csv_rows(orders_path);
+        require_header(rows.front(), {"key", "value"}, orders_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& orders = universe.orders;
+        const std::unordered_map<std::string, double*> fields {
+            {"safety_factor", &orders.safety_factor},
+            {"ema_deliveries", &orders.ema_deliveries},
+            {"extra_discount", &orders.extra_discount},
+            {"keep_share", &orders.keep_share},
+            {"life_value", &orders.life_value},
+            {"consume_value", &orders.consume_value},
+            {"depot_fuel_value", &orders.depot_fuel_value},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, orders_path, i + 1);
+            require_unique_id(row[0], seen_keys, orders_path, i + 1);
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + orders_path.string());
+            }
+            *field->second = parse_double(row[1], orders_path, i + 1, row[0].c_str());
+        }
+        for (const auto& [key, field] : fields) {
+            if (!seen_keys.contains(key)) {
+                throw std::runtime_error("Missing key '" + key + "' in " + orders_path.string());
+            }
+        }
+        if (orders.safety_factor < 0.0 || orders.ema_deliveries < 1.0 || orders.extra_discount < 0.0
+            || orders.extra_discount >= 1.0 || orders.keep_share < 0.0 || orders.keep_share > 1.0) {
+            throw std::runtime_error("safety_factor and extra_discount must be >= 0 (discount < 1), ema_deliveries >= 1 "
+                "and keep_share in [0, 1] in " + orders_path.string());
+        }
+    }
+
+    {
         // Written by `spacetrains_headless --write-reference-prices` (step 15); the price and the
         // round-trip days are read, the rest documents where each price comes from.
         const auto reference_path = root / "economy" / "reference_prices.csv";

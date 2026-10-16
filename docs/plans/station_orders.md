@@ -203,3 +203,32 @@ Each step ends with tests passing and a four-start benchmark (`tools/benchmark.p
 - Producers post **sell orders** the same way (an ask price that falls while stock piles up).
 - **Quotes from ships** (option C): the station picks among offers by price and delivery date.
 - Late-delivery pricing, if open point 1 turns out to matter.
+
+## Progress
+
+### Step 1: observe (done 2026-10-16)
+
+Per station and good with an order (net consumers and depot fuel without a factory, export markets
+excepted), `StationState::order_stats` keeps u's sales to ships, L, I, σ, G, the last delivery and a
+count (saved, save version 11); `Simulation::order_view` derives B, R, S, S_max, N (for a delivery one
+lead time from now), when the profile falls below B, and V. Parameters in `data/economy/orders.csv`
+(k 1.5, EMA over 4 deliveries, d 0.1, keep_share 0.2, life 24x, consume 4x, depot fuel 4x). Shown in the
+station panel ("ORDER PLAN") and in the audit ("Station Orders"). A 730-day run is identical to before
+apart from the new table.
+
+What the 1460-day run (start 0) shows, for steps 2 and 3:
+
+- **Mars fuel:** u 18.9/day (ship sales), L 381 d, I 103 d, σ 100 d, so S ≈ 12,000 u, all of it open; the
+  profile falls below B in 49 days. Paid 75 cr against a reference of 27 (2.8x).
+- **Titan:** 3,350 u of electronics under contract against S = 856 (fifteen years of its use), and
+  similar for machinery and metals: today's curve over-ships to Titan. Orders would stop at S_max.
+- **Upkeep ceilings at stations with little output are too low:** Mars food V = 20 (reference 64),
+  medicine 30, machinery 53. Its residents, not its output, need these. Step 3 needs a floor for
+  upkeep (for example consume_value x reference) or a value for residents.
+- **The extra buffer is two years for goods that do not spoil:** 10% discount / 5% a year interest
+  = 730 days, so S_max = S + 2 years of use. Not "a little extra". Step 2 needs a storage cost, a smaller
+  discount or a cap.
+- **The lead time mixes sources:** Earth L1 water L = 130 d although Luna is days away; some deliveries
+  come from the outer hubs. Per good is enough for now.
+- **Going rates against the reference:** Earth L1 water 4.3x, Low Earth Logistics metals 3.2x, Mars fuel
+  2.8x; electronics at Earth L1, Venus and Lunar Gateway well below (cheap local supply).

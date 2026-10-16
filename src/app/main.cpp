@@ -318,6 +318,24 @@ void print_economy_audit(
         std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
     }
 
+    // Purchase orders (step 29, step 1: observed only, nothing uses them yet).
+    std::cout << "\n  [ECON AUDIT] Station Orders (observed: u use/day, L lead, I interval, sigma spread in days;"
+                 " S order-up-to, Smax with the discounted extra, N open now, G going rate, V ceiling):\n";
+    std::cout << std::format("    {:24s} {:13s} {:10s} {:>7s} {:>5s} {:>5s} {:>5s} {:>8s} {:>8s} {:>8s} {:>8s} {:>8s} {:>6s} {:>8s} {:>8s} {:>8s} {:>3s}\n",
+        "Station", "Good", "Kind", "u", "L", "I", "sig", "Stock", "Coming", "S", "Smax", "N", "short", "G", "ref", "V", "n");
+    for (const auto& ss : snap.stations) {
+        const auto& name = std::find_if(universe.stations.begin(), universe.stations.end(),
+            [&](const auto& sd) { return sd.id == ss.station_id; })->name;
+        for (const auto& [c, o] : ss.orders) {
+            const int deliveries = ss.order_stats.contains(c) ? ss.order_stats.at(c).deliveries : 0;
+            std::cout << std::format("    {:24.24s} {:13.13s} {:10s} {:7.2f} {:5.0f} {:5.0f} {:5.0f} {:8.0f} {:8.0f} {:8.0f} {:8.0f} {:8.0f} {:>6s} {:8.1f} {:8.1f} {:8.1f} {:3d}\n",
+                name, c, o.ceiling_kind, o.use_per_day, o.lead_days, o.interval_days, o.spread_days, o.stock,
+                o.contracted_units, o.order_up_to_units, o.max_units, o.open_units,
+                o.days_to_safety < 0.0 ? std::string("-") : std::format("{:.0f}d", o.days_to_safety),
+                o.going_rate, o.reference_price, o.ceiling, deliveries);
+        }
+    }
+
     // Production (step 14): stations whose outputs run below full rate now, and why.
     std::cout << "\n  [ECON AUDIT] Production (outputs below 90% now; upkeep = product of the upkeep penalties):\n";
     for (const auto& ss : snap.stations) {

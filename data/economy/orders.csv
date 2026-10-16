@@ -1,0 +1,8 @@
+key,value
+safety_factor,1.5
+ema_deliveries,4
+extra_discount,0.1
+keep_share,0.2
+life_value,24
+consume_value,4
+depot_fuel_value,4

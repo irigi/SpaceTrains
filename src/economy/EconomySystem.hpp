@@ -84,6 +84,9 @@ public:
     [[nodiscard]] double stock_at_multiplier(
         const domain::StationDefinition& station, const std::string& commodity_id, double multiplier) const;
 
+    // The profile's recipes and the station's own.
+    [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
+
 private:
     void compute_cover_days();
     void compute_price_caps();
@@ -93,7 +96,6 @@ private:
     [[nodiscard]] double curve_centre(
         const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const;
     [[nodiscard]] double commodity_base_price(const std::string& commodity_id) const;
-    [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
     // A price that does not move with the stock: the base price at an export market, the
     // floor price for an export good anywhere that neither makes nor exports it (0 otherwise).
     [[nodiscard]] double flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const;
