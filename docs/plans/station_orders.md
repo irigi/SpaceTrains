@@ -346,3 +346,35 @@ Still open:
 - Mars fuel (about 37% unmet over the last fifth).
 - Station money in one start: −79%, from Mars's balance, as before.
 - Step 3: the ceilings V replace `price_cap` as the cap, and emergencies fold into orders.
+
+### Step 3: ceilings (2026-10-16)
+
+**V as the whole cap failed.** Under a state-based bid, the cap is what a station pays whenever its
+projected stock dips, not a bound that discovery rarely reaches. Input ceilings run to 60–75× reference
+(electronics at Mercury, Ceres, Ganymede and Titan: V = 16,000 cr against a reference of about 215; Earth
+L1 water: 1,376 against 22). Going rates climbed to match (Titan electronics G = 10,400). Residents pay what
+their station paid, so money grew 2–5× in four years in two of the four starts, and unmet rose to 7.8 ± 0.8%.
+
+**What is built:**
+- **The cap** is min(today's cap, V): 4×, inputs up to 12×. V only lowers a cap.
+  - In today's data no V falls below its cap. Upkeep and consumed goods are floored at consume_value × ref =
+    4×, and input V is far above 12×. A run without V is identical. The cap is in place for inputs that do
+    not pay; explicit withdrawal (`give_up_days`, `retry_days`) is not needed while none exist.
+- **Oxygen and water above the cap are the faction's.**
+  - The emergency trigger and close rule stay as in step 14: it opens when the stock forecast 21 days out is
+    empty, and closes at 14 days of cover.
+  - Under orders the premium starts at the station's cap (its bid on an empty stock) instead of 3×. It rises
+    ×1.5 every 15 days with no taker, up to `life_value` (24×).
+  - The faction pays the premium above the order price on the open units.
+- **Rejected:** a faction offer that follows the bid (up to 24× at once on an empty stock). It opened
+  emergencies 3–4× as often (6–9 per run against 1–2) and gave 4.9 ± 1.4% unmet.
+
+| 4 starts × 1460 days | unmet | last fifth | emergencies | money |
+|---|---|---|---|---|
+| step 2, state bid | 4.0 ± 1.1% | 1.4 ± 1.0% | 1–2 | +26, +15, −79, −12% |
+| V as the cap, faction follows the bid | 7.8 ± 0.8% | 5.1 ± 2.4% | 2–4 | +192, +455, +2, −7% |
+| cap min(today, V), faction follows the bid | 4.9 ± 1.4% | 1.1 ± 1.3% | 6–9 | +50, +40, −21, −82% |
+| **cap min(today, V), emergency premium from the cap** | **4.0 ± 1.1%** | **1.2 ± 0.6%** | 1–2 | +24, +15, −79, −23% |
+
+Emergency test: under orders a ship takes Mercury's oxygen at the station's own bid before the first raise,
+so the faction pays nothing; the payment check stays for the curve.

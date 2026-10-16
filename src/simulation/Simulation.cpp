@@ -62,7 +62,6 @@ constexpr double EMERGENCY_CLOSE_DAYS = 14.0;
 constexpr double EMERGENCY_COVER_DAYS = 30.0;
 constexpr double EMERGENCY_START_PREMIUM = 3.0;
 constexpr double EMERGENCY_RAISE_FACTOR = 1.5;
-constexpr double EMERGENCY_MAX_PREMIUM = 24.0;
 constexpr double EMERGENCY_RAISE_DAYS = 15.0;
 
 // Tank refits (part C): a docked ship at its home base compares the next smaller and next
@@ -663,7 +662,7 @@ double Simulation::station_price(const domain::StationState& state, const std::s
     if (const auto order = state.order_stats.find(commodity_id); priced_order(state, commodity_id)) {
         const auto stock_it = state.inventory.find(commodity_id);
         return order_bid(state, commodity_id, order_levels(state, commodity_id, order->second),
-            stock_it == state.inventory.end() ? 0.0 : stock_it->second) * (1.0 + universe_.orders.resale_margin);
+            stock_it == state.inventory.end() ? 0.0 : stock_it->second).price * (1.0 + universe_.orders.resale_margin);
     }
     const auto& definition = get_station_definition(state.station_id);
     const auto stock_it = state.inventory.find(commodity_id);
@@ -761,10 +760,20 @@ void Simulation::step_emergencies() {
             });
             if (open == emergencies_.end()) {
                 if (forecast <= 0.0) {
+                    // Under station orders the faction pays above the station's own cap (its bid
+                    // on an empty stock), so the premium starts there. A faction offer that rose
+                    // with the projected stock instead (24x at once on an empty stock) opened
+                    // emergencies three to four times as often and paid 2M cr in four years.
+                    double premium = EMERGENCY_START_PREMIUM;
+                    if (priced_order(state, commodity_id)) {
+                        const auto& stats = state.order_stats.at(commodity_id);
+                        premium = std::max(premium, order_bid(state, commodity_id, order_levels(state, commodity_id, stats), 0.0).cap
+                            / economy_.reference_price(definition, commodity_id));
+                    }
                     emergencies_.push_back({
                         .station_id = state.station_id,
                         .commodity_id = commodity_id,
-                        .premium = EMERGENCY_START_PREMIUM,
+                        .premium = premium,
                         .units_open = use_per_day * EMERGENCY_COVER_DAYS,
                         .opened_s = game_time_s_,
                         .last_raise_s = game_time_s_,
@@ -772,7 +781,7 @@ void Simulation::step_emergencies() {
                     ++emergencies_opened_;
                     add_event(std::format("EMERGENCY: {} will run out of {} — {} pays {:.0f}x for deliveries",
                         definition.name, get_commodity(commodity_id).name, faction_name(definition.faction_id),
-                        EMERGENCY_START_PREMIUM), "alert");
+                        premium), "alert");
                 }
                 continue;
             }
@@ -781,8 +790,8 @@ void Simulation::step_emergencies() {
                     definition.name, get_commodity(commodity_id).name, (game_time_s_ - open->opened_s) / 86400.0), "alert");
                 emergencies_.erase(open);
             } else if (game_time_s_ - open->last_raise_s >= EMERGENCY_RAISE_DAYS * 86400.0
-                && open->premium < EMERGENCY_MAX_PREMIUM && open->units_open > 0.0) {
-                open->premium = std::min(EMERGENCY_MAX_PREMIUM, open->premium * EMERGENCY_RAISE_FACTOR);
+                && open->premium < universe_.orders.life_value && open->units_open > 0.0) {
+                open->premium = std::min(universe_.orders.life_value, open->premium * EMERGENCY_RAISE_FACTOR);
                 open->last_raise_s = game_time_s_;
                 add_event(std::format("EMERGENCY: no ship for {} at {} — {} raises its offer to {:.1f}x",
                     get_commodity(commodity_id).name, definition.name, faction_name(definition.faction_id), open->premium),
@@ -1174,7 +1183,9 @@ Simulation::OrderQuote Simulation::order_quote(const domain::StationState& state
     OrderQuote quote;
     quote.open_units = gap.open_units;
     quote.extra_units = std::max(0.0, levels.max_units - std::max(gap.peak + gap.open_units, levels.order_up_to_units));
-    quote.price = order_bid(state, commodity_id, levels, gap.at_arrival);
+    const auto bid = order_bid(state, commodity_id, levels, gap.at_arrival);
+    quote.price = bid.price;
+    quote.station_cap = bid.cap;
     // The extra only when it is cheap: below both the going rate and what the order bids now. The
     // floor follows the reference, not the going rate: a going rate raised by a shortage made
     // dumping at a floor of a quarter of it pay (47,000 u of food at Low Earth Logistics).
@@ -1182,8 +1193,7 @@ Simulation::OrderQuote Simulation::order_quote(const domain::StationState& state
     quote.extra_price = std::min(quote.price, stats.going_rate) * (1.0 - universe_.orders.extra_discount);
     quote.floor_price = std::min(quote.extra_price, economy::PRICE_FLOOR_MULTIPLIER * reference);
     if (const auto* emergency = find_emergency(state.station_id, commodity_id); emergency != nullptr) {
-        quote.emergency_price = emergency->premium
-            * economy_.reference_price(get_station_definition(state.station_id), commodity_id);
+        quote.emergency_price = emergency->premium * reference;
         quote.emergency_units = emergency->units_open;
     }
     return quote;
@@ -1201,9 +1211,9 @@ Simulation::SaleSplit Simulation::quote_split(const OrderQuote& quote, double fr
     const double extra = overlap(quote.open_units, quote.open_units + quote.extra_units);
     const double rest = units - ordered - extra;
     split.order_units = ordered;
+    split.total = ordered * quote.price + extra * quote.extra_price + rest * quote.floor_price;
     split.order_value = ordered * quote.price;
-    split.total = split.order_value + extra * quote.extra_price + rest * quote.floor_price;
-    // An emergency's floor for the first of the ordered units, paid above the order price by the faction.
+    // An emergency's price for the first of the ordered units, paid above the order price by the faction.
     if (quote.emergency_price > quote.price) {
         const double emergency = overlap(0.0, std::min(quote.open_units, quote.emergency_units));
         split.emergency_units = emergency;
@@ -1213,26 +1223,39 @@ Simulation::SaleSplit Simulation::quote_split(const OrderQuote& quote, double fr
     return split;
 }
 
-double Simulation::order_bid(const domain::StationState& state, const std::string& commodity_id,
+Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, const std::string& commodity_id,
     const OrderLevels& levels, double stock_at_arrival) const {
     // State, not time: a bid that rose while nobody came saturated at its cap almost everywhere
     // with the fleet short of ships, so ships chose by cap, not by need (8.5% unmet against 4.3%).
     // The projected stock at arrival ranks stations by how short and how soon; the price is flat
     // over the slice, so a big delivery does not cut its own price.
+    // The cap is the lower of today's (4x, inputs up to 12x) and what the good is worth to the
+    // station, V (step 3), so an input that does not pay is not bought dear. V alone as the cap
+    // let any dip in stock pay up to 75x for an input, and residents pay what their station paid:
+    // money grew 2-5x in four years and unmet rose to 7.8%. Oxygen and water above the station's
+    // cap are its faction's (emergencies, step_emergencies).
     const auto& definition = get_station_definition(state.station_id);
     const double reference = economy_.reference_price(definition, commodity_id);
+    std::string kind;
+    double station_ceiling = 0.0;
+    order_ceiling(state, commodity_id, kind, station_ceiling);
+    OrderBid bid;
+    bid.cap = reference * std::clamp(station_ceiling / reference, economy::PRICE_FLOOR_MULTIPLIER,
+        std::max(economy::PRICE_FLOOR_MULTIPLIER, economy_.price_cap(definition, commodity_id)));
     if (levels.order_up_to_units <= 0.0) {
-        return reference;
+        bid.price = std::min(reference, bid.cap);
+        return bid;
     }
     const double ratio = levels.order_up_to_units / std::max(stock_at_arrival, 0.5);
-    return reference * std::clamp(std::pow(ratio, economy::PRICE_ELASTICITY), economy::PRICE_FLOOR_MULTIPLIER,
-        economy_.price_cap(definition, commodity_id));
+    bid.price = std::min(bid.cap, reference * std::max(economy::PRICE_FLOOR_MULTIPLIER, std::pow(ratio, economy::PRICE_ELASTICITY)));
+    return bid;
 }
 
 void Simulation::step_orders() {
     for (auto& state : stations_) {
         for (auto& [commodity_id, stats] : state.order_stats) {
-            stats.order_price = order_quote(state, commodity_id, game_time_s_ + stats.lead_days * 86400.0, {}).price;
+            const auto quote = order_quote(state, commodity_id, game_time_s_ + stats.lead_days * 86400.0, {});
+            stats.order_price = quote.price;
             // Debug aid: SPACETRAINS_TRACE_ORDER="<station id>:<good>" logs that order once a day (stderr).
             if (static const char* const trace_order = std::getenv("SPACETRAINS_TRACE_ORDER");
                 trace_order != nullptr && state.station_id + ":" + commodity_id == trace_order
@@ -3598,7 +3621,7 @@ Simulation::CommissionStep Simulation::commission_step() {
             quote.open_units = std::max(0.0, levels.order_up_to_units - destination_stock);
             quote.extra_units = std::max(0.0, levels.max_units - std::max(destination_stock, levels.order_up_to_units));
             // The bid on the projected stock, as a quote would make it.
-            quote.price = order_bid(destination_state, commodity_id, levels, destination_stock);
+            quote.price = order_bid(destination_state, commodity_id, levels, destination_stock).price;
             quote.extra_price = std::min(quote.price, order->second.going_rate) * (1.0 - universe_.orders.extra_discount);
             quote.floor_price = std::min(quote.extra_price,
                 economy::PRICE_FLOOR_MULTIPLIER * economy_.reference_price(destination, commodity_id));

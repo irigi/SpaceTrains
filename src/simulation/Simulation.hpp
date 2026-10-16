@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <iosfwd>
+#include <limits>
 #include <map>
 #include <memory>
 #include <random>
@@ -178,6 +179,8 @@ private:
         double price {0.0};
         double extra_price {0.0};
         double floor_price {0.0};
+        // Oxygen and water: the station's own cap, and an open emergency's price for its units.
+        double station_cap {std::numeric_limits<double>::infinity()};
         double emergency_price {0.0};
         double emergency_units {0.0};
     };
@@ -186,8 +189,13 @@ private:
     // The value of the units [from, from + units) of a delivery under a quote.
     [[nodiscard]] SaleSplit quote_split(const OrderQuote& quote, double from, double units) const;
     // The order's bid for a delivery that finds `stock_at_arrival` (every earlier contract
-    // counted): the curve's shape around the reference, on the order-up-to level.
-    [[nodiscard]] double order_bid(const domain::StationState& state, const std::string& commodity_id,
+    // counted): the curve's shape around the reference, on the order-up-to level, up to the
+    // lower of today's cap and the ceiling V (its cap: `cap`).
+    struct OrderBid {
+        double price {0.0};
+        double cap {0.0};
+    };
+    [[nodiscard]] OrderBid order_bid(const domain::StationState& state, const std::string& commodity_id,
         const OrderLevels& levels, double stock_at_arrival) const;
     // Sets each order's posted price to its bid for a delivery one lead time from now (shown in
     // the inspector and the audit; quotes compute their own).
