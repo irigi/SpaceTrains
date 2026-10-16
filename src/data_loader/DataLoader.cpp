@@ -883,10 +883,17 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         require_header(rows.front(), {"key", "value"}, orders_path);
         std::unordered_set<std::string> seen_keys;
         auto& orders = universe.orders;
+        double order_pricing = 0.0;
         const std::unordered_map<std::string, double*> fields {
+            {"order_pricing", &order_pricing},
             {"safety_factor", &orders.safety_factor},
             {"ema_deliveries", &orders.ema_deliveries},
             {"extra_discount", &orders.extra_discount},
+            {"max_extra_days", &orders.max_extra_days},
+            {"probe_discount", &orders.probe_discount},
+            {"raise_factor", &orders.raise_factor},
+            {"raise_days", &orders.raise_days},
+            {"resale_margin", &orders.resale_margin},
             {"keep_share", &orders.keep_share},
             {"life_value", &orders.life_value},
             {"consume_value", &orders.consume_value},
@@ -907,10 +914,14 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 throw std::runtime_error("Missing key '" + key + "' in " + orders_path.string());
             }
         }
+        orders.order_pricing = order_pricing != 0.0;
         if (orders.safety_factor < 0.0 || orders.ema_deliveries < 1.0 || orders.extra_discount < 0.0
-            || orders.extra_discount >= 1.0 || orders.keep_share < 0.0 || orders.keep_share > 1.0) {
+            || orders.extra_discount >= 1.0 || orders.keep_share < 0.0 || orders.keep_share > 1.0
+            || orders.max_extra_days < 0.0 || orders.probe_discount < 0.0 || orders.probe_discount >= 1.0
+            || orders.raise_factor < 1.0 || orders.raise_days <= 0.0 || orders.resale_margin < 0.0) {
             throw std::runtime_error("safety_factor and extra_discount must be >= 0 (discount < 1), ema_deliveries >= 1 "
-                "and keep_share in [0, 1] in " + orders_path.string());
+                "and keep_share in [0, 1], max_extra_days >= 0, probe_discount in [0, 1), raise_factor >= 1, raise_days > 0 and "
+                "resale_margin >= 0 in " + orders_path.string());
         }
     }
 

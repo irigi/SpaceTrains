@@ -22,7 +22,7 @@ constexpr double EXPORT_STOCKPILE_DAYS = 720.0;
 
 // Price elasticity: how sharply prices respond to stock deviating from target.
 constexpr double PRICE_ELASTICITY = 1.3;
-constexpr double PRICE_MIN_MULTIPLIER = 0.25;
+constexpr double PRICE_MIN_MULTIPLIER = PRICE_FLOOR_MULTIPLIER;
 // The upper clamp is data (pricing.csv, price_cap): 16x until v39, when a curve centred on the
 // base price had to pay for carrying goods to the outer system; 4x since step 15, when each
 // consumer's curve is centred on its landed cost.

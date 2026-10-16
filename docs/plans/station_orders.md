@@ -232,3 +232,51 @@ What the 1460-day run (start 0) shows, for steps 2 and 3:
   come from the outer hubs. Per good is enough for now.
 - **Going rates against the reference:** Earth L1 water 4.3x, Low Earth Logistics metals 3.2x, Mars fuel
   2.8x; electronics at Earth L1, Venus and Lunar Gateway well below (cheap local supply).
+
+### Step 2: orders replace the consumer curve (in progress, 2026-10-16)
+
+**Committed: the manifest builder (section 5b)**, with order pricing off (`order_pricing,0` in
+`orders.csv`). Ships fill the hold by margin per unit, net of marginal propellant (the slope between the
+empty plan and a laden one), and score the manifest whole and as its first half and quarter. This
+replaces `LOAD_FRACTIONS` and the separate mixed-cargo path. Four starts × 1460 days, against the
+step 1 build (which plays exactly like the steps 23–28 final):
+
+| | unmet | last fifth | Mars fuel, last fifth | run |
+|---|---|---|---|---|
+| step 1 (baseline) | 4.5 ± 1.4% | 3.1 ± 2.3% | 34% | 95 s |
+| manifest builder | 4.2 ± 1.0% | 2.9 ± 1.4% | 29% | 101 s |
+
+Trajectory flags 0, money drift 0. Mars Transfer Port's balance still sinks to about −3.7M cr in some
+starts (it did before: −3.1M at start 0 in step 1), so the money supply can end 70% under its target.
+
+**Order pricing is written but off.** It covers the order price (it falls step by step while there is no
+hurry, and rises ×ρ every `raise_days` while the projected stock falls below B within the lead time and
+nobody takes the order, at most to today's caps), quotes that are piecewise flat, resale to ships at
+import cost + `resale_margin`, and fleet investment valued on orders. With it on, unmet demand roughly
+doubles. The variants tried, each over four starts:
+
+| variant (order pricing on) | unmet | last fifth |
+|---|---|---|
+| as built | 8.7 ± 1.0% | 3.6 ± 2.2% |
+| raise every L/4 days (0.5–5) | 8.4% | 4.5% |
+| … and hurry within L + kσ | 8.9% | 6.9% |
+| old resale price (curve) | 9.9% | 7.0% |
+| bid = old curve price at the projected stock on arrival | 8.3% | 6.3% |
+| extra up to 730 days | 8.6% | 4.3% |
+| fleet investment on the old curve | 8.7% | 4.6% |
+| k = 3 | 9.1% | 5.7% |
+| lead, interval and spread not learned (seeds only) | 14.6% | 14.8% |
+
+Bugs fixed on the way: the floor followed the going rate, so a shortage's prices made dumping pay (47,000 u
+of food at Low Earth Logistics); a bid held at the going rate only ever rose; the hurry window
+(L + kσ) was nearly always open at the outer stations.
+
+What the delivery log shows with order pricing (start 0): 809 deliveries against 1,077, 175,000 u
+against 195,000, paid 60.6M cr against 48.6M. Stations pay more for less, and the Earth cluster's short
+hops lose the most (Low Earth Logistics fuel 39 deliveries against 81, Earth L1 water 71 against 108).
+Because the curve-priced bid does no better, the problem is in the order quantities or the flat
+structure of the quote, not in how the price moves. Mars is held back by its fuel in both: ships will not
+fly to Mars without fuel there for the way back, so a fuel shortage there also stops its electronics,
+machinery and food.
+
+Debug aid: `SPACETRAINS_TRACE_DELIVERIES=1` logs every delivery.

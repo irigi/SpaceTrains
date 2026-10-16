@@ -10,6 +10,9 @@ namespace spacetrains::economy {
 
 inline constexpr const char* FUEL_ID = "fuel";
 
+// The lowest price a station pays, as a multiple of its curve centre (or its going rate, step 29).
+inline constexpr double PRICE_FLOOR_MULTIPLIER = 0.25;
+
 // Recipe rates are per this many inhabitants; a station's rates scale with its population.
 inline constexpr double RATE_REFERENCE_POPULATION = 10'000.0;
 

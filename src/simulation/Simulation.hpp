@@ -128,6 +128,8 @@ private:
         double total {0.0};
         double faction {0.0};
         double emergency_units {0.0};  // units sold at the emergency floor
+        double order_units {0.0};      // units that fill an open order (step 29), and what they earn
+        double order_value {0.0};
     };
     // Selling `units` into a station whose stock is `stock`: along its curve, raised to an
     // open emergency's floor price for the units that land below its emergency cover.
@@ -135,10 +137,14 @@ private:
         double stock, double units) const;
     [[nodiscard]] SaleSplit sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
-    // Station purchase orders (step 29, docs/plans/station_orders.md). Step 1 only observes:
-    // nothing reads these yet. A station posts an order for a good it is a net consumer of, and
-    // for depot fuel where it has no factory, never at an export market.
+    // Station purchase orders (step 29, docs/plans/station_orders.md). A station posts an order
+    // for a good it is a net consumer of, and for depot fuel where it has no factory, never at
+    // an export market; it then has OrderStats for the good.
     [[nodiscard]] bool has_order(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Ships are paid under the station's order for the good (orders.csv order_pricing on), not
+    // along its curve. Off for now: order pricing raised unmet demand from 4.5% to 8.7% in step 2
+    // and is being investigated; the orders are still observed and shown.
+    [[nodiscard]] bool priced_order(const domain::StationState& state, const std::string& commodity_id) const;
     // What a station expects before its first delivery: the reference trip's lead and interval
     // (21 days within one planet's system), half the lead as spread, the reference price.
     [[nodiscard]] domain::OrderStats seed_order_stats(const domain::StationDefinition& station, const std::string& commodity_id) const;
@@ -148,6 +154,42 @@ private:
     // one) into a station's observations; nothing if the station posts no order for the good.
     void observe_contract(domain::StationState& state, const std::string& commodity_id, double units, double unit_price);
     void observe_delivery(domain::StationState& state, const std::string& commodity_id, double contracted_s);
+    // An order's levels before contracts: use, safety stock, order-up-to level, the most with the extra.
+    struct OrderLevels {
+        double use_per_day {0.0};
+        double safety_units {0.0};
+        double order_up_to_units {0.0};
+        double max_units {0.0};
+        double extra_days {0.0};
+    };
+    [[nodiscard]] OrderLevels order_levels(
+        const domain::StationState& state, const std::string& commodity_id, const domain::OrderStats& stats) const;
+    // The good's contracted arrivals at the station (time, units that survive the trip), sorted,
+    // without one ship's.
+    [[nodiscard]] std::vector<std::pair<double, double>> contracted_arrivals(
+        const domain::StationState& state, const std::string& commodity_id, const std::string& except_ship_id) const;
+    // What a delivery landing at `arrival_s` is paid, piecewise flat: the open quantity N at the
+    // order price, then the extra up to S_max at a discount on the going rate, the rest at the
+    // floor. An open emergency raises the order's units to its floor (the faction pays the part
+    // above the order price).
+    struct OrderQuote {
+        double open_units {0.0};
+        double extra_units {0.0};
+        double price {0.0};
+        double extra_price {0.0};
+        double floor_price {0.0};
+        double emergency_price {0.0};
+        double emergency_units {0.0};
+    };
+    [[nodiscard]] OrderQuote order_quote(const domain::StationState& state, const std::string& commodity_id,
+        double arrival_s, const std::string& except_ship_id) const;
+    // The value of the units [from, from + units) of a delivery under a quote.
+    [[nodiscard]] SaleSplit quote_split(const OrderQuote& quote, double from, double units) const;
+    // Probes the order price down while there is no hurry and raises it while the projected stock
+    // falls below the safety stock and no ship takes the order (step 29, section 3).
+    void step_orders();
+    // What a consumer offers for a good now: its order price where it posts an order, else its price.
+    [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
     // The order derived from the observations, the stock and the contracts on their way.
     [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
     // V: what a unit is worth to the station (see the plan's section 4); `station_ceiling` is

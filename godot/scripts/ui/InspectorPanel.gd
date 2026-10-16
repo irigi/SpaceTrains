@@ -262,8 +262,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         row.add_child(cover_label)
 
     _add_station_production(detail)
-    _add_station_orders(detail, context)
-    _add_station_order_plan(detail)
+    _add_station_orders(detail)
     _add_station_ships(detail, context)
 
     var ledger: Dictionary = detail.get("ledger", {})
@@ -303,69 +302,32 @@ func _add_station_production(detail: Dictionary) -> void:
     if not short.is_empty():
         _add_label("Upkeep short (stock vs a week's use): " + " · ".join(short), UiTheme.WARN, 12)
 
-# What the station still wants of each good it consumes: up to its target stock (which
-# covers its resupply time), less its stock and the cargo already on the way. These are the
-# prices ships see: the bigger the gap, the higher the station bids.
-func _add_station_orders(detail: Dictionary, context: Dictionary) -> void:
-    var station_id := String(detail.get("id", ""))
-    var inventory: Dictionary = detail.get("inventory", {})
-    var targets: Dictionary = detail.get("target_stock", {})
-    var rates: Dictionary = detail.get("net_rates", {})
-    var prices: Dictionary = detail.get("prices", {})
-    var references: Dictionary = detail.get("reference_prices", {})
-    var inbound := {}
-    for ship in context.get("ships", []):
-        var phase := String(ship.get("phase", ""))
-        if (phase == "in_transit" or phase == "awaiting_departure") and String(ship.get("destination_station_id", "")) == station_id:
-            for lot in ship.get("cargo", []):
-                var id := String(lot.get("commodity_id", ""))
-                inbound[id] = float(inbound.get(id, 0.0)) + float(lot.get("units", 0.0))
-    var orders: Array = []
-    for commodity_id in targets.keys():
-        if float(rates.get(commodity_id, 0.0)) >= 0.0:
-            continue
-        var stock := float(inventory.get(commodity_id, 0.0))
-        var coming := float(inbound.get(commodity_id, 0.0))
-        var wanted := float(targets[commodity_id]) - stock - coming
-        if wanted >= 1.0:
-            orders.append({"id": commodity_id, "wanted": wanted, "coming": coming, "price": float(prices.get(commodity_id, 0.0)),
-                "reference": float(references.get(commodity_id, 0.0))})
+# The station's purchase orders (step 29): per good it consumes, what it bids now and for how
+# many units (a delivery one lead time from now), against the landed reference and the going
+# rate it has paid; then what it has learnt about its resupply (use, lead time, interval between
+# deliveries and their spread), the stock it orders up to (and the discounted extra beyond), and
+# what a unit is worth to it at most.
+func _add_station_orders(detail: Dictionary) -> void:
+    var orders: Dictionary = detail.get("orders", {})
     if orders.is_empty():
         return
-    orders.sort_custom(func(a, b): return float(a["wanted"]) * float(a["price"]) > float(b["wanted"]) * float(b["price"]))
     _add_separator()
-    _add_label("ORDERS   wanted up to target · on the way · paying now (landed cost)", UiTheme.ACCENT, 12)
-    for order in orders:
-        var text := "%s: %.0f u wanted · %.0f u on the way · %.0f cr/u" % [order["id"], order["wanted"], order["coming"], order["price"]]
-        if float(order["reference"]) > 0.0:
-            text += " (%.0f)" % float(order["reference"])
-        _add_label(text, UiTheme.TEXT_DIM, 12)
-
-# Step 29, observed only (not yet what ships see): per good, what the station has learnt about
-# its resupply (use, lead time, interval between deliveries and their spread), the order it
-# would post from that (order-up-to level, the discounted extra, what is open now), the going
-# rate it has paid against the landed reference, and its ceiling (what a unit is worth to it).
-func _add_station_order_plan(detail: Dictionary) -> void:
-    var plans: Dictionary = detail.get("orders", {})
-    if plans.is_empty():
-        return
-    _add_separator()
-    _add_label("ORDER PLAN (observed, step 29)   use · lead · interval ± spread", UiTheme.ACCENT, 12)
-    var ids := plans.keys()
-    ids.sort()
+    _add_label("ORDERS   bid · open now · landed reference · going rate", UiTheme.ACCENT, 12)
+    var ids := orders.keys()
+    ids.sort_custom(func(a, b): return float(orders[a].get("open_units", 0.0)) * float(orders[a].get("order_price", 0.0)) \
+        > float(orders[b].get("open_units", 0.0)) * float(orders[b].get("order_price", 0.0)))
     for commodity_id in ids:
-        var o: Dictionary = plans[commodity_id]
-        _add_label("%s (%s): %.2f u/day · lead %.0f d · every %.0f ± %.0f d · %d deliveries" % [
-            String(commodity_id), String(o.get("kind", "")), float(o.get("use_per_day", 0.0)),
-            float(o.get("lead_days", 0.0)), float(o.get("interval_days", 0.0)), float(o.get("spread_days", 0.0)),
-            int(o.get("deliveries", 0))], UiTheme.TEXT_PRIMARY, 12)
+        var o: Dictionary = orders[commodity_id]
         var short_in := float(o.get("days_to_safety", -1.0))
-        var open_units := float(o.get("open_units", 0.0))
-        _add_label("    up to %.0f u (extra to %.0f) · open %.0f u%s · paid %.1f (ref %.1f) · worth ≤ %.0f cr/u" % [
-            float(o.get("order_up_to_units", 0.0)), float(o.get("max_units", 0.0)), open_units,
-            "" if short_in < 0.0 else " · below safety in %.0f d" % short_in,
-            float(o.get("going_rate", 0.0)), float(o.get("reference_price", 0.0)), float(o.get("ceiling", 0.0))],
-            UiTheme.WARN if short_in >= 0.0 else UiTheme.TEXT_DIM, 12)
+        _add_label("%s: %.1f cr/u for %.0f u%s (ref %.1f, going %.1f)" % [
+            String(commodity_id), float(o.get("order_price", 0.0)), float(o.get("open_units", 0.0)),
+            "" if short_in < 0.0 else ", short in %.0f d" % short_in,
+            float(o.get("reference_price", 0.0)), float(o.get("going_rate", 0.0))],
+            UiTheme.WARN if short_in >= 0.0 else UiTheme.TEXT_PRIMARY, 12)
+        _add_label("    %s · %.2f u/day · lead %.0f d · every %.0f ± %.0f d · up to %.0f u (extra %.0f) · worth ≤ %.0f · %d deliveries" % [
+            String(o.get("kind", "")), float(o.get("use_per_day", 0.0)), float(o.get("lead_days", 0.0)),
+            float(o.get("interval_days", 0.0)), float(o.get("spread_days", 0.0)), float(o.get("order_up_to_units", 0.0)),
+            float(o.get("max_units", 0.0)), float(o.get("ceiling", 0.0)), int(o.get("deliveries", 0))], UiTheme.TEXT_DIM, 12)
 
 # Ships on their way here (with cargo and arrival) and ships docked here.
 func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
