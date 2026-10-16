@@ -378,3 +378,28 @@ their station paid, so money grew 2–5× in four years in two of the four start
 
 Emergency test: under orders a ship takes Mercury's oxygen at the station's own bid before the first raise,
 so the faction pays nothing; the payment check stays for the curve.
+
+### Step 4 (2026-10-16, one push; decisions are mine, for review)
+
+**4a. Urgency weight off: rejected.** Urgency 1 for ordered goods gave 4.6 ± 1.2% unmet and 1.1 ± 1.0% in
+the last fifth (c3: 4.0 ± 1.1%, 1.2 ± 0.6%). Urgency 1 everywhere gave the identical result, since
+unordered consumer goods hardly matter. The order bid's ranking is not enough on its own, so the weight
+stays.
+
+**4b. Mars fuel: the depot fuel cap.** In a trace (start 0), Mars's fuel bid sits at its cap (4× its 26.8
+reference, 107 cr) from day 1. The stock is empty from about day 300 to day 870. Only five tanker
+deliveries came in four years (6,000 u against 12,500 u of use), 250–450 days after their contracts. The
+order quantity is fine (S stays at 6,000–9,000 u), so the price is what holds supply back. Depot fuel now
+takes `depot_fuel_value` × ref as its own cap, not min(today's cap, V):
+
+| depot cap | unmet | last fifth | Mars fuel, last fifth | money by start |
+|---|---|---|---|---|
+| 4× (c3) | 4.0 ± 1.1% | 1.2 ± 0.6% | 40 ± 16% | +24, +15, −79, −23% |
+| 6× | 4.1 ± 1.5% | 1.3 ± 1.1% | 21 ± 22% | +26, −27, −2, +39% |
+| **8× (chosen)** | **3.3 ± 0.9%** | **1.7 ± 1.2%** | **8 ± 17%** | +13, −56, +12, +6% |
+| 12× | 4.1 ± 0.9% | 0.7 ± 1.0% | 5 ± 10% | −11, −88, −91, −28% |
+
+At 12×, Mars pays enough to sink its own balance. A fleet cap of 120 ships (from 90) at a 4× depot cap
+gave 4.7 ± 1.2% unmet and 19% Mars fuel, so fleet size is not the constraint. Note for setting up
+variants: a work dir needs the `tests` symlink as well as `build`; without it, plasma ships cannot plan
+and the fleet collapses (27% unmet, 30 s runs).

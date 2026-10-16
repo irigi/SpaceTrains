@@ -214,7 +214,7 @@ struct OrdersDefinition {
     double keep_share {0.2};           // of an input's marginal profit the station keeps (the rest is its ceiling)
     double life_value {24.0};          // x reference: what the faction pays for oxygen and water at most
     double consume_value {4.0};        // x reference: the ceiling for goods used up without output (construction, science)
-    double depot_fuel_value {4.0};     // x reference: the ceiling for fuel at a depot without a factory
+    double depot_fuel_value {8.0};     // x reference: the cap for fuel at a depot without a factory (not min with price_cap)
 };
 
 struct StationDefinition {

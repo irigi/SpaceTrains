@@ -1240,8 +1240,10 @@ Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, co
     double station_ceiling = 0.0;
     order_ceiling(state, commodity_id, kind, station_ceiling);
     OrderBid bid;
-    bid.cap = reference * std::clamp(station_ceiling / reference, economy::PRICE_FLOOR_MULTIPLIER,
-        std::max(economy::PRICE_FLOOR_MULTIPLIER, economy_.price_cap(definition, commodity_id)));
+    // Depot fuel: its own ceiling (depot_fuel_value x the reference), not today's cap.
+    bid.cap = kind == "depot_fuel" ? std::max(economy::PRICE_FLOOR_MULTIPLIER * reference, station_ceiling)
+        : reference * std::clamp(station_ceiling / reference, economy::PRICE_FLOOR_MULTIPLIER,
+            std::max(economy::PRICE_FLOOR_MULTIPLIER, economy_.price_cap(definition, commodity_id)));
     if (levels.order_up_to_units <= 0.0) {
         bid.price = std::min(reference, bid.cap);
         return bid;
