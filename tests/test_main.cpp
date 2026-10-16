@@ -871,9 +871,9 @@ int main() {
             saved.size() / 1024, kHalfDays, kHalfDays);
     }
 
-    // --- Emergency resupply (step 14): a station about to run out of oxygen gets an emergency
-    // delivery paid by its faction; the emergency closes when the stock is safe again, and a
-    // game saved with one open continues exactly. ---
+    // --- Emergency resupply (step 14): a station about to run out of oxygen opens an emergency,
+    // its faction offering a premium above the station's own bid; the emergency closes when the
+    // stock is safe again, and a game saved with one open continues exactly. ---
     {
         const auto data_root = (repo_root / "data").string();
         auto sim = spacetrains::simulation::Simulation::from_data_root(data_root);
@@ -884,18 +884,15 @@ int main() {
         require(snap.emergencies_opened == 1 && snap.emergencies.size() == 1, "an empty oxygen stock should open an emergency");
         require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
             "the emergency should be for Mercury's oxygen");
-        // Under station orders (step 29) the faction pays above the station's own cap, its bid on
-        // an empty stock, so the premium starts there.
-        const bool order_pricing = sim.universe().orders.order_pricing;
-        if (order_pricing) {
+        // The faction pays above the station's own cap, its order's bid on an empty stock, so the
+        // premium starts there (step 29).
+        {
             const auto mercury = std::find_if(snap.stations.begin(), snap.stations.end(),
                 [](const auto& station) { return station.station_id == "mercury_yard"; });
             require(mercury != snap.stations.end() && mercury->orders.contains("oxygen"), "Mercury should order oxygen");
             const auto& order = mercury->orders.at("oxygen");
             require(std::abs(snap.emergencies.front().premium * order.reference_price - order.order_price) < 1.0e-6 * order.order_price,
                 "an emergency should start at the station's bid on an empty stock");
-        } else {
-            require(snap.emergencies.front().premium == 3.0, "an emergency should start at a 3x premium");
         }
 
         auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
@@ -918,13 +915,9 @@ int main() {
             ++days;
         }
         require(!mercury_oxygen_open(), "an emergency should close once enough is on its way");
-        // Under orders a ship takes the station's own bid before the faction's first raise.
-        while (!order_pricing && days < 300 && sim.snapshot().emergency_paid <= 0.0) {
-            sim.step(1.0);
-            ++days;
-        }
+        // A ship takes the station's own bid before the faction's first raise, so the faction pays
+        // nothing here; it pays only above that bid.
         snap = sim.snapshot();
-        require(order_pricing || snap.emergency_paid > 0.0, "the faction should pay the emergency premium");
         std::cout << std::format("Emergency: Mercury oxygen resupplied in {} days, factions paid {:.0f} cr\n",
             days, snap.emergency_paid);
     }

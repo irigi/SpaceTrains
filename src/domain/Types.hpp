@@ -205,7 +205,6 @@ struct PricingDefinition {
 
 // Station purchase orders (step 29, docs/plans/station_orders.md; data/economy/orders.csv).
 struct OrdersDefinition {
-    bool order_pricing {false};        // ships are paid under orders (else along the consumer curve; see priced_order)
     double safety_factor {1.5};        // k: the safety stock is k x the spread of a delivery cycle
     double ema_deliveries {4.0};       // the observed lead, interval and spread average over this many deliveries
     double extra_discount {0.1};       // d: the station buys past its order-up-to level only this far below its going rate

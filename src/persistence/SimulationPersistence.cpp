@@ -337,7 +337,7 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
     const auto& orders = universe_.orders;
-    mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.order_pricing, orders.safety_factor,
+    mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.safety_factor,
         orders.ema_deliveries, orders.extra_discount, orders.max_extra_days, orders.resale_margin, orders.keep_share, orders.life_value, orders.consume_value,
         orders.depot_fuel_value));
     for (const auto& recipe : universe_.recipes) {
