@@ -1227,42 +1227,56 @@ void Simulation::step_orders() {
             const auto levels = order_levels(state, commodity_id, stats);
             const auto stock_it = state.inventory.find(commodity_id);
             const double stock = stock_it == state.inventory.end() ? 0.0 : std::max(0.0, stock_it->second);
-            const double hurry = days_to_safety(contracted_arrivals(state, commodity_id, {}), stock, levels.use_per_day,
-                levels.safety_units, game_time_s_,
-                game_time_s_ + stats.lead_days * 86400.0);
+            const auto arrivals = contracted_arrivals(state, commodity_id, {});
+            const double day_s = 86400.0;
+            const bool hurry = days_to_safety(arrivals, stock, levels.use_per_day, levels.safety_units, game_time_s_,
+                game_time_s_ + stats.lead_days * day_s) >= 0.0;
+            // Open: a delivery one lead time from now would be bought under the order.
+            const double t = game_time_s_ + stats.lead_days * day_s;
+            const bool open = profile_gap(arrivals, stock, levels.use_per_day, levels.safety_units, game_time_s_, t,
+                t + (stats.interval_days + stats.lead_days) * day_s).open_units > 0.0;
             // Step 2: the ceiling is today's cap on the curve (4x the reference, inputs up to 12x).
             const double reference = economy_.reference_price(definition, commodity_id);
             const double ceiling = economy_.price_cap(definition, commodity_id) * reference;
             const double floor = economy::PRICE_FLOOR_MULTIPLIER * reference;
-            const bool step_due = game_time_s_ - stats.last_raise_s >= orders.raise_days * 86400.0;
-            if (hurry < 0.0) {
-                // No hurry: the bid falls step by step, so the price finds the cheapest willing
-                // carrier and a shortage's prices do not stay (a bid held at the going rate only
-                // ever rose: Low Earth Logistics paid 8x for metals long after its shortage).
-                if (step_due) {
-                    stats.order_price = std::max(floor, stats.order_price / orders.raise_factor);
-                    stats.last_raise_s = game_time_s_;
-                }
-                stats.hurry = false;
-            } else {
-                // A hurry starts from a little under the going rate, and rises while nobody takes the order.
-                if (!stats.hurry) {
-                    stats.order_price = std::max(stats.order_price, stats.going_rate * (1.0 - orders.probe_discount));
-                    stats.last_raise_s = game_time_s_;
-                    stats.hurry = true;
-                } else if (step_due && game_time_s_ - stats.last_taken_s >= orders.raise_days * 86400.0) {
-                    stats.order_price = std::max(stats.order_price, stats.order_price * orders.raise_factor);
-                    stats.last_raise_s = game_time_s_;
-                }
+            // An open order nobody takes rises (every raise_days, daily in a hurry); one ships have
+            // taken lately falls a step at a time while there is no hurry, to find the cheapest
+            // willing carrier. (A bid that fell on a timer while nobody came fell exactly when it
+            // should rise: Earth L1's water fell from 21 to 12 cr over 40 days as its stock ran out.)
+            const double period_s = (hurry ? std::min(1.0, orders.raise_days) : orders.raise_days) * day_s;
+            const bool step_due = game_time_s_ - stats.last_raise_s >= period_s;
+            const bool taken_lately = game_time_s_ - stats.last_taken_s < orders.raise_days * day_s;
+            if (hurry && !stats.hurry) {
+                stats.order_price = std::max(stats.order_price, stats.going_rate * (1.0 - orders.probe_discount));
+                stats.last_raise_s = game_time_s_;
+            } else if (step_due && open && game_time_s_ - stats.last_taken_s >= period_s) {
+                stats.order_price *= orders.raise_factor;
+                stats.last_raise_s = game_time_s_;
+            } else if (step_due && taken_lately && !hurry) {
+                stats.order_price /= orders.raise_factor;
+                stats.last_raise_s = game_time_s_;
             }
+            stats.hurry = hurry;
             stats.order_price = std::clamp(stats.order_price, floor, std::max(floor, ceiling));
+            // Debug aid: SPACETRAINS_TRACE_ORDER="<station id>:<good>" logs that order once a day (stderr).
+            if (static const char* const trace_order = std::getenv("SPACETRAINS_TRACE_ORDER");
+                trace_order != nullptr && state.station_id + ":" + commodity_id == trace_order
+                && std::fmod(game_time_s_, 86400.0) < Simulation::TICK_S * 0.5) {
+                const auto view = order_view(state, commodity_id);
+                std::cerr << std::format("[ORDER] day {:.0f} {} stock {:.0f} coming {:.0f} S {:.0f} N {:.0f} short {:.0f} "
+                    "P {:.1f} G {:.1f} L {:.0f} I {:.0f} sigma {:.0f}\n", game_time_s_ / 86400.0, trace_order, view.stock,
+                    view.contracted_units, view.order_up_to_units, view.open_units, view.days_to_safety, stats.order_price,
+                    stats.going_rate, stats.lead_days, stats.interval_days, stats.spread_days);
+            }
         }
     }
 }
 
 double Simulation::consumer_bid(const domain::StationState& state, const std::string& commodity_id) const {
     const auto it = state.order_stats.find(commodity_id);
-    return priced_order(state, commodity_id) ? it->second.order_price : station_price(state, commodity_id);
+    // The going rate, not today's bid: a calm order probes down toward the floor, and a route
+    // is bought for years (valued at the bid, local routes looked worthless).
+    return priced_order(state, commodity_id) ? std::max(it->second.order_price, it->second.going_rate) : station_price(state, commodity_id);
 }
 
 double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_class) const {
@@ -1717,12 +1731,13 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     const auto leave_shortfall_kg = [&](const domain::StationDefinition& destination,
                                         const domain::TrajectoryPlan& plan,
                                         double payload_kg,
-                                        double carried_kg) {
+                                        double carried_kg,
+                                        bool tankering = true) {
         const auto& dest_state = get_station_state(destination.id);
         const double after_arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg) + carried_kg;
         // Economic tankering: where the destination sells fuel at more than twice this port's
         // price, the ship carries its return fuel rather than buying it there.
-        const double dest_fuel_kg = station_price(dest_state, "fuel") > TANKERING_PRICE_RATIO * planning_fuel_price
+        const double dest_fuel_kg = tankering && station_price(dest_state, "fuel") > TANKERING_PRICE_RATIO * planning_fuel_price
             ? 0.0
             : fuel_for_sale_on_arrival_kg(economy_, destination, dest_state,
                   delay_days + plan.travel_time_s / 86400.0);
@@ -1804,6 +1819,12 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             }
             carried_kg += missing_kg;
         }
+        // Tankering is a preference: a ship that cannot carry its return fuel buys it at the
+        // destination, however dear (before, it could not fly to a dear port at all: no light
+        // freighter went to Mars while Mars sold fuel at more than twice Earth's price).
+        if (leave_shortfall_kg(destination, plan, cargo_kg, 0.0, false) <= 0.0) {
+            return FuelAwarePlan {&plan, 0.0, true};
+        }
         return FuelAwarePlan {&plan, 0.0, false};
     };
 
@@ -1881,6 +1902,17 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         double units {0.0};
     };
     std::unordered_map<std::string, std::vector<FollowUp>> follow_ups_by_destination;
+    // A follow-up leg counts only if the ship could leave its destination again: with what it has
+    // left plus what that port can sell it, for a leg as long, flown empty. (Without this, ships
+    // shuttled empty between Earth L1 and Low Earth Logistics, each time for a follow-up to Mars
+    // that, once there, they could not fly: no fuel at Mars to leave again.)
+    const auto can_leave_again = [&](const domain::StationDefinition& next, const LegEstimate& leg,
+                                     double departure_kg, double days_ahead) {
+        const double left_kg = std::max(0.0, departure_kg - leg.propellant_kg);
+        const double for_sale_kg = fuel_for_sale_on_arrival_kg(economy_, next, get_station_state(next.id),
+            days_ahead + leg.travel_days);
+        return left_kg + for_sale_kg >= leg.propellant_kg * (1.0 + PROPELLANT_RESERVE_FRACTION);
+    };
     const auto follow_ups_from = [&](const domain::StationDefinition& destination,
                                      const domain::TrajectoryPlan& plan,
                                      double carried_kg) -> const std::vector<FollowUp>& {
@@ -1939,7 +1971,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                     }
                     const auto estimate = estimate_leg(ship_class, destination, next, plan.arrival_time_s, departure_kg,
                         provisions_kg + lot * get_commodity(commodity_id).mass_per_unit_kg);
-                    if (!estimate.feasible) {
+                    if (!estimate.feasible || !can_leave_again(next, estimate, departure_kg, follow_days)) {
                         continue;
                     }
                     const double lot_profit = sale_value_on_arrival(next_state, commodity_id,
@@ -3590,9 +3622,9 @@ Simulation::CommissionStep Simulation::commission_step() {
             OrderQuote quote;
             quote.open_units = std::max(0.0, levels.order_up_to_units - destination_stock);
             quote.extra_units = std::max(0.0, levels.max_units - std::max(destination_stock, levels.order_up_to_units));
-            quote.price = order->second.order_price;
-            quote.extra_price = std::min(order->second.order_price, order->second.going_rate)
-                * (1.0 - universe_.orders.extra_discount);
+            // Over a route's years the station pays its going rate (today's bid may be a probe).
+            quote.price = order->second.going_rate;
+            quote.extra_price = order->second.going_rate * (1.0 - universe_.orders.extra_discount);
             quote.floor_price = std::min(quote.extra_price,
                 economy::PRICE_FLOOR_MULTIPLIER * economy_.reference_price(destination, commodity_id));
             return quote_split(quote, 0.0, units).total;

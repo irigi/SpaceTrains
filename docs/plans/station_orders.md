@@ -280,3 +280,34 @@ fly to Mars without fuel there for the way back, so a fuel shortage there also s
 machinery and food.
 
 Debug aid: `SPACETRAINS_TRACE_DELIVERIES=1` logs every delivery.
+
+**Investigation, continued (2026-10-16).** Bisecting with order pricing on (four starts each):
+
+| order pricing on, except… | unmet | last fifth |
+|---|---|---|
+| nothing (as built) | 8.7 ± 1.0% | 3.6% |
+| ships paid along the curve (no quote) | 6.5 ± 0.9% | 3.5% |
+| … and resale along the curve | 7.4 ± 1.6% | 4.7% |
+| … and fleet investment along the curve | 5.0 ± 1.3% | 4.5% |
+
+So the quote and fleet investment's valuation each cost about two points. Found and fixed on the way:
+
+- **Investment valued routes at today's bid**, which in a calm order probes toward the floor, so local
+  routes looked worthless. It now uses the going rate (and the bound the higher of bid and going rate).
+- **The bid fell on a timer while nobody came.** Earth L1's water bid fell from 21 to 12 cr over 40 days
+  as its stock ran out. Now an open order nobody takes rises (every `raise_days`, daily in a hurry), and
+  the bid falls a step only while ships take slices and there is no hurry.
+- **Phantom follow-ups (also with pricing off):** the two-leg forecast did not check that the ship could
+  leave the follow-up's destination again, so ships shuttled empty between Earth L1 and Low Earth
+  Logistics, each time for a follow-up to Mars they could not fly. Follow-ups now need fuel to leave.
+- **Tankering was a hard rule:** a ship that could not carry its return fuel to a port selling at more
+  than twice the origin's price could not go there at all. It now buys there instead.
+
+With pricing off these change nothing measurable (4.3 ± 0.8%, last fifth 2.9 ± 0.8%). With pricing on,
+unmet stays at 8.5 ± 2.5% (last fifth 6.8%). Each order's price now behaves sensibly, so the likely cause is
+systemic. The fleet is short everywhere, so most orders go untaken and every bid that rises on "nobody
+came" ends at its cap. With many stations at their caps there is no relative signal left, and ships choose
+by cap level, not by which station is closest to running out. The curve's price is a function of the
+state (how depleted each station is), so it ranks them by need.
+
+Debug aid: `SPACETRAINS_TRACE_ORDER="<station>:<good>"` logs an order once a day.
