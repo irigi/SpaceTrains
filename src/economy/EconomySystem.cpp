@@ -41,7 +41,6 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     }
     compute_cover_days();
     reference_prices_ = universe_.pricing.reference_prices;
-    compute_price_caps();
     for (const auto& event : universe_.events) {
         events_by_id_[event.id] = &event;
     }
@@ -62,35 +61,6 @@ double EconomySystem::event_factor(const domain::StationState& station, const do
         }
     }
     return factor;
-}
-
-// Step 24: an input's cap is what a unit of it makes, input_value_share of the value of the
-// outputs it feeds at this station's prices, within [price_cap, input_price_cap] x its centre.
-// Earth L1's water makes ~1,700 cr of food and oxygen a unit, so a dry farm pays up to 12x its
-// landed cost instead of 4x; at its target stock the price is still the reference.
-void EconomySystem::compute_price_caps() {
-    price_caps_.clear();
-    const auto& pricing = universe_.pricing;
-    for (const auto& station : universe_.stations) {
-        const auto& recipes = recipes_of(station);
-        for (const auto* input : recipes) {
-            if (input->role != domain::RecipeRole::Input || input->units_per_day >= 0.0) {
-                continue;
-            }
-            double value_per_day = 0.0;
-            for (const auto* output : recipes) {
-                if (output->role == domain::RecipeRole::Output && output->units_per_day > 0.0
-                    && std::find(input->feeds.begin(), input->feeds.end(), output->commodity_id) != input->feeds.end()) {
-                    value_per_day += output->units_per_day * reference_price(station, output->commodity_id);
-                }
-            }
-            const double centre = reference_price(station, input->commodity_id);
-            const double derived = pricing.input_value_share * value_per_day / -input->units_per_day;
-            const double cap = std::clamp(derived / centre, pricing.price_cap, pricing.input_price_cap);
-            double& entry = price_caps_[station.id][input->commodity_id];
-            entry = std::max(entry, cap);
-        }
-    }
 }
 
 // A consumer's target stock (where its price is the base price) covers three weeks of
@@ -457,7 +427,6 @@ double EconomySystem::reference_price(const domain::StationDefinition& station, 
 
 void EconomySystem::set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices) {
     reference_prices_ = std::move(prices);
-    compute_price_caps();
 }
 
 bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -467,12 +436,7 @@ bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const st
     });
 }
 
-double EconomySystem::price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const {
-    if (const auto station_it = price_caps_.find(station.id); station_it != price_caps_.end()) {
-        if (const auto it = station_it->second.find(commodity_id); it != station_it->second.end()) {
-            return it->second;
-        }
-    }
+double EconomySystem::price_cap(const domain::StationDefinition& /*station*/, const std::string& /*commodity_id*/) const {
     return universe_.pricing.price_cap;
 }
 

@@ -1198,7 +1198,7 @@ Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, co
     // with the fleet short of ships, so ships chose by cap, not by need (8.5% unmet against 4.3%).
     // The projected stock at arrival ranks stations by how short and how soon; the price is flat
     // over the slice, so a big delivery does not cut its own price.
-    // The cap is the lower of today's (4x, inputs up to 12x) and what the good is worth to the
+    // The cap is the lower of price_cap (4x; inputs input_cap, 12x) and what the good is worth to the
     // station, V (step 3), so an input that does not pay is not bought dear. V alone as the cap
     // let any dip in stock pay up to 75x for an input, and residents pay what their station paid:
     // money grew 2-5x in four years and unmet rose to 7.8%. Oxygen and water above the station's
@@ -1209,10 +1209,13 @@ Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, co
     double station_ceiling = 0.0;
     order_ceiling(state, commodity_id, kind, station_ceiling);
     OrderBid bid;
-    // Depot fuel: its own ceiling (depot_fuel_value x the reference), not today's cap.
-    bid.cap = kind == "depot_fuel" ? std::max(economy::PRICE_FLOOR_MULTIPLIER * reference, station_ceiling)
-        : reference * std::clamp(station_ceiling / reference, economy::PRICE_FLOOR_MULTIPLIER,
-            std::max(economy::PRICE_FLOOR_MULTIPLIER, economy_.price_cap(definition, commodity_id)));
+    // Depot fuel: its own ceiling (depot_fuel_value x the reference). An input: its V within
+    // [price_cap, input_cap], which with keep_share 0.75 is step 24's cap (a quarter of the value
+    // of what a unit makes, 4-12x). V at 80% of the margin up to 12x: 3.9% unmet against 3.3%.
+    const double limit = kind == "depot_fuel" ? station_ceiling / reference
+        : kind == "input" ? universe_.orders.input_cap : universe_.pricing.price_cap;
+    const double lowest = kind == "input" ? universe_.pricing.price_cap : economy::PRICE_FLOOR_MULTIPLIER;
+    bid.cap = reference * std::clamp(station_ceiling / reference, std::min(lowest, limit), std::max(lowest, limit));
     if (levels.order_up_to_units <= 0.0) {
         bid.price = std::min(reference, bid.cap);
         return bid;

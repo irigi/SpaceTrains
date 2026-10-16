@@ -82,7 +82,7 @@ public:
     // The station consumes this good as upkeep (life support and crew needs).
     [[nodiscard]] bool is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const;
     // The highest multiple of its centre a station's curve for a good reaches (at an empty
-    // stock): price_cap, or more for an input worth more by what it makes (step 24).
+    // stock): price_cap. Station orders cap their bids themselves (step 29).
     [[nodiscard]] double price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const;
     void set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices);
     // The stock at which the station's curve (before clamping) is at `multiplier` x its centre.
@@ -94,7 +94,6 @@ public:
 
 private:
     void compute_cover_days();
-    void compute_price_caps();
     // The multiple of a recipe's rate the events running at a station allow (step 28).
     [[nodiscard]] double event_factor(const domain::StationState& station, const domain::RecipeDefinition& recipe) const;
     // reference_price for a caller that passes the base price.
@@ -120,8 +119,6 @@ private:
     std::unordered_map<std::string, const domain::EventDefinition*> events_by_id_;
     // Current populations by station id (step 27).
     std::unordered_map<std::string, double> populations_;
-    // Price caps above pricing.price_cap, by station id and good (inputs only).
-    std::unordered_map<std::string, std::unordered_map<std::string, double>> price_caps_;
 };
 
 }  // namespace spacetrains::economy

@@ -191,11 +191,6 @@ struct PricingDefinition {
     // the good (step 23), at most max_cover_days: a delivery has to last until the next one.
     double cover_round_trip_factor {0.0};
     double max_cover_days {365.0};
-    // An input's curve may rise past price_cap, up to this share of the value of the outputs one
-    // unit of it makes, at most input_price_cap x its centre (step 24): water that keeps a farm
-    // running is worth more to it than its landed cost.
-    double input_value_share {0.0};
-    double input_price_cap {4.0};
     // A consumer's reference price (the centre of its curve) by station id and good: the
     // landed cost from the cheapest producer. Goods not listed are centred on their base price.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices;
@@ -210,10 +205,11 @@ struct OrdersDefinition {
     double extra_discount {0.1};       // d: the station buys past its order-up-to level only this far below its going rate
     double max_extra_days {90.0};      // the extra covers at most this many days of use (and one interval)
     double resale_margin {0.1};        // a consumer sells to ships (provisions, depot fuel) at its bid on its stock plus this
-    double keep_share {0.2};           // of an input's marginal profit the station keeps (the rest is its ceiling)
+    double keep_share {0.75};          // of an input's marginal profit the station keeps (the rest is its ceiling)
     double life_value {24.0};          // x reference: what the faction pays for oxygen and water at most
     double consume_value {4.0};        // x reference: the ceiling for goods used up without output (construction, science)
     double depot_fuel_value {8.0};     // x reference: the cap for fuel at a depot without a factory (not min with price_cap)
+    double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
 struct StationDefinition {

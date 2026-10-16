@@ -847,8 +847,6 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"reference_departures", &pricing.reference_departures},
             {"cover_round_trip_factor", &pricing.cover_round_trip_factor},
             {"max_cover_days", &pricing.max_cover_days},
-            {"input_value_share", &pricing.input_value_share},
-            {"input_price_cap", &pricing.input_price_cap},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
@@ -867,9 +865,6 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
         if (pricing.price_cap < 1.0 || pricing.carrier_margin < 0.0 || pricing.reference_departures < 1.0) {
             throw std::runtime_error("price_cap and reference_departures must be at least 1 in " + pricing_path.string());
-        }
-        if (pricing.input_value_share < 0.0 || pricing.input_price_cap < pricing.price_cap) {
-            throw std::runtime_error("input_value_share must be >= 0 and input_price_cap >= price_cap in " + pricing_path.string());
         }
         if (pricing.cover_round_trip_factor < 0.0 || pricing.max_cover_days < 21.0) {
             throw std::runtime_error("cover_round_trip_factor must be >= 0 and max_cover_days >= 21 in " + pricing_path.string());
@@ -893,6 +888,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"life_value", &orders.life_value},
             {"consume_value", &orders.consume_value},
             {"depot_fuel_value", &orders.depot_fuel_value},
+            {"input_cap", &orders.input_cap},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];

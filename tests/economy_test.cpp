@@ -51,13 +51,6 @@ int main() {
             "price at target stock must equal the reference price");
         require_near(economy.get_price(agri, "water", 0.0, base), base * economy.price_cap(agri, "water"), 1.0e-9,
             "price at zero stock must clamp at the price cap");
-        // An input's cap rises with what it makes (step 24): Earth L1's water feeds its farms.
-        require(economy.price_cap(agri, "water") > universe.pricing.price_cap,
-            "Earth L1's water must be worth more than 4x its landed cost to a dry farm");
-        require(economy.price_cap(agri, "water") <= universe.pricing.input_price_cap + 1.0e-9,
-            "an input's cap must stay within input_price_cap");
-        require_near(economy.price_cap(agri, "medicine"), universe.pricing.price_cap, 1.0e-9,
-            "a good that is not an input keeps the price cap");
         // Distant consumers pay more for carriage; producers keep the base price.
         const auto station = [&](const char* id) -> const auto& {
             return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
