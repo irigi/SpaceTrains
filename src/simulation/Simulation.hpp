@@ -142,9 +142,8 @@ private:
     // for a good it is a net consumer of, and for depot fuel where it has no factory, never at
     // an export market; it then has OrderStats for the good.
     [[nodiscard]] bool has_order(const domain::StationDefinition& station, const std::string& commodity_id) const;
-    // Ships are paid under the station's order for the good (orders.csv order_pricing on), not
-    // along its curve. Off for now: order pricing raised unmet demand from 4.5% to 8.7% in step 2
-    // and is being investigated; the orders are still observed and shown.
+    // Ships are paid under the station's order for the good, not along its curve: true wherever
+    // the station has OrderStats for it (step 29).
     [[nodiscard]] bool priced_order(const domain::StationState& state, const std::string& commodity_id) const;
     // What a station expects before its first delivery: the reference trip's lead and interval
     // (21 days within one planet's system), half the lead as spread, the reference price.

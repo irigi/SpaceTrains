@@ -16,7 +16,7 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-11) — start here
+## Current Plan (updated 2026-10-16) — start here
 
 Branch `feature/bugfixes_ship_structures_and_trajectories` (from `main` after PR #12; earlier work on
 `feature/opus5_5_return`) (solo repo: commit on the branch, no PRs, push only when asked).
@@ -140,12 +140,19 @@ surplus covering station deficits, 27 station growth, 28 random events and stori
 on: unmet 4.4 +- 0.4%, last ~290 days 2.3 +- 0.9%, 77/94 profitable, ~13 emergencies, no faction over its limit,
 ~4.6 events a year, drift 0.
 
-Reviewed by the user 2026-10-15 (logs updated; the station budget gate deleted). Next: **step 29, station
-purchase orders** (`docs/plans/station_orders.md`): demand from need ((s, S) per good from observed delivery
-intervals), a price that rises until ships come and probes down when they do, ceilings from what a good is
-worth. It replaces the consumer price curve, the step 24 caps, emergencies and the depot fuel buffer, and is
-meant to fix Mars fuel. Still open: the Earth cluster's local supply (Low Earth Logistics metals and food, Earth
-L1 water at 10-17%).
+Reviewed by the user 2026-10-15 (logs updated; the station budget gate deleted). **Step 29, station purchase
+orders** (`docs/plans/station_orders.md`), built 2026-10-16, awaiting the user's review:
+- Each consumer good and depot fuel has an order: (s, S) quantities from the observed use, lead, interval and
+  spread.
+- The bid comes from the projected stock at arrival (contracts counted), flat over the open quantity, capped by
+  the good's ceiling within 4× (inputs 12×, depot fuel 8×).
+- A greedy manifest builder fills holds by margin net of propellant.
+- It replaced the consumer curve, cover days, the step 24 caps and the depot buffer. Emergencies are the
+  faction's premium above the station's cap.
+- Four starts, 1460 days: unmet 1.5% (1.1-1.6), last fifth 1.7%, no Mars fuel shortage in year 4,
+  85/93 profitable, money +20 to +49%, drift 0.
+- Open: prices paid are 2-12× the reference at most stations (the acceptance check of 1.5× fails; lower bids
+  lost supply); the urgency weight is still needed.
 
 Wobbly outer-moon paths (user, 2026-10-09): resolved 2026-10-11, confirmed by the user. Godot interpolated r/θ
 linearly between path samples, which bowed long near-radial legs by up to 0.03 AU; it now uses a cubic Hermite.

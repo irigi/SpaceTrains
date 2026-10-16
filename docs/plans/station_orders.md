@@ -403,3 +403,54 @@ At 12×, Mars pays enough to sink its own balance. A fleet cap of 120 ships (fro
 gave 4.7 ± 1.2% unmet and 19% Mars fuel, so fleet size is not the constraint. Note for setting up
 variants: a work dir needs the `tests` symlink as well as `build`; without it, plasma ships cannot plan
 and the fleet collapses (27% unmet, 30 s runs).
+
+**4c. Cleanup.** Three commits:
+1. Orders are always on: the `order_pricing` switch and the curve's emergency split are gone. An emergency's
+   premium starts at the station's cap. Depot fuel is ordered at every station without a fuel factory.
+   Neutral (3.3 ± 0.9%).
+2. The step 24 caps are folded into the orders. An input's cap is its ceiling V, kept within
+   [`price_cap`, `input_cap` = 12]. With `keep_share` 0.75, V is step 24's quarter of the output value.
+   - The result is identical (3.3%).
+   - V at 80% of the margin, with no lower bound of 4×, gave 3.9% unmet and failed the money test, though its
+     last fifth was better (0.7%).
+3. Cover days, `cover_round_trip_factor` and `depot_buffer_units` are removed. A fuel factory keeps its buffer
+   (`factory_buffer_days`). Stations start at their seeded order-up-to level S instead of the cover target,
+   which gives distant stations about 1.9 reference round trips of stock instead of 1.2. The bridge's
+   `target_stock` shows S for ordered goods.
+   - Unmet 1.5% (1.1–1.6) against 3.3%; the last fifth is unchanged at 1.7%, so the gain comes from the early
+     years.
+   - No Mars fuel shortage in the last fifth.
+   - Money ends +20 to +49% (the 180-day test stays inside ±35%).
+
+The save format is unchanged (only data keys went), so the save version stays at 13. The data fingerprint
+changes with the keys.
+
+**4d. Acceptance checks** (final code, 4 starts × 1460 days; scratchpad `accept.py`), against the step-1
+baseline (curve pricing, old load fractions):
+
+| check | step 1 (curve) | final | verdict |
+|---|---|---|---|
+| unmet | 4.5 ± 1.4% | 1.5% | met (target ≤ 4.4%) |
+| last fifth | 3.1 ± 2.3% | 1.7% | met (≤ 2.3%) |
+| Mars fuel, last fifth | 34% | 0% | met (< 20%) |
+| price paid within 1.5× of reference | 40% of station goods (median 2.0×) | 16% (median 2.4×) | **fails** |
+| no stock above Smax at the end | 51 cases | 63 cases | **fails** (floor-price dumps) |
+| larger lots on long routes | Mars 1,025 u, Ganymede 663 u, Titan 534 u | Mars 1,160 u, Ganymede 940 u, Titan 535 u | met (Titan flat) |
+| hold share per arrival | 74% | 66% | lower (more big hulls on short hops) |
+| flags, drift, run time | 0, 0, 95–104 s | 0, 0, 106 s | met |
+
+**Prices** are high because the bid pays the reference only when a delivery lands on a full stock (S), and
+the capacity-short fleet usually delivers near the safety stock. Bids centred lower lost supply:
+- centre B: 5.7 ± 1.6% unmet;
+- centre R = B + uL: 4.3 ± 1.3%;
+- against 3.3% at the time.
+
+High prices are what pull ships in here. Residents pay what their station paid, so money runs higher too.
+
+**Stocks above Smax** are mostly floor-price dumps (Mercury food, Ganymede oxygen). The floor is 0.25 ×
+reference beyond the extra, and that still pays when the cargo was cheap.
+
+For review:
+- Is the price level acceptable, given that unmet demand is the best so far?
+- Should the floor beyond Smax be lower (or zero) to stop dumps?
+- Should money growth be checked (+20 to +49%)?
