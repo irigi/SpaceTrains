@@ -1208,7 +1208,7 @@ Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, co
     const double reference = economy_.reference_price(definition, commodity_id);
     std::string kind;
     double station_ceiling = 0.0;
-    order_ceiling(state, commodity_id, kind, station_ceiling);
+    static_cast<void>(order_ceiling(state, commodity_id, kind, station_ceiling));
     OrderBid bid;
     // Depot fuel: its own ceiling (depot_fuel_value x the reference). An input: its V within
     // [price_cap, input_cap], which with keep_share 0.75 is step 24's cap (a quarter of the value
