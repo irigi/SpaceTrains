@@ -311,3 +311,38 @@ by cap level, not by which station is closest to running out. The curve's price 
 state (how depleted each station is), so it ranks them by need.
 
 Debug aid: `SPACETRAINS_TRACE_ORDER="<station>:<good>"` logs an order once a day.
+
+### State-based bid, pricing on (2026-10-16)
+
+The user approved replacing time-based discovery with a bid on the state. An order's price for a delivery
+landing at t is the curve's shape around the reference price, applied to the order's own levels:
+P(t) = ref × clamp((S / p(t))^1.3, 0.25, price_cap). Here p(t) is the projected stock at arrival with every
+earlier contract counted, and S is the order-up-to level. P is flat over the open quantity N(t); the extra
+is paid at min(P, G)(1 − d) and anything past that at the floor. The quantities, lead, interval and spread
+are still learned. The going rate G is now only observed, and is used for the extra and for ceilings. The
+raise timers and `probe_discount`, `raise_factor` and `raise_days` are gone (save version 13).
+
+Fleet investment values a route with the same bid on its projected destination stock. A station resells
+an ordered good to ships at its bid on today's stock plus `resale_margin`. Before, it resold at its import
+cost plus the margin, so a hub resold dear whatever it had once bought in a shortage.
+
+| 4 starts × 1460 days | unmet | last fifth |
+|---|---|---|
+| pricing off (curve) | 4.3 ± 0.8% | 2.9 ± 0.8% |
+| time-based bid | 8.5 ± 2.5% | 6.8% |
+| state bid, investment at G, resale at import cost | 6.7 ± 0.3% | 5.3 ± 1.7% |
+| + investment on the bid | 5.2 ± 2.0% | 2.0 ± 2.1% |
+| + resale along the curve | 4.3 ± 0.3% | 2.2 ± 0.6% |
+| + resale at the bid on today's stock (**on by default**) | 4.0 ± 1.1% | 1.4 ± 1.0% |
+
+Tests changed with pricing on:
+- **Emergency test:** the faction pays only above the station's bid, and the bid on an empty stock (4×)
+  is already above the 3× premium. The test now checks that bid. Mercury's oxygen recovers by day 170
+  (218 with pricing off).
+- **Money test:** the 180-day band is now ±35%, up from ±25%. A delivery is paid one flat price, so
+  imports, and what residents pay for them, start higher: +32% against +24%.
+
+Still open:
+- Mars fuel (about 37% unmet over the last fifth).
+- Station money in one start: −79%, from Mars's balance, as before.
+- Step 3: the ceilings V replace `price_cap` as the cap, and emergencies fold into orders.

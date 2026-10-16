@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 12;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices
+constexpr int kSaveVersion = 13;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers)
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -255,9 +255,6 @@ Json station_to_json(const domain::StationState& s) {
         entry.set("last_delivery_s", stats.last_delivery_s);
         entry.set("deliveries", static_cast<double>(stats.deliveries));
         entry.set("order_price", stats.order_price);
-        entry.set("last_taken_s", stats.last_taken_s);
-        entry.set("last_raise_s", stats.last_raise_s);
-        entry.set("hurry", stats.hurry);
         order_stats.set(commodity_id, std::move(entry));
     }
     out.set("order_stats", std::move(order_stats));
@@ -304,9 +301,6 @@ domain::StationState station_from_json(const Json& j) {
             .last_delivery_s = entry.get("last_delivery_s").number(),
             .deliveries = static_cast<int>(entry.get("deliveries").number()),
             .order_price = entry.get("order_price").number(),
-            .last_taken_s = entry.get("last_taken_s").number(),
-            .last_raise_s = entry.get("last_raise_s").number(),
-            .hurry = entry.get("hurry").boolean(),
         };
     }
     s.population = j.get("population").number();
@@ -343,9 +337,8 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
     const auto& orders = universe_.orders;
-    mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.order_pricing, orders.safety_factor,
-        orders.ema_deliveries, orders.extra_discount, orders.max_extra_days, orders.probe_discount, orders.raise_factor,
-        orders.raise_days, orders.resale_margin, orders.keep_share, orders.life_value, orders.consume_value,
+    mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.order_pricing, orders.safety_factor,
+        orders.ema_deliveries, orders.extra_discount, orders.max_extra_days, orders.resale_margin, orders.keep_share, orders.life_value, orders.consume_value,
         orders.depot_fuel_value));
     for (const auto& recipe : universe_.recipes) {
         mix(std::format("r{}|{}|{}|{}|{};", recipe.profile_id, recipe.station_id, recipe.commodity_id, recipe.units_per_day,

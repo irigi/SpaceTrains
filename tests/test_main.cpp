@@ -885,6 +885,17 @@ int main() {
         require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
             "the emergency should be for Mercury's oxygen");
         require(snap.emergencies.front().premium == 3.0, "an emergency should start at a 3x premium");
+        // Under station orders (step 29) the faction pays only above the station's own bid, and a
+        // bid on an empty stock is already past the premium.
+        const bool order_pricing = sim.universe().orders.order_pricing;
+        if (order_pricing) {
+            const auto mercury = std::find_if(snap.stations.begin(), snap.stations.end(),
+                [](const auto& station) { return station.station_id == "mercury_yard"; });
+            require(mercury != snap.stations.end() && mercury->orders.contains("oxygen"), "Mercury should order oxygen");
+            const auto& order = mercury->orders.at("oxygen");
+            require(order.order_price >= snap.emergencies.front().premium * order.reference_price,
+                "an empty stock's order should bid at least the emergency premium");
+        }
 
         auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
         resumed.load_state_json(sim.save_state_json());
@@ -906,12 +917,12 @@ int main() {
             ++days;
         }
         require(!mercury_oxygen_open(), "an emergency should close once enough is on its way");
-        while (days < 300 && sim.snapshot().emergency_paid <= 0.0) {
+        while (!order_pricing && days < 300 && sim.snapshot().emergency_paid <= 0.0) {
             sim.step(1.0);
             ++days;
         }
         snap = sim.snapshot();
-        require(snap.emergency_paid > 0.0, "the faction should pay the emergency premium");
+        require(order_pricing || snap.emergency_paid > 0.0, "the faction should pay the emergency premium");
         std::cout << std::format("Emergency: Mercury oxygen resupplied in {} days, factions paid {:.0f} cr\n",
             days, snap.emergency_paid);
     }

@@ -210,10 +210,7 @@ struct OrdersDefinition {
     double ema_deliveries {4.0};       // the observed lead, interval and spread average over this many deliveries
     double extra_discount {0.1};       // d: the station buys past its order-up-to level only this far below its going rate
     double max_extra_days {90.0};      // the extra covers at most this many days of use (and one interval)
-    double probe_discount {0.05};      // delta: with no hurry the order bids this far below the going rate
-    double raise_factor {1.1};         // rho: an urgent order nobody takes rises by this factor...
-    double raise_days {5.0};           // ...every this many days, up to its ceiling
-    double resale_margin {0.1};        // a consumer sells to ships (provisions, depot fuel) at its import cost plus this
+    double resale_margin {0.1};        // a consumer sells to ships (provisions, depot fuel) at its bid on its stock plus this
     double keep_share {0.2};           // of an input's marginal profit the station keeps (the rest is its ceiling)
     double life_value {24.0};          // x reference: what the faction pays for oxygen and water at most
     double consume_value {4.0};        // x reference: the ceiling for goods used up without output (construction, science)
@@ -480,11 +477,8 @@ struct OrderStats {
     double going_rate {0.0};           // G: what it has agreed to pay per unit, units-weighted
     double last_delivery_s {-1.0};     // -1: none yet
     int deliveries {0};
-    // The order's price now (step 2), when a ship last took a slice of it, and when it last rose.
+    // The order's bid for a delivery one lead time from now (set each tick; quotes make their own).
     double order_price {0.0};
-    double last_taken_s {0.0};
-    double last_raise_s {0.0};   // when it last rose or fell
-    bool hurry {false};          // the projected stock falls below the safety stock within the lead time
 };
 
 // The order a station would post for a good, derived from its OrderStats, its stock and the

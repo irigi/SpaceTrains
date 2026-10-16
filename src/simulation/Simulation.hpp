@@ -185,8 +185,12 @@ private:
         double arrival_s, const std::string& except_ship_id) const;
     // The value of the units [from, from + units) of a delivery under a quote.
     [[nodiscard]] SaleSplit quote_split(const OrderQuote& quote, double from, double units) const;
-    // Probes the order price down while there is no hurry and raises it while the projected stock
-    // falls below the safety stock and no ship takes the order (step 29, section 3).
+    // The order's bid for a delivery that finds `stock_at_arrival` (every earlier contract
+    // counted): the curve's shape around the reference, on the order-up-to level.
+    [[nodiscard]] double order_bid(const domain::StationState& state, const std::string& commodity_id,
+        const OrderLevels& levels, double stock_at_arrival) const;
+    // Sets each order's posted price to its bid for a delivery one lead time from now (shown in
+    // the inspector and the audit; quotes compute their own).
     void step_orders();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;

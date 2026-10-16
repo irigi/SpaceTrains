@@ -368,10 +368,12 @@ int main() {
         require(open.station_credit_ceiling > open.station_credit_floor, "open_economy.csv must enable a credit band");
         require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,
             "the money-supply target must grow by the working capital of new ships");
-        // Since step 17 the controller only measures (money_supply_days 0): money enters and
-        // leaves through reasons (residents' wages at reference prices, Earth's purchases, hulls,
-        // interest), and must still not run away.
-        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < (open.money_supply_days > 0.0 ? 0.25 : 0.5),
+        // Money enters and leaves through reasons (residents paying what their station paid,
+        // Earth's purchases, hulls, interest) and a slow controller (money_supply_days) pulls it
+        // back, and it must not run away. Under station orders (step 29) a delivery is paid one
+        // flat price, so imports and what residents pay start higher: 180 days end at +32%
+        // (+24% on the curve).
+        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < (open.money_supply_days > 0.0 ? 0.35 : 0.5),
             "stations + ships must stay near the seeded money");
         // Dividends drain cash above the reserve over a month: a ship just paid for a big hold may
         // hold more for a while, but not the fleet on average.

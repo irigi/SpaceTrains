@@ -12,6 +12,8 @@ inline constexpr const char* FUEL_ID = "fuel";
 
 // The lowest price a station pays, as a multiple of its curve centre (or its going rate, step 29).
 inline constexpr double PRICE_FLOOR_MULTIPLIER = 0.25;
+// Price elasticity: how sharply prices respond to stock deviating from target.
+inline constexpr double PRICE_ELASTICITY = 1.3;
 
 // Recipe rates are per this many inhabitants; a station's rates scale with its population.
 inline constexpr double RATE_REFERENCE_POPULATION = 10'000.0;
