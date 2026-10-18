@@ -454,9 +454,16 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                         auto computed = std::make_shared<Refinement>();
                         variable_isp::ShootingSettings geometric = shooting;
                         geometric.fit_fuel_budget = false;
+                        // The shared geometry is refined at the cell's own kappa, not the asking
+                        // ship's: the path does not depend on kappa, but the integration does in
+                        // the last digits, so the first ship to ask decided what every later one
+                        // got, and a loaded game (empty cache) drifted from one never stopped.
+                        const auto geometric_config = variable_isp::VariableIspIntegrator::canonical_config(
+                            rho, kappa_grid[cells[c].second]);
                         for (const double wait : waits) {
                             const auto departure = departure_after(wait);
-                            auto result = integrator_.refine_seed_stm(refined.seed, config, station_target_for(departure), geometric);
+                            auto result = integrator_.refine_seed_stm(refined.seed, geometric_config,
+                                station_target_for(departure), geometric);
                             const bool converged = result.converged;
                             computed->by_wait.emplace_back(departure, std::move(result));
                             if (converged) break;

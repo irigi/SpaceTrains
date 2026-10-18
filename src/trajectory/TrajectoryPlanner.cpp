@@ -342,8 +342,16 @@ std::shared_ptr<const std::vector<KeplerTrajectoryPlanner::LambertCell>> KeplerT
                 if (const auto it = lambert_rows_.find(key); it != lambert_rows_.end()) row = it->second;
             }
             if (!row) {
+                // The row's own Hohmann time (at its departure), not the asking plan's: a moon's
+                // distance from the Sun changes over its orbit, and a row shared by plans of
+                // different dates held the first plan's, so a loaded game (empty cache) planned
+                // differently from one never stopped.
+                const double r1 = std::max(1.0, mechanics_.get_heliocentric_radius(origin_body_id, departure_s));
+                const double r2 = std::max(1.0, mechanics_.get_heliocentric_radius(destination_body_id, departure_s));
+                const double axis = std::max(1.0, (r1 + r2) * 0.5);
+                const double row_hohmann_s = PI * std::sqrt((axis * axis * axis) / mu);
                 auto computed = std::make_shared<const std::vector<LambertCell>>(
-                    lambert_row(origin_body_id, destination_body_id, departure_s, hohmann_time_s, mu));
+                    lambert_row(origin_body_id, destination_body_id, departure_s, row_hohmann_s, mu));
                 const std::lock_guard lock(lambert_mutex_);
                 if (lambert_rows_.size() >= 65536) lambert_rows_.clear();
                 row = lambert_rows_.emplace(key, std::move(computed)).first->second;
