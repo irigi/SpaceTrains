@@ -8,6 +8,32 @@ the ratio brings the price back). The user asked for a system that covers demand
 ships that pay their way and stations that do not overpay, and asked explicitly for rotation contracts
 with multi-stop loops.
 
+## Decision (2026-10-19)
+
+The game now runs **competitive pricing plus rotation contracts** ("y2"):
+
+- **Pricing:** `competitive` 1, `ask_open_units` 1, urgency e = 1 capped at 3.
+- **Contracts:** `contracts` 1, up to 4 stops, cover 1.0, priced cost-plus +100% (`contract_cost_plus` 1, at
+  most the going rate), signed at ≥ 0.5 × the best spot score.
+
+On 8 starts × 4 years against the reference:
+
+| | Reference | Contracts alone | y2 (default) |
+|---|---|---|---|
+| Unmet demand | 1.3 ± 0.3% | 0.9 ± 0.3% | 1.3 ± 0.3% |
+| Last fifth | 1.2 ± 0.6% | 1.1 ± 1.1% | 1.6 ± 1.4% |
+| Price paid ÷ reference | 2.64 | 2.56 | 1.69 |
+| Ship margin / cost per unit | 216 / 34 cr | 196 / 34 cr | 134 / 35 cr |
+| Profitable ships | 85% | 83% | 75% |
+| Ships on contracts | 0 | 12 | 7 |
+| 4-year run, 14 threads | 69 s | 62 s | 74 s |
+| Slowest 20 days | 6.2 days/s | 6.9 days/s | 5.3 days/s |
+
+So y2 supplies as well as the reference while stations pay a third less, and ships still earn about
+four times their operating cost on a unit. Contracts alone supply best and plan fastest, but leave the
+rent. To prefer supply over price, set `competitive` to 0 and use `contract_accept` 0.7 and
+`contract_cost_plus` 0, the contract settings tuned for posted prices.
+
 Everything below is a switch in `data/economy/market.csv` (optional keys, defaults in
 `domain::MarketDefinition`); with every switch off the economy is exactly the reference
 (`econ-ref-2026-10-18`). The log of experiments is `docs/plans/overnight_2026-10-19.md`.

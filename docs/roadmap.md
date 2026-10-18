@@ -16,7 +16,15 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-16) — start here
+## Current Plan (updated 2026-10-19) — start here
+
+**Market redesign, 2026-10-19 (branch `feature/market_redesign`, overnight):** stations now pay at
+most what ships near a source ask (competitive pricing), and ships sign rotation contracts on loops of
+up to four stops. Unmet demand is unchanged against the reference (1.3%) while stations pay a third
+less (1.69× against 2.64× the landed reference price). Every piece is a switch in
+`data/economy/market.csv`. Design and results: `docs/plans/market_redesign.md`; experiments and
+decisions to review: `docs/plans/overnight_2026-10-19.md`. Also fixed: a rare planner crash and two
+planner caches that broke exact save/load.
 
 Branch `feature/bugfixes_ship_structures_and_trajectories` (from `main` after PR #12; earlier work on
 `feature/opus5_5_return`) (solo repo: commit on the branch, no PRs, push only when asked).

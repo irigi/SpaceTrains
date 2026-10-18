@@ -927,15 +927,15 @@ int main() {
         require(snap.emergencies_opened == 1 && snap.emergencies.size() == 1, "an empty oxygen stock should open an emergency");
         require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
             "the emergency should be for Mercury's oxygen");
-        // The faction pays above the station's own cap, its order's bid on an empty stock, so the
-        // premium starts there (step 29).
+        // The faction pays above the station's own cap, so the premium starts there (step 29): at
+        // the order's bid on an empty stock, or above it where competitive prices cap the bid.
         {
             const auto mercury = std::find_if(snap.stations.begin(), snap.stations.end(),
                 [](const auto& station) { return station.station_id == "mercury_yard"; });
             require(mercury != snap.stations.end() && mercury->orders.contains("oxygen"), "Mercury should order oxygen");
             const auto& order = mercury->orders.at("oxygen");
-            require(std::abs(snap.emergencies.front().premium * order.reference_price - order.order_price) < 1.0e-6 * order.order_price,
-                "an emergency should start at the station's bid on an empty stock");
+            require(snap.emergencies.front().premium * order.reference_price >= order.order_price * (1.0 - 1.0e-6),
+                "an emergency should start at least at the station's bid on an empty stock");
         }
 
         auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
