@@ -2881,9 +2881,12 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
             ship.next_contract_review_s = game_time_s_ + spread * market.contract_review_days * 86400.0;
         }
     }
+    // A ship with no paying work (nothing, or only a repositioning) looks at once.
+    const bool no_work = market.contract_review_when_idle > 0.0 && choice.kind != MissionChoice::Kind::Mission
+        && ship.next_contract_review_s > 0.0;
     if (market.contracts > 0.0 && ship.contract.stops.empty() && liner_stops(ship) == nullptr
         && !(!ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s)
-        && game_time_s_ >= ship.next_contract_review_s) {
+        && (game_time_s_ >= ship.next_contract_review_s || no_work)) {
         ship.next_contract_review_s = game_time_s_ + market.contract_review_days * 86400.0;
         auto [contract, score] = find_contract(ship, ship_class);
         const double spot = choice.kind != MissionChoice::Kind::Mission ? 0.0

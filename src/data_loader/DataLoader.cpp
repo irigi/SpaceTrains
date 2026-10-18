@@ -942,6 +942,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 {"contract_max_stops", &market.contract_max_stops},
                 {"contract_term_days", &market.contract_term_days},
                 {"contract_review_days", &market.contract_review_days},
+                {"contract_review_when_idle", &market.contract_review_when_idle},
                 {"contract_cover", &market.contract_cover},
                 {"contract_accept", &market.contract_accept},
                 {"contract_vs_unweighted", &market.contract_vs_unweighted},

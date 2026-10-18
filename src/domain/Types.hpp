@@ -238,6 +238,7 @@ struct MarketDefinition {
     double contract_max_stops {4.0};   // stops in a loop, the ship's port included
     double contract_term_days {365.0};
     double contract_review_days {30.0};  // how often a ship without a contract looks for one
+    double contract_review_when_idle {0.0};  // 1: ... and at once whenever it has no paying work
     double contract_cover {0.7};       // of a station's uncontracted use a loop takes on
     double contract_accept {0.7};      // signs if the loop earns this x the best spot mission's score
     double contract_vs_unweighted {0.0};  // 1: ... against the spot mission's profit per day, not its urgency-weighted score
