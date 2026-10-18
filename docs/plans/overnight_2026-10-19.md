@@ -42,6 +42,18 @@ mean ± sd (`sweep.py` in the session scratchpad).
 | k3b, at most 3 stops (k8) | 1.2 ± 0.2 | 0.7 ± 1.1 | 2.56 ± 0.17 | 203 ± 12 | 33 ± 2 | 40 ± 1 | 20 / 19 | 84 ± 3 | −13 ± 20 | — |
 | k3b, accept 0.5 (k5) | 1.6 ± 0.3 | 1.6 ± 1.0 | 2.39 ± 0.01 | 194 ± 10 | 30 ± 2 | 39 ± 2 | 21 / 18 | 84 ± 4 | +4 ± 5 | — |
 | k3b, cover 1.0 (k6) | 1.0 ± 0.2 | 0.7 ± 0.4 | 2.62 ± 0.27 | 197 ± 14 | 34 ± 2 | 40 ± 2 | 20 / 18 | 83 ± 2 | −19 ± 13 | — |
+| c6 + contracts at market, cover 1 (x3) | 1.8 ± 0.5 | 1.7 ± 1.2 | 1.55 ± 0.16 | 125 ± 9 | 35 ± 3 | 39 ± 1 | 21 / 18 | 72 ± 1 | −19 ± 5 | — |
+| c6 + cost-plus contracts +50% (x1) | 1.9 ± 0.4 | 2.1 ± 0.5 | 1.39 ± 0.09 | 116 ± 2 | 36 ± 2 | 38 ± 2 | 20 / 19 | 74 ± 4 | −28 ± 9 | — |
+| c6 + cost-plus contracts +100% (x2) | 1.6 ± 0.3 | 1.2 ± 0.3 | 1.57 ± 0.20 | 129 ± 15 | 35 ± 2 | 39 ± 1 | 19 / 19 | 73 ± 3 | −30 ± 13 | — |
+| c8 + cost-plus contracts +50% (x4) | 1.4 ± 0.2 | 1.8 ± 0.5 | 1.74 ± 0.17 | 139 ± 10 | 34 ± 1 | 40 ± 2 | 19 / 19 | 80 ± 2 | −19 ± 5 | — |
+| c6 + contracts at the going rate (x6) | 2.4 ± 0.9 | 1.9 ± 0.3 | 1.49 ± 0.21 | 118 ± 12 | 34 ± 5 | 38 ± 1 | 21 / 19 | 75 ± 1 | −21 ± 9 | — |
+| c6 + own-ask floor (f1) | 1.7 ± 0.3 | 1.6 ± 1.4 | 1.52 ± 0.07 | 124 ± 3 | 33 ± 1 | 39 ± 0 | 19 / 19 | 78 ± 5 | −18 ± 11 | — |
+| f1 + contracts (f2) | 1.8 ± 0.5 | 2.4 ± 1.0 | 1.52 ± 0.23 | 125 ± 19 | 36 ± 6 | 38 ± 3 | 21 / 19 | 73 ± 4 | −26 ± 7 | — |
+| f1 without urgency (f3) | 3.0 ± 0.4 | 3.3 ± 1.4 | 1.43 ± 0.03 | 128 ± 4 | 42 ± 3 | 35 ± 1 | 19 / 20 | 70 ± 5 | −30 ± 21 | — |
+| c6, fleet cap 170 (x5) | 1.6 ± 0.2 | 2.6 ± 1.0 | 1.49 ± 0.24 | 113 ± 15 | 35 ± 3 | 38 ± 1 | 18 / 19 | 65 ± 1 | −43 ± 11 | — |
+| c6, urgency on safety, max 8 (c12) | 1.4 ± 0.4 | 1.0 ± 0.7 | 2.10 ± 0.30 | 173 ± 22 | 37 ± 1 | 38 ± 1 | 21 / 20 | 75 ± 3 | −5 ± 16 | — |
+| k6, accept 1.0 (k9) | 1.0 ± 0.4 | 0.5 ± 0.8 | 2.64 ± 0.32 | 201 ± 18 | 31 ± 3 | 40 ± 2 | 20 / 19 | 84 ± 4 | −3 ± 13 | — |
+| k6, review every 15 days (k10) | 1.4 ± 0.2 | 1.7 ± 1.7 | 2.68 ± 0.21 | 214 ± 15 | 33 ± 2 | 40 ± 2 | 19 / 20 | 84 ± 3 | −4 ± 15 | — |
 
 Run times are left out while several sweeps share the machine; speed is measured separately at the end.
 
@@ -95,3 +107,14 @@ Run times are left out while several sweeps share the machine; speed is measured
    Next: cost-plus contracts under competitive spot prices: loops chosen by the value they create at
    market prices, deliveries priced at purchase + the loop's cost share x (1 + markup), at most the
    station's going rate.
+15. The Earth L1 water shortage under competitive prices is at the source: Lunar Gateway makes ~22
+   water a day and L1, LEO and crews all draw on it; its stock is nearly drained and loads to L1 are
+   ~130 u every 25–30 days (6.2 u/day used). Prices there are not low (45–125 cr against 22). Contracts
+   fix it in the posted world because a loop's deliveries load first and so reserve Luna's water for
+   L1; under competitive prices few ships sign.
+16. Own-ask floors (a ship is paid at least its own cost plus markup, within the stock bid) do not help
+   (1.7%); without the urgency factor competitive pricing fails (3.0%). Cost-plus contracts are rarely
+   signed (3–5 ships): their markup on the loop's cost loses to urgency-weighted spot work.
+17. More ships do not help under competitive prices (cap 170: same unmet, 65% profitable, money −43%):
+   capacity is not the limit, so cap 130 stays.
+18. With 4 starts the noise is ±0.2–0.4 points of unmet; finalists are judged on 8 starts (0, 45, ..., 315).
