@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 10;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events
+constexpr int kSaveVersion = 13;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers)
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -244,6 +244,20 @@ Json station_to_json(const domain::StationState& s) {
     out.set("unmet_units", goods_to_json(s.unmet_units));
     out.set("market_sold_units", goods_to_json(s.market_sold_units));
     out.set("import_unit_cost", goods_to_json(s.import_unit_cost));
+    auto order_stats = Json::object();
+    for (const auto& [commodity_id, stats] : s.order_stats) {
+        auto entry = Json::object();
+        entry.set("ship_sales_per_day", stats.ship_sales_per_day);
+        entry.set("lead_days", stats.lead_days);
+        entry.set("interval_days", stats.interval_days);
+        entry.set("spread_days", stats.spread_days);
+        entry.set("going_rate", stats.going_rate);
+        entry.set("last_delivery_s", stats.last_delivery_s);
+        entry.set("deliveries", static_cast<double>(stats.deliveries));
+        entry.set("order_price", stats.order_price);
+        order_stats.set(commodity_id, std::move(entry));
+    }
+    out.set("order_stats", std::move(order_stats));
     out.set("population", s.population);
     out.set("supply_index", s.supply_index);
     out.set("population_announced", s.population_announced);
@@ -277,6 +291,18 @@ domain::StationState station_from_json(const Json& j) {
     s.unmet_units = goods_from_json(j.get("unmet_units"));
     s.market_sold_units = goods_from_json(j.get("market_sold_units"));
     s.import_unit_cost = goods_from_json(j.get("import_unit_cost"));
+    for (const auto& [commodity_id, entry] : j.get("order_stats").fields()) {
+        s.order_stats[commodity_id] = {
+            .ship_sales_per_day = entry.get("ship_sales_per_day").number(),
+            .lead_days = entry.get("lead_days").number(),
+            .interval_days = entry.get("interval_days").number(),
+            .spread_days = entry.get("spread_days").number(),
+            .going_rate = entry.get("going_rate").number(),
+            .last_delivery_s = entry.get("last_delivery_s").number(),
+            .deliveries = static_cast<int>(entry.get("deliveries").number()),
+            .order_price = entry.get("order_price").number(),
+        };
+    }
     s.population = j.get("population").number();
     s.supply_index = j.get("supply_index").number();
     s.population_announced = j.get("population_announced").number();
@@ -310,6 +336,10 @@ std::string Simulation::data_fingerprint() const {
     for (const auto& commodity : universe_.commodities) {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
+    const auto& orders = universe_.orders;
+    mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.safety_factor,
+        orders.ema_deliveries, orders.extra_discount, orders.max_extra_days, orders.resale_margin, orders.keep_share, orders.life_value, orders.consume_value,
+        orders.depot_fuel_value, orders.input_cap));
     for (const auto& recipe : universe_.recipes) {
         mix(std::format("r{}|{}|{}|{}|{};", recipe.profile_id, recipe.station_id, recipe.commodity_id, recipe.units_per_day,
             static_cast<int>(recipe.role)));

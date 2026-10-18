@@ -130,3 +130,16 @@ emergencies in four years.
   shuttles.
 - The money supply sits at −20 to −30% of target (stock on station shelves is not counted as money).
 - Fuel-factory events; piracy (deferred by the user).
+
+## Review (2026-10-15)
+
+The user approved decisions 20 (round-trip cover only between planets), 23 (savings cover a station's whole
+deficit) and 24 (growth rates) as recommended. In the numbering used for the review (23 → 20, 21; 24 → 22;
+26 → 23; 27 → 24; 28 → 25), these are still under discussion:
+
+- **21, 22:** depot fuel's target and the 12× input cap are folded into a rethink of price formation. The user
+  questions pricing on current stock when deliveries are rare: demand should come from what a station needs to
+  last between visits, with the price adjusted until ships come, and non-essential inputs priced by the profit
+  they make possible.
+
+- **25:** the events stay as they are for now (no fuel-factory outages yet).

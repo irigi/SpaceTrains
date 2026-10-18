@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <iosfwd>
+#include <limits>
 #include <map>
 #include <memory>
 #include <random>
@@ -77,6 +78,11 @@ public:
     [[nodiscard]] std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s,
         bool with_paths = true) const;
     [[nodiscard]] std::string build_bridge_paths_json() const;
+    // Ship designs: every class with its parts (ship_components.csv), for the ship inspector.
+    // Static today, so the bridge writes it once as <snapshot>.designs; with refittable
+    // modules (tier 2) it changes when a ship's fit does, keyed by bridge_designs_signature().
+    [[nodiscard]] std::string build_bridge_designs_json() const;
+    [[nodiscard]] std::string bridge_designs_signature() const { return "classes"; }
     [[nodiscard]] std::string bridge_paths_signature() const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
@@ -91,12 +97,18 @@ public:
 
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
+    // The design a ship flies with. Today its class; with refittable modules (tier 2 of
+    // docs/plans/ship_internals.md) a design derived from the class and the ship's own fit.
+    // Ship-level code asks this, never get_ship_class(ship.class_id).
+    [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
     [[nodiscard]] const domain::StationState& get_station_state(const std::string& station_id) const;
     [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
     [[nodiscard]] std::string bridge_path_id(const domain::ShipState& ship) const;
+    [[nodiscard]] std::string ship_systems_json(
+        const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) const;
     void write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] std::string faction_name(const std::string& faction_id) const;
@@ -117,6 +129,8 @@ private:
         double total {0.0};
         double faction {0.0};
         double emergency_units {0.0};  // units sold at the emergency floor
+        double order_units {0.0};      // units that fill an open order (step 29), and what they earn
+        double order_value {0.0};
     };
     // Selling `units` into a station whose stock is `stock`: along its curve, raised to an
     // open emergency's floor price for the units that land below its emergency cover.
@@ -124,6 +138,75 @@ private:
         double stock, double units) const;
     [[nodiscard]] SaleSplit sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
+    // Station purchase orders (step 29, docs/plans/station_orders.md). A station posts an order
+    // for a good it is a net consumer of, and for depot fuel where it has no factory, never at
+    // an export market; it then has OrderStats for the good.
+    [[nodiscard]] bool has_order(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Ships are paid under the station's order for the good, not along its curve: true wherever
+    // the station has OrderStats for it (step 29).
+    [[nodiscard]] bool priced_order(const domain::StationState& state, const std::string& commodity_id) const;
+    // What a station expects before its first delivery: the reference trip's lead and interval
+    // (21 days within one planet's system), half the lead as spread, the reference price.
+    [[nodiscard]] domain::OrderStats seed_order_stats(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Seeds every order a station has no observations for yet.
+    void seed_order_stats();
+    // Folds a contract (its unit price) or a delivery (its lead and the interval since the last
+    // one) into a station's observations; nothing if the station posts no order for the good.
+    void observe_contract(domain::StationState& state, const std::string& commodity_id, double units, double unit_price);
+    void observe_delivery(domain::StationState& state, const std::string& commodity_id, double contracted_s);
+    // An order's levels before contracts: use, safety stock, order-up-to level, the most with the extra.
+    struct OrderLevels {
+        double use_per_day {0.0};
+        double safety_units {0.0};
+        double order_up_to_units {0.0};
+        double max_units {0.0};
+        double extra_days {0.0};
+    };
+    [[nodiscard]] OrderLevels order_levels(
+        const domain::StationState& state, const std::string& commodity_id, const domain::OrderStats& stats) const;
+    // The good's contracted arrivals at the station (time, units that survive the trip), sorted,
+    // without one ship's.
+    [[nodiscard]] std::vector<std::pair<double, double>> contracted_arrivals(
+        const domain::StationState& state, const std::string& commodity_id, const std::string& except_ship_id) const;
+    // What a delivery landing at `arrival_s` is paid, piecewise flat: the open quantity N at the
+    // order price, then the extra up to S_max at a discount on the going rate, the rest at the
+    // floor. An open emergency raises the order's units to its floor (the faction pays the part
+    // above the order price).
+    struct OrderQuote {
+        double open_units {0.0};
+        double extra_units {0.0};
+        double price {0.0};
+        double extra_price {0.0};
+        double floor_price {0.0};
+        // Oxygen and water: the station's own cap, and an open emergency's price for its units.
+        double station_cap {std::numeric_limits<double>::infinity()};
+        double emergency_price {0.0};
+        double emergency_units {0.0};
+    };
+    [[nodiscard]] OrderQuote order_quote(const domain::StationState& state, const std::string& commodity_id,
+        double arrival_s, const std::string& except_ship_id) const;
+    // The value of the units [from, from + units) of a delivery under a quote.
+    [[nodiscard]] SaleSplit quote_split(const OrderQuote& quote, double from, double units) const;
+    // The order's bid for a delivery that finds `stock_at_arrival` (every earlier contract
+    // counted): the curve's shape around the reference, on the order-up-to level, up to the
+    // lower of today's cap and the ceiling V (its cap: `cap`).
+    struct OrderBid {
+        double price {0.0};
+        double cap {0.0};
+    };
+    [[nodiscard]] OrderBid order_bid(const domain::StationState& state, const std::string& commodity_id,
+        const OrderLevels& levels, double stock_at_arrival) const;
+    // Sets each order's posted price to its bid for a delivery one lead time from now (shown in
+    // the inspector and the audit; quotes compute their own).
+    void step_orders();
+    // What a consumer offers for a good now: its order price where it posts an order, else its price.
+    [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
+    // The order derived from the observations, the stock and the contracts on their way.
+    [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
+    // V: what a unit is worth to the station (see the plan's section 4); `station_ceiling` is
+    // the part from its own output, before the faction tops up a life-critical good.
+    [[nodiscard]] double order_ceiling(const domain::StationState& state, const std::string& commodity_id,
+        std::string& kind, double& station_ceiling) const;
     [[nodiscard]] const domain::Emergency* find_emergency(const std::string& station_id, const std::string& commodity_id) const;
     // Opens, raises and closes emergency deliveries of life-support goods (step 14).
     void step_emergencies();
@@ -134,7 +217,7 @@ private:
     [[nodiscard]] double provisions_mass_kg(const domain::ShipState& ship) const;
     // Buys up to `kg` of propellant at the current port (missions fuel on departure).
     void buy_propellant(domain::ShipState& ship, double kg);
-    // Operating economics (docs/plans/ship_operating_costs.md).
+    // Operating economics (docs/modules/ships_and_fleet.md).
     [[nodiscard]] double daily_capital_cost(const domain::ShipClassDefinition& ship_class) const;
     [[nodiscard]] double daily_crew_cost(
         const domain::ShipClassDefinition& ship_class, const domain::StationState& market) const;
@@ -160,13 +243,6 @@ private:
     // What a faction may still spend on ships: its treasury plus what it may borrow.
     [[nodiscard]] double faction_credit_limit(const std::string& faction_id) const;
     [[nodiscard]] double faction_spendable(const std::string& faction_id) const;
-    // Each station's cash plus credit line, less the contracts on their way to it; refreshed
-    // every tick and lowered as contracts are made. A station that cannot pay offers less.
-    void refresh_station_payable();
-    // The share of a contract due at this time that reserves its station's money now.
-    [[nodiscard]] double contract_reserve_share(double arrival_time_s) const;
-    [[nodiscard]] double station_affordability(const domain::StationDefinition& station) const;
-    void record_affordability();
     [[nodiscard]] double internal_money_supply() const;
     // The fleet's total hold, against max_fleet_hold_units (step 21).
     [[nodiscard]] double fleet_hold_units() const;
@@ -175,7 +251,7 @@ private:
     // Scheduled liners (step 22): a liner's loop (null for other ships), and its stop after `from_id`.
     [[nodiscard]] const std::vector<std::string>* liner_stops(const domain::ShipState& ship) const;
     [[nodiscard]] std::string next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const;
-    // Fleet investment (docs/plans/fleet_investment.md): owners sell ships laid up for long,
+    // Fleet investment (docs/modules/ships_and_fleet.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);
@@ -306,11 +382,9 @@ private:
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;
-    // Step 17: taxes each faction collects per day (365-day average), interest paid on debt,
-    // and what each station can still pay for (not saved: recomputed every tick).
+    // Step 17: taxes each faction collects per day (365-day average) and interest paid on debt.
     std::map<std::string, double> faction_tax_per_day_;
     double faction_interest_paid_ {0.0};
-    std::unordered_map<std::string, double> station_payable_;
     // Emergency deliveries open now, and the totals since the start.
     std::vector<domain::Emergency> emergencies_;
     int emergencies_opened_ {0};

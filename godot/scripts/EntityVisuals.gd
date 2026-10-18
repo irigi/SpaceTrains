@@ -15,7 +15,7 @@ static func make_entity(kind: String, data: Dictionary) -> Node3D:
         "station":
             _build_station(container)
         "ship":
-            _build_ship(container, String(data.get("class_id", "")), String(data.get("propulsion_type", "nuclear_thermal")))
+            _build_ship(container, String(data.get("hull_id", data.get("class_id", ""))), String(data.get("propulsion_type", "nuclear_thermal")))
     return container
 
 static func _named(instance: MeshInstance3D, instance_name: String) -> MeshInstance3D:
@@ -145,7 +145,8 @@ static func _build_plasma_ship(container: Node3D) -> void:
     for side in [-1.0, 1.0]:
         var wing := _box(Vector3(1.3, 0.02, 0.55))
         wing.position.x = side * 0.9
-        container.add_child(_named(wing, "wing"))
+        # Sibling names must differ (a duplicate is renamed and lost its material).
+        container.add_child(_named(wing, "wing_left" if side < 0.0 else "wing_right"))
     var thruster := _cylinder(0.1, 0.14, 0.18, 8)
     thruster.rotation.x = PI * 0.5
     thruster.position.z = 0.45
@@ -220,8 +221,9 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
         materials["wing"] = _standard(Color(0.2, 0.3, 0.6), 0.3, Color(0.25, 0.45, 1.0), 0.8, 0.6)
         materials["engine"] = _standard(Color(0.25, 0.26, 0.3), 0.3, Color(1.0, 0.75, 0.4), engine_emission, 0.7)
     for child in container.get_children():
-        if child is MeshInstance3D and materials.has(child.name):
-            child.material_override = materials[child.name]
+        var key := "wing" if String(child.name).begins_with("wing") else String(child.name)
+        if child is MeshInstance3D and materials.has(key):
+            child.material_override = materials[key]
 
 # --- Engine glow ---------------------------------------------------------------
 
@@ -259,32 +261,64 @@ static func _make_engine_glow() -> MeshInstance3D:
     instance.visible = false
     return instance
 
+# Fallback burn length for a snapshot without engine_burn_s.
 const BURN_WINDOW_S := 6.0 * 3600.0
+const Thermal := preload("res://scripts/ThermalPalette.gd")
 
-# Nuclear-thermal ships flare near their impulsive burns; plasma drives glow softly
-# for the whole transit. max_glow_scale caps the billboard in world units so a
-# nearby burn never projects larger on screen than the cap the caller computed
-# from camera distance (a flare bigger than Earth ruins close-up views).
-static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s: float, max_glow_scale: float = 1.0e9) -> void:
+# Engine glow and radiator wings, per frame.
+# - Nuclear-thermal ships flare during their burns: the bridge's engine_burn_s after
+#   departure and before arrival (half the mission's propellant each, at the engine's
+#   mass flow). Plasma drives glow softly for the whole transit.
+# - The glow's size follows jet power, log-scaled: 10 MW plasma 0.9, 700 MW liquid core
+#   about 1.7 model units.
+# - Plasma ships' radiator wings glow in false colour (ThermalPalette) while thrusting.
+# max_glow_scale caps the billboard in world units so a nearby burn never projects larger
+# on screen than the cap the caller computed from camera distance (a flare bigger than
+# Earth ruins close-up views).
+static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s: float, max_glow_scale: float = 1.0e9, jet_power_w: float = 0.0) -> void:
     var glow := container.get_node_or_null("engine_glow")
     if glow == null:
         return
     var phase := String(data.get("phase", "idle"))
+    var propulsion := String(data.get("propulsion_type", "nuclear_thermal"))
+    _update_radiator_wings(container, phase == "in_transit" and propulsion == "variable_isp",
+        float(data.get("radiator_temperature_k", 0.0)))
     if phase != "in_transit":
         glow.visible = false
         return
     # Container scale converts local glow scale to world units.
     var world_per_local: float = maxf(container.scale.x, 1.0e-12)
-    var propulsion := String(data.get("propulsion_type", "nuclear_thermal"))
+    var size := 0.9 if propulsion == "variable_isp" else 1.6
+    if jet_power_w > 0.0:
+        size = clampf(0.45 * log(jet_power_w / 1.0e5) / log(10.0), 0.5, 2.4)
     if propulsion == "variable_isp":
         glow.visible = true
-        glow.scale = Vector3.ONE * minf(0.9, max_glow_scale / world_per_local)
+        glow.scale = Vector3.ONE * minf(size, max_glow_scale / world_per_local)
         (glow.material_override as StandardMaterial3D).albedo_color = Color(0.45, 0.7, 1.0, 0.8)
         return
     var departure_s := float(data.get("departure_time_s", 0.0))
     var arrival_s := float(data.get("arrival_time_s", 0.0))
-    var near_burn: bool = absf(game_time_s - departure_s) < BURN_WINDOW_S or absf(game_time_s - arrival_s) < BURN_WINDOW_S
-    glow.visible = near_burn
-    if near_burn:
-        glow.scale = Vector3.ONE * minf(2.4, max_glow_scale / world_per_local)
+    var burn_s := float(data.get("engine_burn_s", BURN_WINDOW_S))
+    var burning: bool = (game_time_s >= departure_s and game_time_s - departure_s < burn_s) \
+        or (game_time_s <= arrival_s and arrival_s - game_time_s < burn_s)
+    glow.visible = burning
+    if burning:
+        glow.scale = Vector3.ONE * minf(size, max_glow_scale / world_per_local)
         (glow.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.8, 0.45, 0.95)
+
+# Both wings share one material (apply_visuals): false colour while the drive runs, the
+# plain blue panels otherwise.
+static func _update_radiator_wings(container: Node3D, thrusting: bool, temperature_k: float) -> void:
+    var wing := container.get_node_or_null("wing_left") as MeshInstance3D
+    if wing == null or not (wing.material_override is StandardMaterial3D):
+        return
+    var material := wing.material_override as StandardMaterial3D
+    if thrusting and temperature_k > 0.0:
+        var hot := Thermal.color(temperature_k)
+        material.albedo_color = hot * 0.5
+        material.emission = hot
+        material.emission_energy_multiplier = 1.4
+    else:
+        material.albedo_color = Color(0.2, 0.3, 0.6)
+        material.emission = Color(0.25, 0.45, 1.0)
+        material.emission_energy_multiplier = 0.8

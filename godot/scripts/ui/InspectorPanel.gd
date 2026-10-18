@@ -1,9 +1,22 @@
 extends PanelContainer
 
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
+const ShipSchematicScript := preload("res://scripts/ui/ShipSchematic.gd")
 
 var _content: VBoxContainer
 var _scroll: ScrollContainer
+# The ship systems section stays open or closed across selections.
+var _systems_open := true
+var _parts_open := false
+var _schematic: ShipSchematicScript
+var _schematic_used := false
+
+# The wheel scrolls this panel only: once its list is at the end, the event would
+# otherwise fall through to the camera and zoom the map behind the panel.
+func _gui_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+            MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+        accept_event()
 
 func _ready() -> void:
     custom_minimum_size = Vector2(360, 0)
@@ -16,9 +29,23 @@ func _ready() -> void:
     _scroll.add_child(_content)
     _show_help()
 
+func _exit_tree() -> void:
+    if _schematic != null and _schematic.get_parent() == null:
+        _schematic.free()
+
 func _clear() -> void:
+    # The schematic stays in the tree across refreshes (removing it would drop its hover and
+    # make the hovered part blink); it is detached only if the rebuilt view has no schematic.
+    _schematic_used = false
     for child in _content.get_children():
-        child.queue_free()
+        if child != _schematic:
+            child.queue_free()
+    if _schematic != null and _schematic.get_parent() == _content:
+        _park_schematic.call_deferred()
+
+func _park_schematic() -> void:
+    if not _schematic_used and _schematic != null and _schematic.get_parent() == _content:
+        _content.remove_child(_schematic)
 
 func _add_label(text: String, color := UiTheme.TEXT_PRIMARY, font_size := 13) -> Label:
     var label := Label.new()
@@ -235,7 +262,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         row.add_child(cover_label)
 
     _add_station_production(detail)
-    _add_station_orders(detail, context)
+    _add_station_orders(detail)
     _add_station_ships(detail, context)
 
     var ledger: Dictionary = detail.get("ledger", {})
@@ -275,43 +302,32 @@ func _add_station_production(detail: Dictionary) -> void:
     if not short.is_empty():
         _add_label("Upkeep short (stock vs a week's use): " + " · ".join(short), UiTheme.WARN, 12)
 
-# What the station still wants of each good it consumes: up to its target stock (which
-# covers its resupply time), less its stock and the cargo already on the way. These are the
-# prices ships see: the bigger the gap, the higher the station bids.
-func _add_station_orders(detail: Dictionary, context: Dictionary) -> void:
-    var station_id := String(detail.get("id", ""))
-    var inventory: Dictionary = detail.get("inventory", {})
-    var targets: Dictionary = detail.get("target_stock", {})
-    var rates: Dictionary = detail.get("net_rates", {})
-    var prices: Dictionary = detail.get("prices", {})
-    var references: Dictionary = detail.get("reference_prices", {})
-    var inbound := {}
-    for ship in context.get("ships", []):
-        var phase := String(ship.get("phase", ""))
-        if (phase == "in_transit" or phase == "awaiting_departure") and String(ship.get("destination_station_id", "")) == station_id:
-            for lot in ship.get("cargo", []):
-                var id := String(lot.get("commodity_id", ""))
-                inbound[id] = float(inbound.get(id, 0.0)) + float(lot.get("units", 0.0))
-    var orders: Array = []
-    for commodity_id in targets.keys():
-        if float(rates.get(commodity_id, 0.0)) >= 0.0:
-            continue
-        var stock := float(inventory.get(commodity_id, 0.0))
-        var coming := float(inbound.get(commodity_id, 0.0))
-        var wanted := float(targets[commodity_id]) - stock - coming
-        if wanted >= 1.0:
-            orders.append({"id": commodity_id, "wanted": wanted, "coming": coming, "price": float(prices.get(commodity_id, 0.0)),
-                "reference": float(references.get(commodity_id, 0.0))})
+# The station's purchase orders (step 29): per good it consumes, what it bids now and for how
+# many units (a delivery one lead time from now), against the landed reference and the going
+# rate it has paid; then what it has learnt about its resupply (use, lead time, interval between
+# deliveries and their spread), the stock it orders up to (and the discounted extra beyond), and
+# what a unit is worth to it at most.
+func _add_station_orders(detail: Dictionary) -> void:
+    var orders: Dictionary = detail.get("orders", {})
     if orders.is_empty():
         return
-    orders.sort_custom(func(a, b): return float(a["wanted"]) * float(a["price"]) > float(b["wanted"]) * float(b["price"]))
     _add_separator()
-    _add_label("ORDERS   wanted up to target · on the way · paying now (landed cost)", UiTheme.ACCENT, 12)
-    for order in orders:
-        var text := "%s: %.0f u wanted · %.0f u on the way · %.0f cr/u" % [order["id"], order["wanted"], order["coming"], order["price"]]
-        if float(order["reference"]) > 0.0:
-            text += " (%.0f)" % float(order["reference"])
-        _add_label(text, UiTheme.TEXT_DIM, 12)
+    _add_label("ORDERS   bid · open now · landed reference · going rate", UiTheme.ACCENT, 12)
+    var ids := orders.keys()
+    ids.sort_custom(func(a, b): return float(orders[a].get("open_units", 0.0)) * float(orders[a].get("order_price", 0.0)) \
+        > float(orders[b].get("open_units", 0.0)) * float(orders[b].get("order_price", 0.0)))
+    for commodity_id in ids:
+        var o: Dictionary = orders[commodity_id]
+        var short_in := float(o.get("days_to_safety", -1.0))
+        _add_label("%s: %.1f cr/u for %.0f u%s (ref %.1f, going %.1f)" % [
+            String(commodity_id), float(o.get("order_price", 0.0)), float(o.get("open_units", 0.0)),
+            "" if short_in < 0.0 else ", short in %.0f d" % short_in,
+            float(o.get("reference_price", 0.0)), float(o.get("going_rate", 0.0))],
+            UiTheme.WARN if short_in >= 0.0 else UiTheme.TEXT_PRIMARY, 12)
+        _add_label("    %s · %.2f u/day · lead %.0f d · every %.0f ± %.0f d · up to %.0f u (extra %.0f) · worth ≤ %.0f · %d deliveries" % [
+            String(o.get("kind", "")), float(o.get("use_per_day", 0.0)), float(o.get("lead_days", 0.0)),
+            float(o.get("interval_days", 0.0)), float(o.get("spread_days", 0.0)), float(o.get("order_up_to_units", 0.0)),
+            float(o.get("max_units", 0.0)), float(o.get("ceiling", 0.0)), int(o.get("deliveries", 0))], UiTheme.TEXT_DIM, 12)
 
 # Ships on their way here (with cargo and arrival) and ships docked here.
 func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
@@ -512,6 +528,85 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
             if absf(amount) >= 0.5:
                 parts.append("%s %+.0f" % [String(key).replace("cargo_purchases", "cargo").replace("_", " "), amount])
         _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
+    _add_ship_systems(detail, context)
+
+# --- Ship systems (tier 1 of docs/plans/ship_internals.md) ----------------------------
+# The ship's parts from the bridge's designs file: a to-scale schematic with its live state
+# (ShipSchematic), whether the engine runs, and the parts as a list (folded by default).
+func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
+    var designs: Dictionary = context.get("designs", {})
+    var design: Dictionary = designs.get(String(detail.get("class_id", "")), {})
+    if design.is_empty():
+        return
+    _add_separator()
+    _add_toggle("SHIP SYSTEMS", _systems_open, 12, UiTheme.ACCENT, func() -> void:
+        _systems_open = not _systems_open
+        update_selection(detail, "ship", context))
+    if not _systems_open:
+        return
+    _add_label(_engine_line(detail, design), UiTheme.TEXT_PRIMARY, 12)
+    if _schematic == null:
+        _schematic = ShipSchematicScript.new()
+        _schematic.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    if _schematic.get_parent() == _content:
+        _content.move_child(_schematic, -1)
+    else:
+        _content.add_child(_schematic)
+    _schematic_used = true
+    _schematic.set_ship(design, detail)
+
+    _add_toggle("Parts list", _parts_open, 11, UiTheme.TEXT_DIM, func() -> void:
+        _parts_open = not _parts_open
+        update_selection(detail, "ship", context))
+    if not _parts_open:
+        return
+    for component in design.get("components", []):
+        var c: Dictionary = component
+        var child := String(c.get("parent_id", "")) != ""
+        var row := HBoxContainer.new()
+        row.add_theme_constant_override("separation", 8)
+        _content.add_child(row)
+        var name_label := Label.new()
+        name_label.text = ("    " if child else "") + String(c.get("name", ""))
+        name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+        name_label.add_theme_font_size_override("font_size", 11 if child else 12)
+        name_label.add_theme_color_override("font_color", UiTheme.TEXT_DIM if child else UiTheme.TEXT_PRIMARY)
+        row.add_child(name_label)
+        var mass_label := Label.new()
+        mass_label.text = ShipSchematicScript.fmt_mass(float(c.get("mass_kg", 0.0)))
+        mass_label.custom_minimum_size.x = 64.0
+        mass_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+        mass_label.add_theme_font_size_override("font_size", 11)
+        mass_label.add_theme_color_override("font_color", UiTheme.TEXT_DIM)
+        row.add_child(mass_label)
+        var spec := ShipSchematicScript.component_spec(c)
+        if spec != "":
+            _add_label(("      " if child else "  ") + spec, UiTheme.TEXT_DIM, 11)
+
+func _add_toggle(title: String, open: bool, font_size: int, color: Color, on_pressed: Callable) -> void:
+    var toggle := Button.new()
+    toggle.text = ("▾ " if open else "▸ ") + title
+    toggle.flat = true
+    toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    toggle.add_theme_color_override("font_color", color)
+    toggle.add_theme_font_size_override("font_size", font_size)
+    toggle.pressed.connect(on_pressed)
+    _content.add_child(toggle)
+
+func _engine_line(detail: Dictionary, design: Dictionary) -> String:
+    var state := String(detail.get("engine_state", "off"))
+    var text := "Engine %s" % state
+    var radiator_k := float(detail.get("radiator_temperature_k", 0.0))
+    if radiator_k > 0.0:
+        text += " · drive radiators %.0f K" % radiator_k
+        if state != "thrusting":
+            text += " (idle, sunlit)"
+    elif state == "burning":
+        for component in design.get("components", []):
+            if String(component.get("kind", "")) == "engine" and float(component.get("temperature_k", 0.0)) > 0.0:
+                text += " · reactor core %.0f K" % float(component["temperature_k"])
+    return text
 
 func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
     var strip := ColorRect.new()

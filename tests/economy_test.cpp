@@ -32,7 +32,7 @@ int main() {
 
     {
         // --- Price formula properties ---
-        // Consumed commodities target a 21-day buffer of the data-defined rate.
+        // A consumer's curve (it buys under orders, step 29) is placed at three weeks of use.
         // earth_l1 runs the agri_hub profile; its rates scale with its population.
         const auto& agri = universe.stations.front();
         require(agri.id == "earth_l1" && agri.economy_profile_id == "agri_hub", "expected earth_l1 (agri_hub) first");
@@ -40,9 +40,7 @@ int main() {
         const double water_rate = agri_rates.at("water");
         require(water_rate < 0.0, "agri_hub must consume water");
         const double target = economy.get_target_stock(agri, "water");
-        require_near(target, std::abs(water_rate) * economy.cover_days(agri, "water"), 1.0e-9,
-            "agri_hub water target must be its cover of consumption");
-        require(economy.cover_days(agri, "water") >= 21.0, "a cover is at least three weeks");
+        require_near(target, std::abs(water_rate) * 21.0, 1.0e-9, "agri_hub water target must be three weeks of use");
 
         // A consumer's curve is centred on its landed cost (step 15): Earth L1 buys Lunar water.
         const double base = economy.reference_price(agri, "water");
@@ -51,13 +49,6 @@ int main() {
             "price at target stock must equal the reference price");
         require_near(economy.get_price(agri, "water", 0.0, base), base * economy.price_cap(agri, "water"), 1.0e-9,
             "price at zero stock must clamp at the price cap");
-        // An input's cap rises with what it makes (step 24): Earth L1's water feeds its farms.
-        require(economy.price_cap(agri, "water") > universe.pricing.price_cap,
-            "Earth L1's water must be worth more than 4x its landed cost to a dry farm");
-        require(economy.price_cap(agri, "water") <= universe.pricing.input_price_cap + 1.0e-9,
-            "an input's cap must stay within input_price_cap");
-        require_near(economy.price_cap(agri, "medicine"), universe.pricing.price_cap, 1.0e-9,
-            "a good that is not an input keeps the price cap");
         // Distant consumers pay more for carriage; producers keep the base price.
         const auto station = [&](const char* id) -> const auto& {
             return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
@@ -67,12 +58,6 @@ int main() {
             "Titan's machinery must cost more to land than Lunar Gateway's");
         require_near(economy.reference_price(station("earth_orbit"), "electronics"), 200.0, 1.0e-9,
             "a producer's reference price is the base price");
-        // An outpost's cover lasts the reference round trip (step 23), within max_cover_days.
-        const double titan_trip = universe.pricing.round_trip_days.at("titan_works").at("electronics");
-        const double titan_cover = economy.cover_days(station("titan_works"), "electronics");
-        require(titan_cover >= std::min(titan_trip, universe.pricing.max_cover_days) - 1.0e-9,
-            "Titan's electronics cover must last the reference round trip");
-        require(titan_cover <= universe.pricing.max_cover_days + 1.0e-9, "a cover is at most max_cover_days");
         // Depot fuel far from any factory costs its carriage (step 20); a factory's does not.
         require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * 8.0,
             "Mars fuel must cost the haul from the nearest factory");
@@ -225,8 +210,8 @@ int main() {
     {
         // --- Fuel factories fill their depots; other depots hold what ships deliver ---
         const auto& fuel_supply = universe.fuel_supply;
-        require(fuel_supply.depot_buffer_units > 0.0 && !fuel_supply.factory_output_units_per_day.empty(),
-            "fuel_supply.csv must enable depots and fuel_factories.csv list factories");
+        require(fuel_supply.factory_buffer_days > 0.0 && !fuel_supply.factory_output_units_per_day.empty(),
+            "fuel_supply.csv must set a factory buffer and fuel_factories.csv list factories");
         const auto station_by_id = [&](const std::string& id) -> const spacetrains::domain::StationDefinition& {
             for (const auto& station : universe.stations) {
                 if (station.id == id) {
@@ -239,8 +224,7 @@ int main() {
         const double output = economy.fuel_factory_output(luna);
         require(output > 0.0, "Lunar Gateway must make fuel");
         const double buffer = economy.fuel_buffer_units(luna);
-        require(buffer >= fuel_supply.depot_buffer_units && buffer >= output * fuel_supply.factory_buffer_days - 1.0e-9,
-            "a factory's depot holds its buffer days of output");
+        require_near(buffer, output * fuel_supply.factory_buffer_days, 1.0e-9, "a factory's depot holds its buffer days of output");
         std::vector<spacetrains::domain::StationState> stations;
         stations.push_back({.station_id = luna.id, .inventory = luna.initial_inventory});
         stations[0].inventory["fuel"] = 0.0;
@@ -268,8 +252,8 @@ int main() {
     }
 
     {
-        // --- Starting stocks (step 18): every consumed good at least at its target stock,
-        // unless the station's storage (85%) cannot hold it. ---
+        // --- Starting stocks (step 18): every ordered good at least at its order-up-to level
+        // (step 29), unless the station's storage (85%) cannot hold it. ---
         const auto start = spacetrains::simulation::Simulation::from_data_root("data").snapshot();
         for (const auto& state : start.stations) {
             const auto& station = *std::find_if(universe.stations.begin(), universe.stations.end(),
@@ -277,12 +261,12 @@ int main() {
             const bool storage_bound = station.storage_capacity_units > 0.0
                 && economy.storage_used_units(state.inventory) >= 0.85 * station.storage_capacity_units - 1.0e-6;
             for (const auto& [commodity_id, rate] : economy.get_station_net_rates(station)) {
-                if (rate >= 0.0 || economy.is_export_market(station, commodity_id) || storage_bound) {
+                if (rate >= 0.0 || !state.orders.contains(commodity_id) || storage_bound) {
                     continue;
                 }
                 const double stock = state.inventory.contains(commodity_id) ? state.inventory.at(commodity_id) : 0.0;
-                require(stock >= economy.get_target_stock(station, commodity_id) - 1.0e-6,
-                    "a station must start with its target stock of every good it consumes");
+                require(stock >= state.orders.at(commodity_id).order_up_to_units - 1.0e-6,
+                    "a station must start with its order-up-to level of every good it consumes");
             }
         }
     }
@@ -368,10 +352,12 @@ int main() {
         require(open.station_credit_ceiling > open.station_credit_floor, "open_economy.csv must enable a credit band");
         require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,
             "the money-supply target must grow by the working capital of new ships");
-        // Since step 17 the controller only measures (money_supply_days 0): money enters and
-        // leaves through reasons (residents' wages at reference prices, Earth's purchases, hulls,
-        // interest), and must still not run away.
-        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < (open.money_supply_days > 0.0 ? 0.25 : 0.5),
+        // Money enters and leaves through reasons (residents paying what their station paid,
+        // Earth's purchases, hulls, interest) and a slow controller (money_supply_days) pulls it
+        // back, and it must not run away. Under station orders (step 29) a delivery is paid one
+        // flat price, so imports and what residents pay start higher: 180 days end at +32%
+        // (+24% on the curve).
+        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < (open.money_supply_days > 0.0 ? 0.35 : 0.5),
             "stations + ships must stay near the seeded money");
         // Dividends drain cash above the reserve over a month: a ship just paid for a big hold may
         // hold more for a while, but not the fleet on average.

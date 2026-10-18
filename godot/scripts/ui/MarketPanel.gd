@@ -6,6 +6,13 @@ var _grid: GridContainer
 var _title: Label
 var _summary: Label
 
+# The wheel scrolls this panel only: once its list is at the end, the event would
+# otherwise fall through to the camera and zoom the map behind the panel.
+func _gui_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+            MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+        accept_event()
+
 func _ready() -> void:
     visible = false
     add_theme_stylebox_override("panel", UiTheme.panel_style(UiTheme.PANEL_BG_SOLID, UiTheme.ACCENT_DIM))

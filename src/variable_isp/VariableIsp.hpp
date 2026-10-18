@@ -104,6 +104,18 @@ struct ShootingSettings {
     double theta_tolerance_rad {1e-4};
     double velocity_tolerance_rel {1e-3};  // radial / circular-mismatch speed over v_circ(target)
     double finite_difference_step {1e-6};  // in scaled unknowns
+    double min_radius_m {0.0};  // refine_seed_stm: perihelion limit (canonical metres) for early rejection
+    // refine_seed_stm: when the corrected path needs more effort than the config's fuel allows
+    // (m0 -> m_dry at its power), by at most max_budget_overshoot, change T until it fits.
+    // Further over, the effort minimum at this departure is usually above the budget too
+    // (measured in game: 88% of fits within 10% succeed, about half beyond), so it is not tried.
+    bool fit_fuel_budget {false};
+    double budget_fraction {0.999};
+    double max_budget_overshoot {1.1};
+    // refine_seed_stm: when the corrected path leaves fuel unused, shorten T until it uses it
+    // (minimum time for the fuel), staying above min_radius_m. Off in the planner: measured
+    // 2026-10-12, +45% planning time, no measurable economy gain, more close solar passes.
+    bool spend_fuel_budget {false};
 };
 
 struct ShootingResult {
@@ -111,6 +123,12 @@ struct ShootingResult {
     AtlasSeed seed;                 // corrected costates and transfer time
     std::size_t iterations {0};
     double residual_norm {0.0};     // scaled; < ~1e-3 when converged
+    bool budget_fitted {false};     // refine_seed_stm lengthened T to fit the fuel
+    // refine_seed_stm only: the corrected trajectory's end (canonical units, mass from the
+    // effort) and its closest approach to the Sun, so callers need not integrate it again.
+    TrajectorySample end;
+    double min_radius_m {0.0};
+    double effort {0.0};  // ∫a²dt in units of μ²/r0⁴ · sqrt(r0³/μ) (the canonical kappa scale)
 };
 
 class VariableIspIntegrator {
@@ -140,6 +158,15 @@ public:
     // {r_m, theta_rad}; theta must be on the branch the seed flies.
     using MovingTarget = std::function<std::pair<double, double>(double transfer_time_days)>;
     [[nodiscard]] ShootingResult refine_seed(
+        const AtlasSeed& seed,
+        const CanonicalMissionConfig& config,
+        const MovingTarget& target,
+        const ShootingSettings& settings = {}) const;
+
+    // Same problem as the moving-target refine_seed, solved in Cartesian primer form
+    // (GeneralTransfer.hpp) with the analytic transition matrix instead of finite differences;
+    // the result is mapped back to atlas costates exactly.
+    [[nodiscard]] ShootingResult refine_seed_stm(
         const AtlasSeed& seed,
         const CanonicalMissionConfig& config,
         const MovingTarget& target,

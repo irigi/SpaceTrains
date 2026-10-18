@@ -5,7 +5,9 @@
 #include <limits>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -120,6 +122,51 @@ int main() {
         require((!bigger || (variant.dry_mass_kg > nominal.dry_mass_kg && variant.ship_value_cr > nominal.ship_value_cr))
                 && (!smaller || (variant.dry_mass_kg < nominal.dry_mass_kg && variant.ship_value_cr < nominal.ship_value_cr)),
             "bigger tanks should weigh and cost more, smaller ones less");
+    }
+
+    // Ship components (tier 1 of docs/plans/ship_internals.md): every class lists its parts,
+    // they add up to the class, plasma ships carry hot radiators and thermal ships none.
+    for (const auto& ship_class : universe.ship_classes) {
+        double mass = 0.0;
+        int engines = 0;
+        int radiators = 0;
+        int crew_quarters = 0;
+        for (const auto& c : ship_class.components) {
+            mass += c.parent_id.empty() ? c.mass_kg : 0.0;
+            engines += c.kind == "engine";
+            radiators += c.kind == "radiator";
+            crew_quarters += c.kind == "crew_quarters";
+            if (c.kind == "radiator") {
+                require(c.temperature_k > 500.0 && c.temperature_k < 700.0 && c.area_m2 > 0.0 && c.heat_w > 0.0,
+                    "drive radiators should run hot (Set A: ~594 K) and have an area");
+            }
+        }
+        require_near(mass, ship_class.dry_mass_kg, 1.0, "ship components should add up to the dry mass");
+        require(engines == 1 && crew_quarters == 1, "every class should have one engine and crew quarters");
+        require((radiators == 1) == (ship_class.propulsion_type == "variable_isp"),
+            "plasma ships should have drive radiators, nuclear-thermal ships none");
+    }
+    {
+        // The loader rejects parts that do not add up to their class.
+        const auto broken = std::filesystem::temp_directory_path() / "spacetrains_components_test";
+        std::filesystem::remove_all(broken);
+        std::filesystem::copy(repo_root / "data", broken, std::filesystem::copy_options::recursive);
+        const auto csv = broken / "ship_classes" / "ship_components.csv";
+        std::ifstream in(csv);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        const auto at = text.find("light_freighter,structure,,structure,Truss and structure,");
+        require(at != std::string::npos, "test fixture: light freighter structure row");
+        text.insert(at + std::string("light_freighter,structure,,structure,Truss and structure,").size(), "9");
+        std::ofstream(csv) << text;
+        bool rejected = false;
+        try {
+            (void)loader.load_universe(broken);
+        } catch (const std::runtime_error&) {
+            rejected = true;
+        }
+        std::filesystem::remove_all(broken);
+        require(rejected, "the loader should reject components that do not add up to the class");
     }
 
     spacetrains::celestial::CelestialMechanics mechanics(universe);
@@ -775,17 +822,18 @@ int main() {
         require(parsed.get("text").string() == "a \"quoted\" line\nand a tab\t", "a string should survive a JSON round trip");
     }
 
-    // --- Resupply-aware targets: a consumer far from its producers wants more stock than three
-    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer). ---
+    // --- Resupply-aware orders: a consumer far from its producers orders more stock than a few
+    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer; step 29). ---
     {
-        const auto economy_sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
-        const auto& economy = economy_sim.economy_system();
-        const auto& mars = *std::find_if(universe.stations.begin(), universe.stations.end(),
-            [](const auto& station) { return station.id == "mars_transfer"; });
-        const auto& lunar = *std::find_if(universe.stations.begin(), universe.stations.end(),
-            [](const auto& station) { return station.id == "luna_base"; });
-        require(economy.cover_days(mars, "food") > 200.0, "Mars should want food for its long resupply");
-        require(economy.cover_days(lunar, "food") == 21.0, "the Moon, days from Earth L1, should want three weeks of food");
+        const auto snap = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string()).snapshot();
+        const auto cover = [&](const char* station_id, const char* good) {
+            const auto& station = *std::find_if(snap.stations.begin(), snap.stations.end(),
+                [&](const auto& s) { return s.station_id == station_id; });
+            const auto& order = station.orders.at(good);
+            return order.order_up_to_units / order.use_per_day;
+        };
+        require(cover("mars_transfer", "food") > 200.0, "Mars should order food for its long resupply");
+        require(cover("luna_base", "food") < 40.0, "the Moon, days from Earth L1, should order a few weeks of food");
     }
 
     // --- Save and load: a game continued after a load plays exactly as one that never
@@ -824,9 +872,9 @@ int main() {
             saved.size() / 1024, kHalfDays, kHalfDays);
     }
 
-    // --- Emergency resupply (step 14): a station about to run out of oxygen gets an emergency
-    // delivery paid by its faction; the emergency closes when the stock is safe again, and a
-    // game saved with one open continues exactly. ---
+    // --- Emergency resupply (step 14): a station about to run out of oxygen opens an emergency,
+    // its faction offering a premium above the station's own bid; the emergency closes when the
+    // stock is safe again, and a game saved with one open continues exactly. ---
     {
         const auto data_root = (repo_root / "data").string();
         auto sim = spacetrains::simulation::Simulation::from_data_root(data_root);
@@ -837,7 +885,16 @@ int main() {
         require(snap.emergencies_opened == 1 && snap.emergencies.size() == 1, "an empty oxygen stock should open an emergency");
         require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
             "the emergency should be for Mercury's oxygen");
-        require(snap.emergencies.front().premium == 3.0, "an emergency should start at a 3x premium");
+        // The faction pays above the station's own cap, its order's bid on an empty stock, so the
+        // premium starts there (step 29).
+        {
+            const auto mercury = std::find_if(snap.stations.begin(), snap.stations.end(),
+                [](const auto& station) { return station.station_id == "mercury_yard"; });
+            require(mercury != snap.stations.end() && mercury->orders.contains("oxygen"), "Mercury should order oxygen");
+            const auto& order = mercury->orders.at("oxygen");
+            require(std::abs(snap.emergencies.front().premium * order.reference_price - order.order_price) < 1.0e-6 * order.order_price,
+                "an emergency should start at the station's bid on an empty stock");
+        }
 
         auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);
         resumed.load_state_json(sim.save_state_json());
@@ -859,12 +916,9 @@ int main() {
             ++days;
         }
         require(!mercury_oxygen_open(), "an emergency should close once enough is on its way");
-        while (days < 300 && sim.snapshot().emergency_paid <= 0.0) {
-            sim.step(1.0);
-            ++days;
-        }
+        // A ship takes the station's own bid before the faction's first raise, so the faction pays
+        // nothing here; it pays only above that bid.
         snap = sim.snapshot();
-        require(snap.emergency_paid > 0.0, "the faction should pay the emergency premium");
         std::cout << std::format("Emergency: Mercury oxygen resupplied in {} days, factions paid {:.0f} cr\n",
             days, snap.emergency_paid);
     }

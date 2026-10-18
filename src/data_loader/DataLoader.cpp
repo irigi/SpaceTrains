@@ -2,13 +2,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <format>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace spacetrains::data_loader {
@@ -196,6 +199,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto factions_path = root / "factions" / "factions.csv";
     const auto commodities_path = root / "commodities" / "commodities.csv";
     const auto ship_classes_path = root / "ship_classes" / "ship_classes.csv";
+    const auto ship_components_path = root / "ship_classes" / "ship_components.csv";
     const auto stations_path = root / "stations" / "stations.csv";
     const auto recipes_path = root / "recipes" / "recipes.csv";
     const auto station_recipes_path = root / "recipes" / "station_recipes.csv";
@@ -291,7 +295,103 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .ship_value_cr = parse_double(row[9], ship_classes_path, i + 1, "ship_value_cr"),
                 .crew_size = parse_double(row[10], ship_classes_path, i + 1, "crew_size"),
                 .hull_id = row[11].empty() ? row[0] : row[11],
+                .components = {},
             });
+        }
+    }
+
+    // Ship components (tier 1 of docs/plans/ship_internals.md): the parts of every class. They
+    // must decompose the class rows exactly, so the simulation's totals and the parts agree.
+    {
+        const auto rows = read_csv_rows(ship_components_path);
+        require_header(rows.front(),
+            {"class_id", "component_id", "parent_id", "kind", "name", "mass_kg", "price_cr", "power_w", "heat_w",
+             "temperature_k", "volume_m3", "area_m2", "capacity_kg", "crew_capacity", "isp_s", "thrust_n"},
+            ship_components_path);
+        static const std::unordered_set<std::string> top_kinds {"engine", "radiator", "tank", "habitat", "hold", "structure"};
+        static const std::unordered_set<std::string> habitat_kinds {"pressure_hull", "shielding", "life_support",
+            "thermal_control", "power_avionics", "crew_quarters", "common_rooms", "airlock_eva"};
+        std::unordered_map<std::string, domain::ShipClassDefinition*> classes;
+        for (auto& ship_class : universe.ship_classes) {
+            classes[ship_class.id] = &ship_class;
+        }
+        std::unordered_set<std::string> seen;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            const auto line = i + 1;
+            require_field_count(row, 16, ship_components_path, line);
+            const auto where = std::format("{}:{}", ship_components_path.string(), line);
+            const auto found = classes.find(row[0]);
+            if (found == classes.end()) {
+                throw std::runtime_error(where + ": unknown ship class '" + row[0] + "'");
+            }
+            if (!seen.insert(row[0] + "|" + row[1]).second) {
+                throw std::runtime_error(where + ": duplicate component '" + row[1] + "' of " + row[0]);
+            }
+            auto& ship_class = *found->second;
+            const bool top = row[2].empty();
+            if (top ? !top_kinds.contains(row[3]) : (row[2] != "habitat" || !habitat_kinds.contains(row[3]))) {
+                throw std::runtime_error(where + ": component kind '" + row[3] + "' does not fit parent '" + row[2] + "'");
+            }
+            if (!top) {
+                const auto parent = std::find_if(ship_class.components.begin(), ship_class.components.end(),
+                    [&](const auto& c) { return c.id == row[2]; });
+                if (parent == ship_class.components.end() || parent->kind != "habitat") {
+                    throw std::runtime_error(where + ": parent '" + row[2] + "' must be listed before its parts");
+                }
+            }
+            const auto number = [&](std::size_t column, const char* field) {
+                const double value = row[column].empty() ? 0.0 : parse_double(row[column], ship_components_path, line, field);
+                if (value < 0.0) {
+                    throw std::runtime_error(where + ": " + field + " must not be negative");
+                }
+                return value;
+            };
+            ship_class.components.push_back({
+                .id = row[1],
+                .parent_id = row[2],
+                .kind = row[3],
+                .name = row[4],
+                .mass_kg = number(5, "mass_kg"),
+                .price_cr = number(6, "price_cr"),
+                .power_w = number(7, "power_w"),
+                .heat_w = number(8, "heat_w"),
+                .temperature_k = number(9, "temperature_k"),
+                .volume_m3 = number(10, "volume_m3"),
+                .area_m2 = number(11, "area_m2"),
+                .capacity_kg = number(12, "capacity_kg"),
+                .crew_capacity = number(13, "crew_capacity"),
+                .isp_s = number(14, "isp_s"),
+                .thrust_n = number(15, "thrust_n"),
+            });
+        }
+        for (const auto& ship_class : universe.ship_classes) {
+            double mass = 0.0;
+            double price = 0.0;
+            std::unordered_map<std::string, std::pair<double, double>> parts;  // parent -> mass, price of its parts
+            for (const auto& c : ship_class.components) {
+                if (c.parent_id.empty()) {
+                    mass += c.mass_kg;
+                    price += c.price_cr;
+                } else {
+                    parts[c.parent_id].first += c.mass_kg;
+                    parts[c.parent_id].second += c.price_cr;
+                }
+            }
+            if (ship_class.components.empty() || std::abs(mass - ship_class.dry_mass_kg) > 1.0
+                || std::abs(price - ship_class.ship_value_cr) > 1.0) {
+                throw std::runtime_error(std::format(
+                    "{}: components of '{}' add up to {:.0f} kg and {:.0f} cr, the class has {:.0f} kg and {:.0f} cr",
+                    ship_components_path.string(), ship_class.id, mass, price, ship_class.dry_mass_kg, ship_class.ship_value_cr));
+            }
+            for (const auto& [parent_id, sums] : parts) {
+                const auto& parent = *std::find_if(ship_class.components.begin(), ship_class.components.end(),
+                    [&](const auto& c) { return c.id == parent_id; });
+                if (std::abs(sums.first - parent.mass_kg) > 1.0 || std::abs(sums.second - parent.price_cr) > 1.0) {
+                    throw std::runtime_error(std::format("{}: the parts of '{}' in '{}' do not add up to it",
+                        ship_components_path.string(), parent_id, ship_class.id));
+                }
+            }
         }
     }
 
@@ -452,15 +552,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             if (value < 0.0) {
                 throw std::runtime_error("'" + row[0] + "' must not be negative in " + fuel_supply_path.string());
             }
-            if (row[0] == "depot_buffer_units") {
-                fuel_supply.depot_buffer_units = value;
-            } else if (row[0] == "factory_buffer_days") {
+            if (row[0] == "factory_buffer_days") {
                 fuel_supply.factory_buffer_days = value;
             } else {
                 throw std::runtime_error("Unknown key '" + row[0] + "' in " + fuel_supply_path.string());
             }
         }
-        for (const char* required : {"depot_buffer_units", "factory_buffer_days"}) {
+        for (const char* required : {"factory_buffer_days"}) {
             if (!seen_keys.contains(required)) {
                 throw std::runtime_error(std::string("Missing key '") + required + "' in " + fuel_supply_path.string());
             }
@@ -597,8 +695,6 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"dividend_days", &open_economy.dividend_days},
             {"money_supply_days", &open_economy.money_supply_days},
             {"core_crew_fraction", &open_economy.core_crew_fraction},
-            {"station_credit_days", &open_economy.station_credit_days},
-            {"affordability_days", &open_economy.affordability_days},
             {"faction_loan_to_value", &open_economy.faction_loan_to_value},
             {"faction_tax_years", &open_economy.faction_tax_years},
         };
@@ -747,10 +843,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"price_cap", &pricing.price_cap},
             {"carrier_margin", &pricing.carrier_margin},
             {"reference_departures", &pricing.reference_departures},
-            {"cover_round_trip_factor", &pricing.cover_round_trip_factor},
             {"max_cover_days", &pricing.max_cover_days},
-            {"input_value_share", &pricing.input_value_share},
-            {"input_price_cap", &pricing.input_price_cap},
         };
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
@@ -770,11 +863,50 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         if (pricing.price_cap < 1.0 || pricing.carrier_margin < 0.0 || pricing.reference_departures < 1.0) {
             throw std::runtime_error("price_cap and reference_departures must be at least 1 in " + pricing_path.string());
         }
-        if (pricing.input_value_share < 0.0 || pricing.input_price_cap < pricing.price_cap) {
-            throw std::runtime_error("input_value_share must be >= 0 and input_price_cap >= price_cap in " + pricing_path.string());
+        if (pricing.max_cover_days < 21.0) {
+            throw std::runtime_error("max_cover_days must be >= 21 in " + pricing_path.string());
         }
-        if (pricing.cover_round_trip_factor < 0.0 || pricing.max_cover_days < 21.0) {
-            throw std::runtime_error("cover_round_trip_factor must be >= 0 and max_cover_days >= 21 in " + pricing_path.string());
+    }
+
+    {
+        // Station purchase orders (step 29).
+        const auto orders_path = root / "economy" / "orders.csv";
+        const auto rows = read_csv_rows(orders_path);
+        require_header(rows.front(), {"key", "value"}, orders_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& orders = universe.orders;
+        const std::unordered_map<std::string, double*> fields {
+            {"safety_factor", &orders.safety_factor},
+            {"ema_deliveries", &orders.ema_deliveries},
+            {"extra_discount", &orders.extra_discount},
+            {"max_extra_days", &orders.max_extra_days},
+            {"resale_margin", &orders.resale_margin},
+            {"keep_share", &orders.keep_share},
+            {"life_value", &orders.life_value},
+            {"consume_value", &orders.consume_value},
+            {"depot_fuel_value", &orders.depot_fuel_value},
+            {"input_cap", &orders.input_cap},
+        };
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, orders_path, i + 1);
+            require_unique_id(row[0], seen_keys, orders_path, i + 1);
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + orders_path.string());
+            }
+            *field->second = parse_double(row[1], orders_path, i + 1, row[0].c_str());
+        }
+        for (const auto& [key, field] : fields) {
+            if (!seen_keys.contains(key)) {
+                throw std::runtime_error("Missing key '" + key + "' in " + orders_path.string());
+            }
+        }
+        if (orders.safety_factor < 0.0 || orders.ema_deliveries < 1.0 || orders.extra_discount < 0.0
+            || orders.extra_discount >= 1.0 || orders.keep_share < 0.0 || orders.keep_share > 1.0
+            || orders.max_extra_days < 0.0 || orders.resale_margin < 0.0) {
+            throw std::runtime_error("safety_factor and extra_discount must be >= 0 (discount < 1), ema_deliveries >= 1 "
+                "and keep_share in [0, 1], max_extra_days >= 0 and resale_margin >= 0 in " + orders_path.string());
         }
     }
 

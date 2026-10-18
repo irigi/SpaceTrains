@@ -45,6 +45,29 @@ struct CommodityDefinition {
     double base_price {10.0};             // credits per unit at target stock level
 };
 
+// One part of a ship class (data/ship_classes/ship_components.csv, written by
+// build_ship_classes.py): engine, radiator, tank, habitat, hold, structure, and the
+// habitat's own parts (parent_id "habitat"). Top-level parts add up to the class's dry mass
+// and value. Tier 1 only describes the ship; the simulation still runs on the class totals.
+// Zero means "not applicable" for the physical fields.
+struct ShipComponentDefinition {
+    std::string id;           // "engine", "habitat.life_support", ...
+    std::string parent_id;    // "" for top-level parts
+    std::string kind;         // engine | radiator | tank | habitat | hold | structure | habitat part kinds
+    std::string name;
+    double mass_kg {0.0};
+    double price_cr {0.0};
+    double power_w {0.0};       // engines: jet power; habitat: electrical draw
+    double heat_w {0.0};        // waste heat produced (engine, habitat) or rejected (radiators)
+    double temperature_k {0.0}; // operating temperature (reactor core, radiator panel, tank, cabin)
+    double volume_m3 {0.0};
+    double area_m2 {0.0};       // radiator panel area (two-sided)
+    double capacity_kg {0.0};   // tanks: propellant; hold: rated cargo
+    double crew_capacity {0.0};
+    double isp_s {0.0};
+    double thrust_n {0.0};
+};
+
 struct ShipClassDefinition {
     std::string id;
     std::string name;
@@ -63,6 +86,7 @@ struct ShipClassDefinition {
     // Classes with the same hull differ only in their tanks; ships refit between them
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
+    std::vector<ShipComponentDefinition> components;  // in file order, parents before their parts
 };
 
 // Fleet-wide operating parameters (data/economy/ship_operations.csv).
@@ -80,11 +104,10 @@ struct ShipOperationsDefinition {
 };
 
 // Propellant supply (data/economy/fuel_supply.csv, fuel_factories.csv). Every station has a
-// depot outside its cargo storage; only fuel factories fill theirs, at their output rate.
-// Other depots hold what ships deliver. Prices follow each depot's buffer.
+// depot outside its cargo storage; only fuel factories fill theirs, at their output rate, and
+// price it on their buffer. Other depots hold what ships deliver, bought under orders (step 29).
 struct FuelSupplyDefinition {
-    double depot_buffer_units {0.0};          // 0 = no depots
-    double factory_buffer_days {0.0};         // a factory's depot holds this many days of output (at least the depot buffer)
+    double factory_buffer_days {0.0};         // a factory's depot holds this many days of output
     std::unordered_map<std::string, double> factory_output_units_per_day;  // by station id
 };
 
@@ -101,8 +124,6 @@ struct OpenEconomyDefinition {
     double money_supply_days {0.0};        // controller time constant; 0 = no controller
     // Station money (step 17).
     double core_crew_fraction {0.0};       // of the population whose upkeep the faction guarantees
-    double station_credit_days {0.0};      // a station's credit line: days of its consumption at reference prices
-    double affordability_days {0.0};       // a station offers full price while it can pay this many days of imports
     double faction_loan_to_value {0.0};    // factions borrow this share of their fleet's hull value...
     double faction_tax_years {0.0};        // ...plus this many years of their tax income
 };
@@ -165,20 +186,27 @@ struct PricingDefinition {
     double price_cap {16.0};            // a curve's highest multiple of its centre (empty stock)
     double carrier_margin {1.2};        // on the transport cost, in the reference prices
     double reference_departures {6.0};  // departure dates over a year the reference trips are planned at
-    // A consumer's target stock covers at least this multiple of the reference round trip for
-    // the good (step 23), at most max_cover_days: a delivery has to last until the next one.
-    double cover_round_trip_factor {0.0};
+    // An order-up-to level covers at most this many days of use (step 29).
     double max_cover_days {365.0};
-    // An input's curve may rise past price_cap, up to this share of the value of the outputs one
-    // unit of it makes, at most input_price_cap x its centre (step 24): water that keeps a farm
-    // running is worth more to it than its landed cost.
-    double input_value_share {0.0};
-    double input_price_cap {4.0};
     // A consumer's reference price (the centre of its curve) by station id and good: the
     // landed cost from the cheapest producer. Goods not listed are centred on their base price.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices;
     // The reference trip's round-trip days, same keys (the last column of reference_prices.csv).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> round_trip_days;
+};
+
+// Station purchase orders (step 29, docs/plans/station_orders.md; data/economy/orders.csv).
+struct OrdersDefinition {
+    double safety_factor {1.5};        // k: the safety stock is k x the spread of a delivery cycle
+    double ema_deliveries {4.0};       // the observed lead, interval and spread average over this many deliveries
+    double extra_discount {0.1};       // d: the station buys past its order-up-to level only this far below its going rate
+    double max_extra_days {90.0};      // the extra covers at most this many days of use (and one interval)
+    double resale_margin {0.1};        // a consumer sells to ships (provisions, depot fuel) at its bid on its stock plus this
+    double keep_share {0.75};          // of an input's marginal profit the station keeps (the rest is its ceiling)
+    double life_value {24.0};          // x reference: what the faction pays for oxygen and water at most
+    double consume_value {4.0};        // x reference: the ceiling for goods used up without output (construction, science)
+    double depot_fuel_value {8.0};     // x reference: the cap for fuel at a depot without a factory (not min with price_cap)
+    double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
 struct StationDefinition {
@@ -248,6 +276,7 @@ struct UniverseDefinition {
     OpenEconomyDefinition open_economy;
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
+    OrdersDefinition orders;
     GrowthDefinition growth;
     std::vector<EventDefinition> events;
     std::uint64_t event_seed {0};
@@ -430,6 +459,44 @@ struct ActiveEvent {
     double end_s {0.0};
 };
 
+// What a station has observed about resupplying one good it consumes, and its order for it
+// (step 29). Saved.
+struct OrderStats {
+    double ship_sales_per_day {0.0};   // provisions sold to ships, units per day (depot fuel: ship_fuel_units_per_day)
+    double lead_days {0.0};            // L: from a contract to its delivery
+    double interval_days {0.0};        // I: between deliveries
+    double spread_days {0.0};          // sigma: mean absolute deviation of L and I samples
+    double going_rate {0.0};           // G: what it has agreed to pay per unit, units-weighted
+    double last_delivery_s {-1.0};     // -1: none yet
+    int deliveries {0};
+    // The order's bid for a delivery one lead time from now (set each tick; quotes make their own).
+    double order_price {0.0};
+};
+
+// The order a station would post for a good, derived from its OrderStats, its stock and the
+// contracts on their way (step 29). Not saved; filled for snapshots.
+struct OrderView {
+    std::string ceiling_kind;          // input | upkeep | life | consume | depot_fuel
+    double use_per_day {0.0};          // u: recipe use plus sales to ships
+    double lead_days {0.0};
+    double interval_days {0.0};
+    double spread_days {0.0};
+    double going_rate {0.0};
+    double reference_price {0.0};
+    double order_price {0.0};          // P
+    double safety_units {0.0};         // B = u k sigma
+    double reorder_units {0.0};        // R = u (L + k sigma)
+    double order_up_to_units {0.0};    // S = R + u I, capped by storage and max_cover_days
+    double extra_days {0.0};           // E: days past S the discount pays for (capped)
+    double max_units {0.0};            // S_max = S + u E, same caps
+    double stock {0.0};
+    double contracted_units {0.0};     // on their way under contract
+    double open_units {0.0};           // N for a delivery one lead time from now
+    double days_to_safety {-1.0};      // when the projected stock falls below B (-1: not within the lead time)
+    double ceiling {0.0};              // V per unit
+    double station_ceiling {0.0};      // V from the station's own output (life goods: before the faction tops it up)
+};
+
 struct StationState {
     std::string station_id;
     Inventory inventory;
@@ -451,14 +518,16 @@ struct StationState {
     // What the station paid ships per unit, averaged over about 30 days of its use (step 17):
     // its residents pay this for what they use up (the reference price until a delivery).
     Inventory import_unit_cost {};
+    // Step 29: what the station has observed about resupplying each good it consumes, and (for
+    // snapshots only) the orders derived from it.
+    std::map<std::string, OrderStats> order_stats {};
+    std::map<std::string, OrderView> orders {};
     // Diagnostics of the last economy step (not saved): the product of the upkeep penalties
     // in force, and each output's run rate (upkeep included).
     double upkeep_multiplier {1.0};
     Inventory output_factor {};
     std::map<std::string, std::string> output_limited_by {};  // the input that limits each output, if any
     Inventory upkeep_availability {};                         // stock over a 7-day buffer, per upkeep good
-    // The share of its curve the station can offer ships now (step 17; 1 = all of it).
-    double affordability {1.0};
     // Residents now (step 27; the definition's population is the seeded one), the average
     // availability of the worst-supplied upkeep good, and the population last announced.
     double population {0.0};

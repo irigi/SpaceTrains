@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "trajectory/ChaseSolver.hpp"
+#include "variable_isp/GeneralTransfer.hpp"
 #include "variable_isp/VariableIsp.hpp"
 
 namespace {
@@ -407,6 +409,179 @@ void verify_sample_counts(const std::filesystem::path& dataset_path, const Varia
     }
 }
 
+
+// General-boundary solver (GeneralTransfer.hpp): the atlas costates map exactly to the Cartesian
+// primer, the STM refine agrees with the finite-difference one, and arbitrary-state transfers
+// solve and survive an independent rollout.
+void verify_general_transfer(const std::filesystem::path& dataset_path, const VariableIspIntegrator& integrator) {
+    namespace g = spacetrains::variable_isp::general;
+    const g::Propagator propagator;
+    const JsonValue root = JsonParser(read_text(dataset_path)).parse();
+    std::size_t refined = 0, checked = 0, grazing = 0;
+    for (const auto& entry : root.at("trajectories").array_value) {
+        const AtlasSeed seed = seed_from_json(entry.at("seed"));
+        const auto config = VariableIspIntegrator::canonical_config(entry.at("rho").number_value, entry.at("kappa").number_value);
+        const double length = config.r0_m;
+        const double time = std::sqrt(length * length * length / config.mu_m3_s2);
+        const double accel = length / (time * time);
+        const double k = config.k_gain;
+        const g::Primer primer {
+            {k * seed.params[1] / accel, k * seed.params[2] / accel},
+            {-k * seed.params[0] / (accel / time), -k * (seed.params[4] + config.vtheta0_mps * seed.params[1]) / length / (accel / time)},
+        };
+        const g::State start {{1.0, 0.0}, {0.0, config.vtheta0_mps / (length / time)}};
+        const double T = seed.transfer_time_days * VariableIspIntegrator::kDayS / time;
+        const auto atlas_end = integrator.integrate_fixed_time(seed, config, 2).samples.back();
+        const auto end = propagator.propagate(start, primer, T, false);
+        ++checked;
+        if (!end.ok) {
+            // Atlas arcs that graze the Sun hit the propagator's singularity guard.
+            const auto dense = integrator.integrate_fixed_time(seed, config, 2000).samples;
+            const auto closest = std::min_element(dense.begin(), dense.end(), [](const auto& x, const auto& y) { return x.r_m < y.r_m; });
+            require(closest->r_m < 0.01 * length, "primer rollout of an atlas seed should succeed");
+            ++grazing;
+            continue;
+        }
+        const double effort_from_mass = 2.0 * config.power_w * (1.0 / atlas_end.mass_kg - 1.0 / config.m0_kg) / (accel * accel * time);
+        const double err = std::max({std::abs(g::norm(end.state.r) * length / atlas_end.r_m - 1.0), std::abs(end.sweep_rad - atlas_end.theta_rad),
+            std::abs(end.effort / effort_from_mass - 1.0)});
+        // Near-singular solar passes amplify the two integrators' differences.
+        require(err < (end.min_radius > 0.01 ? 1e-4 : 1e-2), "primer rollout should match the atlas trajectory and mass use");
+
+        // STM refine onto a slightly moved target agrees with the finite-difference refine.
+        const double r_target = atlas_end.r_m * 1.01;
+        const double theta_target = atlas_end.theta_rad + 0.01;
+        const auto fd = integrator.refine_seed(seed, config, r_target, theta_target);
+        const auto stm = integrator.refine_seed_stm(seed, config, [&](double) { return std::pair {r_target, theta_target}; });
+        if (fd.converged && stm.converged && end.min_radius > 0.05) {  // grazing arcs: integrators differ
+            const auto e = integrator.integrate_fixed_time(stm.seed, config, 2).samples.back();
+            require(std::abs(e.r_m / r_target - 1.0) < 1e-4, "refine_seed_stm should hit the target radius");
+            require(std::abs(e.theta_rad - theta_target) < 1e-4, "refine_seed_stm should hit the target angle");
+            require(std::abs(e.vr_mps) < 1e-3 * config.vtheta0_mps, "refine_seed_stm should arrive with no radial speed");
+            require(std::abs(stm.seed.transfer_time_days / fd.seed.transfer_time_days - 1.0) < 0.05,
+                "refine_seed_stm and refine_seed should agree on the transfer time");
+            ++refined;
+        }
+    }
+    require(refined > 0, "refine_seed_stm should converge on the reference set");
+    require(grazing * 2 < checked, "most atlas reference arcs should not graze the Sun");
+
+    // A chase: from a perturbed circular orbit at 1.5 to a target coasting on an ellipse.
+    const g::State chaser {{1.5, 0.0}, {0.05, 0.85}};
+    const g::State quarry {{1.2, 0.6}, {-0.4, 0.75}};
+    for (const auto end_condition : {g::EndCondition::Rendezvous, g::EndCondition::Intercept}) {
+        const g::TransferRequest request {chaser, g::coasting_target(quarry), end_condition, 0.1};
+        const double T = 1.3;
+        const auto sol = g::solve_transfer(propagator, request, T);
+        require(sol.converged, "solve_transfer should solve the chase");
+        g::PropagationSettings tight;
+        tight.relative_tolerance = 1e-12;
+        tight.absolute_tolerance = 1e-13;
+        const auto rollout = g::Propagator(tight).propagate(chaser, sol.primer, T, false);
+        const auto goal = request.target(T).state;
+        require(g::norm(rollout.state.r - goal.r) < 1e-6, "chase rollout should reach the target");
+        if (end_condition == g::EndCondition::Rendezvous) {
+            require(g::norm(rollout.state.v - goal.v) < 1e-6, "rendezvous rollout should match the target velocity");
+        } else {
+            require(g::norm(rollout.primer.p) < 1e-6, "intercept should end with zero thrust (free arrival velocity)");
+        }
+
+        // Multiple shooting from the converged solution's nodes, perturbed, converges back to it.
+        {
+            std::vector<std::array<double, 8>> nodes;
+            for (int k = 0; k < 4; ++k) {
+                const auto e = propagator.propagate(chaser, sol.primer, T * k / 4.0, false);
+                const auto& st = k == 0 ? chaser : e.state;
+                const auto& pr = k == 0 ? sol.primer : e.primer;
+                nodes.push_back({st.r.x * 1.002, st.r.y, st.v.x, st.v.y * 0.998, pr.p.x * 1.02, pr.p.y, pr.w.x, pr.w.y * 0.98});
+            }
+            const auto ms = g::multiple_shoot(propagator, chaser, request.target, end_condition, T, nodes);
+            require(ms.converged && std::abs(ms.end.effort / sol.end.effort - 1.0) < 1e-6, "multiple shooting should recover the solution");
+        }
+
+        // Time reversal: flying back with both velocities negated costs the same effort.
+        if (end_condition == g::EndCondition::Rendezvous) {
+            const g::State back_start {goal.r, -1.0 * goal.v};
+            const g::State back_end {chaser.r, -1.0 * chaser.v};
+            const g::TransferRequest back {back_start, g::fixed_target(back_end), end_condition, 0.1};
+            const auto reverse = g::solve_transfer(propagator, back, T);
+            require(reverse.converged && std::abs(reverse.end.effort / sol.end.effort - 1.0) < 1e-6,
+                "the reversed transfer should cost the same effort");
+        }
+
+        // Spending twice the effort along the branch shortens the transfer and uses the budget.
+        const auto spent = g::spend_effort_by_time(propagator, chaser, request.target, end_condition, sol, 2.0 * sol.end.effort, 0.1);
+        require(spent.converged && spent.T < T && spent.end.effort <= 2.0 * sol.end.effort * (1.0 + 1e-9)
+                && spent.end.effort > 2.0 * sol.end.effort * 0.99,
+            "spend_effort_by_time should shorten the transfer to use the budget");
+
+        // Twice the effort buys an earlier arrival, which uses the budget exactly.
+        const auto fast = g::solve_min_time(propagator, request, 2.0 * sol.end.effort, 0.05, 2.0 * T);
+        require(fast.converged && fast.T < T, "a larger budget should arrive earlier");
+        require(std::abs(fast.end.effort / (2.0 * sol.end.effort) - 1.0) < 1e-6, "the minimum-time transfer should use the budget");
+    }
+
+    // Free-space effort formula against a direct quadrature of u = A + C t.
+    const g::State a {{1.0, 0.2}, {0.1, 0.9}};
+    const g::State b {{-0.5, 1.1}, {-0.6, -0.2}};
+    const double T = 0.7;
+    const auto seed = g::free_space_seed(a, b, T);
+    double quad = 0.0;
+    for (int i = 0; i < 1000; ++i) {
+        const double t = (i + 0.5) * T / 1000.0;
+        const g::Vec2 u = seed.p + t * seed.w;
+        quad += g::dot(u, u) * T / 1000.0;
+    }
+    require(std::abs(quad / g::free_space_effort(a, b, T) - 1.0) < 1e-5, "free-space effort formula");
+    std::cout << "general transfer verified (" << checked << " atlas arcs, " << grazing << " Sun-grazing skipped, " << refined
+              << " STM refines)\n";
+}
+
+// The game-facing chase adapter: a plasma freighter leaving Earth's orbit intercepts a ship
+// coasting outward on a Hohmann-like ellipse, given as a sampled path in SI units.
+void verify_chase_adapter() {
+    namespace g = spacetrains::variable_isp::general;
+    using spacetrains::math::Vec3d;
+    namespace tr = spacetrains::trajectory;
+    const double au = VariableIspIntegrator::kAstronomicalUnitM;
+    const double mu = VariableIspIntegrator::kMuSunSI;
+    const tr::ChaseUnits units {mu, au};
+    // Quarry: perihelion at 1 AU, aphelion 1.52 AU, starting 0.3 rad ahead of the chaser.
+    const double a = 1.26 * au, e = 0.52 / 2.52;
+    spacetrains::domain::TrajectoryPlan quarry;
+    const double period = 2.0 * 3.14159265358979 * std::sqrt(a * a * a / mu);
+    for (int i = 0; i <= 400; ++i) {
+        const double t = period * 0.5 * i / 400.0;
+        // Kepler's equation for the eccentric anomaly.
+        const double M = 2.0 * 3.14159265358979 * t / period;
+        double E = M;
+        for (int k = 0; k < 30; ++k) E = M + e * std::sin(E);
+        const double nu = 2.0 * std::atan2(std::sqrt(1 + e) * std::sin(E / 2), std::sqrt(1 - e) * std::cos(E / 2));
+        const double r = a * (1 - e * std::cos(E));
+        quarry.sampled_path.push_back(Vec3d {r * std::cos(nu + 0.3), 0.0, r * std::sin(nu + 0.3)});
+        quarry.sampled_times_s.push_back(t);
+    }
+    const double v_earth = std::sqrt(mu / au);
+    tr::ChaseRequest request;
+    request.position_m = {au, 0.0, 0.0};
+    request.velocity_mps = {0.0, 0.0, v_earth};
+    request.depart_time_s = 10.0 * 86400.0;
+    request.power_w = 293.0 * 34100.0;
+    request.dry_mass_kg = 34100.0 + 15000.0;  // half the tanks stay as reserve and payload
+    request.initial_mass_kg = 34100.0 + 30000.0;
+    for (const auto end_condition : {g::EndCondition::Intercept, g::EndCondition::Rendezvous}) {
+        request.end_condition = end_condition;
+        const auto target = tr::path_target(quarry, request.depart_time_s, units);
+        const auto plan = tr::plan_chase(request, target, units);
+        require(plan.feasible, "plasma freighter should catch the coasting ship");
+        require(plan.propellant_kg <= 15000.0 * 1.0001, "the chase should fit the propellant budget");
+        const auto goal = target(plan.transfer_time_s / units.time_s()).state;
+        require((plan.path_m.back() - units.position_m(goal.r)).length() < 1e-4 * au, "the chase path should end at the quarry");
+        std::cout << "chase " << (end_condition == g::EndCondition::Intercept ? "intercept" : "rendezvous") << ": "
+                  << plan.transfer_time_s / 86400.0 << " d, " << plan.propellant_kg << " kg\n";
+    }
+}
+
 int main() {
     const auto repo_root = std::filesystem::current_path();
     VariableIspAtlas atlas;
@@ -419,6 +594,8 @@ int main() {
     verify_dataset(repo_root / "tests/data/variable_isp/reference_validation.json", atlas, integrator, false);
 
     verify_sample_counts(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
+    verify_general_transfer(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
+    verify_chase_adapter();
 
     std::cout << "VariableISP tests passed.\n";
     return 0;

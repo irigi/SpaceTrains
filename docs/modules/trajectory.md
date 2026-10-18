@@ -82,6 +82,49 @@ with that the propellant formula (I_real = I_canonical·δ_real/δ_canonical) ho
 it wait for the next window. Before, the wait wrapped to almost a whole synodic period (Ganymede -> Ceres planned
 3133 days, 2705 of them waiting; now 432).
 
+## VariableISP Refinement in Primer Form (v34–v35)
+
+`VariableIspIntegrator::refine_seed_stm` solves the refinement above with the general solver below:
+the atlas costates map exactly to the Cartesian primer (p = k·λ_v, w = −k[λ_r e_r + (C_θ + v_θλ_vr − v_rλ_vθ)/r e_θ]),
+the shooting uses the analytic transition matrix instead of finite differences, and the result maps back
+to atlas costates, so the rest of the planner is unchanged. The finite-difference `refine_seed` remains for tests.
+
+- **One pass.** The station-targeting refinement starts from the atlas seed; the launch wait comes from the
+  seed's T. The seed's winding branch is checked inside the shooting (its first evaluation), so the seed is
+  not integrated separately.
+- **Perihelion inside.** Paths diving below half the perihelion limit fail inside the shooting; the shooting
+  also reports the exact closest approach, end state and effort.
+- **Scoring plans** (`include_path` off) take mass (from the effort) and perihelion from the shooting; only
+  plans with a path integrate the trajectory (4000 samples).
+- **Fuel fit.** When the corrected path needs at most 10% more effort than the fuel allows,
+  `fit_effort_by_time` changes T until it fits (56% of candidates used to be rejected as fuel-limited).
+- **Shared refinements.** The geometric refinement of an atlas cell is cached per (route, plan time, cell):
+  the path does not depend on the ship, so plans differing only in payload or fuel reuse it and apply their
+  own fuel check.
+- Optional, off: `PlanningOptions::direct_fallback` (solve a departure now directly when no window converges)
+  and `ShootingSettings::spend_fuel_budget` (shorten T to use all the fuel); both measured without economy gain.
+
+The Kepler planner caches its Lambert grid rows at departures aligned to multiples of the grid step (plus a
+fresh "leave now" row), shared across plans and steps.
+
+## General-Boundary Variable-Isp Transfers (prototype)
+
+`variable_isp/GeneralTransfer.hpp` solves constant-power transfers between arbitrary states — the primitive
+for chases (pirates, police). Minimum propellant is minimum effort J = ∫|a|²dt, so the path never depends on
+the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised units: μ = 1, caller's length.
+
+- `shoot` — Levenberg-Marquardt shooting on (p0, w0[, T]); rendezvous (match r, v) or intercept (match r,
+  thrust ends at zero); fixed, coasting, sampled or thrusting targets with their motion in the Jacobian.
+- `solve_transfer` (fixed T) — seed portfolio: zero primer (Newton from it is the linear-quadratic solution
+  about the coasting arc), polar shape method (Hermite + Legendre bubbles, Gauss-Newton on ∫a²) with a primer
+  fit, then multiple shooting, boundary homotopy and continuation in T as fallbacks. 99–100% valid, median
+  0.4–0.8 ms on the bench sets.
+- `solve_min_time` — earliest arrival for an effort budget (fuel load).
+- `trajectory/ChaseSolver.hpp` — SI adapter: `path_target` follows another ship's `TrajectoryPlan` samples,
+  `plan_chase` returns the earliest interception or rendezvous for a ship's power and propellant.
+
+Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (see `docs/plans/visp_general_solver_log.md`).
+
 ## Perihelion Limit and Path Sampling
 
 Both planners reject transfers that come closer to the Sun than `kMinPerihelionM` (0.1 AU,
