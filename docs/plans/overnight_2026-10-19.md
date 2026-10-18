@@ -56,6 +56,22 @@ mean ± sd (`sweep.py` in the session scratchpad).
 | k6, review every 15 days (k10) | 1.4 ± 0.2 | 1.7 ± 1.7 | 2.68 ± 0.21 | 214 ± 15 | 33 ± 2 | 40 ± 2 | 19 / 20 | 84 ± 3 | −4 ± 15 | — |
 | k6 + source reservation 30 d (r2) | 1.3 ± 1.0 | 0.8 ± 0.8 | 2.52 ± 0.21 | 202 ± 18 | 33 ± 2 | 39 ± 1 | 21 / 19 | 82 ± 4 | −21 ± 29 | — |
 | x3 + source reservation 30 d (r1) | 2.2 ± 0.9 | 1.9 ± 1.7 | 1.48 ± 0.20 | 123 ± 9 | 33 ± 2 | 38 ± 1 | 20 / 18 | 74 ± 1 | −21 ± 14 | — |
+| c6 + safety factor 2.5 (s1) | 1.9 ± 0.2 | 2.4 ± 0.4 | 1.51 ± 0.10 | 121 ± 15 | 37 ± 2 | 39 ± 2 | 18 / 19 | 74 ± 3 | −31 ± 18 | — |
+| ref + safety factor 2.5 (s2) | 1.0 ± 0.3 | 0.5 ± 0.6 | 2.57 ± 0.28 | 209 ± 17 | 33 ± 0 | 42 ± 2 | 18 / 18 | 85 ± 3 | +0 ± 5 | — |
+| k6 + safety factor 2.5 (s3) | 1.1 ± 0.5 | 1.1 ± 0.7 | 2.64 ± 0.12 | 198 ± 10 | 33 ± 1 | 39 ± 2 | 20 / 19 | 82 ± 3 | −1 ± 11 | — |
+| x4 + safety factor 2.5 (s4) | 1.5 ± 0.3 | 1.7 ± 1.0 | 1.66 ± 0.12 | 130 ± 7 | 37 ± 2 | 42 ± 2 | 19 / 19 | 76 ± 2 | −36 ± 11 | — |
+| x4 + accept 0.3 (y1) | 1.4 ± 0.4 | 2.0 ± 2.1 | 1.78 ± 0.29 | 140 ± 13 | 33 ± 1 | 39 ± 3 | 20 / 20 | 76 ± 3 | −12 ± 14 | — |
+| urgency max 3, cost-plus +100%, accept 0.5 (y2) | 1.2 ± 0.3 | 1.1 ± 0.9 | 1.77 ± 0.06 | 142 ± 7 | 35 ± 3 | 39 ± 3 | 21 / 18 | 75 ± 3 | −20 ± 9 | — |
+| competitive, urgency max 4 (y4) | 1.4 ± 0.3 | 1.3 ± 0.5 | 2.00 ± 0.19 | 157 ± 9 | 35 ± 1 | 39 ± 1 | 20 / 19 | 81 ± 4 | −13 ± 9 | — |
+| reference-anchored, urgency max 2 (z1) | 3.1 ± 1.0 | 4.1 ± 1.8 | 1.18 ± 0.05 | 105 ± 5 | 37 ± 2 | 40 ± 2 | 17 / 18 | 70 ± 2 | −34 ± 5 | — |
+| reference-anchored, urgency max 3 (z2) | 2.1 ± 0.5 | 2.2 ± 1.5 | 1.59 ± 0.01 | 133 ± 9 | 35 ± 3 | 41 ± 1 | 17 / 18 | 76 ± 3 | −18 ± 19 | — |
+| x4, contracts vs unweighted spot (v1) | 1.6 ± 0.4 | 1.5 ± 0.7 | 1.77 ± 0.07 | 143 ± 8 | 35 ± 2 | 40 ± 1 | 18 / 19 | 78 ± 3 | −17 ± 8 | — |
+| urgency max 3, market contracts vs unweighted (v2, 3 of 4 runs) | 1.2 ± 0.3 | 1.0 ± 0.6 | 1.83 ± 0.29 | 115 ± 42 | 32 ± 2 | 39 ± 3 | 20 / 19 | 67 ± 20 | −16 ± 4 | — |
+| c6 + contracts vs unweighted (v3) | 1.5 ± 0.3 | 1.4 ± 1.0 | 1.53 ± 0.18 | 124 ± 6 | 36 ± 3 | 39 ± 1 | 20 / 18 | 72 ± 6 | −24 ± 18 | — |
+| k6 vs unweighted (v4) | 1.1 ± 0.2 | 0.9 ± 0.5 | 2.64 ± 0.07 | 202 ± 18 | 31 ± 1 | 39 ± 2 | 20 / 19 | 83 ± 4 | −15 ± 30 | — |
+| y2, ask markup 0.2 (g1) | 1.2 ± 0.4 | 1.0 ± 0.9 | 1.71 ± 0.22 | 142 ± 12 | 34 ± 2 | 39 ± 2 | 21 / 19 | 76 ± 2 | −16 ± 9 | — |
+| y2, ask markup 0.45 (g2) | 1.5 ± 0.2 | 1.1 ± 0.7 | 1.80 ± 0.11 | 140 ± 4 | 35 ± 2 | 40 ± 1 | 20 / 19 | 77 ± 3 | −14 ± 10 | — |
+| y2, 180-day term (g3) | 1.6 ± 0.4 | 1.8 ± 0.8 | 1.74 ± 0.11 | 137 ± 3 | 33 ± 2 | 39 ± 3 | 20 / 19 | 78 ± 1 | −16 ± 7 | — |
 
 Run times are left out while several sweeps share the machine; speed is measured separately at the end.
 
@@ -68,6 +84,7 @@ Run times are left out while several sweeps share the machine; speed is measured
 | competitive (c6) | 1.6 ± 0.2 | 2.0 ± 1.2 | 1.45 ± 0.09 | 121 ± 8 | 33 ± 2 | 38 ± 2 | 75 ± 4 | −13 ± 15 |
 | competitive, urgency max 3, cost-plus contracts (x4) | 1.4 ± 0.2 | 1.9 ± 1.3 | 1.67 ± 0.15 | 134 ± 14 | 35 ± 3 | 40 ± 2 | 79 ± 2 | −17 ± 11 |
 | competitive, urgency on safety max 8 (c12) | 1.6 ± 0.4 | 1.9 ± 2.0 | 2.07 ± 0.23 | 171 ± 15 | 37 ± 2 | 38 ± 2 | 76 ± 3 | −4 ± 14 |
+| competitive, urgency max 3, cost-plus +100% contracts, accept 0.5 (y2) | 1.3 ± 0.3 | 1.6 ± 1.4 | 1.69 ± 0.12 | 134 ± 13 | 35 ± 3 | 38 ± 2 | 75 ± 3 | −17 ± 12 |
 
 With Lunar Gateway's metals and water output raised by half (a map change, for the user to decide):
 reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contracts 0.5 ± 0.3% (2.36×).
@@ -147,3 +164,12 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
 21. The late shortage everywhere is LEO food: Earth L1's farms are a day away, but LEO orders on an
    observed 34-day delivery interval with a safety stock of 1.5 × a 10-day spread, and short low-value
    food runs come irregularly. An ordering-policy question (safety factor), tested next.
+22. A higher safety factor (2.5) helps posted prices (1.3 → 1.0%) but not competitive ones (1.6 → 1.9%).
+23. The ships' asks matter: anchoring the market price on the reference instead (z1, z2) supplies far
+   worse (2.1–3.1%).
+24. Save/load drifted with the market switches on (full-JSON check; the summary lines matched). Two
+   planner caches gave results that depended on which plan first filled them: Kepler's Lambert rows
+   (the Hohmann time of the first plan, which varies for moons) and VariableISP's shared refinement
+   (the asking ship's kappa). Both are pure functions of their keys now (7f50445); default and
+   market-on games round-trip exactly over 60+60 days. Results change slightly, so the finalists are
+   re-run on the fixed binary.
