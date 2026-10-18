@@ -3009,6 +3009,32 @@ void Simulation::tick() {
                 break;
         }
     }
+
+    // Debug aid: SPACETRAINS_TRACE_FLEET=1 logs the fleet's hold use every 5 days (stderr):
+    // ships and hold units by phase, and the units aboard in flight and while waiting to leave.
+    if (static const bool trace_fleet = std::getenv("SPACETRAINS_TRACE_FLEET") != nullptr;
+        trace_fleet && std::fmod(game_time_s_ / 86400.0 + 1e-6, 5.0) < dt_s / 86400.0) {
+        int loaded = 0, empty = 0, waiting = 0, docked = 0;
+        double hold = 0.0, hold_loaded = 0.0, hold_empty = 0.0, aboard_flying = 0.0, aboard_waiting = 0.0;
+        for (const auto& ship : ships_) {
+            const double capacity = ship_design(ship).cargo_capacity_units;
+            const double aboard = domain::total_units(ship.active_mission.cargo);
+            hold += capacity;
+            if (ship.phase == domain::ShipMissionPhase::InTransit) {
+                ++(aboard > 0.0 ? loaded : empty);
+                (aboard > 0.0 ? hold_loaded : hold_empty) += capacity;
+                aboard_flying += aboard;
+            } else if (ship.phase == domain::ShipMissionPhase::AwaitingDeparture) {
+                ++waiting;
+                aboard_waiting += aboard;
+            } else {
+                ++docked;
+            }
+        }
+        std::cerr << std::format("[FLEET] day {:.0f} ships {} hold {:.0f} loaded {} {:.0f} empty {} {:.0f} waiting {} docked {} "
+            "aboard_flying {:.0f} aboard_waiting {:.0f}\n", game_time_s_ / 86400.0, ships_.size(), hold, loaded, hold_loaded,
+            empty, hold_empty, waiting, docked, aboard_flying, aboard_waiting);
+    }
 }
 
 void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stocks_before) {

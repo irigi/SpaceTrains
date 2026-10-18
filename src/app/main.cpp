@@ -1151,6 +1151,20 @@ int main(int argc, char** argv) {
             }
             std::cout << std::format("step ms: p50 {:.1f}, p90 {:.1f}, p99 {:.1f}, max {:.1f} (first step {:.1f}); {} steps over 50 ms\n",
                 pct(0.5), pct(0.9), pct(0.99), 1000.0 * sorted.back(), 1000.0 * step_wall_s.front(), over_50ms);
+            // The slowest stretches of game time (after the opening step): the UI's top speed is
+            // 5 days a second and the bridge carries up to 4 s of lag, so 5- and 20-day windows matter.
+            for (const int days : {1, 5, 20}) {
+                const auto window = static_cast<std::size_t>(days * steps_per_day);
+                if (step_wall_s.size() <= window + 1) {
+                    continue;
+                }
+                double sum = 0.0, worst = 0.0;
+                for (std::size_t i = 1; i < step_wall_s.size(); ++i) {
+                    sum += step_wall_s[i] - (i > window ? step_wall_s[i - window] : 0.0);
+                    worst = i >= window ? std::max(worst, sum) : worst;
+                }
+                std::cout << std::format("slowest {}-day stretch: {:.2f} s ({:.1f} days/s)\n", days, worst, days / worst);
+            }
         }
         std::cout << spacetrains::profiling::report();
     }
