@@ -1,5 +1,39 @@
 # Overnight 2026-10-18/19: market redesign
 
+## Morning summary
+
+**The game now runs competitive pricing plus rotation contracts.** On 8 starts × 4 years it supplies
+as well as the reference (unmet 1.3%) while stations pay a third less (1.69× against 2.64× the landed
+reference price). Ships still earn about four times their operating cost on a unit; 75% of ships are
+profitable, against 85%.
+
+- **Competitive pricing:** once a day each order's price is capped by what ships near a source ask.
+  An ask is the leg's real cost spread over what the leg can carry to open orders, plus a 30% markup;
+  the market price is the second-lowest ask. An urgency factor of up to 3× applies while a station's
+  projected stock is low.
+- **Rotation contracts:** free ships look for loops of up to 4 stops every 30 days, staggered per ship.
+  The search is ≤ 400 loops from cached leg estimates, with the best 6 re-dated for launch windows.
+  Loops are priced at cost plus 100%, at most the station's going rate. About 7 ships are on a loop at
+  a time.
+  - Contracts alone on the old prices supply best (0.9% unmet) and make runs 10% faster.
+  - Multi-stop loops beat shuttles: 2 stops 1.5%, 3 stops 1.2%, 4 stops 1.1%.
+- **Background thread:** not needed. The loop search is cheap; y2 runs 6% slower than the reference, all
+  of it from the competitive asks, and still makes 5.3 days/s in its slowest 20 days.
+- **Two bug fixes outside the market:**
+  - a rare crash, a use-after-free in the Kepler planner found with ThreadSanitizer, about one run in 25;
+  - planner caches that depended on history, which broke exact save/load once many legs were planned.
+
+**To review:**
+1. y2 as the default. The alternative is contracts on posted prices: better supply, same rent (set
+   `competitive` 0, `contract_accept` 0.7, `contract_cost_plus` 0).
+2. A map question: LEO metals and Earth L1 water are short in every design because Lunar Gateway is
+   their only nearby source. Raising Luna's metals and water output by half gives 0.8% unmet in the
+   reference and 1.1% under competitive prices. Not changed.
+3. The emergency test now asks only that the faction premium starts at least at the station's bid.
+4. The Earth L1 "lead-time bug" stays: capping the lead hurt supply in every combination.
+5. The planner fixes change all results slightly (statistically the same; the reference was re-run).
+
+
 Goal (user, 2026-10-18 evening): stations supplied, ships used and paying back their price, stations not
 overpaying. Try a landed-cost bid, tenders and rotation contracts with multi-stop loops; keep only
 what improves the economy. Work until 17:00 at the latest, no questions; decisions are logged here.
