@@ -54,8 +54,23 @@ mean ± sd (`sweep.py` in the session scratchpad).
 | c6, urgency on safety, max 8 (c12) | 1.4 ± 0.4 | 1.0 ± 0.7 | 2.10 ± 0.30 | 173 ± 22 | 37 ± 1 | 38 ± 1 | 21 / 20 | 75 ± 3 | −5 ± 16 | — |
 | k6, accept 1.0 (k9) | 1.0 ± 0.4 | 0.5 ± 0.8 | 2.64 ± 0.32 | 201 ± 18 | 31 ± 3 | 40 ± 2 | 20 / 19 | 84 ± 4 | −3 ± 13 | — |
 | k6, review every 15 days (k10) | 1.4 ± 0.2 | 1.7 ± 1.7 | 2.68 ± 0.21 | 214 ± 15 | 33 ± 2 | 40 ± 2 | 19 / 20 | 84 ± 3 | −4 ± 15 | — |
+| k6 + source reservation 30 d (r2) | 1.3 ± 1.0 | 0.8 ± 0.8 | 2.52 ± 0.21 | 202 ± 18 | 33 ± 2 | 39 ± 1 | 21 / 19 | 82 ± 4 | −21 ± 29 | — |
+| x3 + source reservation 30 d (r1) | 2.2 ± 0.9 | 1.9 ± 1.7 | 1.48 ± 0.20 | 123 ± 9 | 33 ± 2 | 38 ± 1 | 20 / 18 | 74 ± 1 | −21 ± 14 | — |
 
 Run times are left out while several sweeps share the machine; speed is measured separately at the end.
+
+## Finalists on 8 starts (0, 45, ..., 315)
+
+| Run | Unmet % | Last fifth % | Price ÷ ref | Margin cr/u | Cost cr/u | Hold use % | Profitable % | Money % |
+|---|---|---|---|---|---|---|---|---|
+| reference | 1.3 ± 0.3 | 1.1 ± 0.5 | 2.63 ± 0.19 | 216 ± 13 | 34 ± 2 | 41 ± 1 | 85 ± 3 | −4 ± 26 |
+| contracts, cover 1 (k6) | 1.0 ± 0.4 | 1.5 ± 1.8 | 2.55 ± 0.23 | 197 ± 15 | 34 ± 2 | 39 ± 2 | 83 ± 2 | −20 ± 15 |
+| competitive (c6) | 1.6 ± 0.2 | 2.0 ± 1.2 | 1.45 ± 0.09 | 121 ± 8 | 33 ± 2 | 38 ± 2 | 75 ± 4 | −13 ± 15 |
+| competitive, urgency max 3, cost-plus contracts (x4) | 1.4 ± 0.2 | 1.9 ± 1.3 | 1.67 ± 0.15 | 134 ± 14 | 35 ± 3 | 40 ± 2 | 79 ± 2 | −17 ± 11 |
+| competitive, urgency on safety max 8 (c12) | 1.6 ± 0.4 | 1.9 ± 2.0 | 2.07 ± 0.23 | 171 ± 15 | 37 ± 2 | 38 ± 2 | 76 ± 3 | −4 ± 14 |
+
+With Lunar Gateway's metals and water output raised by half (a map change, for the user to decide):
+reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contracts 0.5 ± 0.3% (2.36×).
 
 ## Decisions and findings
 
@@ -118,3 +133,12 @@ Run times are left out while several sweeps share the machine; speed is measured
 17. More ships do not help under competitive prices (cap 170: same unmet, 65% profitable, money −43%):
    capacity is not the limit, so cap 130 stays.
 18. With 4 starts the noise is ±0.2–0.4 points of unmet; finalists are judged on 8 starts (0, 45, ..., 315).
+19. Four runs (of ~150) stopped early without a message between 23:38 and 23:52 while the machine
+   ran ~50 processes. Re-run with the same settings they finish, and their traces match the re-runs
+   exactly up to the stop: the simulation stays deterministic, the stops came from outside (the
+   sweep now records exit codes). Their results were replaced by the re-runs.
+20. Holding back source stock for contract ships due to load soon (`contract_reserve_days`) does not
+   help (2.2% under competitive prices, 1.3 ± 1.0% under posted). Rejected.
+21. The late shortage everywhere is LEO food: Earth L1's farms are a day away, but LEO orders on an
+   observed 34-day delivery interval with a safety stock of 1.5 × a 10-day spread, and short low-value
+   food runs come irregularly. An ordering-policy question (safety factor), tested next.
