@@ -133,10 +133,15 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
 17. More ships do not help under competitive prices (cap 170: same unmet, 65% profitable, money −43%):
    capacity is not the limit, so cap 130 stays.
 18. With 4 starts the noise is ±0.2–0.4 points of unmet; finalists are judged on 8 starts (0, 45, ..., 315).
-19. Four runs (of ~150) stopped early without a message between 23:38 and 23:52 while the machine
-   ran ~50 processes. Re-run with the same settings they finish, and their traces match the re-runs
-   exactly up to the stop: the simulation stays deterministic, the stops came from outside (the
-   sweep now records exit codes). Their results were replaced by the re-runs.
+19. Some runs stopped early without a message (5 of ~170, all with market switches on). With exit
+   codes recorded they were segfaults. Re-run with the same settings they finished, and their traces
+   matched the re-runs exactly up to the stop, so the logic was deterministic and memory layout
+   decided the crash. AddressSanitizer found nothing in 700 days; ThreadSanitizer found the cause, a
+   pre-existing use-after-free in the Kepler planner: `for (cell : *lambert_grid(...))` drops the
+   returned shared_ptr at once (C++20), and another planning thread trimming the grid cache at 2048
+   entries freed the grid mid-loop. The market switches plan many more legs in parallel, so they hit
+   it more often; normal games could crash too, more rarely. Fixed in 399ad53 (results unchanged,
+   checked bit for bit); the truncated runs were replaced by clean re-runs.
 20. Holding back source stock for contract ships due to load soon (`contract_reserve_days`) does not
    help (2.2% under competitive prices, 1.3 ± 1.0% under posted). Rejected.
 21. The late shortage everywhere is LEO food: Earth L1's farms are a day away, but LEO orders on an
