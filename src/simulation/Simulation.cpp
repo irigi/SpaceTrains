@@ -2313,7 +2313,11 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             if (cargo_follow_up_only && !option.carries_cargo) {
                 continue;
             }
-            const double score = (leg_profit + option.profit) / std::max(1.0, leg_days + option.days);
+            // A follow-up is a forecast; one that starts years from now is worth less (a light
+            // freighter at Mars waited out 1,385 days for science samples forecast at Ceres).
+            const double horizon = universe_.market.follow_up_horizon_days;
+            const double weight = horizon > 0.0 && option.profit > 0.0 ? std::exp(-leg_days / horizon) : 1.0;
+            const double score = (leg_profit + weight * option.profit) / std::max(1.0, leg_days + option.days);
             if (score > best) {
                 best = score;
                 follow = option;

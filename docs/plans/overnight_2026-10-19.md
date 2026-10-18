@@ -23,6 +23,9 @@ profitable, against 85%.
   - a rare crash, a use-after-free in the Kepler planner found with ThreadSanitizer, about one run in 25;
   - planner caches that depended on history, which broke exact save/load once many legs were planned.
 
+Validation on 8 start days never used for tuning (20, 65, ..., 335): reference 1.6 ± 0.6% unmet at
+2.63×; y2 1.4 ± 0.5% at 1.68× (78% of ships profitable); contracts alone 1.1 ± 0.3% at 2.62×.
+
 **To review:**
 1. y2 as the default. The alternative is contracts on posted prices: better supply, same rent (set
    `competitive` 0, `contract_accept` 0.7, `contract_cost_plus` 0).
@@ -32,6 +35,16 @@ profitable, against 85%.
 3. The emergency test now asks only that the faction premium starts at least at the station's bid.
 4. The Earth L1 "lead-time bug" stays: capping the lead hurt supply in every combination.
 5. The planner fixes change all results slightly (statistically the same; the reference was re-run).
+6. The fleet cap (your call, kept at 130). Under the new prices a smaller fleet supplies as well and
+   pays better (y2, 4 starts):
+
+   | Cap | Unmet | Last fifth | Price ÷ ref | Profitable |
+   |---|---|---|---|---|
+   | 100 | 1.1 ± 0.1% | 0.7% | 1.83× | 83% |
+   | 115 | 1.2 ± 0.1% | 1.2% | 1.80× | 80% |
+   | 130 | 1.2 ± 0.3% | 1.1% | 1.77× | 75% |
+
+   Cap 100 runs about 25% faster.
 
 
 Goal (user, 2026-10-18 evening): stations supplied, ships used and paying back their price, stations not

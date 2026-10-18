@@ -212,6 +212,7 @@ struct OrdersDefinition {
 // Market redesign switches (2026-10-19 night session); optional keys in data/economy/market.csv.
 // The defaults reproduce the economy before the redesign.
 struct MarketDefinition {
+    double follow_up_horizon_days {0.0};  // >0: a follow-up leg's profit counts x exp(-days until it starts / this)
     double lead_cap_factor {0.0};      // >0: a delivery's lead sample counts at most this x the nearest source's lead
     double bid_scale {1.0};            // multiplies the stock-ratio bid (before its cap)
     double bid_elasticity {1.3};       // e in (S / stock)^e

@@ -920,6 +920,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             auto& market = universe.market;
             const std::unordered_map<std::string, double*> fields {
                 {"lead_cap_factor", &market.lead_cap_factor},
+                {"follow_up_horizon_days", &market.follow_up_horizon_days},
                 {"bid_scale", &market.bid_scale},
                 {"bid_elasticity", &market.bid_elasticity},
                 {"competitive", &market.competitive},
