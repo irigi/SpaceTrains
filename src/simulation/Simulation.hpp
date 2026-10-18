@@ -253,6 +253,17 @@ private:
     // Scheduled liners (step 22): a liner's loop (null for other ships), and its stop after `from_id`.
     [[nodiscard]] const std::vector<std::string>* liner_stops(const domain::ShipState& ship) const;
     [[nodiscard]] std::string next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const;
+    // A liner's stops, or the loop of a ship under a rotation contract (nullptr: neither).
+    [[nodiscard]] const std::vector<std::string>* scheduled_stops(const domain::ShipState& ship) const;
+    [[nodiscard]] std::string next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const;
+    [[nodiscard]] bool under_contract(const domain::ShipState& ship) const;
+    // Rotation contracts: units per day of a good contracted to a station, over every contract.
+    [[nodiscard]] double contracted_flow(const std::string& station_id, const std::string& commodity_id) const;
+    // The best loop for a ship from its port, with its profit per day (0: none).
+    std::pair<domain::ShipContract, double> find_contract(const domain::ShipState& ship,
+        const domain::ShipClassDefinition& ship_class);
+    // Runs `pass` until it queues no plans, computing the queued plans in parallel in between.
+    void with_parallel_plans(const std::string& prefix, const std::function<void()>& pass);
     // Fleet investment (docs/modules/ships_and_fleet.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();

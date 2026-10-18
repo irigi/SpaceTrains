@@ -370,6 +370,11 @@ const domain::StationState& Simulation::get_station_state(const std::string& sta
 }
 
 void Simulation::add_event(std::string text, std::string category) {
+    // Debug aid: SPACETRAINS_TRACE_CONTRACTS=1 logs rotation-contract events (stderr).
+    if (static const bool trace_contracts = std::getenv("SPACETRAINS_TRACE_CONTRACTS") != nullptr;
+        trace_contracts && text.find("rotation contract") != std::string::npos) {
+        std::cerr << std::format("[CONTRACT] day {:.1f} {}\n", game_time_s_ / 86400.0, text);
+    }
     recent_events_.push_back({.time_s = game_time_s_, .text = std::move(text), .category = std::move(category)});
     if (recent_events_.size() > MAX_EVENT_HISTORY) {
         recent_events_.erase(recent_events_.begin(), recent_events_.begin() + static_cast<long>(recent_events_.size() - MAX_EVENT_HISTORY));
@@ -1033,6 +1038,46 @@ std::vector<std::pair<double, double>> Simulation::contracted_arrivals(
             }
         }
     }
+    // Rotation contracts: the deliveries still to come on each loop, at their estimated dates
+    // (the leg under way is in the cargo above).
+    for (const auto& ship : ships_) {
+        if (!under_contract(ship)) {
+            continue;
+        }
+        const auto& contract = ship.contract;
+        const auto count = contract.stops.size();
+        std::size_t at = count;
+        double t = game_time_s_;
+        const bool moving = ship.phase == domain::ShipMissionPhase::InTransit
+            || ship.phase == domain::ShipMissionPhase::AwaitingDeparture;
+        const auto& here = moving ? ship.active_mission.destination_station_id : ship.current_station_id;
+        for (std::size_t k = 0; k < count; ++k) {
+            if (contract.stops[k] == here) {
+                at = k;
+            }
+        }
+        if (at == count) {
+            continue;
+        }
+        if (moving) {
+            t = std::max(game_time_s_, ship.active_mission.arrival_time_s);
+        }
+        for (std::size_t step = 0; step < 2 * count; ++step) {
+            const auto next = (at + 1) % count;
+            t += contract.leg_days[at] * 86400.0;
+            if (t > contract.until_s) {
+                break;
+            }
+            if (contract.stops[next] == state.station_id) {
+                for (const auto& delivery : contract.deliveries) {
+                    if (delivery.to_station_id == state.station_id && delivery.commodity_id == commodity_id) {
+                        arrivals.emplace_back(t, delivery.units);
+                    }
+                }
+            }
+            at = next;
+        }
+    }
     std::sort(arrivals.begin(), arrivals.end());
     return arrivals;
 }
@@ -1291,12 +1336,34 @@ void Simulation::update_market_prices() {
         return std::max(0.0, (stock == state.inventory.end() ? 0.0 : stock->second) - (8.0 + std::max(0.0, r) * 7.0));
     };
     std::unordered_map<std::string, std::vector<double>> asks;  // station|good -> asks
+    // What each order still wants (open and extra units), so a big hold's trip is spread only
+    // over what a leg can carry to that station from that source.
+    std::unordered_map<std::string, double> wanted;  // station|good -> units
+    if (market.ask_open_units > 0.0) {
+        for (const auto& state : stations_) {
+            for (const auto& [commodity_id, stats] : state.order_stats) {
+                if (priced_order(state, commodity_id)) {
+                    const auto quote = order_quote(state, commodity_id, game_time_s_ + stats.lead_days * day_s, {});
+                    wanted[state.station_id + "|" + commodity_id] = quote.open_units + quote.extra_units;
+                }
+            }
+        }
+    }
+    const auto joint_load = [&](const domain::StationDefinition& source, const domain::StationState& destination) {
+        double units = 0.0;
+        for (const auto& [commodity_id, stats] : destination.order_stats) {
+            const auto it = wanted.find(destination.station_id + "|" + commodity_id);
+            if (it != wanted.end()) {
+                const double available = spare(source, commodity_id);
+                if (available >= market.min_source_surplus) {
+                    units += std::min(it->second, available);
+                }
+            }
+        }
+        return units;
+    };
     // Plans are estimated in parallel passes, like dispatch: a pass that misses plans queues them.
-    for (;;) {
-        std::vector<DeferredPlan> deferred;
-        deferred_plans_ = &deferred;
-        deferred_keys_.clear();
-        deferred_prefix_ = "market#";
+    with_parallel_plans("market#", [&] {
         asks.clear();
         for (const auto& state : stations_) {
             const auto& destination = get_station_definition(state.station_id);
@@ -1327,23 +1394,16 @@ void Simulation::update_market_prices() {
                     const double fuel_price = std::max(fuel_base, station_price(get_station_state(f.at->id), economy::FUEL_ID));
                     const double trip = leg.travel_days * (daily_capital_cost(ship_class) + crew)
                         + leg.propellant_kg / FUEL_UNITS_TO_KG * fuel_price;
-                    const double units = std::max(1.0, market.fill_ref * ship_class.cargo_capacity_units);
+                    double units = std::max(1.0, market.fill_ref * ship_class.cargo_capacity_units);
+                    if (market.ask_open_units > 0.0) {
+                        units = std::clamp(joint_load(*f.at, state), 1.0, units);
+                    }
                     const double buy = station_price(get_station_state(f.at->id), commodity_id);
                     list.push_back(buy + trip * (1.0 + market.return_share) / units * (1.0 + market.ask_markup));
                 }
             }
         }
-        deferred_plans_ = nullptr;
-        deferred_prefix_.clear();
-        if (deferred.empty()) {
-            break;
-        }
-        std::vector<domain::TrajectoryPlan> results(deferred.size());
-        thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
-        for (std::size_t i = 0; i < deferred.size(); ++i) {
-            deferred[i].commit(std::move(results[i]));
-        }
-    }
+    });
     for (auto& state : stations_) {
         for (auto& [commodity_id, stats] : state.order_stats) {
             auto it = asks.find(state.station_id + "|" + commodity_id);
@@ -1799,11 +1859,12 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // destination, from anywhere else only home. Otherwise it left once the gap it was bought
     // for closed, the gap reopened and the treasuries ordered another ship for it.
     // A liner (step 22) flies only to the stop after the one it is at, forever.
-    const bool liner = !cargo_only && liner_stops(ship) != nullptr;
+    // A ship under a rotation contract flies its loop the same way.
+    const bool liner = !cargo_only && scheduled_stops(ship) != nullptr;
     const bool on_route = liner || (!cargo_only && !ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s);
     const auto route_leg_allowed = [&](const std::string& from_id, const std::string& to_id) {
         if (liner) {
-            return to_id == next_liner_stop(ship, from_id);
+            return to_id == next_scheduled_stop(ship, from_id);
         }
         return !on_route || to_id == (from_id == ship.home_station_id ? ship.route_destination_id : ship.home_station_id);
     };
@@ -2190,6 +2251,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             double urgency {1.0};
             double loaded {0.0};
             double buy_cost {0.0};  // of `loaded`, along the origin's curve
+            double contract_units {0.0};  // the first of `loaded`, at the contract's price
+            double contract_price {0.0};
         };
         std::vector<Good> goods;
         double heaviest_kg = 0.0;
@@ -2252,6 +2315,32 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         double credits_left = spendable_credits;
         const double chunk = std::max(1.0, ship_class.cargo_capacity_units / 40.0);
         std::vector<std::pair<std::size_t, double>> picks;  // (good, units) in the order loaded
+        // A rotation contract's deliveries on this leg go aboard first, at their fixed price.
+        if (liner && under_contract(ship)) {
+            for (const auto& delivery : ship.contract.deliveries) {
+                if (delivery.to_station_id != destination.id) {
+                    continue;
+                }
+                for (std::size_t g = 0; g < goods.size(); ++g) {
+                    auto& good = goods[g];
+                    if (good.offer->commodity_id != delivery.commodity_id || good.contract_units > 0.0) {
+                        continue;
+                    }
+                    const double units = std::min({delivery.units, good.offer->surplus, hold_left});
+                    const double buy = units >= 1.0 ? trade_value(origin_state, good.offer->commodity_id, -units) : 0.0;
+                    if (units < 1.0 || buy > credits_left) {
+                        continue;
+                    }
+                    good.loaded = units;
+                    good.buy_cost = buy;
+                    good.contract_units = units;
+                    good.contract_price = delivery.unit_price;
+                    hold_left -= units;
+                    credits_left -= buy;
+                    picks.emplace_back(g, units);
+                }
+            }
+        }
         while (hold_left >= 0.5) {
             std::size_t best_good = goods.size();
             double best_gain = 0.0;
@@ -2264,9 +2353,10 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                     continue;
                 }
                 const double surviving = std::pow(1.0 - good.commodity->decay_fraction_per_day, probe_days);
+                const double spot_loaded = good.loaded - good.contract_units;
                 const double sale = good.ordered
-                    ? quote_split(good.quote, good.loaded * surviving, units * surviving).total
-                    : sale_split(destination, good.offer->commodity_id, good.stock_on_arrival + good.loaded * surviving,
+                    ? quote_split(good.quote, spot_loaded * surviving, units * surviving).total
+                    : sale_split(destination, good.offer->commodity_id, good.stock_on_arrival + spot_loaded * surviving,
                           units * surviving).total;
                 const double buy = trade_value(origin_state, good.offer->commodity_id, -(good.loaded + units)) - good.buy_cost;
                 const double propellant = propellant_per_kg * units * good.commodity->mass_per_unit_kg * marginal_fuel_price_per_kg;
@@ -2303,10 +2393,19 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             std::vector<double> lot_urgency;
             double cargo_kg = 0.0;
             for (std::size_t g = 0; g < goods.size(); ++g) {
-                if (units_by_good[g] > 1.0) {
-                    lots.push_back({.commodity_id = goods[g].offer->commodity_id, .units = units_by_good[g]});
+                double units = units_by_good[g];
+                if (units > 1.0) {
+                    cargo_kg += units * goods[g].commodity->mass_per_unit_kg;
+                }
+                if (const double contracted = std::min(units, goods[g].contract_units); contracted >= 1.0) {
+                    lots.push_back({.commodity_id = goods[g].offer->commodity_id, .units = contracted,
+                        .fixed_unit_price = goods[g].contract_price});
+                    lot_urgency.push_back(1.0);
+                    units -= contracted;
+                }
+                if (units > 1.0) {
+                    lots.push_back({.commodity_id = goods[g].offer->commodity_id, .units = units});
                     lot_urgency.push_back(goods[g].urgency);
-                    cargo_kg += units_by_good[g] * goods[g].commodity->mass_per_unit_kg;
                 }
             }
             if (lots.empty()) {
@@ -2349,8 +2448,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 const auto& lot = lots[l];
                 const double surviving = lot.units
                     * std::pow(1.0 - get_commodity(lot.commodity_id).decay_fraction_per_day, travel_days);
-                const double lot_revenue = sale_value_on_arrival(destination_state, lot.commodity_id, surviving,
-                    delay_days + travel_days, ship.id);
+                const double lot_revenue = lot.fixed_unit_price > 0.0 ? surviving * lot.fixed_unit_price
+                    : sale_value_on_arrival(destination_state, lot.commodity_id, surviving, delay_days + travel_days, ship.id);
                 const double lot_cost = trade_value(origin_state, lot.commodity_id, -lot.units);
                 revenue += lot_revenue;
                 purchases += lot_cost;
@@ -2417,7 +2516,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
 
     // A liner with nothing that pays for its next leg flies it empty: its value is the schedule.
     if (best_destination == nullptr && liner) {
-        const auto& next = get_station_definition(next_liner_stop(ship, origin_def.id));
+        const auto& next = get_station_definition(next_scheduled_stop(ship, origin_def.id));
         const auto fuel_plan = plan_with_return_fuel(next, 0.0);
         if (fuel_plan.plan->feasible && fuel_plan.feasible && fuel_plan.plan->travel_time_s / 86400.0 <= max_mission_days) {
             trace_line("liner: next stop empty to " + next.id);
@@ -2614,7 +2713,38 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
 
     const auto& ship_class = ship_design(ship);
     const auto review_start = std::chrono::steady_clock::now();
-    const auto choice = choose_mission(ship, ship_class, trace, game_time_s_);
+    // A rotation contract that ran out ends here.
+    if (!ship.contract.stops.empty() && game_time_s_ >= ship.contract.until_s) {
+        add_event(std::format("{}'s rotation contract ended at {}", ship.name,
+            get_station_definition(ship.current_station_id).name), "mission");
+        ship.contract = {};
+    }
+    auto choice = choose_mission(ship, ship_class, trace, game_time_s_);
+    // Rotation contracts: a free ship looks for a loop now and then, and signs one that earns
+    // about as much as the best spot mission (a repositioning earns nothing).
+    const auto& market = universe_.market;
+    if (market.contracts > 0.0 && ship.contract.stops.empty() && liner_stops(ship) == nullptr
+        && !(!ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s)
+        && game_time_s_ >= ship.next_contract_review_s) {
+        ship.next_contract_review_s = game_time_s_ + market.contract_review_days * 86400.0;
+        auto [contract, score] = find_contract(ship, ship_class);
+        const double spot = choice.kind == MissionChoice::Kind::Mission ? choice.score : 0.0;
+        if (!contract.stops.empty() && score > MIN_MISSION_SCORE_PER_DAY && score >= market.contract_accept * spot) {
+            std::string route;
+            for (const auto& stop : contract.stops) {
+                route += get_station_definition(stop).name + " > ";
+            }
+            std::string goods;
+            for (const auto& delivery : contract.deliveries) {
+                goods += std::format("{}{:.0f}u {} to {} at {:.0f}", goods.empty() ? "" : ", ", delivery.units,
+                    delivery.commodity_id, delivery.to_station_id, delivery.unit_price);
+            }
+            add_event(std::format("{} signs a rotation contract: {}({:.0f}-day loop, {:.0f} cr/day against {:.0f} spot): {}",
+                ship.name, route, contract.cycle_days, score, spot, goods), "mission");
+            ship.contract = std::move(contract);
+            choice = choose_mission(ship, ship_class, trace, game_time_s_);
+        }
+    }
     // Debug aid: with SPACETRAINS_PROFILE, reviews over half a second are reported (stderr).
     if (profiling::enabled()) {
         const double review_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count();
@@ -2623,12 +2753,18 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
                 ship_class.id, ship.current_station_id, review_s);
         }
     }
-    if (liner_stops(ship) == nullptr && consider_refit(ship, choice, trace)) {
+    if (scheduled_stops(ship) == nullptr && consider_refit(ship, choice, trace)) {
         return;
     }
 
     auto& origin_state = get_station_state(ship.current_station_id);
     const auto& origin_def = get_station_definition(ship.current_station_id);
+    if (choice.kind == MissionChoice::Kind::None && under_contract(ship)) {
+        // The loop cannot be flown from here (no fuel, no trajectory): the contract lapses.
+        add_event(std::format("{} gives up its rotation contract at {}", ship.name, origin_def.name), "alert");
+        ship.contract = {};
+        return;
+    }
     if (choice.kind == MissionChoice::Kind::None) {
         if (ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.01 && purchasable_propellant_kg(ship) <= 0.0) {
             ship.phase = domain::ShipMissionPhase::Stranded;
@@ -2694,6 +2830,11 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     for (auto& lot : contracted_cargo) {
         const double surviving = lot.units
             * std::pow(1.0 - get_commodity(lot.commodity_id).decay_fraction_per_day, plan.travel_time_s / 86400.0);
+        if (lot.fixed_unit_price > 0.0) {
+            lot.contract_value = surviving * lot.fixed_unit_price;
+            observe_contract(get_station_state(best_destination->id), lot.commodity_id, surviving, lot.fixed_unit_price);
+            continue;
+        }
         const auto split = sale_split_on_arrival(destination_state, lot.commodity_id, surviving, arrival_days, ship.id);
         lot.contract_value = split.total;
         lot.emergency_premium = split.faction;
@@ -3149,9 +3290,10 @@ void Simulation::tick() {
     // ships and hold units by phase, and the units aboard in flight and while waiting to leave.
     if (static const bool trace_fleet = std::getenv("SPACETRAINS_TRACE_FLEET") != nullptr;
         trace_fleet && std::fmod(game_time_s_ / 86400.0 + 1e-6, 5.0) < dt_s / 86400.0) {
-        int loaded = 0, empty = 0, waiting = 0, docked = 0;
+        int loaded = 0, empty = 0, waiting = 0, docked = 0, contracted = 0;
         double hold = 0.0, hold_loaded = 0.0, hold_empty = 0.0, aboard_flying = 0.0, aboard_waiting = 0.0;
         for (const auto& ship : ships_) {
+            contracted += under_contract(ship) ? 1 : 0;
             const double capacity = ship_design(ship).cargo_capacity_units;
             const double aboard = domain::total_units(ship.active_mission.cargo);
             hold += capacity;
@@ -3167,8 +3309,8 @@ void Simulation::tick() {
             }
         }
         std::cerr << std::format("[FLEET] day {:.0f} ships {} hold {:.0f} loaded {} {:.0f} empty {} {:.0f} waiting {} docked {} "
-            "aboard_flying {:.0f} aboard_waiting {:.0f}\n", game_time_s_ / 86400.0, ships_.size(), hold, loaded, hold_loaded,
-            empty, hold_empty, waiting, docked, aboard_flying, aboard_waiting);
+            "aboard_flying {:.0f} aboard_waiting {:.0f} contracts {}\n", game_time_s_ / 86400.0, ships_.size(), hold, loaded,
+            hold_loaded, empty, hold_empty, waiting, docked, aboard_flying, aboard_waiting, contracted);
     }
 }
 
@@ -3314,6 +3456,267 @@ std::string Simulation::next_liner_stop(const domain::ShipState& ship, const std
     }
     const auto at = std::find(stops->begin(), stops->end(), from_id);
     return at == stops->end() ? stops->front() : stops->at(static_cast<std::size_t>(at - stops->begin() + 1) % stops->size());
+}
+
+bool Simulation::under_contract(const domain::ShipState& ship) const {
+    return !ship.contract.stops.empty() && game_time_s_ < ship.contract.until_s;
+}
+
+const std::vector<std::string>* Simulation::scheduled_stops(const domain::ShipState& ship) const {
+    if (const auto* stops = liner_stops(ship); stops != nullptr) {
+        return stops;
+    }
+    return under_contract(ship) ? &ship.contract.stops : nullptr;
+}
+
+std::string Simulation::next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const {
+    if (liner_stops(ship) != nullptr) {
+        return next_liner_stop(ship, from_id);
+    }
+    const auto& stops = ship.contract.stops;
+    if (stops.empty()) {
+        return {};
+    }
+    const auto at = std::find(stops.begin(), stops.end(), from_id);
+    return at == stops.end() ? stops.front() : stops.at(static_cast<std::size_t>(at - stops.begin() + 1) % stops.size());
+}
+
+double Simulation::contracted_flow(const std::string& station_id, const std::string& commodity_id) const {
+    double flow = 0.0;
+    for (const auto& ship : ships_) {
+        if (!under_contract(ship) || ship.contract.cycle_days <= 0.0) {
+            continue;
+        }
+        for (const auto& delivery : ship.contract.deliveries) {
+            if (delivery.to_station_id == station_id && delivery.commodity_id == commodity_id) {
+                flow += delivery.units / ship.contract.cycle_days;
+            }
+        }
+    }
+    return flow;
+}
+
+void Simulation::with_parallel_plans(const std::string& prefix, const std::function<void()>& pass) {
+    for (;;) {
+        std::vector<DeferredPlan> deferred;
+        auto* const outer = deferred_plans_;
+        deferred_plans_ = &deferred;
+        deferred_keys_.clear();
+        deferred_prefix_ = prefix;
+        pass();
+        deferred_plans_ = outer;
+        deferred_prefix_.clear();
+        if (deferred.empty()) {
+            return;
+        }
+        std::vector<domain::TrajectoryPlan> results(deferred.size());
+        thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        for (std::size_t i = 0; i < deferred.size(); ++i) {
+            deferred[i].commit(std::move(results[i]));
+        }
+    }
+}
+
+std::pair<domain::ShipContract, double> Simulation::find_contract(
+    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class) {
+    const auto& market = universe_.market;
+    constexpr double day_s = 86400.0;
+    const auto& origin = get_station_definition(ship.current_station_id);
+    const double hold = ship_class.cargo_capacity_units;
+    if (hold <= 0.0) {
+        return {{}, 0.0};
+    }
+    double crew = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
+    for (const auto& [good, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+        crew += ship_class.crew_size * units_per_crew_day * get_commodity(good).base_price;
+    }
+    const double time_cost = daily_capital_cost(ship_class) + crew;
+    const double fuel_base = get_commodity(economy::FUEL_ID).base_price;
+    const auto n = universe_.stations.size();
+    // Every leg once, from today's bucket (later legs' windows are not dated: an estimate).
+    std::vector<LegEstimate> legs(n * n);
+    with_parallel_plans("contract#", [&] {
+        for (std::size_t a = 0; a < n; ++a) {
+            for (std::size_t b = 0; b < n; ++b) {
+                if (a != b) {
+                    legs[a * n + b] = estimate_leg(ship_class, universe_.stations[a], universe_.stations[b], game_time_s_,
+                        ship_class.propellant_capacity_kg, market.fill_ref * hold * 100.0);
+                }
+            }
+        }
+    });
+    // What each station can spare of each good, and what each still needs under no contract.
+    struct Need {
+        std::string commodity_id;
+        double free_use {0.0};   // units per day not yet contracted
+        double price {0.0};
+    };
+    std::vector<std::vector<Need>> needs(n);
+    std::vector<std::unordered_map<std::string, std::pair<double, double>>> spares(n);  // good -> (units now, per day)
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto& station = universe_.stations[i];
+        const auto& state = get_station_state(station.id);
+        const auto rates = economy_.get_station_net_rates(station);
+        for (const auto& [commodity_id, rate] : rates) {
+            const bool makes = commodity_id == economy::FUEL_ID ? economy_.fuel_factory_output(station) > 0.0 : rate > 0.0;
+            if (makes) {
+                const auto stock = state.inventory.find(commodity_id);
+                const double spare = std::max(0.0, (stock == state.inventory.end() ? 0.0 : stock->second) - (8.0 + std::max(0.0, rate) * 7.0));
+                const double per_day = commodity_id == economy::FUEL_ID ? economy_.fuel_factory_output(station) : rate;
+                spares[i][commodity_id] = {spare, std::max(0.0, per_day)};
+            }
+        }
+        for (const auto& [commodity_id, stats] : state.order_stats) {
+            if (!priced_order(state, commodity_id)) {
+                continue;
+            }
+            const double use = order_levels(state, commodity_id, stats).use_per_day;
+            const double free_use = use - contracted_flow(station.id, commodity_id);
+            if (free_use <= 0.0) {
+                continue;
+            }
+            // The price a loop is signed at: the order's market price where ships compete,
+            // else the going rate, never above today's bid.
+            double price = market.competitive > 0.0 && stats.market_price > 0.0 ? stats.market_price : stats.going_rate;
+            price = std::min(price, std::max(stats.order_price, economy_.reference_price(station, commodity_id)));
+            needs[i].push_back({commodity_id, free_use, price});
+        }
+    }
+    std::size_t origin_index = n;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (universe_.stations[i].id == origin.id) {
+            origin_index = i;
+        }
+    }
+    if (origin_index == n) {
+        return {{}, 0.0};
+    }
+    const auto max_stops = static_cast<std::size_t>(std::clamp(market.contract_max_stops, 2.0, 4.0));
+    // A loop's value with the given legs: profit per day after time and fuel, its hold filled
+    // on each leg by margin per unit with what the next stop still needs.
+    const auto value = [&](const std::vector<std::size_t>& loop, const std::vector<LegEstimate>& loop_legs,
+                           domain::ShipContract* contract) {
+        double cycle_days = 0.0;
+        for (const auto& leg : loop_legs) {
+            if (!leg.feasible) {
+                return 0.0;
+            }
+            cycle_days += leg.travel_days;
+        }
+        if (cycle_days <= 0.5 || cycle_days > market.contract_term_days) {
+            return 0.0;
+        }
+        double profit = -time_cost * cycle_days;
+        std::vector<domain::ShipContract::Delivery> deliveries;
+        for (std::size_t k = 0; k < loop.size(); ++k) {
+            const auto from = loop[k];
+            const auto to = loop[(k + 1) % loop.size()];
+            const auto& from_state = get_station_state(universe_.stations[from].id);
+            const double fuel_price = std::max(fuel_base, station_price(from_state, economy::FUEL_ID));
+            profit -= loop_legs[k].propellant_kg / FUEL_UNITS_TO_KG * fuel_price;
+            struct Pick {
+                const Need* need;
+                double units;
+                double margin;
+            };
+            std::vector<Pick> picks;
+            for (const auto& need : needs[to]) {
+                const auto spare = spares[from].find(need.commodity_id);
+                if (spare == spares[from].end()) {
+                    continue;
+                }
+                const double available = std::max(spare->second.first, spare->second.second * cycle_days);
+                const double units = std::min(market.contract_cover * need.free_use * cycle_days, available);
+                const double buy = station_price(from_state, need.commodity_id);
+                if (units >= market.contract_min_units && need.price > buy) {
+                    picks.push_back({&need, units, need.price - buy});
+                }
+            }
+            std::sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.margin > b.margin; });
+            double room = hold;
+            for (const auto& pick : picks) {
+                const double units = std::min(pick.units, room);
+                if (units < market.contract_min_units) {
+                    continue;
+                }
+                room -= units;
+                profit += units * pick.margin;
+                deliveries.push_back({.to_station_id = universe_.stations[to].id,
+                    .commodity_id = pick.need->commodity_id, .units = units, .unit_price = pick.need->price});
+            }
+        }
+        if (deliveries.empty()) {
+            return 0.0;
+        }
+        if (contract != nullptr) {
+            *contract = {};
+            for (std::size_t k = 0; k < loop.size(); ++k) {
+                contract->stops.push_back(universe_.stations[loop[k]].id);
+                contract->leg_days.push_back(loop_legs[k].travel_days);
+            }
+            contract->deliveries = std::move(deliveries);
+            contract->cycle_days = cycle_days;
+        }
+        return profit / cycle_days;
+    };
+    // Every loop from this port, valued with today's legs; the best few again with each leg
+    // dated from when the one before it arrives (launch windows).
+    std::vector<std::pair<double, std::vector<std::size_t>>> ranked;
+    std::vector<std::size_t> loop {origin_index};
+    const std::function<void()> extend = [&] {
+        if (loop.size() >= 2) {
+            std::vector<LegEstimate> loop_legs;
+            for (std::size_t k = 0; k < loop.size(); ++k) {
+                loop_legs.push_back(legs[loop[k] * n + loop[(k + 1) % loop.size()]]);
+            }
+            if (const double score = value(loop, loop_legs, nullptr); score > 0.0) {
+                ranked.emplace_back(score, loop);
+            }
+        }
+        if (loop.size() >= max_stops) {
+            return;
+        }
+        for (std::size_t next = 0; next < n; ++next) {
+            if (std::find(loop.begin(), loop.end(), next) != loop.end() || !legs[loop.back() * n + next].feasible) {
+                continue;
+            }
+            loop.push_back(next);
+            extend();
+            loop.pop_back();
+        }
+    };
+    extend();
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    ranked.resize(std::min(ranked.size(), static_cast<std::size_t>(std::max(1.0, market.contract_refine))));
+    std::vector<std::vector<LegEstimate>> dated(ranked.size());
+    with_parallel_plans("contract#", [&] {
+        for (std::size_t r = 0; r < ranked.size(); ++r) {
+            const auto& candidate = ranked[r].second;
+            dated[r].clear();
+            double t = game_time_s_;
+            for (std::size_t k = 0; k < candidate.size(); ++k) {
+                const auto leg = estimate_leg(ship_class, universe_.stations[candidate[k]],
+                    universe_.stations[candidate[(k + 1) % candidate.size()]], t, ship_class.propellant_capacity_kg,
+                    market.fill_ref * hold * 100.0);
+                dated[r].push_back(leg);
+                t += leg.travel_days * day_s;
+            }
+        }
+    });
+    domain::ShipContract best;
+    double best_score = 0.0;
+    for (std::size_t r = 0; r < ranked.size(); ++r) {
+        domain::ShipContract contract;
+        if (const double score = value(ranked[r].second, dated[r], &contract); score > best_score) {
+            best_score = score;
+            best = std::move(contract);
+        }
+    }
+    if (!best.stops.empty()) {
+        best.signed_s = game_time_s_;
+        best.until_s = game_time_s_ + market.contract_term_days * day_s;
+    }
+    return {best, best_score};
 }
 
 double Simulation::internal_money_supply() const {
@@ -4634,6 +5037,27 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                       if (const auto* stops = liner_stops(ship)) {
                           for (const auto& stop : *stops) {
                               text += (text.empty() ? "\"" : ",\"") + json_escape(stop) + "\"";
+                          }
+                      }
+                      return text;
+                  }() << "],"
+               << "\"contract_stops\":[" << [&] {
+                      std::string text;
+                      if (under_contract(ship)) {
+                          for (const auto& stop : ship.contract.stops) {
+                              text += (text.empty() ? "\"" : ",\"") + json_escape(stop) + "\"";
+                          }
+                      }
+                      return text;
+                  }() << "],"
+               << "\"contract_until_s\":" << (under_contract(ship) ? ship.contract.until_s : 0.0) << ","
+               << "\"contract_deliveries\":[" << [&] {
+                      std::string text;
+                      if (under_contract(ship)) {
+                          for (const auto& delivery : ship.contract.deliveries) {
+                              text += std::format("{}{{\"to\":\"{}\",\"commodity_id\":\"{}\",\"units\":{:.1f},\"unit_price\":{:.2f}}}",
+                                  text.empty() ? "" : ",", json_escape(delivery.to_station_id), json_escape(delivery.commodity_id),
+                                  delivery.units, delivery.unit_price);
                           }
                       }
                       return text;

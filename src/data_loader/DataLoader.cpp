@@ -929,8 +929,17 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 {"solo_premium", &market.solo_premium},
                 {"available_days", &market.available_days},
                 {"min_source_surplus", &market.min_source_surplus},
+                {"ask_open_units", &market.ask_open_units},
                 {"urgency_elasticity", &market.urgency_elasticity},
                 {"urgency_max", &market.urgency_max},
+                {"contracts", &market.contracts},
+                {"contract_max_stops", &market.contract_max_stops},
+                {"contract_term_days", &market.contract_term_days},
+                {"contract_review_days", &market.contract_review_days},
+                {"contract_cover", &market.contract_cover},
+                {"contract_accept", &market.contract_accept},
+                {"contract_min_units", &market.contract_min_units},
+                {"contract_refine", &market.contract_refine},
             };
             for (std::size_t i = 1; i < rows.size(); ++i) {
                 const auto& row = rows[i];

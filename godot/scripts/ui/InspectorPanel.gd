@@ -468,6 +468,18 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         for stop in stops:
             names.append(_resolve_name(context, String(stop)))
         _add_label("Scheduled liner: " + " → ".join(names) + " → …", UiTheme.ACCENT, 12)
+    # Rotation contracts (market redesign): a loop flown for a term at fixed prices.
+    var loop: Array = detail.get("contract_stops", [])
+    if not loop.is_empty():
+        var loop_names: Array[String] = []
+        for stop in loop:
+            loop_names.append(_resolve_name(context, String(stop)))
+        _add_label("Rotation contract until day %d: %s → …" % [int(float(detail.get("contract_until_s", 0.0)) / 86400.0),
+            " → ".join(loop_names)], UiTheme.ACCENT, 12)
+        for delivery in detail.get("contract_deliveries", []):
+            _add_label("  %.0f u %s to %s at %.0f cr" % [float(delivery.get("units", 0.0)), String(delivery.get("commodity_id", "")),
+                _resolve_name(context, String(delivery.get("to", ""))), float(delivery.get("unit_price", 0.0))],
+                UiTheme.TEXT_DIM, 11)
 
     var propellant := float(detail.get("propellant_kg", 0.0))
     var propellant_capacity := float(detail.get("propellant_capacity_kg", 1.0))

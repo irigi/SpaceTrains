@@ -184,6 +184,34 @@ Json ship_to_json(const domain::ShipState& s) {
     out.set("route_commodity_id", s.route_commodity_id);
     out.set("route_units_per_day", s.route_units_per_day);
     out.set("route_until_s", s.route_until_s);
+    out.set("next_contract_review_s", s.next_contract_review_s);
+    if (!s.contract.stops.empty()) {
+        auto contract = Json::object();
+        auto stops = Json::array();
+        for (const auto& stop : s.contract.stops) {
+            stops.push(Json(stop));
+        }
+        contract.set("stops", std::move(stops));
+        auto legs = Json::array();
+        for (const double days : s.contract.leg_days) {
+            legs.push(Json(days));
+        }
+        contract.set("leg_days", std::move(legs));
+        auto deliveries = Json::array();
+        for (const auto& delivery : s.contract.deliveries) {
+            auto entry = Json::object();
+            entry.set("to_station_id", delivery.to_station_id);
+            entry.set("commodity_id", delivery.commodity_id);
+            entry.set("units", delivery.units);
+            entry.set("unit_price", delivery.unit_price);
+            deliveries.push(std::move(entry));
+        }
+        contract.set("deliveries", std::move(deliveries));
+        contract.set("signed_s", s.contract.signed_s);
+        contract.set("until_s", s.contract.until_s);
+        contract.set("cycle_days", s.contract.cycle_days);
+        out.set("contract", std::move(contract));
+    }
     return out;
 }
 
@@ -222,6 +250,28 @@ domain::ShipState ship_from_json(const Json& j) {
     s.route_commodity_id = j.get("route_commodity_id").string();
     s.route_units_per_day = j.get("route_units_per_day").number();
     s.route_until_s = j.get("route_until_s").number();
+    if (const auto* review = j.find("next_contract_review_s"); review != nullptr) {
+        s.next_contract_review_s = review->number();
+    }
+    if (const auto* contract = j.find("contract"); contract != nullptr) {
+        for (const auto& stop : contract->get("stops").items()) {
+            s.contract.stops.push_back(stop.string());
+        }
+        for (const auto& days : contract->get("leg_days").items()) {
+            s.contract.leg_days.push_back(days.number());
+        }
+        for (const auto& entry : contract->get("deliveries").items()) {
+            s.contract.deliveries.push_back({
+                .to_station_id = entry.get("to_station_id").string(),
+                .commodity_id = entry.get("commodity_id").string(),
+                .units = entry.get("units").number(),
+                .unit_price = entry.get("unit_price").number(),
+            });
+        }
+        s.contract.signed_s = contract->get("signed_s").number();
+        s.contract.until_s = contract->get("until_s").number();
+        s.contract.cycle_days = contract->get("cycle_days").number();
+    }
     return s;
 }
 
