@@ -293,6 +293,7 @@ private:
         // Mission: two-leg profit per day (urgency-weighted for cargo runs);
         // Reposition: sourcing urgency, not credits.
         double score {0.0};
+        double profit_per_day {0.0};  // missions: the same two legs' profit per day, without urgency weights
         const domain::StationDefinition* destination {nullptr};
         std::vector<domain::CargoLot> cargo;   // empty: an empty leg or repositioning
         // Cargo runs: sale value minus purchase and fuel, without urgency or time costs.

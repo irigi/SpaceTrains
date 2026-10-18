@@ -1456,6 +1456,15 @@ void Simulation::update_market_prices() {
             stats.market_price = list.size() >= 2 ? list[1] : list[0] * (1.0 + market.solo_premium);
         }
     }
+    // A regulated variant: the landed reference price instead of the ships' asks.
+    if (market.anchor_reference > 0.0) {
+        for (auto& state : stations_) {
+            for (auto& [commodity_id, stats] : state.order_stats) {
+                stats.market_price = market.anchor_reference
+                    * economy_.reference_price(get_station_definition(state.station_id), commodity_id);
+            }
+        }
+    }
     if (market.escalation_rate > 0.0) {
         for (auto& state : stations_) {
             for (auto& [commodity_id, stats] : state.order_stats) {
@@ -1951,6 +1960,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     const double provisions_kg = provisions_mass_kg(ship);
 
     double best_score = MIN_MISSION_SCORE_PER_DAY;
+    double best_profit_per_day = 0.0;  // the best mission's two-leg profit per day without urgency weights
     const domain::StationDefinition* best_destination = nullptr;
     std::vector<domain::CargoLot> best_cargo;
     double best_cargo_margin = 0.0;
@@ -2598,6 +2608,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 score > best_score ? " (best so far)" : ""));
             if (score > best_score) {
                 best_score = score;
+                best_profit_per_day = (revenue - purchases - trip_cost + follow.profit)
+                    / std::max(1.0, travel_days + follow.days);
                 best_destination = &destination;
                 best_cargo = lots;
                 best_cargo_margin = revenue - purchases - fuel_cost;
@@ -2635,6 +2647,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             destination.id, leg_days, leg_cost, follow.label, score, score > best_score ? " (best so far)" : ""));
         if (score > best_score) {
             best_score = score;
+            best_profit_per_day = (follow.profit - leg_cost) / std::max(1.0, leg_days + follow.days);
             best_destination = &destination;
             best_cargo.clear();
             best_cargo_margin = 0.0;
@@ -2813,6 +2826,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     }
     choice.kind = repositioning ? MissionChoice::Kind::Reposition : MissionChoice::Kind::Mission;
     choice.score = best_score;
+    choice.profit_per_day = repositioning ? 0.0 : best_profit_per_day;
     choice.destination = best_destination;
     choice.cargo = best_cargo;
     choice.cargo_margin = best_cargo_margin;
@@ -2872,7 +2886,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         && game_time_s_ >= ship.next_contract_review_s) {
         ship.next_contract_review_s = game_time_s_ + market.contract_review_days * 86400.0;
         auto [contract, score] = find_contract(ship, ship_class);
-        const double spot = choice.kind == MissionChoice::Kind::Mission ? choice.score : 0.0;
+        const double spot = choice.kind != MissionChoice::Kind::Mission ? 0.0
+            : market.contract_vs_unweighted > 0.0 ? choice.profit_per_day : choice.score;
         if (!contract.stops.empty() && score > MIN_MISSION_SCORE_PER_DAY && score >= market.contract_accept * spot) {
             std::string route;
             for (const auto& stop : contract.stops) {

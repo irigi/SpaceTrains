@@ -225,6 +225,7 @@ struct MarketDefinition {
     double available_days {30.0};      // ships free at a source within this many days bid
     double min_source_surplus {50.0};  // units a source must have spare to count
     double ask_open_units {0.0};
+    double anchor_reference {0.0};     // >0: the market price is this x the reference price (no asks)
     double own_ask_floor {0.0};        // 1: a ship is paid at least its own ask (within the stock bid)
     double tender_awards {0.0};        // 1: each open order goes to the cheapest docked ship at a source (binding)       // 1: spread a trip over what the leg can carry to open orders, not the hold
     double urgency_elasticity {0.0};   // the market price times clamp((S / stock)^this, 1, urgency_max)
@@ -239,6 +240,7 @@ struct MarketDefinition {
     double contract_review_days {30.0};  // how often a ship without a contract looks for one
     double contract_cover {0.7};       // of a station's uncontracted use a loop takes on
     double contract_accept {0.7};      // signs if the loop earns this x the best spot mission's score
+    double contract_vs_unweighted {0.0};  // 1: ... against the spot mission's profit per day, not its urgency-weighted score
     double contract_min_units {20.0};  // a delivery smaller than this per visit is left out
     double contract_refine {6.0};      // loops valued again with each leg dated
     double contract_at_going_rate {0.0};  // 1: contracts are signed at the going rate even under competitive prices
