@@ -199,6 +199,8 @@ private:
     // Sets each order's posted price to its bid for a delivery one lead time from now (shown in
     // the inspector and the audit; quotes compute their own).
     void step_orders();
+    // Competitive pricing: each order's market price from the asks of ships near a source (daily).
+    void update_market_prices();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
     // The order derived from the observations, the stock and the contracts on their way.

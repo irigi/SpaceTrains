@@ -889,7 +889,13 @@ void Simulation::observe_delivery(domain::StationState& state, const std::string
         stats.spread_days += alpha * (std::abs(sample - mean) - stats.spread_days);
         mean += alpha * (sample - mean);
     };
-    fold(stats.lead_days, std::max(0.0, game_time_s_ - contracted_s) / 86400.0);
+    double lead_sample = std::max(0.0, game_time_s_ - contracted_s) / 86400.0;
+    // A slow far source (Ceres water at Earth L1, 813 days) must not set the lead of a good the
+    // station gets from next door: L sets S, and S kept the bid at its cap (2026-10-18).
+    if (const double cap = universe_.market.lead_cap_factor; cap > 0.0) {
+        lead_sample = std::min(lead_sample, cap * seed_order_stats(get_station_definition(state.station_id), commodity_id).lead_days);
+    }
+    fold(stats.lead_days, lead_sample);
     // Ships landing within a day of each other make one delivery.
     if (stats.last_delivery_s >= 0.0 && game_time_s_ - stats.last_delivery_s >= 86400.0) {
         fold(stats.interval_days, (game_time_s_ - stats.last_delivery_s) / 86400.0);
@@ -1156,6 +1162,15 @@ Simulation::OrderQuote Simulation::order_quote(const domain::StationState& state
     const auto bid = order_bid(state, commodity_id, levels, gap.at_arrival);
     quote.price = bid.price;
     quote.station_cap = bid.cap;
+    // Competitive pricing: the order pays no more than the ships near a source ask.
+    if (const auto& market = universe_.market; market.competitive > 0.0 && stats.market_price > 0.0) {
+        double urgency = 1.0;
+        if (market.urgency_elasticity > 0.0 && levels.order_up_to_units > 0.0) {
+            urgency = std::clamp(std::pow(levels.order_up_to_units / std::max(gap.at_arrival, 0.5), market.urgency_elasticity),
+                1.0, market.urgency_max);
+        }
+        quote.price = std::min(quote.price, stats.market_price * urgency);
+    }
     // The extra only when it is cheap: below both the going rate and what the order bids now. The
     // floor follows the reference, not the going rate: a going rate raised by a shortage made
     // dumping at a floor of a quarter of it pay (47,000 u of food at Low Earth Logistics).
@@ -1222,8 +1237,127 @@ Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, co
         return bid;
     }
     const double ratio = levels.order_up_to_units / std::max(stock_at_arrival, 0.5);
-    bid.price = std::min(bid.cap, reference * std::max(economy::PRICE_FLOOR_MULTIPLIER, std::pow(ratio, economy::PRICE_ELASTICITY)));
+    const auto& market = universe_.market;
+    bid.price = std::min(bid.cap, reference * std::max(economy::PRICE_FLOOR_MULTIPLIER,
+        market.bid_scale * std::pow(ratio, market.bid_elasticity)));
     return bid;
+}
+
+void Simulation::update_market_prices() {
+    const auto& market = universe_.market;
+    if (market.competitive <= 0.0 || std::fmod(game_time_s_, 86400.0) >= TICK_S * 0.5) {
+        return;
+    }
+    const profiling::Scope profile_scope(profiling::Phase::EstimateLeg);
+    constexpr double day_s = 86400.0;
+    // Where each ship is free next, and from when: docked ships now, ships under way on arrival.
+    struct Free {
+        const domain::ShipState* ship;
+        const domain::StationDefinition* at;
+        double from_s;
+    };
+    std::vector<Free> free;
+    for (const auto& ship : ships_) {
+        switch (ship.phase) {
+            case domain::ShipMissionPhase::Idle:
+            case domain::ShipMissionPhase::LaidUp:
+            case domain::ShipMissionPhase::Refueling:
+                free.push_back({&ship, &get_station_definition(ship.current_station_id), game_time_s_});
+                break;
+            case domain::ShipMissionPhase::InTransit:
+            case domain::ShipMissionPhase::AwaitingDeparture:
+                if (!ship.active_mission.destination_station_id.empty()
+                    && ship.active_mission.arrival_time_s <= game_time_s_ + market.available_days * day_s) {
+                    free.push_back({&ship, &get_station_definition(ship.active_mission.destination_station_id),
+                        std::max(game_time_s_, ship.active_mission.arrival_time_s)});
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    const double fuel_base = get_commodity(economy::FUEL_ID).base_price;
+    // A source: a station that makes the good (fuel: a factory) and has some to spare.
+    const auto spare = [&](const domain::StationDefinition& station, const std::string& commodity_id) {
+        const auto& state = get_station_state(station.id);
+        const auto rates = economy_.get_station_net_rates(station);
+        const auto rate = rates.find(commodity_id);
+        const double r = rate == rates.end() ? 0.0 : rate->second;
+        const bool makes = commodity_id == economy::FUEL_ID ? economy_.fuel_factory_output(station) > 0.0 : r > 0.0;
+        if (!makes) {
+            return 0.0;
+        }
+        const auto stock = state.inventory.find(commodity_id);
+        return std::max(0.0, (stock == state.inventory.end() ? 0.0 : stock->second) - (8.0 + std::max(0.0, r) * 7.0));
+    };
+    std::unordered_map<std::string, std::vector<double>> asks;  // station|good -> asks
+    // Plans are estimated in parallel passes, like dispatch: a pass that misses plans queues them.
+    for (;;) {
+        std::vector<DeferredPlan> deferred;
+        deferred_plans_ = &deferred;
+        deferred_keys_.clear();
+        deferred_prefix_ = "market#";
+        asks.clear();
+        for (const auto& state : stations_) {
+            const auto& destination = get_station_definition(state.station_id);
+            for (const auto& [commodity_id, stats] : state.order_stats) {
+                if (!priced_order(state, commodity_id)) {
+                    continue;
+                }
+                const auto& commodity = get_commodity(commodity_id);
+                auto& list = asks[state.station_id + "|" + commodity_id];
+                for (const auto& f : free) {
+                    if (f.at->id == destination.id || spare(*f.at, commodity_id) < market.min_source_surplus) {
+                        continue;
+                    }
+                    const auto& ship_class = ship_design(*f.ship);
+                    if (ship_class.cargo_capacity_units <= 0.0) {
+                        continue;
+                    }
+                    const double hold_kg = ship_class.cargo_capacity_units * commodity.mass_per_unit_kg;
+                    const auto leg = estimate_leg(ship_class, *f.at, destination, f.from_s, ship_class.propellant_capacity_kg,
+                        market.fill_ref * hold_kg);
+                    if (!leg.feasible) {
+                        continue;
+                    }
+                    double crew = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
+                    for (const auto& [good, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+                        crew += ship_class.crew_size * units_per_crew_day * get_commodity(good).base_price;
+                    }
+                    const double fuel_price = std::max(fuel_base, station_price(get_station_state(f.at->id), economy::FUEL_ID));
+                    const double trip = leg.travel_days * (daily_capital_cost(ship_class) + crew)
+                        + leg.propellant_kg / FUEL_UNITS_TO_KG * fuel_price;
+                    const double units = std::max(1.0, market.fill_ref * ship_class.cargo_capacity_units);
+                    const double buy = station_price(get_station_state(f.at->id), commodity_id);
+                    list.push_back(buy + trip * (1.0 + market.return_share) / units * (1.0 + market.ask_markup));
+                }
+            }
+        }
+        deferred_plans_ = nullptr;
+        deferred_prefix_.clear();
+        if (deferred.empty()) {
+            break;
+        }
+        std::vector<domain::TrajectoryPlan> results(deferred.size());
+        thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        for (std::size_t i = 0; i < deferred.size(); ++i) {
+            deferred[i].commit(std::move(results[i]));
+        }
+    }
+    for (auto& state : stations_) {
+        for (auto& [commodity_id, stats] : state.order_stats) {
+            auto it = asks.find(state.station_id + "|" + commodity_id);
+            if (it == asks.end() || it->second.empty()) {
+                stats.market_price = 0.0;
+                stats.market_bidders = 0;
+                continue;
+            }
+            auto& list = it->second;
+            std::sort(list.begin(), list.end());
+            stats.market_bidders = static_cast<int>(list.size());
+            stats.market_price = list.size() >= 2 ? list[1] : list[0] * (1.0 + market.solo_premium);
+        }
+    }
 }
 
 void Simulation::step_orders() {
@@ -2978,6 +3112,7 @@ void Simulation::tick() {
     step_events(dt_s);
     step_treasuries(dt_s);
     step_emergencies();
+    update_market_prices();
     step_orders();
     step_fleet_investment();
 

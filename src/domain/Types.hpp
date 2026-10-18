@@ -209,6 +209,25 @@ struct OrdersDefinition {
     double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
+// Market redesign switches (2026-10-19 night session); optional keys in data/economy/market.csv.
+// The defaults reproduce the economy before the redesign.
+struct MarketDefinition {
+    double lead_cap_factor {0.0};      // >0: a delivery's lead sample counts at most this x the nearest source's lead
+    double bid_scale {1.0};            // multiplies the stock-ratio bid (before its cap)
+    double bid_elasticity {1.3};       // e in (S / stock)^e
+    // Competitive pricing (tender): ships near a source ask their cost plus a markup; an order
+    // pays at most the second-lowest ask (one bidder: its ask x (1 + solo_premium)).
+    double competitive {0.0};          // 1: on
+    double ask_markup {0.3};           // on the ship's cost of the delivery
+    double return_share {0.5};         // of the leg's cost added for the way back
+    double fill_ref {0.65};            // share of the hold a delivery's cost is spread over
+    double solo_premium {0.5};
+    double available_days {30.0};      // ships free at a source within this many days bid
+    double min_source_surplus {50.0};  // units a source must have spare to count
+    double urgency_elasticity {0.0};   // the market price times clamp((S / stock)^this, 1, urgency_max)
+    double urgency_max {2.0};
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -277,6 +296,7 @@ struct UniverseDefinition {
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
     OrdersDefinition orders;
+    MarketDefinition market;
     GrowthDefinition growth;
     std::vector<EventDefinition> events;
     std::uint64_t event_seed {0};
@@ -471,6 +491,9 @@ struct OrderStats {
     int deliveries {0};
     // The order's bid for a delivery one lead time from now (set each tick; quotes make their own).
     double order_price {0.0};
+    // Competitive pricing: the second-lowest ask of the ships near a source (0: none), set daily.
+    double market_price {0.0};
+    int market_bidders {0};
 };
 
 // The order a station would post for a good, derived from its OrderStats, its stock and the

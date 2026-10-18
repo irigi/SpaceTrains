@@ -255,6 +255,8 @@ Json station_to_json(const domain::StationState& s) {
         entry.set("last_delivery_s", stats.last_delivery_s);
         entry.set("deliveries", static_cast<double>(stats.deliveries));
         entry.set("order_price", stats.order_price);
+        entry.set("market_price", stats.market_price);
+        entry.set("market_bidders", static_cast<double>(stats.market_bidders));
         order_stats.set(commodity_id, std::move(entry));
     }
     out.set("order_stats", std::move(order_stats));
@@ -302,6 +304,10 @@ domain::StationState station_from_json(const Json& j) {
             .deliveries = static_cast<int>(entry.get("deliveries").number()),
             .order_price = entry.get("order_price").number(),
         };
+        if (const auto* market_price = entry.find("market_price"); market_price != nullptr) {
+            s.order_stats[commodity_id].market_price = market_price->number();
+            s.order_stats[commodity_id].market_bidders = static_cast<int>(entry.get("market_bidders").number());
+        }
     }
     s.population = j.get("population").number();
     s.supply_index = j.get("supply_index").number();
