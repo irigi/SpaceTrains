@@ -224,9 +224,13 @@ struct MarketDefinition {
     double solo_premium {0.5};
     double available_days {30.0};      // ships free at a source within this many days bid
     double min_source_surplus {50.0};  // units a source must have spare to count
-    double ask_open_units {0.0};       // 1: spread a trip over what the leg can carry to open orders, not the hold
+    double ask_open_units {0.0};
+    double tender_awards {0.0};        // 1: each open order goes to the cheapest docked ship at a source (binding)       // 1: spread a trip over what the leg can carry to open orders, not the hold
     double urgency_elasticity {0.0};   // the market price times clamp((S / stock)^this, 1, urgency_max)
     double urgency_max {2.0};
+    double urgency_on_safety {0.0};
+    double escalation_rate {0.0};      // >0: the market price x an escalation that grows this much a day while the order is open
+    double escalation_relax {0.1};     // ... and falls this share a day toward 1 once nothing is open    // 1: urgency against the safety stock instead of the order-up-to level
     // Rotation contracts.
     double contracts {0.0};            // 1: on
     double contract_max_stops {4.0};   // stops in a loop, the ship's port included
@@ -236,6 +240,7 @@ struct MarketDefinition {
     double contract_accept {0.7};      // signs if the loop earns this x the best spot mission's score
     double contract_min_units {20.0};  // a delivery smaller than this per visit is left out
     double contract_refine {6.0};      // loops valued again with each leg dated
+    double contract_cost_plus {0.0};   // >0: contract prices are purchase + loop cost share x (1 + this)
 };
 
 struct StationDefinition {
@@ -451,6 +456,7 @@ struct ShipContract {
     double signed_s {0.0};
     double until_s {0.0};
     double cycle_days {0.0};
+    bool award {false};                // a tender won: one leg, ends on delivery
 };
 
 struct ShipState {
@@ -527,6 +533,8 @@ struct OrderStats {
     // Competitive pricing: the second-lowest ask of the ships near a source (0: none), set daily.
     double market_price {0.0};
     int market_bidders {0};
+    // Escalation: rises while the order stays open with nobody taking it, falls back once taken.
+    double escalation {1.0};
 };
 
 // The order a station would post for a good, derived from its OrderStats, its stock and the

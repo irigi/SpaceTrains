@@ -210,6 +210,7 @@ Json ship_to_json(const domain::ShipState& s) {
         contract.set("signed_s", s.contract.signed_s);
         contract.set("until_s", s.contract.until_s);
         contract.set("cycle_days", s.contract.cycle_days);
+        contract.set("award", s.contract.award);
         out.set("contract", std::move(contract));
     }
     return out;
@@ -271,6 +272,9 @@ domain::ShipState ship_from_json(const Json& j) {
         s.contract.signed_s = contract->get("signed_s").number();
         s.contract.until_s = contract->get("until_s").number();
         s.contract.cycle_days = contract->get("cycle_days").number();
+        if (const auto* award = contract->find("award"); award != nullptr) {
+            s.contract.award = award->boolean();
+        }
     }
     return s;
 }
@@ -307,6 +311,7 @@ Json station_to_json(const domain::StationState& s) {
         entry.set("order_price", stats.order_price);
         entry.set("market_price", stats.market_price);
         entry.set("market_bidders", static_cast<double>(stats.market_bidders));
+        entry.set("escalation", stats.escalation);
         order_stats.set(commodity_id, std::move(entry));
     }
     out.set("order_stats", std::move(order_stats));
@@ -357,6 +362,7 @@ domain::StationState station_from_json(const Json& j) {
         if (const auto* market_price = entry.find("market_price"); market_price != nullptr) {
             s.order_stats[commodity_id].market_price = market_price->number();
             s.order_stats[commodity_id].market_bidders = static_cast<int>(entry.get("market_bidders").number());
+            s.order_stats[commodity_id].escalation = entry.get("escalation").number();
         }
     }
     s.population = j.get("population").number();

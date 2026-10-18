@@ -20,6 +20,28 @@ mean ± sd (`sweep.py` in the session scratchpad).
 | competitive (c1) | 3.6 ± 0.2 | 3.2 ± 0.7 | 1.35 ± 0.08 | 127 ± 15 | 44 ± 3 | 34 ± 2 | 22 / 16 | 62 ± 3 | −45 ± 12 | — |
 | c1 + lead 3× | 3.1 ± 0.5 | 3.2 ± 1.4 | 1.25 ± 0.29 | 121 ± 23 | 41 ± 5 | 32 ± 1 | 24 / 17 | 63 ± 4 | −40 ± 17 | — |
 | c1 + urgency e=1, max 2 (c2) | 2.0 ± 0.6 | 1.8 ± 1.0 | 1.60 ± 0.10 | 121 ± 8 | 36 ± 2 | 37 ± 2 | 20 / 19 | 71 ± 1 | −25 ± 14 | — |
+| c2 + contracts (k2) | 1.9 ± 0.5 | 1.3 ± 1.2 | 1.64 ± 0.22 | 123 ± 17 | 35 ± 4 | 38 ± 2 | 21 / 19 | 70 ± 9 | −25 ± 19 | — |
+| c1 + urgency max 3 (c3) | 1.7 ± 0.5 | 1.3 ± 1.0 | 1.86 ± 0.15 | 135 ± 9 | 34 ± 1 | 38 ± 1 | 20 / 19 | 75 ± 1 | −35 ± 9 | — |
+| c1 + markup 0.6 (c4) | 2.7 ± 0.5 | 3.1 ± 1.8 | 1.43 ± 0.21 | 138 ± 32 | 42 ± 3 | 36 ± 1 | 20 / 17 | 66 ± 3 | −27 ± 21 | — |
+| c1 + 60-day pool, solo +100% (c5) | 3.9 ± 0.9 | 6.1 ± 2.2 | 1.20 ± 0.15 | 107 ± 6 | 41 ± 3 | 35 ± 1 | 22 / 15 | 59 ± 4 | −42 ± 5 | — |
+| c2 + asks over open orders (c6) | 1.6 ± 0.2 | 2.3 ± 1.3 | 1.48 ± 0.08 | 122 ± 6 | 33 ± 2 | 37 ± 2 | 20 / 20 | 73 ± 5 | −6 ± 10 | — |
+| c6 + lead 3× (c7) | 1.9 ± 0.4 | 2.4 ± 0.5 | 1.53 ± 0.10 | 142 ± 7 | 35 ± 1 | 38 ± 1 | 19 / 20 | 77 ± 2 | −13 ± 9 | — |
+| contracts (k1, legs from today) | 1.1 ± 0.2 | 0.9 ± 0.7 | 2.64 ± 0.17 | 209 ± 11 | 34 ± 0 | 40 ± 2 | 20 / 19 | 82 ± 3 | −6 ± 20 | — |
+| contracts, best 6 loops re-dated (k3) | 1.2 ± 0.3 | 0.7 ± 0.2 | 2.56 ± 0.08 | 200 ± 14 | 31 ± 1 | 41 ± 1 | 19 / 19 | 83 ± 3 | +2 ± 12 | — |
+| c6 + contracts (k4) | 2.0 ± 0.2 | 1.7 ± 1.6 | 1.48 ± 0.25 | 119 ± 23 | 35 ± 3 | 37 ± 1 | 21 / 18 | 73 ± 1 | −21 ± 23 | — |
+| c6, urgency max 3 (c8) | 1.7 ± 0.4 | 1.8 ± 0.8 | 1.74 ± 0.13 | 144 ± 6 | 33 ± 1 | 39 ± 3 | 20 / 19 | 77 ± 5 | −16 ± 11 | — |
+| c6 + markup 0.6 (c9) | 2.0 ± 0.5 | 1.3 ± 0.6 | 1.66 ± 0.10 | 139 ± 8 | 35 ± 3 | 39 ± 1 | 18 / 19 | 77 ± 3 | −19 ± 6 | — |
+| c6 + return share 1.0 (c10) | 2.1 ± 0.3 | 1.0 ± 0.8 | 1.60 ± 0.12 | 136 ± 8 | 36 ± 1 | 39 ± 1 | 18 / 20 | 75 ± 4 | −26 ± 10 | — |
+| c6 + binding tenders (t1) | 2.8 ± 0.8 | 2.3 ± 1.0 | 1.68 ± 0.10 | 141 ± 6 | 35 ± 2 | 39 ± 2 | 19 / 19 | 73 ± 6 | −20 ± 19 | — |
+| c6, urgency on safety stock, max 4 (c11) | 1.8 ± 0.5 | 1.4 ± 0.6 | 1.71 ± 0.18 | 143 ± 13 | 34 ± 2 | 39 ± 1 | 19 / 19 | 77 ± 3 | −12 ± 12 | — |
+| competitive + escalation 5%/day (e1) | 1.5 ± 0.4 | 0.6 ± 0.7 | 2.38 ± 0.09 | 199 ± 14 | 32 ± 2 | 41 ± 1 | 17 / 19 | 82 ± 3 | −2 ± 16 | — |
+| escalation 10%/day (e2) | 1.5 ± 0.4 | 1.0 ± 0.8 | 2.52 ± 0.10 | 206 ± 11 | 31 ± 3 | 41 ± 2 | 18 / 18 | 86 ± 2 | −14 ± 8 | — |
+| e1 + urgency (e3) | 1.4 ± 0.4 | 1.4 ± 1.2 | 2.63 ± 0.22 | 209 ± 12 | 31 ± 2 | 42 ± 2 | 17 / 20 | 86 ± 3 | −8 ± 21 | — |
+| contracts, staggered reviews (k3b) | 1.1 ± 0.2 | 0.5 ± 0.7 | 2.57 ± 0.15 | 204 ± 8 | 32 ± 2 | 42 ± 1 | 20 / 18 | 85 ± 3 | +2 ± 21 | — |
+| k3b, 2-stop shuttles only (k7) | 1.5 ± 0.2 | 1.4 ± 0.7 | 2.57 ± 0.21 | 209 ± 8 | 32 ± 1 | 39 ± 1 | 21 / 19 | 83 ± 4 | −4 ± 28 | — |
+| k3b, at most 3 stops (k8) | 1.2 ± 0.2 | 0.7 ± 1.1 | 2.56 ± 0.17 | 203 ± 12 | 33 ± 2 | 40 ± 1 | 20 / 19 | 84 ± 3 | −13 ± 20 | — |
+| k3b, accept 0.5 (k5) | 1.6 ± 0.3 | 1.6 ± 1.0 | 2.39 ± 0.01 | 194 ± 10 | 30 ± 2 | 39 ± 2 | 21 / 18 | 84 ± 4 | +4 ± 5 | — |
+| k3b, cover 1.0 (k6) | 1.0 ± 0.2 | 0.7 ± 0.4 | 2.62 ± 0.27 | 197 ± 14 | 34 ± 2 | 40 ± 2 | 20 / 18 | 83 ± 2 | −19 ± 13 | — |
 
 Run times are left out while several sweeps share the machine; speed is measured separately at the end.
 
@@ -46,3 +68,30 @@ Run times are left out while several sweeps share the machine; speed is measured
    port over 9 stations is at most 400 cycles of up to 4 legs, valued from cached leg estimates (72 per
    class and 5-day bucket, computed in parallel by the existing pass mechanism). If it shows up in the
    profile, the plan is a worker thread whose result applies at a fixed later game time (deterministic).
+6. Asks spread over what the leg can carry to open orders (`ask_open_units`), not 65% of the hold:
+   unmet 2.0 → 1.6%, price 1.60 → 1.48× (c6). Kept.
+7. The lead-time cap hurts in every combination (+0.2–0.5 points of unmet): the long observed lead
+   at Earth L1 is a bug in principle but works as a safety buffer for water, which is short anyway.
+   Dropped (switch stays, off).
+8. Persistent shortages in every variant are geographic, not the market: LEO metals (10–13% unmet)
+   and Earth L1 water (7–11%). Lunar Gateway is the only nearby source (metals ~15 u/day net against
+   ~10 u/day at LEO alone, also shipped to Venus and Mars); LEO got 7.7 u/day of metals even at the
+   price cap. A data question for the user (Luna output), not changed here.
+9. Rotation contracts work: about 15 ships on loops at a time, 70+ contracts signed per run (many
+   3–4-stop loops of 250–360 days); unmet 1.4 → 1.1–1.2%, last fifth 0.7%, units delivered +13%,
+   cost per unit delivered lowest so far. Under competitive prices fewer ships sign (8).
+10. Contract reviews are staggered per ship over the 30-day review period (hash of the id), so the
+   fleet never plans loops all at once.
+11. Multi-stop loops earn their complexity: 2-stop shuttles 1.5% unmet (last fifth 1.4%), up to 3 stops
+   1.2% (0.7%), up to 4 stops 1.1% (0.5%). In the contract runs, Earth L1 water and LEO food are fully
+   supplied by cislunar loops; under competitive prices those short hauls are 9–13% unmet.
+12. Binding tenders (cheapest docked ship at a source gets the order as a one-leg contract): rarely
+   fire (ships seldom sit docked at a source) and supply worse (2.8%). Rejected.
+13. Escalation (the market price x a factor that rises while the order stays open): supply recovers,
+   but the price climbs back to 2.4–2.6×, the rent level. With posted or escalating prices the
+   price settles where ships come, and it is the same rent. Rejected.
+14. Under competitive prices every job pays about the same profit per day (markup x the ship's daily
+   cost), so ships are near-indifferent and short cheap hauls lose to anything with a little more.
+   Next: cost-plus contracts under competitive spot prices: loops chosen by the value they create at
+   market prices, deliveries priced at purchase + the loop's cost share x (1 + markup), at most the
+   station's going rate.
