@@ -620,8 +620,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     // Minimise the objective above (cost, or wait + transit), subject to propellant feasibility.
     const double search_window_s = std::min(synodic_period_s, 730.0 * 86400.0);
 
-    for (const auto& cell : *lambert_grid(
-             origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu)) {
+    // Hold the grid for the whole loop: the range-for would drop the returned pointer at once
+    // (C++20), and another thread trimming the cache then freed the grid mid-loop (a crash
+    // about once in 25 four-year runs, found with ThreadSanitizer on 2026-10-19).
+    const auto grid = lambert_grid(
+        origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu);
+    for (const auto& cell : *grid) {
         const double dv_k = cell.dv_departure + cell.dv_arrival;
         const bool feas_k = loading.feasible(dv_k);
         const double objective_k = objective(cell.wait_s + cell.transit_s, dv_k);
