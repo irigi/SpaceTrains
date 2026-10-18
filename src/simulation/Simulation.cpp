@@ -5172,6 +5172,8 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                    << ",\"days_to_safety\":" << view.days_to_safety
                    << ",\"ceiling\":" << view.ceiling
                    << ",\"station_ceiling\":" << view.station_ceiling
+                   << ",\"market_price\":" << stats.market_price
+                   << ",\"market_bidders\":" << stats.market_bidders
                    << ",\"deliveries\":" << stats.deliveries << "}";
             first_order = false;
         }
