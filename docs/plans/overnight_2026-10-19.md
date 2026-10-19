@@ -39,10 +39,11 @@ half 1.27× against 2.20×, 88% of ships profitable (94%), about 11 ships on loo
 4. The Earth L1 "lead-time bug" stays: capping the lead hurt supply in every combination.
 5. The planner fixes change all results slightly (statistically the same; the reference was re-run).
 6. Long games, in both designs: over 8 years the money supply (stations + ships) falls 50–80% below its
-   target, because ships' combined cash goes negative (−0.9M reference, −1.2M y2). Loss-making ships
-   run up debt on their credit lines while profitable ones pay out dividends, and faction treasuries
-   pile up taxes (20–50M). This is the existing open economy, not the market; it needs a rule, for
-   example for ships whose debt passes their credit line.
+   target, because ships' combined cash goes negative (−0.9M reference, −1.2M y2). Most of that debt is on
+   profitable ships: they pay out everything above a 50k reserve as dividends, then borrow on their
+   credit line for the next long mission's fuel and cargo (one tanker: +2.6M lifetime profit, 2.7M
+   paid out, −98k cash). Faction treasuries pile up taxes (20–50M). This is the existing open economy,
+   not the market; a larger reserve, sized to a ship's typical mission outlay, would fix it.
 7. The fleet cap (your call, kept at 130). Under the new prices a smaller fleet supplies as well and
    pays better (y2, 4 starts):
 
@@ -245,4 +246,5 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    spot work early on, while stations start stocked. The market test runs 90 + 90 days for that.
 29. 8-year runs (4 starts): reference 1.8 ± 0.3% unmet, last fifth 1.6%, price 2.20×, money −53%;
    y2 0.9 ± 0.2%, last fifth 0.9%, price 1.27×, money −79%, 11 ships on loops. The money fall is ships'
-   combined cash going negative (debts of loss-makers; profits leave as dividends) in both designs.
+   combined cash going negative in both designs: dividends take everything above 50k, and the next long
+   mission is then bought on credit.
