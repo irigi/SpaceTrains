@@ -40,7 +40,7 @@ half 1.27× against 2.20×, 88% of ships profitable (94%), about 11 ships on loo
 5. The planner fixes change all results slightly (statistically the same; the reference was re-run).
 6. Long games, in both designs: over 8 years the money supply (stations + ships) falls 50–80% below its
    target, because ships' combined cash goes negative (−0.9M reference, −1.2M y2). Most of that debt is on
-   profitable ships: they pay out everything above a 50k reserve as dividends, then borrow on their
+   profitable ships: they pay out everything above a 25k reserve as dividends, then borrow on their
    credit line for the next long mission's fuel and cargo (one tanker: +2.6M lifetime profit, 2.7M
    paid out, −98k cash). Faction treasuries pile up taxes (20–50M). This is the existing open economy,
    not the market; a larger reserve, sized to a ship's typical mission outlay, would fix it.
@@ -246,7 +246,7 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    spot work early on, while stations start stocked. The market test runs 90 + 90 days for that.
 29. 8-year runs (4 starts): reference 1.8 ± 0.3% unmet, last fifth 1.6%, price 2.20×, money −53%;
    y2 0.9 ± 0.2%, last fifth 0.9%, price 1.27×, money −79%, 11 ships on loops. The money fall is ships'
-   combined cash going negative in both designs: dividends take everything above 50k, and the next long
+   combined cash going negative in both designs: dividends take everything above 25k, and the next long
    mission is then bought on credit.
 30. Ablation on 8 starts: y2 without contracts 1.6 ± 0.3% unmet (with: 1.3 ± 0.3%), so the loops
    are worth about 0.3 points in the default. y2's contract settings on posted prices: 1.2%, against
