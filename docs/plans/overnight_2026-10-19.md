@@ -220,3 +220,11 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    (the asking ship's kappa). Both are pure functions of their keys now (7f50445); default and
    market-on games round-trip exactly over 60+60 days. Results change slightly, so the finalists are
    re-run on the fixed binary.
+25. Under y2 a few starting-fleet ships never carried cargo: MC Daedalus at Mars chose on day 0 an
+   empty 1,385-day trip to Ceres (mostly waiting for a window) for science samples forecast there.
+   A switch discounts a follow-up's profit by exp(−days until it starts / T) (`follow_up_horizon_days`).
+   With T = 730, y2 on the tuning starts goes 1.3 → 1.1% unmet (last fifth 1.6 → 1.0%), but on the
+   validation starts 1.4 → 1.5%: neutral over 16 starts, so it stays off. On posted prices it helped
+   (validation 1.6 → 1.2%); an option if `competitive` is turned off.
+26. Fleet cap under y2: 100 ships supply as well as 130 (1.1 vs 1.2%) with more ships profitable
+   (83 vs 75%) and faster runs; 150 ships add nothing (1.2%, 71% profitable). Left at the user's 130.
