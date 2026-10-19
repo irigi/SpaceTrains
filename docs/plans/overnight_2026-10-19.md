@@ -267,3 +267,5 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
 34. Hold use did not improve: 38–41% in every design over 4 years, 31–35% over 8. It is set by fleet
    size against demand, plus launch-window waits (~19% of ships) and empty repositioning (~20%). Under
    y2 a 100-ship cap gives 41% with 83% of ships profitable (see the fleet-cap table).
+35. Single-bidder premium: +25% gives 1.6 ± 0.7% unmet and +100% gives 1.8 ± 0.5%, against 1.2% at
+   +50% on the same starts. Kept at +50%.
