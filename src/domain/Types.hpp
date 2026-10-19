@@ -120,7 +120,6 @@ struct OpenEconomyDefinition {
     double station_credit_ceiling {0.0};   // taxes take the excess above this; 0 = no taxes
     double station_balance_days {90.0};    // time to close a subsidy or tax gap
     double ship_cash_reserve {0.0};        // dividends take the excess above this; 0 = no dividends
-    double ship_cash_reserve_of_value {0.0};  // and above this share of the hull's value, if more (a mission's outlay)
     double dividend_days {30.0};
     double money_supply_days {0.0};        // controller time constant; 0 = no controller
     // Station money (step 17).

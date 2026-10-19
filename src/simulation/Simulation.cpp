@@ -3785,13 +3785,10 @@ void Simulation::step_treasuries(double dt_s) {
     if (open.ship_cash_reserve > 0.0) {
         const double share = std::min(1.0, dt_days / open.dividend_days);
         for (auto& ship : ships_) {
-            // A big hull keeps enough to pay for its next mission rather than borrowing for it.
-            const double reserve = std::max(open.ship_cash_reserve,
-                open.ship_cash_reserve_of_value * ship_design(ship).ship_value_cr);
-            if (ship.credits <= reserve) {
+            if (ship.credits <= open.ship_cash_reserve) {
                 continue;
             }
-            const double dividend = (ship.credits - reserve) * share;
+            const double dividend = (ship.credits - open.ship_cash_reserve) * share;
             auto& home = get_station_state(ship.home_station_id);
             ship.credits -= dividend;
             ship.ledger.dividends += dividend;
