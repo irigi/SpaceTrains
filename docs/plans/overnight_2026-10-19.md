@@ -248,3 +248,6 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    y2 0.9 ± 0.2%, last fifth 0.9%, price 1.27×, money −79%, 11 ships on loops. The money fall is ships'
    combined cash going negative in both designs: dividends take everything above 50k, and the next long
    mission is then bought on credit.
+30. Ablation on 8 starts: y2 without contracts 1.6 ± 0.3% unmet (with: 1.3 ± 0.3%), so the loops
+   are worth about 0.3 points in the default. y2's contract settings on posted prices: 1.2%, against
+   0.9% with the posted-price settings (k6).

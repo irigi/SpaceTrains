@@ -3,6 +3,7 @@ station_credit_floor,25000
 station_credit_ceiling,250000
 station_balance_days,30
 ship_cash_reserve,25000
+ship_cash_reserve_of_value,0
 dividend_days,30
 money_supply_days,60
 core_crew_fraction,0.3

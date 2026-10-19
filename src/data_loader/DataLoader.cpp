@@ -692,6 +692,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"station_credit_ceiling", &open_economy.station_credit_ceiling},
             {"station_balance_days", &open_economy.station_balance_days},
             {"ship_cash_reserve", &open_economy.ship_cash_reserve},
+            {"ship_cash_reserve_of_value", &open_economy.ship_cash_reserve_of_value},
             {"dividend_days", &open_economy.dividend_days},
             {"money_supply_days", &open_economy.money_supply_days},
             {"core_crew_fraction", &open_economy.core_crew_fraction},
