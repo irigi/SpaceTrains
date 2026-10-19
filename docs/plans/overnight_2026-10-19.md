@@ -261,3 +261,9 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
      cap).
    - Loops longer than the term (up to 700 or 1100 days, the term stretched to one loop) for the outer
      stations: y2 1.2 → 1.5%; contracts on posted prices 1.0 → 0.9% (noise).
+33. Contracts on posted prices plus the 730-day follow-up horizon: 0.9% on the tuning starts (same as
+   without), 1.3 ± 0.7% on the validation starts (1.1 without). Not better; the supply-first
+   alternative stays contracts alone.
+34. Hold use did not improve: 38–41% in every design over 4 years, 31–35% over 8. It is set by fleet
+   size against demand, plus launch-window waits (~19% of ships) and empty repositioning (~20%). Under
+   y2 a 100-ship cap gives 41% with 83% of ships profitable (see the fleet-cap table).
