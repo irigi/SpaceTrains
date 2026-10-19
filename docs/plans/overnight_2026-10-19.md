@@ -26,6 +26,9 @@ profitable, against 85%.
 Validation on 8 start days never used for tuning (20, 65, ..., 335): reference 1.6 ± 0.6% unmet at
 2.63×; y2 1.4 ± 0.5% at 1.68× (78% of ships profitable); contracts alone 1.1 ± 0.3% at 2.62×.
 
+Over 8 years (4 starts) y2 pulls ahead: unmet 0.9 ± 0.2% against 1.8 ± 0.3%, price in the second
+half 1.27× against 2.20×, 88% of ships profitable (94%), about 11 ships on loops.
+
 **To review:**
 1. y2 as the default. The alternative is contracts on posted prices: better supply, same rent (set
    `competitive` 0, `contract_accept` 0.7, `contract_cost_plus` 0).
@@ -35,7 +38,12 @@ Validation on 8 start days never used for tuning (20, 65, ..., 335): reference 1
 3. The emergency test now asks only that the faction premium starts at least at the station's bid.
 4. The Earth L1 "lead-time bug" stays: capping the lead hurt supply in every combination.
 5. The planner fixes change all results slightly (statistically the same; the reference was re-run).
-6. The fleet cap (your call, kept at 130). Under the new prices a smaller fleet supplies as well and
+6. Long games, in both designs: over 8 years the money supply (stations + ships) falls 50–80% below its
+   target, because ships' combined cash goes negative (−0.9M reference, −1.2M y2). Loss-making ships
+   run up debt on their credit lines while profitable ones pay out dividends, and faction treasuries
+   pile up taxes (20–50M). This is the existing open economy, not the market; it needs a rule, for
+   example for ships whose debt passes their credit line.
+7. The fleet cap (your call, kept at 130). Under the new prices a smaller fleet supplies as well and
    pays better (y2, 4 starts):
 
    | Cap | Unmet | Last fifth | Price ÷ ref | Profitable |
@@ -235,3 +243,6 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    full-JSON save/load check is exact. `market.csv` lists the remaining keys.
 28. Under y2 the first loop is signed late in most starts (day 76 to 491): cost-plus contracts lose to
    spot work early on, while stations start stocked. The market test runs 90 + 90 days for that.
+29. 8-year runs (4 starts): reference 1.8 ± 0.3% unmet, last fifth 1.6%, price 2.20×, money −53%;
+   y2 0.9 ± 0.2%, last fifth 0.9%, price 1.27×, money −79%, 11 ships on loops. The money fall is ships'
+   combined cash going negative (debts of loss-makers; profits leave as dividends) in both designs.
