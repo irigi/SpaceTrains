@@ -46,15 +46,12 @@ Once a day each priced order gets a market price from the ships that could serve
   `min_source_surplus` spare), or arriving at one within `available_days`.
 - **A ship's ask:** the good's price at the source, plus the leg's cost (time at capital + crew cost,
   fuel at the source's price, from the cached leg estimate), times (1 + `return_share`) for the way back,
-  spread over what the leg can carry. With `ask_open_units`, that is the open orders the source can fill
-  at that station; otherwise `fill_ref` of the hold. Then times (1 + `ask_markup`).
+  spread over what the leg can carry: `fill_ref` of the hold or, with `ask_open_units`, the open orders the
+  source can fill at that station if less (a big hold's trip spread over 65% of it priced a 100 u order
+  below cost). Then times (1 + `ask_markup`).
 - **Market price:** the second-lowest ask. With a single bidder, its ask × (1 + `solo_premium`).
 - **What the order pays:** at most the market price × an urgency factor, clamp((S / projected stock at
-  arrival)^`urgency_elasticity`, 1, `urgency_max`), within the stock-ratio bid. With
-  `urgency_on_safety`, the factor is measured against the safety stock B instead of S.
-
-Variants tried and left off: escalation while an order stays open (`escalation_rate`), binding tenders
-to docked ships (`tender_awards`), and own-ask floors (`own_ask_floor`).
+  arrival)^`urgency_elasticity`, 1, `urgency_max`), within the stock-ratio bid.
 
 ## Rotation contracts (`contracts`)
 
@@ -67,19 +64,38 @@ to docked ships (`tender_awards`), and own-ask floors (`own_ask_floor`).
 - **Value:** profit per day after time and fuel. On each leg the hold fills by margin per unit with what
   the next stop still needs under no contract: `contract_cover` × uncontracted use × cycle days, capped by
   what the source can spare over the cycle.
-- **Price:** the order's market price under competitive pricing, else its going rate. Optionally the
-  going rate under competitive pricing (`contract_at_going_rate`), or cost-plus (`contract_cost_plus`).
+- **Price:** the order's market price under competitive pricing, else its going rate. With
+  `contract_cost_plus`, the purchase price plus the delivery's share of the loop's time and fuel cost
+  × (1 + markup), at most the station's going rate. The loop is still chosen by the value it creates at
+  market prices.
 - **Signing:** if the loop earns at least `contract_accept` × the best spot mission's score. The term
   is `contract_term_days`.
 - **Execution:** the ship flies only its next stop. Contracted units load first, at the fixed price, as
   their own lot; spare hold space is filled at market. The deliveries still to come count as contracted
-  arrivals at their estimated dates, so stations order only for the gaps. With `contract_reserve_days`, a
-  source holds back from spot buyers what contract ships will load there soon.
+  arrivals at their estimated dates, so stations order only for the gaps.
 - **End:** when the term runs out, or when the next leg cannot be flown (the contract lapses). The
   inspector shows the loop and its deliveries; `SPACETRAINS_TRACE_CONTRACTS=1` logs contract events.
 
-## Lead-time cap (`lead_cap_factor`)
+## Follow-up horizon (`follow_up_horizon_days`, off)
 
-A delivery's lead sample counts at most this factor × the nearest source's lead, so slow far sources
-(Ceres water at Earth L1) do not set the lead of a good that comes from next door. Left off: the long
-lead works as a safety buffer for water that is short at its source.
+Dispatch values a mission over two legs, and the second leg is a forecast. With this switch, its profit
+counts × exp(−days until it starts / T). It stops a ship from waiting years for a forecast cargo. With
+T = 730 it is neutral under the default market (16 starts) but helped under posted prices.
+
+## Tried and removed
+
+All of these were measured (see the night log) and then removed from the code:
+
+- **Lead-time cap:** count a delivery's lead at most k × the nearest source's lead. This hurt: the long
+  observed lead works as a safety buffer for water that is short at its source.
+- **Scaling the stock-ratio bid down:** stocks fall until the ratio brings the price back.
+- **Escalation:** a factor that rises while an order stays open. Supply recovers, but the price climbs
+  back to rent.
+- **Binding tenders:** the cheapest docked ship at a source gets the order as a one-leg contract.
+  Rarely fires, and supplies worse.
+- **Own-ask floors:** a ship is paid at least its own cost plus markup. No gain.
+- **Anchoring the market price on the reference instead of the asks:** much worse supply.
+- **Urgency against the safety stock instead of S:** no gain.
+- **Holding back source stock for contract ships due soon:** no gain.
+- **Contracts at the going rate, reviews at once when idle, comparing contracts with unweighted spot
+  profit:** no gain.

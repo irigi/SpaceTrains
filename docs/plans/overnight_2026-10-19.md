@@ -228,3 +228,10 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    (validation 1.6 → 1.2%); an option if `competitive` is turned off.
 26. Fleet cap under y2: 100 ships supply as well as 130 (1.1 vs 1.2%) with more ships profitable
    (83 vs 75%) and faster runs; 150 ships add nothing (1.2%, 71% profitable). Left at the user's 130.
+27. Cleanup: the rejected mechanisms were removed from the code (lead-time cap, bid scale and
+   elasticity switches, escalation, binding tenders, own-ask floors, the reference anchor, urgency on
+   the safety stock, source reservation, contracts at the going rate, idle reviews, unweighted
+   comparison). The y2, contracts-alone and reference runs are bit-identical before and after; the
+   full-JSON save/load check is exact. `market.csv` lists the remaining keys.
+28. Under y2 the first loop is signed late in most starts (day 76 to 491): cost-plus contracts lose to
+   spot work early on, while stations start stocked. The market test runs 90 + 90 days for that.

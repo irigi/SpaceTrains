@@ -185,11 +185,7 @@ private:
         double station_cap {std::numeric_limits<double>::infinity()};
         double emergency_price {0.0};
         double emergency_units {0.0};
-        double stock_bid {0.0};   // the stock-ratio bid before the competitive cap
     };
-    // Competitive pricing with own-ask floors: what each ship asks per unit (destination|good),
-    // set by its current dispatch pass and read by its quotes (not saved: same tick only).
-    mutable std::unordered_map<std::string, std::unordered_map<std::string, double>> ask_floors_;
     [[nodiscard]] OrderQuote order_quote(const domain::StationState& state, const std::string& commodity_id,
         double arrival_s, const std::string& except_ship_id) const;
     // The value of the units [from, from + units) of a delivery under a quote.
@@ -266,10 +262,6 @@ private:
     [[nodiscard]] bool under_contract(const domain::ShipState& ship) const;
     // Rotation contracts: units per day of a good contracted to a station, over every contract.
     [[nodiscard]] double contracted_flow(const std::string& station_id, const std::string& commodity_id) const;
-    // Rotation contracts: units of a good the other contract ships will load at a station within
-    // contract_reserve_days, held back from spot buyers there.
-    [[nodiscard]] double contract_reserved(const std::string& station_id, const std::string& commodity_id,
-        const std::string& except_ship_id) const;
     // The best loop for a ship from its port, with its profit per day (0: none).
     std::pair<domain::ShipContract, double> find_contract(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class);
@@ -293,7 +285,6 @@ private:
         // Mission: two-leg profit per day (urgency-weighted for cargo runs);
         // Reposition: sourcing urgency, not credits.
         double score {0.0};
-        double profit_per_day {0.0};  // missions: the same two legs' profit per day, without urgency weights
         const domain::StationDefinition* destination {nullptr};
         std::vector<domain::CargoLot> cargo;   // empty: an empty leg or repositioning
         // Cargo runs: sale value minus purchase and fuel, without urgency or time costs.

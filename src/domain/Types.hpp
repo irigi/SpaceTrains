@@ -209,45 +209,37 @@ struct OrdersDefinition {
     double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
-// Market redesign switches (2026-10-19 night session); optional keys in data/economy/market.csv.
-// The defaults reproduce the economy before the redesign.
+// Market redesign (2026-10-19, docs/plans/market_redesign.md): optional keys in
+// data/economy/market.csv. These defaults are the economy before the redesign (all off); the game's
+// data turns competitive pricing and rotation contracts on.
 struct MarketDefinition {
-    double follow_up_horizon_days {0.0};  // >0: a follow-up leg's profit counts x exp(-days until it starts / this)
-    double lead_cap_factor {0.0};      // >0: a delivery's lead sample counts at most this x the nearest source's lead
-    double bid_scale {1.0};            // multiplies the stock-ratio bid (before its cap)
-    double bid_elasticity {1.3};       // e in (S / stock)^e
-    // Competitive pricing (tender): ships near a source ask their cost plus a markup; an order
-    // pays at most the second-lowest ask (one bidder: its ask x (1 + solo_premium)).
+    // Competitive pricing: once a day each order gets a market price, the second-lowest ask of the
+    // ships free at a source (one bidder: its ask x (1 + solo_premium)); the order pays at most that
+    // times an urgency factor clamp((S / projected stock)^urgency_elasticity, 1, urgency_max).
     double competitive {0.0};          // 1: on
     double ask_markup {0.3};           // on the ship's cost of the delivery
     double return_share {0.5};         // of the leg's cost added for the way back
-    double fill_ref {0.65};            // share of the hold a delivery's cost is spread over
+    double fill_ref {0.65};            // share of the hold a delivery's cost is spread over (at most)
+    double ask_open_units {0.0};       // 1: ... or over what the leg can carry to the open orders, if less
     double solo_premium {0.5};
     double available_days {30.0};      // ships free at a source within this many days bid
     double min_source_surplus {50.0};  // units a source must have spare to count
-    double ask_open_units {0.0};
-    double anchor_reference {0.0};     // >0: the market price is this x the reference price (no asks)
-    double own_ask_floor {0.0};        // 1: a ship is paid at least its own ask (within the stock bid)
-    double tender_awards {0.0};        // 1: each open order goes to the cheapest docked ship at a source (binding)       // 1: spread a trip over what the leg can carry to open orders, not the hold
-    double urgency_elasticity {0.0};   // the market price times clamp((S / stock)^this, 1, urgency_max)
+    double urgency_elasticity {0.0};
     double urgency_max {2.0};
-    double urgency_on_safety {0.0};
-    double escalation_rate {0.0};      // >0: the market price x an escalation that grows this much a day while the order is open
-    double escalation_relax {0.1};     // ... and falls this share a day toward 1 once nothing is open    // 1: urgency against the safety stock instead of the order-up-to level
-    // Rotation contracts.
+    // Rotation contracts: a free ship looks for a loop of up to contract_max_stops stops every
+    // contract_review_days and signs it for contract_term_days if it earns contract_accept x its best
+    // spot mission; contracted deliveries load first at a fixed price.
     double contracts {0.0};            // 1: on
-    double contract_max_stops {4.0};   // stops in a loop, the ship's port included
+    double contract_max_stops {4.0};   // stops in a loop, the ship's port included (2 to 4)
     double contract_term_days {365.0};
-    double contract_review_days {30.0};  // how often a ship without a contract looks for one
-    double contract_review_when_idle {0.0};  // 1: ... and at once whenever it has no paying work
+    double contract_review_days {30.0};
     double contract_cover {0.7};       // of a station's uncontracted use a loop takes on
-    double contract_accept {0.7};      // signs if the loop earns this x the best spot mission's score
-    double contract_vs_unweighted {0.0};  // 1: ... against the spot mission's profit per day, not its urgency-weighted score
+    double contract_accept {0.7};
     double contract_min_units {20.0};  // a delivery smaller than this per visit is left out
-    double contract_refine {6.0};      // loops valued again with each leg dated
-    double contract_at_going_rate {0.0};  // 1: contracts are signed at the going rate even under competitive prices
-    double contract_cost_plus {0.0};
-    double contract_reserve_days {0.0};   // >0: a source holds back what contract ships load there within this many days   // >0: contract prices are purchase + loop cost share x (1 + this)
+    double contract_refine {6.0};      // the best loops valued again with each leg dated
+    double contract_cost_plus {0.0};   // >0: prices are purchase + the loop's cost share x (1 + this), at most the going rate
+    // Dispatch: a follow-up leg's profit counts x exp(-days until it starts / this) (0: in full).
+    double follow_up_horizon_days {0.0};
 };
 
 struct StationDefinition {
@@ -463,7 +455,6 @@ struct ShipContract {
     double signed_s {0.0};
     double until_s {0.0};
     double cycle_days {0.0};
-    bool award {false};                // a tender won: one leg, ends on delivery
 };
 
 struct ShipState {
@@ -540,8 +531,6 @@ struct OrderStats {
     // Competitive pricing: the second-lowest ask of the ships near a source (0: none), set daily.
     double market_price {0.0};
     int market_bidders {0};
-    // Escalation: rises while the order stays open with nobody taking it, falls back once taken.
-    double escalation {1.0};
 };
 
 // The order a station would post for a good, derived from its OrderStats, its stock and the
