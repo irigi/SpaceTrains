@@ -329,9 +329,14 @@ func _add_station_orders(detail: Dictionary) -> void:
             float(o.get("interval_days", 0.0)), float(o.get("spread_days", 0.0)), float(o.get("order_up_to_units", 0.0)),
             float(o.get("max_units", 0.0)), float(o.get("ceiling", 0.0)), int(o.get("deliveries", 0))], UiTheme.TEXT_DIM, 12)
         # Competitive pricing (market redesign): the second-lowest ask of the ships near a source.
-        if float(o.get("market_price", 0.0)) > 0.0:
-            _add_label("    market %.1f cr/u from %d ship%s near a source" % [float(o.get("market_price", 0.0)),
-                int(o.get("market_bidders", 0)), "" if int(o.get("market_bidders", 0)) == 1 else "s"], UiTheme.TEXT_DIM, 12)
+        var market_price := float(o.get("market_price", 0.0))
+        var bidders := int(o.get("market_bidders", 0))
+        if market_price > 0.0:
+            var who := "%d ship%s near a source" % [bidders, "" if bidders == 1 else "s"]
+            if market_price <= float(o.get("order_price", 0.0)) * 3.0:
+                _add_label("    market %.1f cr/u from %s" % [market_price, who], UiTheme.TEXT_DIM, 12)
+            else:
+                _add_label("    %s ask more than the bid" % who, UiTheme.TEXT_DIM, 12)
 
 # Ships on their way here (with cargo and arrival) and ships docked here.
 func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
