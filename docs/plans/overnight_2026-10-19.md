@@ -255,3 +255,9 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    25% of value changes little (most hulls are worth ~100k, the flat reserve is 25k); 50% halves the
    money fall (−44% against −79%) but unmet rises 0.9 → 1.3%. Rejected and removed; the money measure
    is not a goal in itself, the debt is working capital on credit.
+32. Two more contract variants, rejected and reverted:
+   - Capping cost-plus prices at the order's current price as well as the going rate: identical
+     signing (the late first loops come from ships reviewing only when idle at a port, not from the
+     cap).
+   - Loops longer than the term (up to 700 or 1100 days, the term stretched to one loop) for the outer
+     stations: y2 1.2 → 1.5%; contracts on posted prices 1.0 → 0.9% (noise).
