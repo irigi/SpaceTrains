@@ -248,3 +248,10 @@ reference 0.8 ± 0.3% unmet (2.59×), competitive 1.1 ± 0.6% (1.42×), contract
    y2 0.9 ± 0.2%, last fifth 0.9%, price 1.27×, money −79%, 11 ships on loops. The money fall is ships'
    combined cash going negative in both designs: dividends take everything above 50k, and the next long
    mission is then bought on credit.
+30. Ablation on 8 starts: y2 without contracts 1.6 ± 0.3% unmet (with: 1.3 ± 0.3%), so the loops
+   are worth about 0.3 points in the default. y2's contract settings on posted prices: 1.2%, against
+   0.9% with the posted-price settings (k6).
+31. A larger ship cash reserve (a share of hull value) against the long-run ship debt, 8 years under y2:
+   25% of value changes little (most hulls are worth ~100k, the flat reserve is 25k); 50% halves the
+   money fall (−44% against −79%) but unmet rises 0.9 → 1.3%. Rejected and removed; the money measure
+   is not a goal in itself, the debt is working capital on credit.
