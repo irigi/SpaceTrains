@@ -12,7 +12,7 @@ const BINDINGS := [
     {"group": "Map", "keys": "Right drag", "inputs": [MOUSE_BUTTON_RIGHT], "action": "Rotate the camera"},
     {"group": "Map", "keys": "Middle drag", "inputs": [MOUSE_BUTTON_MIDDLE], "action": "Pan the camera"},
     {"group": "Map", "keys": "Mouse wheel", "inputs": [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT],
-        "action": "Zoom the map; over a panel, scroll the panel"},
+        "action": "Zoom the map (planets keep the camera out); over a panel, scroll it"},
     {"group": "Panels", "keys": "M", "inputs": [KEY_M], "action": "Economy & markets table (red = scarce, green = cheap)"},
     {"group": "Panels", "keys": "H", "inputs": [KEY_H], "action": "This list of key bindings"},
     {"group": "Panels", "keys": "Esc", "inputs": [KEY_ESCAPE], "action": "Close the open panel"},

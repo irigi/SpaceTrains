@@ -106,6 +106,7 @@ var entity_kinds: Dictionary = {}
 var entity_visual_signatures: Dictionary = {}
 var trail_nodes: Dictionary = {}
 var trail_path_signatures: Dictionary = {}
+var trail_points: Dictionary = {}  # ship_id -> {points (metres + time, as drawn), color, alpha}
 var ship_trail_history: Dictionary = {}   # ship_id -> Array of Vector3 (world_root local)
 var history_trail_nodes: Dictionary = {}  # ship_id -> MeshInstance3D
 var trail_sample_accum_s := 0.0
@@ -590,6 +591,11 @@ func _apply_snapshot() -> void:
                 trail_nodes[entity_id].queue_free()
                 trail_nodes.erase(entity_id)
                 trail_path_signatures.erase(entity_id)
+                trail_points.erase(entity_id)
+            if fine_paths.has(entity_id):
+                if fine_paths[entity_id]["node"] != null:
+                    (fine_paths[entity_id]["node"] as Node).queue_free()
+                fine_paths.erase(entity_id)
             if history_trail_nodes.has(entity_id):
                 (history_trail_nodes[entity_id] as Node).queue_free()
                 history_trail_nodes.erase(entity_id)
@@ -682,10 +688,12 @@ func _update_nodes(delta: float) -> void:
             _orient_ship(node, entity_id, _ship_heading(entity_id))
             EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0),
                 _jet_power_w(String(detail.get("class_id", ""))))
+    _update_camera_obstacles()
     _update_history_trails(delta)
     if space_env != null:
         space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
     _update_fine_rings()
+    _update_fine_paths()
     if sun_light != null and entity_nodes.has("sun"):
         var sun_node: Node3D = entity_nodes["sun"]
         sun_light.global_position = sun_node.global_position
@@ -695,6 +703,15 @@ func _update_nodes(delta: float) -> void:
     if space_env != null:
         space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
+
+# Planets, moons and the Sun keep the camera out (OrbitCamera pushes it to their surface).
+func _update_camera_obstacles() -> void:
+    var obstacles: Array = []
+    for body_id in body_orbits.keys():
+        var node: Node3D = entity_nodes.get(body_id)
+        if node != null and node.scale.x > BODY_MIN_MODEL_SCALE:
+            obstacles.append([node.global_position, node.scale.x])
+    camera_rig.set("obstacles", obstacles)
 
 # --- Display clock and positions ----------------------------------------------
 
@@ -793,6 +810,7 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
     cached["off"] = offsets
     cached["raw"] = raw
     cached["sense"] = _path_sense(times, raw, float(cached["departure"]), float(cached["arrival"]))
+    cached["doff"] = _offset_rates(times, offsets, float(cached["departure"]), float(cached["arrival"]))
     if bool(cached["helio"]):
         _cache_helio_polar(cached)
     ship_paths[ship_id] = cached
@@ -845,6 +863,31 @@ func _sample_rates(times: PackedFloat64Array, y: PackedFloat64Array, first: int,
             rates[i] = (y[hi] - y[lo]) / maxf(times[hi] - times[lo], 1.0)
             continue
         rates[i] = (h1 * (y[i] - y[lo]) / h0 + h0 * (y[hi] - y[i]) / h1) / (h0 + h1)
+    return rates
+
+# Rates of the rail offsets at each sample (x, y, z interleaved), for the cubic drawing in
+# _rail_point_m. Neighbours are taken within one stretch only (the wait before departure,
+# the flight, the time after arrival), so the burns at the ends keep their corners.
+func _offset_rates(times: PackedFloat64Array, offsets: PackedFloat64Array, departure: float, arrival: float) -> PackedFloat64Array:
+    var count := times.size()
+    var first := clampi(times.bsearch(departure, true), 0, count - 1)
+    var last := clampi(times.bsearch(arrival, false) - 1, first, count - 1)
+    var stretches := [[0, first], [first, last], [last, count - 1]]
+    var rates := PackedFloat64Array()
+    rates.resize(offsets.size())
+    var y := PackedFloat64Array()
+    y.resize(count)
+    for axis in range(3):
+        for i in range(count):
+            y[i] = offsets[3 * i + axis]
+        for stretch in stretches:
+            var lo: int = stretch[0]
+            var hi: int = stretch[1]
+            if hi <= lo:
+                continue
+            var axis_rates := _sample_rates(times, y, lo, hi)
+            for i in range(lo, hi + 1):
+                rates[3 * i + axis] = axis_rates[i]
     return rates
 
 # A class's engine jet power from the designs file (0 until it has been read).
@@ -923,10 +966,18 @@ func _rail_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
     if bool(path.get("helio", false)) and t > float(path["departure"]) and t < float(path["arrival"]):
         return _helio_point_m(path, i, f)
     var anchor := _rail_anchor_m(path, t)
+    var rates: PackedFloat64Array = path["doff"]
     var out := PackedFloat64Array([0.0, 0.0, 0.0])
+    # Cubic (Hermite) between the samples, so the ship's motion has no corner at each one.
+    var f2 := f * f
+    var f3 := f2 * f
+    var h00 := 2.0 * f3 - 3.0 * f2 + 1.0
+    var h10 := (f3 - 2.0 * f2 + f) * span
+    var h01 := 3.0 * f2 - 2.0 * f3
+    var h11 := (f3 - f2) * span
     for axis in range(3):
-        var a := offsets[3 * i + axis]
-        out[axis] = anchor[axis] + a + (offsets[3 * (i + 1) + axis] - a) * f
+        var j := 3 * i + axis
+        out[axis] = anchor[axis] + h00 * offsets[j] + h10 * rates[j] + h01 * offsets[j + 3] + h11 * rates[j + 3]
     return out
 
 # Between two heliocentric samples: radius and angle (the short way, unless that runs
@@ -1104,6 +1155,200 @@ func _update_fine_rings() -> void:
         var distance := maxf(camera.global_position.distance_to(parent_screen), 1.0e-9)
         var radius_px := float(orbit["a"]) * POSITION_SCALE / distance * focal
         space_env.set_ring_fade(String(body_id), clampf((radius_px - 6.0) / 24.0, 0.0, 1.0))
+
+# --- Planned paths near the focus ---------------------------------------------
+
+# Planned paths are drawn in absolute coordinates (32-bit floats: steps of ~16 km at 1 AU,
+# ~500 km at Neptune, about the size of a ship) as straight pieces a tenth of a day or a
+# day long. Up close that zig-zags against the ship, which is placed in double precision.
+# So when the camera is close, a shader hides the coarse lines within a radius of the focus,
+# and every stretch of a path inside that radius is redrawn finely, relative to an anchor
+# near the focus (offsets small enough for floats), densest near the focus. The fine lines
+# are rebuilt only when the camera, the focus or the ship has moved a good part of the way.
+var fine_paths: Dictionary = {}  # ship_id -> {node, sig, focus (metres), camera, time, radius}
+var trail_material: ShaderMaterial
+const FINE_PATH_MAX_CAMERA_M := 3.0e9   # ~0.02 AU of zoom distance
+const FINE_PATH_REACH := 8.0            # the fine stretch reaches this many camera distances
+const FINE_PATH_SPACING := 1.0 / 60.0   # point spacing as a share of the distance to the focus
+const FINE_PATH_MAX_POINTS := 1500
+const FINE_PATH_MAX := 8
+const TRAIL_CHUNK := 32
+const TRAIL_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_mix, cull_disabled, depth_draw_never;
+uniform vec3 focus = vec3(0.0);
+uniform float hide_radius = 0.0;
+varying vec3 world_pos;
+void vertex() {
+    world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+    if (hide_radius > 0.0 && distance(world_pos, focus) < hide_radius) {
+        discard;
+    }
+    ALBEDO = COLOR.rgb;
+    ALPHA = COLOR.a;
+}
+"""
+
+func _trail_material() -> ShaderMaterial:
+    if trail_material == null:
+        var shader := Shader.new()
+        shader.code = TRAIL_SHADER
+        trail_material = ShaderMaterial.new()
+        trail_material.shader = shader
+    return trail_material
+
+func _update_fine_paths() -> void:
+    var camera_distance_m := float(camera_rig.get("distance")) / POSITION_SCALE
+    var active := {}
+    var hide_radius_m := 0.0
+    var pivot: Vector3 = camera_rig.get("pivot")
+    if camera_distance_m <= FINE_PATH_MAX_CAMERA_M:
+        var focus_m := PackedFloat64Array([origin_m[0] + pivot.x / POSITION_SCALE,
+            origin_m[1] + pivot.y / POSITION_SCALE, origin_m[2] + pivot.z / POSITION_SCALE])
+        # Far enough out that the coarse line's float error is under a pixel or so.
+        var float_error_m := 1.2e-7 * sqrt(focus_m[0] * focus_m[0] + focus_m[2] * focus_m[2]) + 2.0e4
+        hide_radius_m = maxf(FINE_PATH_REACH * camera_distance_m, 300.0 * float_error_m)
+        var draw_radius_m := 1.35 * hide_radius_m
+        var candidates: Array = []
+        for ship_id in trail_points.keys():
+            if not ship_paths.has(ship_id) or not trail_nodes.has(ship_id) or not (trail_nodes[ship_id] as Node3D).visible:
+                continue
+            var gap := INF
+            for box in trail_points[ship_id]["boxes"]:
+                gap = minf(gap, _box_gap(box, focus_m))
+            if gap <= draw_radius_m:
+                candidates.append([gap, ship_id])
+        candidates.sort_custom(func(x, y): return x[0] < y[0])
+        for k in range(mini(candidates.size(), FINE_PATH_MAX)):
+            var ship_id: String = candidates[k][1]
+            if not _fine_path_current(ship_id, focus_m, camera_distance_m, hide_radius_m):
+                _build_fine_path(ship_id, focus_m, camera_distance_m, draw_radius_m)
+            var entry: Dictionary = fine_paths[ship_id]
+            var node: MeshInstance3D = entry["node"]
+            if node == null or not bool(entry["drawn"]):
+                continue  # the path passes near the focus's box only, not the focus
+            node.position = _to_render(entry["focus"])
+            node.visible = true
+            active[ship_id] = true
+    for ship_id in fine_paths.keys():
+        var node: MeshInstance3D = fine_paths[ship_id]["node"]
+        if not active.has(ship_id) and node != null:
+            node.visible = false
+        elif history_trail_nodes.has(ship_id):
+            (history_trail_nodes[ship_id] as MeshInstance3D).visible = false
+    var material := _trail_material()
+    material.set_shader_parameter("focus", pivot)
+    material.set_shader_parameter("hide_radius", hide_radius_m * POSITION_SCALE)
+
+# Whether the fine line built last still covers the view: same plan, similar zoom, and
+# neither the focus nor the ship has moved more than a fraction of the radius.
+func _fine_path_current(ship_id: String, focus_m: PackedFloat64Array, camera_distance_m: float, hide_radius_m: float) -> bool:
+    if not fine_paths.has(ship_id):
+        return false
+    var entry: Dictionary = fine_paths[ship_id]
+    if String(entry["sig"]) != String(trail_points[ship_id]["sig"]):
+        return false
+    var ratio := camera_distance_m / float(entry["camera"])
+    if ratio < 0.8 or ratio > 1.25:
+        return false
+    var built: PackedFloat64Array = entry["focus"]
+    var moved := sqrt(pow(focus_m[0] - built[0], 2.0) + pow(focus_m[1] - built[1], 2.0) + pow(focus_m[2] - built[2], 2.0))
+    if moved + hide_radius_m > float(entry["radius"]) * 0.95:
+        return false
+    # The flown part is grey: rebuild as the ship moves along.
+    return absf(display_time_s - float(entry["time"])) * float(entry["speed"]) < 0.05 * hide_radius_m
+
+# How far p lies outside a box [min x, y, z, max x, y, z] (0 inside), per axis at most.
+func _box_gap(box: PackedFloat64Array, p: PackedFloat64Array) -> float:
+    var gap := 0.0
+    for axis in range(3):
+        gap = maxf(gap, maxf(box[axis] - p[axis], p[axis] - box[axis + 3]))
+    return gap
+
+# Redraws every stretch of the path within draw_radius_m of the focus (entry "drawn" false
+# if there is none, so the next frames skip the path until the view changes).
+func _build_fine_path(ship_id: String, focus_m: PackedFloat64Array, camera_distance_m: float, draw_radius_m: float) -> void:
+    var style: Dictionary = trail_points[ship_id]
+    var points: Array = style["points"]
+    var path: Dictionary = ship_paths[ship_id]
+    var line_color: Color = style["color"]
+    var alpha: float = style["alpha"]
+    var flown := Color(0.5, 0.52, 0.55, alpha * 0.45)
+    var ahead := Color(line_color.r, line_color.g, line_color.b, alpha)
+    var runs: Array = []  # each a list of [x, y, z, t] relative to focus_m
+    var run: Array = []
+    var budget := FINE_PATH_MAX_POINTS
+    var top_speed := 0.0
+    var boxes: Array = style["boxes"]
+    for i in range(points.size() - 1):
+        var a: PackedFloat64Array = points[i]
+        var b: PackedFloat64Array = points[i + 1]
+        var chunk_far := _box_gap(boxes[i / TRAIL_CHUNK], focus_m) > draw_radius_m
+        if chunk_far or budget <= 0 or _segment_distance(a, b, focus_m) > draw_radius_m:
+            if run.size() >= 2:
+                runs.append(run)
+            run = []
+            continue
+        var span := b[3] - a[3]
+        if span <= 0.0:
+            continue
+        var length := sqrt(pow(b[0] - a[0], 2.0) + pow(b[1] - a[1], 2.0) + pow(b[2] - a[2], 2.0))
+        var speed := maxf(length / span, 1.0e-3)
+        top_speed = maxf(top_speed, speed)
+        # March along the segment with steps a fixed share of the distance to the focus.
+        var t := a[3]
+        var joined := not run.is_empty()  # the previous segment's end is this one's start
+        while budget > 0:
+            var p := _rail_point_m(path, t)
+            if not joined:
+                run.append(PackedFloat64Array([p[0] - focus_m[0], p[1] - focus_m[1], p[2] - focus_m[2], t]))
+                budget -= 1
+            joined = false
+            if t >= b[3]:
+                break
+            var d := sqrt(pow(p[0] - focus_m[0], 2.0) + pow(p[1] - focus_m[1], 2.0) + pow(p[2] - focus_m[2], 2.0))
+            t = minf(b[3], t + maxf(maxf(d, camera_distance_m) * FINE_PATH_SPACING / speed, span * 1.0e-4))
+    if run.size() >= 2:
+        runs.append(run)
+    var node: MeshInstance3D = fine_paths[ship_id]["node"] if fine_paths.has(ship_id) else null
+    fine_paths[ship_id] = {"node": node, "drawn": not runs.is_empty(), "sig": style["sig"], "focus": focus_m,
+        "camera": camera_distance_m, "time": display_time_s, "radius": draw_radius_m, "speed": top_speed}
+    if runs.is_empty():
+        return
+    var mesh := ImmediateMesh.new()
+    for piece in runs:
+        mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+        for q in piece:
+            mesh.surface_set_color(flown if q[3] < display_time_s else ahead)
+            mesh.surface_add_vertex(Vector3(q[0] * POSITION_SCALE, q[1] * POSITION_SCALE, q[2] * POSITION_SCALE))
+        mesh.surface_end()
+    if node == null:
+        node = MeshInstance3D.new()
+        node.name = "%s_fine_path" % ship_id
+        var material := StandardMaterial3D.new()
+        material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+        material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+        material.vertex_color_use_as_albedo = true
+        node.material_override = material
+        entity_root.add_child(node)
+    node.mesh = mesh
+    fine_paths[ship_id]["node"] = node
+
+# Distance from p to the segment a-b (points [x, y, z, ...]).
+func _segment_distance(a: PackedFloat64Array, b: PackedFloat64Array, p: PackedFloat64Array) -> float:
+    var abx := b[0] - a[0]
+    var aby := b[1] - a[1]
+    var abz := b[2] - a[2]
+    var len2 := abx * abx + aby * aby + abz * abz
+    var s := 0.0
+    if len2 > 0.0:
+        s = clampf(((p[0] - a[0]) * abx + (p[1] - a[1]) * aby + (p[2] - a[2]) * abz) / len2, 0.0, 1.0)
+    var dx := a[0] + abx * s - p[0]
+    var dy := a[1] + aby * s - p[1]
+    var dz := a[2] + abz * s - p[2]
+    return sqrt(dx * dx + dy * dy + dz * dz)
 
 # k with k / sinh(k) = ratio (0 < ratio <= 1), by bisection.
 func _sinh_stretch(ratio: float) -> float:
@@ -1757,11 +2002,8 @@ func _ensure_trail_node(ship_id: String) -> Node3D:
     node.name = "%s_trail" % ship_id
     var path_mesh := MeshInstance3D.new()
     path_mesh.name = "path"
-    var material := StandardMaterial3D.new()
-    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    material.vertex_color_use_as_albedo = true
-    path_mesh.material_override = material
+    # Hides itself near the focus when a fine line is drawn there (_update_fine_paths).
+    path_mesh.material_override = _trail_material()
     node.add_child(path_mesh)
     world_root.add_child(node)
     trail_nodes[ship_id] = node
@@ -1829,6 +2071,19 @@ func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, 
     var elapsed_color := Color(0.5, 0.52, 0.55, base_alpha * 0.45)
     var path: Dictionary = ship_paths[ship_id]
     var points := _rail_line_m(path)
+    # Bounding boxes of runs of TRAIL_CHUNK segments, so the fine drawing finds the stretches
+    # near the focus without measuring every segment.
+    var boxes: Array = []
+    for start in range(0, points.size() - 1, TRAIL_CHUNK):
+        var box := PackedFloat64Array([INF, INF, INF, -INF, -INF, -INF])
+        for i in range(start, mini(start + TRAIL_CHUNK + 1, points.size())):
+            var point: PackedFloat64Array = points[i]
+            for axis in range(3):
+                box[axis] = minf(box[axis], point[axis])
+                box[axis + 3] = maxf(box[axis + 3], point[axis])
+        boxes.append(box)
+    trail_points[ship_id] = {"points": points, "boxes": boxes, "color": line_color, "alpha": base_alpha,
+        "sig": "%s|%s|%.3f" % [String(path["sig"]), is_selected, base_alpha]}
     var mesh := ImmediateMesh.new()
     mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
     for point in points:
@@ -1945,10 +2200,13 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
         return
     focused_id = entity_id
     focused_kind = entity_kind
-    # Zoom stops outside the focused body (bodies are drawn at true size now).
-    var min_distance := 0.00002
+    # Zoom stops outside the focused body (bodies are drawn at true size now); a ship or
+    # station can be zoomed until it fills most of the view (its models are ~2.5 units long).
+    var min_distance := 1.0e-6
     if entity_kind == "body":
         min_distance = maxf(min_distance, _body_display_scale(entity_id) * 1.6)
+    elif entity_nodes.has(entity_id):
+        min_distance = maxf(min_distance, (entity_nodes[entity_id] as Node3D).scale.x * 2.5)
     camera_rig.set("min_distance", min_distance)
     camera_rig.set("distance", maxf(float(camera_rig.get("distance")), min_distance))
     if entity_nodes.has(entity_id):
