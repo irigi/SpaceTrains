@@ -34,6 +34,18 @@ four times their operating cost on a unit. Contracts alone supply best and plan 
 rent. To prefer supply over price, set `competitive` to 0 and use `contract_accept` 0.7 and
 `contract_cost_plus` 0, the contract settings tuned for posted prices.
 
+**User review (2026-10-20):** y2 stays the default. Lunar Gateway's metals and water output is raised by
+half (`station_recipes.csv`: metals 16 → 24, water 20 → 30 u/day), since its output, not the market,
+caused the LEO metals and Earth L1 water shortages. The fleet cap stays at 130: with Luna raised, it beats
+100 ships on 8 starts × 4 years:
+
+| y2 + Luna ×1.5 | Unmet | Last fifth | Price ÷ reference | Profitable ships | 4-year run |
+|---|---|---|---|---|---|
+| Cap 130 (default) | 0.6 ± 0.4% | 1.0 ± 0.9% | 1.50 | 75% | 452 s |
+| Cap 100 | 0.9 ± 0.5% | 1.6 ± 0.9% | 1.65 | 81% | 399 s |
+
+(Run times are with 16 runs sharing the machine.)
+
 Everything below is a switch in `data/economy/market.csv` (optional keys, defaults in
 `domain::MarketDefinition`); with every switch off the economy is exactly the reference
 (`econ-ref-2026-10-18`). The log of experiments is `docs/plans/overnight_2026-10-19.md`.

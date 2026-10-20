@@ -24,7 +24,8 @@ up to four stops. Unmet demand is unchanged against the reference (1.3%) while s
 less (1.69× against 2.64× the landed reference price). Every piece is a switch in
 `data/economy/market.csv`. Design and results: `docs/plans/market_redesign.md`; experiments and
 decisions to review: `docs/plans/overnight_2026-10-19.md`. Also fixed: a rare planner crash and two
-planner caches that broke exact save/load.
+planner caches that broke exact save/load. Reviewed 2026-10-20: y2 kept, Lunar Gateway metals and water output
++50% (unmet 0.6%, price 1.50× the reference), fleet cap 130; merged to `main`.
 
 Branch `feature/bugfixes_ship_structures_and_trajectories` (from `main` after PR #12; earlier work on
 `feature/opus5_5_return`) (solo repo: commit on the branch, no PRs, push only when asked).
