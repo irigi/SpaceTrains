@@ -86,8 +86,9 @@ godot4 --path godot
 ```
 
 The Godot scene starts `spacetrains_bridge` automatically, reads live JSON snapshots, and writes pause/timewarp and
-save/load commands back through a command file. In the game: F5 quick save, F9 quick load, M economy and markets,
-F focus, Space pause, `,` `.` timewarp. A scripted screenshot tour for checking the map without sitting at the
+save/load commands back through a command file. In the game, press H (or the KEYS button) for the list of key
+bindings; the list lives in `godot/scripts/ui/KeyBindings.gd`, and `tests/test_key_bindings.py` fails when a script
+handles a key or mouse button the list does not describe. A scripted screenshot tour for checking the map without sitting at the
 screen: `godot4 --path godot -- --shot-tour=/some/dir` (plus `--shot-day=N`, `--shot-saveload`, `--shot-smooth=SECONDS`).
 
 ## Near-Term Architecture

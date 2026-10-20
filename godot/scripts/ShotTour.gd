@@ -241,6 +241,10 @@ func _run() -> void:
     main._refresh_ui(true)
     await get_tree().create_timer(0.6).timeout
     await _shoot("market_panel")
+    main.market_panel.toggle()
+    main.help_panel.toggle()
+    await get_tree().create_timer(0.3).timeout
+    await _shoot("help_panel")
     get_tree().quit()
 
 func _find_schematic(node: Node) -> Control:
