@@ -114,6 +114,10 @@ func _run() -> void:
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()
             return
+    if OS.get_cmdline_user_args().has("--shot-close"):
+        await _close_zoom_shots(rig)
+        get_tree().quit()
+        return
     for stop in STOPS:
         if not main.entity_nodes.has(stop["id"]):
             print("[ShotTour] skip %s (no %s)" % [stop["name"], stop["id"]])
@@ -246,6 +250,66 @@ func _run() -> void:
     await get_tree().create_timer(0.3).timeout
     await _shoot("help_panel")
     get_tree().quit()
+
+# Close zoom: a ship at full zoom, a ship's path up close (twice, a second apart, to see
+# jitter), an interplanetary ship up close, and a low-orbit station with the camera aimed
+# from inside the planet (it must be pushed out, not cut the sphere open).
+func _close_zoom_shots(rig: Node3D) -> void:
+    var local_ship := ""
+    var helio_ship := ""
+    for ship_id in main.entity_details.keys():
+        if main.entity_kinds.get(ship_id, "") != "ship" or String(main.entity_details[ship_id].get("phase", "")) != "in_transit" \
+                or not main.ship_paths.has(ship_id):
+            continue
+        if bool(main.ship_paths[ship_id].get("helio", false)):
+            if helio_ship == "":
+                helio_ship = ship_id
+        elif local_ship == "":
+            local_ship = ship_id
+    for pick in [[local_ship, "local"], [helio_ship, "helio"]]:
+        var ship_id: String = pick[0]
+        if ship_id == "":
+            print("[ShotTour] close: no %s ship in flight" % pick[1])
+            continue
+        main.select_entity(ship_id, "ship", true)
+        rig.set("distance", float(rig.get("min_distance")))
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        await _shoot("close_%s_ship_min" % pick[1])
+        for distance in [0.0005, 0.005]:
+            rig.set("distance", distance)
+            rig.call("_update_transform")
+            await get_tree().create_timer(0.6).timeout
+            await _shoot("close_%s_path_%s" % [pick[1], str(distance)])
+        await get_tree().create_timer(1.0).timeout
+        await _shoot("close_%s_path_later" % pick[1])
+        var started := Time.get_ticks_usec()
+        for i in 20:
+            main._update_fine_paths()
+        var cached_ms := float(Time.get_ticks_usec() - started) / 20000.0
+        started = Time.get_ticks_usec()
+        for i in 5:
+            for entry in main.fine_paths.values():
+                entry["camera"] = 1.0e-9  # force a rebuild
+            main._update_fine_paths()
+        var rebuild_ms := float(Time.get_ticks_usec() - started) / 5000.0
+        print("[ShotTour] close %s: min_distance %.8f, fine paths %d drawn, %.2f ms per frame (%.2f ms when all rebuilt)" % [
+            pick[1], float(rig.get("min_distance")), main.fine_paths.values().filter(func(e): return e["node"] != null and e["node"].visible).size(),
+            cached_ms, rebuild_ms])
+    if main.entity_nodes.has("earth_orbit") and main.entity_nodes.has("earth"):
+        main.select_entity("earth_orbit", "station", true)
+        var to_planet: Vector3 = (main.entity_nodes["earth"].global_position - main.entity_nodes["earth_orbit"].global_position).normalized()
+        rig.set("yaw", atan2(to_planet.x, to_planet.z))
+        rig.set("pitch", asin(clampf(to_planet.y, -0.9, 0.9)) - 0.1)
+        # Without the push-out this would put the camera near Earth's centre.
+        rig.set("distance", main.entity_nodes["earth"].global_position.distance_to(main.entity_nodes["earth_orbit"].global_position))
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        var camera: Camera3D = rig.get("camera")
+        var earth: Node3D = main.entity_nodes["earth"]
+        print("[ShotTour] close station: camera %.6f from Earth's centre, radius %.6f, near %.10f" % [
+            camera.global_position.distance_to(earth.global_position), earth.scale.x, camera.near])
+        await _shoot("close_station_blocked")
 
 func _find_schematic(node: Node) -> Control:
     for child in node.get_children():
