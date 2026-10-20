@@ -6,6 +6,7 @@ signal pause_toggled
 signal timewarp_changed(factor: float)
 signal save_requested
 signal load_requested
+signal help_requested
 
 const TIMEWARP_PRESETS := {
     600.0: "10m/s",
@@ -64,6 +65,13 @@ func _ready() -> void:
         var request: Signal = entry[2]
         button.pressed.connect(func() -> void: request.emit())
         file_row.add_child(button)
+
+    var help_button := Button.new()
+    help_button.text = "KEYS"
+    help_button.tooltip_text = "Key bindings (H)"
+    help_button.focus_mode = Control.FOCUS_NONE
+    help_button.pressed.connect(func() -> void: help_requested.emit())
+    file_row.add_child(help_button)
 
     var spacer := Control.new()
     spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL

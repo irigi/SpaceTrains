@@ -159,6 +159,7 @@ const EntityBrowserPanel := preload("res://scripts/ui/EntityBrowser.gd")
 const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
 const EventTickerPanel := preload("res://scripts/ui/EventTicker.gd")
 const MarketPanelScript := preload("res://scripts/ui/MarketPanel.gd")
+const HelpPanelScript := preload("res://scripts/ui/HelpPanel.gd")
 
 var ui_root: Control
 var top_bar: PanelContainer
@@ -166,6 +167,7 @@ var entity_browser: PanelContainer
 var inspector_panel: PanelContainer
 var event_ticker: PanelContainer
 var market_panel: PanelContainer
+var help_panel: PanelContainer
 var status_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 var price_history: Array[Dictionary] = []
@@ -220,6 +222,7 @@ func _setup_ui() -> void:
     top_bar.timewarp_changed.connect(_on_timewarp_changed)
     top_bar.save_requested.connect(func() -> void: _request_save_or_load(true))
     top_bar.load_requested.connect(func() -> void: _request_save_or_load(false))
+    top_bar.help_requested.connect(func() -> void: help_panel.toggle())
     ui_root.add_child(top_bar)
 
     entity_browser = EntityBrowserPanel.new()
@@ -258,6 +261,15 @@ func _setup_ui() -> void:
     market_panel = MarketPanelScript.new()
     market_panel.name = "MarketPanel"
     market_center.add_child(market_panel)
+
+    var help_center := CenterContainer.new()
+    help_center.name = "HelpCenter"
+    help_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    help_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+    ui_root.add_child(help_center)
+    help_panel = HelpPanelScript.new()
+    help_panel.name = "HelpPanel"
+    help_center.add_child(help_panel)
 
     status_label = Label.new()
     status_label.name = "Status"
@@ -362,6 +374,14 @@ func _unhandled_input(event: InputEvent) -> void:
             market_panel.toggle()
             if market_panel.visible:
                 market_panel.update_market(bridge_state)
+        elif event.keycode == KEY_H:
+            help_panel.toggle()
+        elif event.keycode == KEY_ESCAPE:
+            # Close the topmost open panel.
+            if help_panel.visible:
+                help_panel.hide()
+            elif market_panel.visible:
+                market_panel.hide()
         elif event.keycode == KEY_F5:
             _request_save_or_load(true)
         elif event.keycode == KEY_F9:
