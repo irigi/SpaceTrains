@@ -328,6 +328,15 @@ func _add_station_orders(detail: Dictionary) -> void:
             String(o.get("kind", "")), float(o.get("use_per_day", 0.0)), float(o.get("lead_days", 0.0)),
             float(o.get("interval_days", 0.0)), float(o.get("spread_days", 0.0)), float(o.get("order_up_to_units", 0.0)),
             float(o.get("max_units", 0.0)), float(o.get("ceiling", 0.0)), int(o.get("deliveries", 0))], UiTheme.TEXT_DIM, 12)
+        # Competitive pricing (market redesign): the second-lowest ask of the ships near a source.
+        var market_price := float(o.get("market_price", 0.0))
+        var bidders := int(o.get("market_bidders", 0))
+        if market_price > 0.0:
+            var who := "%d ship%s near a source" % [bidders, "" if bidders == 1 else "s"]
+            if market_price <= float(o.get("order_price", 0.0)) * 3.0:
+                _add_label("    market %.1f cr/u from %s" % [market_price, who], UiTheme.TEXT_DIM, 12)
+            else:
+                _add_label("    %s ask more than the bid" % who, UiTheme.TEXT_DIM, 12)
 
 # Ships on their way here (with cargo and arrival) and ships docked here.
 func _add_station_ships(detail: Dictionary, context: Dictionary) -> void:
@@ -468,6 +477,18 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         for stop in stops:
             names.append(_resolve_name(context, String(stop)))
         _add_label("Scheduled liner: " + " → ".join(names) + " → …", UiTheme.ACCENT, 12)
+    # Rotation contracts (market redesign): a loop flown for a term at fixed prices.
+    var loop: Array = detail.get("contract_stops", [])
+    if not loop.is_empty():
+        var loop_names: Array[String] = []
+        for stop in loop:
+            loop_names.append(_resolve_name(context, String(stop)))
+        _add_label("Rotation contract until day %d: %s → …" % [int(float(detail.get("contract_until_s", 0.0)) / 86400.0),
+            " → ".join(loop_names)], UiTheme.ACCENT, 12)
+        for delivery in detail.get("contract_deliveries", []):
+            _add_label("  %.0f u %s to %s at %.0f cr" % [float(delivery.get("units", 0.0)), String(delivery.get("commodity_id", "")),
+                _resolve_name(context, String(delivery.get("to", ""))), float(delivery.get("unit_price", 0.0))],
+                UiTheme.TEXT_DIM, 11)
 
     var propellant := float(detail.get("propellant_kg", 0.0))
     var propellant_capacity := float(detail.get("propellant_capacity_kg", 1.0))

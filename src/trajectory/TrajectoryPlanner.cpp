@@ -342,8 +342,16 @@ std::shared_ptr<const std::vector<KeplerTrajectoryPlanner::LambertCell>> KeplerT
                 if (const auto it = lambert_rows_.find(key); it != lambert_rows_.end()) row = it->second;
             }
             if (!row) {
+                // The row's own Hohmann time (at its departure), not the asking plan's: a moon's
+                // distance from the Sun changes over its orbit, and a row shared by plans of
+                // different dates held the first plan's, so a loaded game (empty cache) planned
+                // differently from one never stopped.
+                const double r1 = std::max(1.0, mechanics_.get_heliocentric_radius(origin_body_id, departure_s));
+                const double r2 = std::max(1.0, mechanics_.get_heliocentric_radius(destination_body_id, departure_s));
+                const double axis = std::max(1.0, (r1 + r2) * 0.5);
+                const double row_hohmann_s = PI * std::sqrt((axis * axis * axis) / mu);
                 auto computed = std::make_shared<const std::vector<LambertCell>>(
-                    lambert_row(origin_body_id, destination_body_id, departure_s, hohmann_time_s, mu));
+                    lambert_row(origin_body_id, destination_body_id, departure_s, row_hohmann_s, mu));
                 const std::lock_guard lock(lambert_mutex_);
                 if (lambert_rows_.size() >= 65536) lambert_rows_.clear();
                 row = lambert_rows_.emplace(key, std::move(computed)).first->second;
@@ -620,8 +628,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     // Minimise the objective above (cost, or wait + transit), subject to propellant feasibility.
     const double search_window_s = std::min(synodic_period_s, 730.0 * 86400.0);
 
-    for (const auto& cell : *lambert_grid(
-             origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu)) {
+    // Hold the grid for the whole loop: the range-for would drop the returned pointer at once
+    // (C++20), and another thread trimming the cache then freed the grid mid-loop (a crash
+    // about once in 25 four-year runs, found with ThreadSanitizer on 2026-10-19).
+    const auto grid = lambert_grid(
+        origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu);
+    for (const auto& cell : *grid) {
         const double dv_k = cell.dv_departure + cell.dv_arrival;
         const bool feas_k = loading.feasible(dv_k);
         const double objective_k = objective(cell.wait_s + cell.transit_s, dv_k);

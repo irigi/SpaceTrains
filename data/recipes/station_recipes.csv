@@ -2,8 +2,8 @@ station_id,commodity_id,units_per_day,role
 ceres_depot,platinum,0.5,
 ganymede_depot,deuterium,1,
 titan_works,deuterium,1,
-luna_base,metals,16,
-luna_base,water,20,
+luna_base,metals,24,
+luna_base,water,30,
 titan_works,science_samples,0.26,
 titan_works,electronics,-0.026,input:science_samples
 ganymede_depot,science_samples,0.37,

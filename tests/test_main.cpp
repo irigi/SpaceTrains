@@ -836,6 +836,49 @@ int main() {
         require(cover("luna_base", "food") < 40.0, "the Moon, days from Earth L1, should order a few weeks of food");
     }
 
+    // --- Market redesign (2026-10-19): with competitive prices and rotation contracts on (the
+    // game's settings, set here explicitly), ships sign loops, orders get market prices, and a game
+    // saved and loaded mid-way continues exactly. ---
+    {
+        const auto data_root = (repo_root / "data").string();
+        const auto market_on = [](spacetrains::domain::UniverseDefinition& u) {
+            u.market.competitive = 1.0;
+            u.market.urgency_elasticity = 1.0;
+            u.market.urgency_max = 3.0;
+            u.market.ask_open_units = 1.0;
+            u.market.contracts = 1.0;
+            u.market.contract_cover = 1.0;
+            u.market.contract_accept = 0.5;
+            u.market.contract_cost_plus = 1.0;
+        };
+        auto straight = spacetrains::simulation::Simulation::from_data_root(data_root, market_on);
+        straight.set_timewarp(86400.0);
+        auto first_half = spacetrains::simulation::Simulation::from_data_root(data_root, market_on);
+        first_half.set_timewarp(86400.0);
+        constexpr int kHalfDays = 90;  // the first loop is signed on day 76
+        for (int day = 0; day < kHalfDays; ++day) {
+            straight.step(1.0);
+            first_half.step(1.0);
+        }
+        const auto saved = first_half.save_state_json();
+        require(saved.find("\"contract\":{\"stops\"") != std::string::npos, "some ship should sign a rotation contract within 90 days");
+        bool priced = false;
+        for (auto at = saved.find("\"market_bidders\":"); at != std::string::npos; at = saved.find("\"market_bidders\":", at + 1)) {
+            priced = priced || saved[at + 17] != '0';
+        }
+        require(priced, "orders should get market prices from ships' asks");
+        auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root, market_on);
+        resumed.load_state_json(saved);
+        require(resumed.save_state_json() == saved, "a loaded game with contracts should save back to the same JSON");
+        for (int day = 0; day < kHalfDays; ++day) {
+            straight.step(1.0);
+            resumed.step(1.0);
+        }
+        require(resumed.save_state_json() == straight.save_state_json(),
+            "a game with contracts saved, loaded and continued should equal one that never stopped");
+        std::cout << std::format("Market redesign: contracts signed, save/load exact after {} + {} days\n", kHalfDays, kHalfDays);
+    }
+
     // --- Save and load: a game continued after a load plays exactly as one that never
     // stopped (state compared as saved JSON, which holds every mutable field). ---
     {
@@ -885,15 +928,15 @@ int main() {
         require(snap.emergencies_opened == 1 && snap.emergencies.size() == 1, "an empty oxygen stock should open an emergency");
         require(snap.emergencies.front().station_id == "mercury_yard" && snap.emergencies.front().commodity_id == "oxygen",
             "the emergency should be for Mercury's oxygen");
-        // The faction pays above the station's own cap, its order's bid on an empty stock, so the
-        // premium starts there (step 29).
+        // The faction pays above the station's own cap, so the premium starts there (step 29): at
+        // the order's bid on an empty stock, or above it where competitive prices cap the bid.
         {
             const auto mercury = std::find_if(snap.stations.begin(), snap.stations.end(),
                 [](const auto& station) { return station.station_id == "mercury_yard"; });
             require(mercury != snap.stations.end() && mercury->orders.contains("oxygen"), "Mercury should order oxygen");
             const auto& order = mercury->orders.at("oxygen");
-            require(std::abs(snap.emergencies.front().premium * order.reference_price - order.order_price) < 1.0e-6 * order.order_price,
-                "an emergency should start at the station's bid on an empty stock");
+            require(snap.emergencies.front().premium * order.reference_price >= order.order_price * (1.0 - 1.0e-6),
+                "an emergency should start at least at the station's bid on an empty stock");
         }
 
         auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root);

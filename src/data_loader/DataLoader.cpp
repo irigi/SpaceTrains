@@ -911,6 +911,49 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
 
     {
+        // Market redesign switches: every key optional, defaults in MarketDefinition.
+        const auto market_path = root / "economy" / "market.csv";
+        if (std::filesystem::exists(market_path)) {
+            const auto rows = read_csv_rows(market_path);
+            require_header(rows.front(), {"key", "value"}, market_path);
+            std::unordered_set<std::string> seen_keys;
+            auto& market = universe.market;
+            const std::unordered_map<std::string, double*> fields {
+                {"competitive", &market.competitive},
+                {"ask_markup", &market.ask_markup},
+                {"return_share", &market.return_share},
+                {"fill_ref", &market.fill_ref},
+                {"ask_open_units", &market.ask_open_units},
+                {"solo_premium", &market.solo_premium},
+                {"available_days", &market.available_days},
+                {"min_source_surplus", &market.min_source_surplus},
+                {"urgency_elasticity", &market.urgency_elasticity},
+                {"urgency_max", &market.urgency_max},
+                {"contracts", &market.contracts},
+                {"contract_max_stops", &market.contract_max_stops},
+                {"contract_term_days", &market.contract_term_days},
+                {"contract_review_days", &market.contract_review_days},
+                {"contract_cover", &market.contract_cover},
+                {"contract_accept", &market.contract_accept},
+                {"contract_min_units", &market.contract_min_units},
+                {"contract_refine", &market.contract_refine},
+                {"contract_cost_plus", &market.contract_cost_plus},
+                {"follow_up_horizon_days", &market.follow_up_horizon_days},
+            };
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 2, market_path, i + 1);
+                require_unique_id(row[0], seen_keys, market_path, i + 1);
+                const auto field = fields.find(row[0]);
+                if (field == fields.end()) {
+                    throw std::runtime_error("Unknown key '" + row[0] + "' in " + market_path.string());
+                }
+                *field->second = parse_double(row[1], market_path, i + 1, row[0].c_str());
+            }
+        }
+    }
+
+    {
         // Written by `spacetrains_headless --write-reference-prices` (step 15); the price and the
         // round-trip days are read, the rest documents where each price comes from.
         const auto reference_path = root / "economy" / "reference_prices.csv";

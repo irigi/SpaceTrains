@@ -209,6 +209,39 @@ struct OrdersDefinition {
     double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
+// Market redesign (2026-10-19, docs/plans/market_redesign.md): optional keys in
+// data/economy/market.csv. These defaults are the economy before the redesign (all off); the game's
+// data turns competitive pricing and rotation contracts on.
+struct MarketDefinition {
+    // Competitive pricing: once a day each order gets a market price, the second-lowest ask of the
+    // ships free at a source (one bidder: its ask x (1 + solo_premium)); the order pays at most that
+    // times an urgency factor clamp((S / projected stock)^urgency_elasticity, 1, urgency_max).
+    double competitive {0.0};          // 1: on
+    double ask_markup {0.3};           // on the ship's cost of the delivery
+    double return_share {0.5};         // of the leg's cost added for the way back
+    double fill_ref {0.65};            // share of the hold a delivery's cost is spread over (at most)
+    double ask_open_units {0.0};       // 1: ... or over what the leg can carry to the open orders, if less
+    double solo_premium {0.5};
+    double available_days {30.0};      // ships free at a source within this many days bid
+    double min_source_surplus {50.0};  // units a source must have spare to count
+    double urgency_elasticity {0.0};
+    double urgency_max {2.0};
+    // Rotation contracts: a free ship looks for a loop of up to contract_max_stops stops every
+    // contract_review_days and signs it for contract_term_days if it earns contract_accept x its best
+    // spot mission; contracted deliveries load first at a fixed price.
+    double contracts {0.0};            // 1: on
+    double contract_max_stops {4.0};   // stops in a loop, the ship's port included (2 to 4)
+    double contract_term_days {365.0};
+    double contract_review_days {30.0};
+    double contract_cover {0.7};       // of a station's uncontracted use a loop takes on
+    double contract_accept {0.7};
+    double contract_min_units {20.0};  // a delivery smaller than this per visit is left out
+    double contract_refine {6.0};      // the best loops valued again with each leg dated
+    double contract_cost_plus {0.0};   // >0: prices are purchase + the loop's cost share x (1 + this), at most the going rate
+    // Dispatch: a follow-up leg's profit counts x exp(-days until it starts / this) (0: in full).
+    double follow_up_horizon_days {0.0};
+};
+
 struct StationDefinition {
     std::string id;
     std::string name;
@@ -277,6 +310,7 @@ struct UniverseDefinition {
     FleetInvestmentDefinition fleet_investment;
     PricingDefinition pricing;
     OrdersDefinition orders;
+    MarketDefinition market;
     GrowthDefinition growth;
     std::vector<EventDefinition> events;
     std::uint64_t event_seed {0};
@@ -327,6 +361,9 @@ struct CargoLot {
     // The part of contract_value the destination's faction pays: an emergency delivery's
     // premium over the station's own price (step 14).
     double emergency_premium {0.0};
+    // A rotation contract's delivery: the price per unit fixed when the contract was signed
+    // (0: priced by the order at departure). Only used until departure; not saved.
+    double fixed_unit_price {0.0};
 };
 
 // An emergency delivery the owning faction pays for (step 14): the station is about to run
@@ -402,6 +439,24 @@ struct ShipLedger {
     double subsidies {0.0};  // a liner's cash top-ups from its faction (step 22); not income, so not in lifetime_profit
 };
 
+// A rotation contract (market redesign, 2026-10-19): the ship flies a loop of up to four stops
+// for a term, delivering fixed amounts at fixed prices on each leg; spare hold space is sold
+// at market. Saved.
+struct ShipContract {
+    struct Delivery {
+        std::string to_station_id;     // loaded at the stop before it in the loop
+        std::string commodity_id;
+        double units {0.0};            // per visit
+        double unit_price {0.0};
+    };
+    std::vector<std::string> stops;    // empty: no contract
+    std::vector<double> leg_days;      // stops[i] -> stops[i + 1], as estimated at signing
+    std::vector<Delivery> deliveries;
+    double signed_s {0.0};
+    double until_s {0.0};
+    double cycle_days {0.0};
+};
+
 struct ShipState {
     std::string id;
     std::string name;
@@ -431,6 +486,8 @@ struct ShipState {
     std::string route_commodity_id;
     double route_units_per_day {0.0};
     double route_until_s {0.0};
+    ShipContract contract;
+    double next_contract_review_s {0.0};
 };
 
 // A station's money flows with the world outside the simulated trade (the open economy),
@@ -471,6 +528,9 @@ struct OrderStats {
     int deliveries {0};
     // The order's bid for a delivery one lead time from now (set each tick; quotes make their own).
     double order_price {0.0};
+    // Competitive pricing: the second-lowest ask of the ships near a source (0: none), set daily.
+    double market_price {0.0};
+    int market_bidders {0};
 };
 
 // The order a station would post for a good, derived from its OrderStats, its stock and the
