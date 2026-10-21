@@ -84,6 +84,9 @@ struct ShipClassDefinition {
     // Operating economics:
     double ship_value_cr {0.0};   // capital tied up in the ship (amortised + interest)
     double crew_size {0.0};
+    // Passenger berths (docs/plans/passengers.md): built-in cabins of a liner class, plus a fitted
+    // cabin module's `berths` effect on a design. Liner classes load only when passengers are on.
+    double berths {0.0};
     // Classes with the same hull differ only in their tanks; ships refit between them
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
@@ -334,6 +337,29 @@ struct OrdersDefinition {
     double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
+// Passengers (docs/plans/passengers.md; data/economy/passengers.csv, every key optional). Off by
+// default: the economy without passengers, liner classes not loaded, growth by formula.
+struct PassengerDefinition {
+    double enabled {0.0};                       // master switch
+    double rotation {1.0};                      // sub-switches, only with the master on
+    double migration {1.0};
+    double discretionary {1.0};
+    double body_luggage_kg {100.0};             // EASA 2009 standard masses: ~84 kg adult + luggage
+    double consumables_kg_per_day {2.0};        // linopt per passenger-day (food, water make-up, hygiene)
+    double recovery_days_per_flight_day {0.25}; // NASA: 45 days of reconditioning after ~180-day flights
+    double rotation_share {0.03};               // of an off-Earth station's people on rotating tours
+    std::string rotation_grade {"engineer"};    // labour grade of rotating staff
+    double hardship_per_year {0.2};             // eta: tour premium, share of the wage per year of tour
+    double resident_wage_multiple {1.0};        // migrants' and visitors' value of time, x reference wage
+    double visit_trips_per_person_year {0.05};  // discretionary trips (estimate)
+    double earth_population_weight {1.0e6};     // Earth's weight in the gravity model (estimate)
+    double fare_elasticity {-1.0};              // IATA/InterVISTAS 2007: -0.8 (national) to -1.4 (route)
+    double demand_bands {4.0};
+    double band_ratio {2.0};                    // each band's maximum cost x this the next one's
+    double visit_days {90.0};
+    std::vector<std::string> earth_gateways {"earth_orbit", "earth_l1"};
+};
+
 // Market redesign (2026-10-19, docs/plans/market_redesign.md): optional keys in
 // data/economy/market.csv. These defaults are the economy before the redesign (all off); the game's
 // data turns competitive pricing and rotation contracts on.
@@ -443,6 +469,7 @@ struct UniverseDefinition {
     PricingDefinition pricing;
     OrdersDefinition orders;
     MarketDefinition market;
+    PassengerDefinition passengers;
     GrowthDefinition growth;
     std::vector<EventDefinition> events;
     std::uint64_t event_seed {0};

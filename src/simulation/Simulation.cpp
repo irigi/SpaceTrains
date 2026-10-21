@@ -204,6 +204,9 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     if (universe_.ship_environment.cold_storage) {
         active_effects_.insert("perishable_decay_factor");
     }
+    if (universe_.passengers.enabled != 0.0) {
+        active_effects_.insert("berths");
+    }
     for (const auto& faction : universe_.factions) {
         faction_treasuries_[faction.id] = 0.0;
     }
@@ -505,6 +508,9 @@ const domain::ShipClassDefinition& Simulation::register_design(
             }
         }
         design.name += std::format(" (radiators {:.0f}%)", 100.0 * radiator_bucket);
+    }
+    if (const auto it = effects.find("berths"); it != effects.end() && active_effects_.contains("berths")) {
+        design.berths += it->second;
     }
     design.fit = std::move(sorted);
     design.effects = std::move(effects);

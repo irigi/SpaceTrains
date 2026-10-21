@@ -23,6 +23,7 @@ struct DesignTotals {
     double cruise_accel_mps2 {0.0};
     double specific_engine_power_w_per_kg {0.0};
     double crew_capacity {0.0};
+    double berths {0.0};
     double cargo_capacity_units {0.0};
 };
 [[nodiscard]] DesignTotals totals_from_parts(const ShipClassDefinition& ship_class);

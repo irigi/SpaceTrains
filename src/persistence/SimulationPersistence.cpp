@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 14;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules)
+constexpr int kSaveVersion = 15;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -413,7 +413,19 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("s{}|{}|{}|{};", station.id, station.parent_body_id, station.population, station.storage_capacity_units));
     }
     for (const auto& ship_class : universe_.ship_classes) {
-        mix(std::format("c{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg, ship_class.cargo_capacity_units));
+        mix(std::format("c{}|{}|{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg,
+            ship_class.cargo_capacity_units, ship_class.crew_size, ship_class.berths));
+    }
+    {
+        const auto& pax = universe_.passengers;
+        mix(std::format("P{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", pax.enabled, pax.rotation, pax.migration, pax.discretionary,
+            pax.body_luggage_kg, pax.consumables_kg_per_day, pax.recovery_days_per_flight_day, pax.rotation_share,
+            pax.rotation_grade, pax.hardship_per_year, pax.resident_wage_multiple));
+        mix(std::format("V{}|{}|{}|{}|{}|{};", pax.visit_trips_per_person_year, pax.earth_population_weight,
+            pax.fare_elasticity, pax.demand_bands, pax.band_ratio, pax.visit_days));
+        for (const auto& gateway : pax.earth_gateways) {
+            mix("G" + gateway + ";");
+        }
     }
     {
         const auto& env = universe_.ship_environment;
@@ -443,6 +455,10 @@ std::string Simulation::data_fingerprint() const {
     }
     for (const auto& module : universe_.ship_modules) {
         mix(std::format("m{}|{}|{}|{}|{};", module.hull_id, module.id, module.slot, module.part.mass_kg, module.part.price_cr));
+        std::map<std::string, double> effects(module.effects.begin(), module.effects.end());
+        for (const auto& [effect, value] : effects) {
+            mix(std::format("E{}|{};", effect, value));
+        }
     }
     for (const auto& ship_class : universe_.ship_classes) {
         if (const auto slots = universe_.hull_slots.find(ship_class.id); slots != universe_.hull_slots.end()) {

@@ -47,4 +47,22 @@ for b in nominal:
         match = [p for p in spec_parts if p["kind"] == c["kind"]]
         if match:
             assert abs(c["price_cr"] - c["mass_kg"] * builder.wear_part_cr_per_kg(match[0])) <= 0.5, (b.id, c["kind"])
+# Cabins (passengers): the linopt terms per berth, priced as the study prices them; liners carry
+# theirs as a top-level part, the other hulls fit a cabin module with a matching berths effect.
+per_berth_kg = builder.BERTH_KG + builder.BERTH_SHARED_KG
+per_berth_usd = builder.BERTH_KG * 1_000.0 + builder.BERTH_SHARED_KG * 1_500.0
+assert per_berth_kg == 3_000.0 and per_berth_usd == 3_250_000.0
+for b in variants:
+    cabins = [c for c in builder.components(b) if c["kind"] == "cabin"]
+    assert len(cabins) == (1 if b.spec.berths else 0), b.id
+    if cabins:
+        assert cabins[0]["crew_capacity"] == b.spec.berths
+        assert abs(cabins[0]["mass_kg"] - b.spec.berths * per_berth_kg) <= 1.0, b.id
+for b in nominal:
+    cabin_modules = [m for m in builder.modules(b) if m["slot"] == "cabin"]
+    assert len(cabin_modules) == builder.hull_slots(b.spec)["cabin"], b.id
+    for m in cabin_modules:
+        berths = builder.cabin_module_berths(b.spec)
+        assert m["effects"] == f"berths={berths}" and m["crew_capacity"] == berths
+        assert abs(m["mass_kg"] - berths * per_berth_kg * (1.0 + builder.STRUCTURE_FRACTION)) <= 1.0
 print("ship class builder: ok")
