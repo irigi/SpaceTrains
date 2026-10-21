@@ -23,6 +23,10 @@ namespace spacetrains::simulation {
 
 namespace {
 constexpr double FUEL_UNITS_TO_KG = 100.0;
+// Propellant a plan uses up: burned, plus hydrogen boiled off in flight (bought, never burned).
+double consumed_propellant_kg(const domain::TrajectoryPlan& plan) {
+    return plan.propellant_required_kg + plan.propellant_boiled_kg;
+}
 constexpr std::size_t MAX_EVENT_HISTORY = 24;
 constexpr std::size_t MAX_TRADE_HISTORY = 24;
 // A cargo run must clear this profit rate or the ship repositions toward demand
@@ -755,6 +759,7 @@ std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() c
             .payload_kg = leg.payload_kg,
             .purchasable_propellant_kg = leg.hull->propellant_capacity_kg,
             .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
+            .boiloff_kg_per_day = leg_boiloff_kg_per_day(*leg.hull, *leg.from, *leg.to, leg.departure_s),
             .include_path = false,
         };
         const auto& planner = (leg.hull->propulsion_type == "variable_isp" && variable_isp_planner_)
@@ -808,7 +813,7 @@ std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() c
                     const auto& back = inbound[return_of[i]];
                     const double days = (back.arrival_time_s - departure_s(d)) / 86400.0;
                     const double cost = daily_cost(*hull) * days
-                        + (out.propellant_required_kg + back.propellant_required_kg) * fuel_cr_per_kg;
+                        + (consumed_propellant_kg(out) + consumed_propellant_kg(back)) * fuel_cr_per_kg;
                     trips.emplace_back(cost / units, days);
                 }
                 // A hull that cannot fly the route at most dates does not set its price.
@@ -1964,6 +1969,10 @@ double Simulation::ship_r_au(const domain::ShipState& ship) const {
 }
 
 double Simulation::boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const {
+    return leg_boiloff_kg_per_day(design, r_au, r_au);
+}
+
+double Simulation::leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r1_au, double r2_au) const {
     const auto& env = universe_.ship_environment;
     if (!env.boiloff || design.propulsion_type == "variable_isp") {
         return 0.0;
@@ -1976,14 +1985,35 @@ double Simulation::boiloff_kg_per_day(const domain::ShipClassDefinition& design,
     }
     const double area_m2 = env.tank_area_factor * 4.0 * std::numbers::pi
         * std::pow(3.0 * volume_m3 / (4.0 * std::numbers::pi), 2.0 / 3.0);
-    const double leak_w = env.mli_flux_w_m2 * std::pow(std::max(0.05, r_au), -env.mli_flux_exponent) * area_m2;
     // A 90 K broad-area-cooled shield intercepts a share of the leak; a 20 K cryocooler lifts
     // the rest up to its rating.
     const auto shield = design.effects.find("boiloff_intercept");
     const auto lift = design.effects.find("zbo_lift_w");
     const double intercepted = shield == design.effects.end() ? 0.0 : std::clamp(shield->second, 0.0, 1.0);
-    const double net_w = std::max(0.0, leak_w * (1.0 - intercepted) - (lift == design.effects.end() ? 0.0 : lift->second));
-    return net_w / env.lh2_latent_j_kg * 86400.0;
+    const double lift_w = lift == design.effects.end() ? 0.0 : lift->second;
+    const auto net_w = [&](double mean_r_power) {
+        return std::max(0.0, env.mli_flux_w_m2 * mean_r_power * area_m2 * (1.0 - intercepted) - lift_w);
+    };
+    double watts = 0.0;
+    if (lift_w <= 0.0 || r1_au == r2_au) {
+        watts = net_w(crew_environment::mean_inverse_power(r1_au, r2_au, env.mli_flux_exponent));
+    } else {
+        // A cooler that keeps up near one end but not the other: average the net leak along the leg.
+        constexpr int kSteps = 16;
+        for (int i = 0; i < kSteps; ++i) {
+            const double r = r1_au + (i + 0.5) / kSteps * (r2_au - r1_au);
+            watts += net_w(crew_environment::mean_inverse_power(r, r, env.mli_flux_exponent)) / kSteps;
+        }
+    }
+    return watts / env.lh2_latent_j_kg * 86400.0;
+}
+
+double Simulation::leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const {
+    if (!universe_.ship_environment.boiloff || design.propulsion_type == "variable_isp") {
+        return 0.0;
+    }
+    return leg_boiloff_kg_per_day(design, station_r_au(from, time_s), station_r_au(to, time_s));
 }
 
 void Simulation::step_particle_events(double dt_s) {
@@ -2203,10 +2233,9 @@ Simulation::LegEstimate Simulation::estimate_leg(
         .payload_kg = static_cast<double>(payload_bucket) * PAYLOAD_STEP_KG,
         .purchasable_propellant_kg = static_cast<double>(fuel_bucket) * fuel_step_kg,
         .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
-        // Boil-off at the mean distance of the leg (the leak falls about as 1/r).
-        .boiloff_kg_per_day = boiloff_kg_per_day(ship_class,
-            std::sqrt(station_r_au(origin, static_cast<double>(bucket) * BUCKET_S)
-                * station_r_au(destination, static_cast<double>(bucket) * BUCKET_S))),
+        // Boil-off averaged over the leg (the leak falls about as 1/r).
+        .boiloff_kg_per_day = leg_boiloff_kg_per_day(ship_class, origin, destination,
+            static_cast<double>(bucket) * BUCKET_S),
         .include_path = false,
     };
     leg_estimates_.erase(leg_estimates_.begin(),
@@ -2242,7 +2271,7 @@ Simulation::LegEstimate Simulation::estimate_leg(
     const auto to_estimate = [](const domain::TrajectoryPlan& plan) {
         return LegEstimate {
             .feasible = plan.feasible,
-            .propellant_kg = plan.propellant_required_kg,
+            .propellant_kg = plan.propellant_required_kg + plan.propellant_boiled_kg,
             .arrival_time_s = plan.arrival_time_s,
         };
     };
@@ -2415,7 +2444,9 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                                         double carried_kg,
                                         bool tankering = true) {
         const auto& dest_state = get_station_state(destination.id);
-        const double after_arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg) + carried_kg;
+        // The load's boil-off allowance is gone on arrival.
+        const double after_arrival_kg = std::max(0.0,
+            plan.propellant_load_kg - plan.propellant_required_kg - plan.propellant_boiled_kg) + carried_kg;
         // Economic tankering: where the destination sells fuel at more than twice this port's
         // price, the ship carries its return fuel rather than buying it there.
         const double dest_fuel_kg = tankering && station_price(dest_state, "fuel") > TANKERING_PRICE_RATIO * planning_fuel_price
@@ -2429,20 +2460,23 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 / std::max(1.0, planned_mass_kg - plan.propellant_required_kg);
             needed_kg = (ship_class.dry_mass_kg + provisions_kg) * (mass_ratio - 1.0);
         }
-        return std::max(0.0, needed_kg * (1.0 + PROPELLANT_RESERVE_FRACTION) - after_arrival_kg - dest_fuel_kg);
+        // The way back boils off too (as long a coast, the other way round).
+        const double boiled_back_kg = leg_boiloff_kg_per_day(ship_class, destination, origin_def, game_time_s_)
+            * plan.coast_time_s / 86400.0;
+        return std::max(0.0,
+            needed_kg * (1.0 + PROPELLANT_RESERVE_FRACTION) + boiled_back_kg - after_arrival_kg - dest_fuel_kg);
     };
     // Planners trade travel time against propellant at the owner's prices, and load
     // propellant for the transfer plus the reserve.
-    // Hydrogen boil-off, at the origin's distance (tier 2, step F).
-    const double origin_boiloff_kg_per_day = boiloff_kg_per_day(ship_class, station_r_au(origin_def, game_time_s_));
-    const auto planning_options = [&](double cargo_kg) {
+    // Hydrogen boil-off averaged over the leg (tier 2, step F).
+    const auto planning_options = [&](const domain::StationDefinition& destination, double cargo_kg) {
         return trajectory::PlanningOptions {
             .propellant_cr_per_kg = planning_fuel_price / FUEL_UNITS_TO_KG,
             .time_cr_per_day = time_cost_per_day,
             .payload_kg = provisions_kg + cargo_kg,
             .purchasable_propellant_kg = origin_fuel_for_sale_kg,
             .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
-            .boiloff_kg_per_day = origin_boiloff_kg_per_day,
+            .boiloff_kg_per_day = leg_boiloff_kg_per_day(ship_class, origin_def, destination, game_time_s_),
             .include_path = false,  // the chosen mission is planned again with its path
         };
     };
@@ -2453,7 +2487,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         const double cargo_bucket_kg = std::ceil(std::max(0.0, cargo_kg) / 1000.0) * 1000.0;
         auto key = std::format("{}|{:.0f}", destination.id, cargo_bucket_kg);
         if (const auto it = plans.find(key); it != plans.end()) {
-            plan_inputs[&it->second] = {planning_options(cargo_bucket_kg), std::max(game_time_s_, earliest_departure_s)};
+            plan_inputs[&it->second] = {planning_options(destination, cargo_bucket_kg), std::max(game_time_s_, earliest_departure_s)};
             return it->second;
         }
         // Not planned yet: queue it and read it as infeasible for this pass.
@@ -2465,7 +2499,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         defer_plan(deferred_prefix_ + "plan|" + key, {
             .compute = [&planner, &origin_def, &destination, &ship, &ship_class,
                            departure_s = std::max(game_time_s_, earliest_departure_s),
-                           options = planning_options(cargo_bucket_kg)] {
+                           options = planning_options(destination, cargo_bucket_kg)] {
                 return planner.plan_transfer(origin_def, destination, ship, ship_class, departure_s, options);
             },
             .commit = [&plans, key](domain::TrajectoryPlan&& plan) { plans.emplace(key, std::move(plan)); },
@@ -2605,7 +2639,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         }
         std::vector<FollowUp> options;
         const auto& dest_state = get_station_state(destination.id);
-        const double arrival_kg = std::max(0.0, plan.propellant_load_kg - plan.propellant_required_kg) + carried_kg;
+        const double arrival_kg = std::max(0.0,
+            plan.propellant_load_kg - plan.propellant_required_kg - plan.propellant_boiled_kg) + carried_kg;
         // A plan's travel time includes its wait for the launch window (until 2026-10-08 the wait
         // was added a second time to every arrival forecast).
         const double follow_days = delay_days + plan.travel_time_s / 86400.0;
@@ -2957,7 +2992,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 trace_line(cargo_label + ": the drive's remaining life is too short");
                 continue;
             }
-            const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
+            const double fuel_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
                 + fuel_premium(plan, fuel_plan.carried_kg);
             if (cargo_only) {
                 const int run = lots.size() > 1 ? next_run++ : -1;
@@ -3020,7 +3055,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         if (leg_days > max_mission_days || !dose_allows(destination, leg_days) || !drive_life_allows(ship, ship_class, plan)) {
             continue;
         }
-        const double leg_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
+        const double leg_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
             + fuel_premium(plan, fuel_plan.carried_kg)
             + time_cost_per_day * leg_days;
         FollowUp follow;
@@ -3170,7 +3205,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                         delay_days + reposition_days)));
                 continue;
             }
-            const double reposition_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
+            const double reposition_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
                 + fuel_premium(plan, fuel_plan.carried_kg)
                 + time_cost_per_day * reposition_days;
             if (sourcing_value_cr(destination, dest_state) <= reposition_cost) {
@@ -3452,9 +3487,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         .coast_time_s = plan.coast_time_s,
         .total_travel_time_s = plan.travel_time_s,
         .remaining_travel_time_s = plan.travel_time_s,
-        .propellant_cost_kg = plan.propellant_required_kg,
+        .propellant_cost_kg = consumed_propellant_kg(plan),
         .purchase_cost = purchase_cost,
-        .fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * station_price(origin_state, "fuel"),
+        .fuel_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * station_price(origin_state, "fuel"),
         .expected_revenue = expected_revenue,
         .operating_cost = time_cost_per_day * mission_days,
         .sampled_path = plan.sampled_path,
@@ -3656,6 +3691,22 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
 
     if (ship.active_mission.remaining_travel_time_s > 0.0) {
         return;
+    }
+    if (const auto& samples = ship.active_mission.sampled_propellant_kg;
+        samples.size() >= 2 && ship_design(ship).propulsion_type != "variable_isp") {
+        // The last sample is after the arrival burn; the planned reserve is a share of the burns.
+        const double left_kg = samples.back() + ship.active_mission.carried_propellant_kg
+            - ship.active_mission.boiled_propellant_kg;
+        const double reserve_kg = PROPELLANT_RESERVE_FRACTION * std::max(0.0, samples.front() - samples.back());
+        ++radiation_audit_.thermal_arrivals;
+        if (left_kg < -1.0) {
+            ++radiation_audit_.arrivals_short_of_burn;
+        } else if (left_kg < 0.5 * reserve_kg) {
+            ++radiation_audit_.arrivals_below_half_reserve;
+        }
+        if (reserve_kg > 1.0) {
+            radiation_audit_.lowest_reserve_share = std::min(radiation_audit_.lowest_reserve_share, left_kg / reserve_kg);
+        }
     }
 
     ship.current_station_id = ship.active_mission.destination_station_id;

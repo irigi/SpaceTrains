@@ -10,6 +10,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "celestial/CelestialMechanics.hpp"
@@ -283,6 +284,31 @@ int main() {
         require(boil_plan.propellant_load_kg + 1.0
                 >= 1.1 * boil_plan.propellant_required_kg + 25.0 * boil_plan.coast_time_s / 86400.0,
             "the load should cover burn, reserve and the hydrogen that boils off in flight");
+        require(zero_plan.propellant_boiled_kg == 0.0 && dry_plan.propellant_boiled_kg == 0.0
+                && zero_plan.propellant_required_kg == dry_plan.propellant_required_kg,
+            "without boil-off a plan should expect none");
+        require(std::abs(boil_plan.propellant_boiled_kg - 25.0 * boil_plan.coast_time_s / 86400.0) < 1e-6,
+            "a plan should carry the hydrogen it expects to boil off");
+        // What is left on arrival, after the burns and the boil-off, is still the reserve.
+        require(boil_plan.propellant_load_kg - boil_plan.propellant_required_kg - boil_plan.propellant_boiled_kg + 1.0
+                >= 0.1 * boil_plan.propellant_required_kg,
+            "a boiling ship should arrive with its reserve");
+
+        // The leg's mean rate: r^-n averaged with r linear in time, against a numerical integral,
+        // for an inbound (Ceres -> Earth) and an outbound leg; equal ends give r^-n itself.
+        for (const auto& [r1, r2, n] : {std::tuple {2.77, 1.0, 1.0}, std::tuple {1.0, 1.52, 1.0}, std::tuple {1.0, 5.2, 1.3}}) {
+            constexpr int kSteps = 100000;
+            double sum = 0.0;
+            for (int i = 0; i < kSteps; ++i) {
+                sum += std::pow(r1 + (i + 0.5) / kSteps * (r2 - r1), -n) / kSteps;
+            }
+            const double mean = spacetrains::simulation::crew_environment::mean_inverse_power(r1, r2, n);
+            require(std::abs(mean - sum) < 1e-6 * sum, "the leg's mean of r^-n should match its integral");
+        }
+        require(spacetrains::simulation::crew_environment::mean_inverse_power(1.7, 1.7, 1.0) == std::pow(1.7, -1.0),
+            "a leg at one distance should give that distance's rate exactly");
+        require(spacetrains::simulation::crew_environment::mean_inverse_power(2.77, 1.0, 1.0) > 1.5 / 2.77,
+            "an inbound leg should boil well above the rate at its origin");
     }
 
     const auto local_plan = planner.plan_transfer(origin, destination, ship, ship_class, 0.0);

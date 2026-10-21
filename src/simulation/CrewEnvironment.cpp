@@ -68,6 +68,18 @@ double expected_docked_msv_per_day(const domain::ShipEnvironmentDefinition& env,
     return station.location_factor * (gcr + spe);
 }
 
+double mean_inverse_power(double r1_au, double r2_au, double n) {
+    const double a = std::max(0.05, r1_au);
+    const double b = std::max(0.05, r2_au);
+    if (std::abs(b - a) <= 1e-9 * a) {
+        return std::pow(a, -n);
+    }
+    if (std::abs(n - 1.0) <= 1e-12) {
+        return std::log(b / a) / (b - a);
+    }
+    return (std::pow(b, 1.0 - n) - std::pow(a, 1.0 - n)) / ((1.0 - n) * (b - a));
+}
+
 double draw_spe_magnitude(const domain::ShipEnvironmentDefinition& env, double uniform) {
     // Inverse of the truncated power law's distribution.
     const double k = env.spe_index;

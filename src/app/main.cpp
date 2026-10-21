@@ -326,7 +326,10 @@ void print_economy_audit(
                 radiation.highest_leg_dose_msv, radiation.particle_events, radiation.largest_event_magnitude);
         }
         if (radiation.hydrogen_boiled_kg > 0.0) {
-            std::cout << std::format("    Boil-off: {:.0f} t of hydrogen\n", radiation.hydrogen_boiled_kg / 1000.0);
+            std::cout << std::format("    Boil-off: {:.0f} t of hydrogen; {} nuclear-thermal arrivals, {} short of the arrival burn, "
+                "{} under half the reserve, lowest {:.2f}x the reserve\n", radiation.hydrogen_boiled_kg / 1000.0,
+                radiation.thermal_arrivals, radiation.arrivals_short_of_burn, radiation.arrivals_below_half_reserve,
+                radiation.thermal_arrivals > 0 ? radiation.lowest_reserve_share : 0.0);
         }
         if (radiation.overhauls > 0 || radiation.repairs_waiting_for_spares > 0) {
             std::string spares;

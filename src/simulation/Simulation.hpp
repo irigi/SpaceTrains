@@ -99,6 +99,11 @@ public:
         int particle_events {0};
         double largest_event_magnitude {0.0};
         double hydrogen_boiled_kg {0.0};   // step F
+        // Nuclear-thermal arrivals: short of the arrival burn, or with under half the reserve left.
+        int thermal_arrivals {0};
+        int arrivals_short_of_burn {0};
+        int arrivals_below_half_reserve {0};
+        double lowest_reserve_share {1.0e9};   // fuel left on arrival / planned reserve
         int overhauls {0};                 // step H
         double repair_bills_cr {0.0};
         std::map<std::string, double> spares_units;
@@ -433,6 +438,11 @@ private:
     // Liquid hydrogen a design loses per day at r (AU): the tanks' heat leak less what its
     // cryocooler lifts (tier 2, step F; 0 for water-propellant plasma ships or boil-off off).
     [[nodiscard]] double boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const;
+    // The mean of that rate over a leg from r1 to r2 (r linear in time, as ship_r_au moves a
+    // ship): what the planners load for, and what the flight then boils.
+    [[nodiscard]] double leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r1_au, double r2_au) const;
+    [[nodiscard]] double leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
     void step_particle_events(double dt_s);
     void record_trajectory_audit(
         const domain::ShipState& ship,

@@ -761,6 +761,7 @@ struct TrajectoryPlan {
     double travel_time_s {0.0};
     double propellant_required_kg {0.0};  // burned on the transfer
     double propellant_load_kg {0.0};      // aboard at departure (what was aboard plus any purchase)
+    double propellant_boiled_kg {0.0};    // hydrogen expected to boil off in flight (in the load, not burned)
     std::vector<math::Vec3d> sampled_path;
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;

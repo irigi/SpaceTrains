@@ -452,6 +452,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         const auto ship = loading.loaded(ship_aboard, delta_v, days);
         plan.propellant_load_kg = ship.propellant_kg;
         plan.propellant_required_kg = loading.burn_kg(delta_v, days);
+        plan.propellant_boiled_kg = loading.boiled_kg(days);
         plan.feasible = loading.feasible(delta_v, days);
 
         const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);
@@ -549,6 +550,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         const auto ship = loading.loaded(ship_aboard, dv_departure + dv_arrival, days);
         plan.propellant_load_kg = ship.propellant_kg;
         plan.propellant_required_kg = loading.burn_kg(dv_departure + dv_arrival, days);
+        plan.propellant_boiled_kg = loading.boiled_kg(days);
         plan.feasible = loading.feasible(dv_departure + dv_arrival, days);
         plan.trajectory_type = "keplerian_planet_system";
 
@@ -675,6 +677,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     const auto ship = loading.loaded(ship_aboard, delta_v, days);
     plan.propellant_load_kg = ship.propellant_kg;
     plan.propellant_required_kg = loading.burn_kg(delta_v, days);
+    plan.propellant_boiled_kg = loading.boiled_kg(days);
     plan.feasible = loading.feasible(delta_v, days);
 
     plan.trajectory_type = best_from_lambert ? "keplerian_lambert" : "keplerian_hohmann";

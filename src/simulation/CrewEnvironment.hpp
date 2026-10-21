@@ -38,6 +38,10 @@ namespace spacetrains::simulation::crew_environment {
 [[nodiscard]] double expected_docked_msv_per_day(const domain::ShipEnvironmentDefinition& env,
     const domain::StationRadiationDefinition& station, double r_au, double day);
 
+// Mean of r^-n over a leg on which r runs linearly in time from r1 to r2 (AU, clamped at
+// 0.05), as the simulation moves a ship between stations. r1 == r2 gives r^-n exactly.
+[[nodiscard]] double mean_inverse_power(double r1_au, double r2_au, double n);
+
 // A particle event's magnitude, drawn from the power law (two uniforms: whether, how big).
 [[nodiscard]] double draw_spe_magnitude(const domain::ShipEnvironmentDefinition& env, double uniform);
 
