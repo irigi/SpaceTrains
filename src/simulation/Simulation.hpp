@@ -302,6 +302,8 @@ private:
     [[nodiscard]] double daily_crew_cost(
         const domain::ShipClassDefinition& ship_class, const domain::StationState& market) const;
     [[nodiscard]] double credit_line(const domain::ShipClassDefinition& ship_class) const;
+    // Crew plus the passengers aboard: who eats from the ship's provisions.
+    [[nodiscard]] double persons_aboard(const domain::ShipState& ship) const;
     // Days of life support the ship could carry from `market` (its own stock plus what the
     // station sells). Departing crews may buy from the whole stock (crew-scale amounts are
     // tiny); routine docked top-ups leave the station its own reserve.

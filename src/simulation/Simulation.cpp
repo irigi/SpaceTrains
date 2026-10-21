@@ -1699,12 +1699,20 @@ double fuel_for_sale_on_arrival_kg(
 
 }  // namespace
 
+double Simulation::persons_aboard(const domain::ShipState& ship) const {
+    double persons = ship_design(ship).crew_size;
+    for (const auto& lot : ship.passengers) {
+        persons += lot.count;
+    }
+    return persons;
+}
+
 double Simulation::provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const {
     const auto& ship_class = ship_design(ship);
     const auto& market_def = get_station_definition(market.station_id);
     double days = std::numeric_limits<double>::infinity();
     for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
-        const double need_per_day = ship_class.crew_size * units_per_crew_day;
+        const double need_per_day = persons_aboard(ship) * units_per_crew_day;
         if (need_per_day <= 0.0) {
             continue;
         }
@@ -1719,7 +1727,7 @@ void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& m
     const auto& ship_class = ship_design(ship);
     const auto& market_def = get_station_definition(market.station_id);
     for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
-        const double missing = ship_class.crew_size * units_per_crew_day * days - ship.provisions[commodity_id];
+        const double missing = persons_aboard(ship) * units_per_crew_day * days - ship.provisions[commodity_id];
         const double units = std::min(missing, sellable_units(economy_, market_def, market, commodity_id, departing));
         if (units <= 0.0) {
             continue;
@@ -2182,10 +2190,12 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
         }
     }
     bool reserve_breached = false;
+    const double persons = persons_aboard(ship);
     for (const auto& [commodity_id, units_per_crew_day] : life_support) {
+        // Passengers eat too while aboard; the crew's return reserve stays the crew's.
         const double use = ship_class.crew_size * units_per_crew_day;
         auto& carried = ship.provisions[commodity_id];
-        carried = std::max(0.0, carried - use * days);
+        carried = std::max(0.0, carried - persons * units_per_crew_day * days);
         reserve_breached = reserve_breached || carried < use * PROVISION_MIN_RETURN_DAYS;
     }
     // A crew in a port that cannot feed it must not eat the ship's return reserve, or the

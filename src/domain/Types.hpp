@@ -617,6 +617,43 @@ struct ShipContract {
     double cycle_days {0.0};
 };
 
+// Passengers (docs/plans/passengers.md). Why a person travels decides who pays and what
+// happens on arrival.
+enum class PassengerKind {
+    Migrant,       // settler from Earth: joins the destination's population (pays from the outside account)
+    Emigrant,      // leaves a declining station for Earth (outside account)
+    RotationOut,   // a rotating worker going to start a tour (the work station pays)
+    RotationHome,  // a relieved worker going home to Earth (the work station pays)
+    Visitor,       // discretionary trip out (outside account)
+    VisitorHome,   // and back (outside account)
+};
+
+// People waiting at a station for a ship to one destination. Counts carry fractions (demand
+// accrues continuously); whole people board.
+struct PassengerGroup {
+    PassengerKind kind {PassengerKind::Migrant};
+    std::string destination_id;
+    std::string work_station_id;           // rotation: the employer; visitors: the station they return to
+    double count {0.0};
+    double since_s {0.0};                  // when the group started waiting
+    double max_cost_cr {0.0};              // highest generalized cost per person they accept
+    double value_of_time_cr_per_day {0.0};
+    double dose_msv {0.0};                 // rotation: dose already taken this career
+};
+
+// People aboard, one lot per group that boarded.
+struct PassengerLot {
+    PassengerKind kind {PassengerKind::Migrant};
+    std::string origin_id;
+    std::string destination_id;
+    std::string work_station_id;
+    double count {0.0};                    // whole people
+    double fare_cr {0.0};                  // per person, paid at boarding
+    double value_of_time_cr_per_day {0.0};
+    double dose_msv {0.0};
+    double boarded_s {0.0};
+};
+
 struct ShipState {
     std::string id;
     std::string name;
@@ -658,6 +695,7 @@ struct ShipState {
     double route_until_s {0.0};
     ShipContract contract;
     double next_contract_review_s {0.0};
+    std::vector<PassengerLot> passengers;  // aboard (only in flight)
 };
 
 // A station's money flows with the world outside the simulated trade (the open economy),
