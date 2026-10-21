@@ -29,7 +29,10 @@ planner caches that broke exact save/load. Reviewed 2026-10-20: y2 kept, Lunar G
 
 Branch `feature/passengers` (from `main` at `5442d96`, 2026-10-21; plan `docs/plans/passengers.md`, decisions
 and results to review in `docs/plans/passengers_log.md`): settlers, rotation and visitors travel by ship
-(`data/economy/passengers.csv`, off in data until reviewed); the UI is still to do. `main` holds every earlier
+(`data/economy/passengers.csv`, off in data until reviewed); the UI is parse-checked only. Also on the branch:
+the VariableISP planner's fuel-check fix (`planner_fuel_check,1`; passengers off 57.8 → 30.5 ms per day, on 78 →
+47 ms, 5 days/s holds at cap 130 with passengers on) and proposals to make passengers cheaper (end of the log).
+`main` holds every earlier
 branch: market redesign (PR #14), key bindings help (PR #15), close-zoom camera (PR #16), tier 2 ship
 structures (PR #17).
 Older history: part C tank refits (v25) through mixed cargo (v37) and the overnight steps 9-13, in git history.

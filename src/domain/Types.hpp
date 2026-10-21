@@ -147,8 +147,9 @@ struct ShipOperationsDefinition {
     double refit_days {20.0};
     double refit_cost_fraction {0.3};
     // 1: a VariableISP plan scored without its path is checked for fuel at its end state, as the
-    // replan with the path checks it (0: the marker bug before 2026-10-21; see the planner).
-    double planner_fuel_check {0.0};
+    // replan with the path checks it, and a path over its budget flies on a larger one
+    // (0: the marker bug before 2026-10-21; see the planner).
+    double planner_fuel_check {1.0};
     // Life support per crew-day, in commodity units, bought as real goods.
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };

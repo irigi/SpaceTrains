@@ -856,7 +856,8 @@ int main() {
     // Scoring plans (no path) checked the end mass on the closest-approach marker, which carries
     // the start mass, so a transfer short of fuel scored as feasible; the replan with its path
     // then failed, and the ship chose the same trip again every day (80% of departures on the
-    // inner routes). With ship_operations planner_fuel_check both must agree.
+    // inner routes). With ship_operations planner_fuel_check both must agree, also on the fuel
+    // loaded (a path over its budget flies on a larger budget).
     {
         const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
         spacetrains::variable_isp::VariableIspAtlas visp_atlas;
@@ -892,7 +893,8 @@ int main() {
                         options.include_path = true;
                         const auto drawn = planner->plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
                         const bool agree = scored.feasible == drawn.feasible
-                            && (!drawn.feasible || scored.arrival_time_s == drawn.arrival_time_s);
+                            && (!drawn.feasible || (scored.arrival_time_s == drawn.arrival_time_s
+                                && scored.propellant_load_kg == drawn.propellant_load_kg));
                         (planner == &checked ? checked_disagree : old_disagree) += agree ? 0 : 1;
                         feasible += planner == &checked && drawn.feasible ? 1 : 0;
                     }

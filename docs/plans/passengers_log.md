@@ -355,3 +355,106 @@ identical to a straight 120-day run.
   (`fuel check without a path`) shows the old check disagreeing with the path and the new one agreeing.
 
 **The fleet cap stays at 130:** passengers on does not hold 5 days/s.
+
+### Planner fuel check fixed (2026-10-21, the user's decision: fix it properly)
+
+**Why the end-state check alone was slow:** 365 days, passengers off, logged per plan:
+- every rejected path needed at least 1.1× its budget's effort, beyond the time fit (10%);
+- a refined path needs a median 1.12× the effort of the atlas cell it came from (0.97–1.58×), so even
+  cells solved for a weaker ship end up over budget;
+- 79% of the rejects were under the 40% and 55% budgets, and the ship's largest budget carried the same path;
+- each reject sent the search on to the next window, which costs a new refinement: +46% shootings, +25% time.
+
+**Fix:** the path does not depend on the fuel budget, so a path over its budget is flown with the smallest of
+the ship's larger budgets that carries it. This comes before the time fit and costs no further shooting.
+`planner_fuel_check` is now 1 in the data and the default; 0 restores the old check.
+
+**Tried and dropped** (365 days, passengers off; planning CPU seconds):
+
+| Variant | Planning CPU | Shootings | Unmet |
+|---|---|---|---|
+| old check (bug) | 58.5 | 98k | 0.5% |
+| end state only | 84.3 | 143k | 0.5% |
+| + time fit up to 1.6× over | 426 | 178k | 0.5% |
+| + time fit up to 2× over | 438 | 182k | 0.5% |
+| + skip the second seed after a reject | 92.9 | 157k | 0.6% |
+| larger budget, only beyond the fit's 10% | 60.0 | 98k | 0.5% |
+| **larger budget first (kept)** | **33.5** | **62k** | **0.4%** |
+
+Departure replans in that year: 286 of 342 failed with the old check, 0 of 56 now.
+
+**Benchmark, passengers off, 8 starts × 1,460 days** (0, 90, 180, 270 and 45, 135, 225, 315):
+
+| Run | Unmet | Last fifth | Profitable | Ship cash | Run s |
+|---|---|---|---|---|---|
+| old check | 0.64% | 1.46% | 104.5 / 137 | +17% | 160 |
+| fixed | 0.74% | 1.53% | 102 / 137 | +5% | 92 |
+
+- The economy is the same within the spread between starts. Most of the end-state-only check's earlier
+  4-start result (unmet 1.2 ± 1.0%) came from one start (day 270, 2.6%), whose shortages were away from the
+  routes the fix changes.
+- Ships keep less cash: they now pay for the fuel their trips need.
+- The passengers-off 365-day audit changes with this fix (new baseline); with `planner_fuel_check,0` it is
+  byte-identical to the old one.
+
+### Passenger speed after the planner fix (2026-10-21)
+
+**Speed** (start 0, 1,460 days, all threads, cap 130 unless stated; ms per simulated day, slowest 20-day stretch):
+
+| Run | ms per day | Slowest 20 days |
+|---|---|---|
+| passengers off | 30.5 (was 57.8) | 10.3 days/s |
+| passengers on, no travellers (all three demands 0) | 41.0 | 6.5 days/s |
+| passengers on, no visitors | 38.7 | 7.9 days/s |
+| passengers on, no settlers | 45.6 | 5.8 days/s |
+| passengers on, no rotation | 44.7 | 6.9 days/s |
+| passengers on | 47.1 (was 78) | 6.3 days/s |
+| passengers on, cap 160 | 52.1 | 6.0 days/s |
+
+- Passengers on, the other starts: 50.4 / 48.2 / 50.0 ms per day; 6.1 / 7.1 / 5.5 days/s. **5 days/s now holds
+  at cap 130 with passengers on, in all 4 starts.**
+- Cap 160, passengers on, the other starts: 52.6 / 55.3 / 56.1 ms per day; 6.2 / 6.2 / 5.6 days/s; 171–176
+  ships; unmet 2.1 / 1.0 / 0.7 / 0.6% (starts 0 / 90 / 180 / 270, single runs). Measured on a 16-thread
+  machine; a slower player machine has less margin.
+- The slowest single day is 0.6–1.0 s with passengers on or off: fleet investment's purchases. Each purchase
+  plans every tank and module variant of the winning hull (0.1–0.2 s), and a review's 8 purchases fall
+  within 2–3 days of the 60-day cycle.
+- Benchmark, passengers on (4 × 1,460 days): unmet 1.2 ± 0.6%, last fifth 2.4 ± 0.7%, 112 / 145 profitable,
+  run 129 s (was 195 s with the old check). Save at day 60, load, run 60: identical to a straight 120 days.
+
+**Where the passengers' 16.6 ms per day goes** (phase times, investment trace, plan requests, main-thread samples):
+- **The machinery, with no traveller at all: 10.5 ms.** With the switch on, cabin modules are active designs:
+  - fleet investment probes each hull bare, with a cabin and with a shielded cabin, plus the two liners:
+    3,143 probes against 1,224 off, 1,490 of them cabin designs and 248 liners (investment 16.6 → 30.8 s);
+  - every docked ship's refit check prices the cabin modules too (refit checks 5.5 → 9.3 s);
+  - ships with berths and investment's passenger options ask for 24k more plans (730 days).
+- **Visitors: 8.4 ms.** Visitor demand is a fractional flow between every pair of stations, so most stations
+  hold small groups for many destinations. Each becomes a candidate leg (passenger-only or with cargo) with its
+  own plans, and plans with passengers aboard carry their time (separate cache keys, 10 cr/day buckets).
+- **Rotation 2.4 ms, settlers 1.5 ms** (fewer, larger groups on fewer routes).
+- Fleet investment is about 60% of the main thread's time with passengers on or off; ship reviews about a third.
+
+**Proposals to make passengers cheaper** (not built; ordered by expected gain per effort):
+1. **A cabin design shares its hull's probe.** A hull with a cabin flies the bare hull's transfers with a few
+   tonnes more payload. Value its berths from the bare hull's probe plans instead of a mission search of its
+   own; the variant pick plans the bought design in full anyway. Removes most of the 1,490 cabin probes,
+   about a third of investment's probing (expected 4–6 ms per day).
+2. **One cabin candidate per hull; the shield is chosen in the variant pick,** like the tanks. The shielded
+   cabin pays only on long or high-dose legs, which the variant pick sees. Halves the cabin candidates if 1
+   is not built.
+3. **Cabin refits only where passengers wait.** Price the cabin modules in a docked ship's refit check only
+   when its station has passenger demand above a threshold (or on the slower refit cadence). Refit checks
+   went from 5.5 to 9.3 s.
+4. **Visitors in groups.** Generate visitor demand weekly into groups, and offer a destination to ships
+   only from a minimum group (a few people, or fares of at least a set share of the trip's cost). Most of
+   the visitors' 8.4 ms comes from small groups making every destination a candidate leg.
+5. **Fewer plans with passengers aboard.** Reuse the cargo plan when the riders add little to the ship's
+   cost of time (under 10–20%), and bucket the riders' time relative to it (25% steps), not in 10 cr/day.
+   Passenger-only legs can take the propellant per kg from the empty plan (berths weigh little) instead of
+   planning laden and half-laden transfers.
+6. **Spread purchases (passengers on or off):** at most one purchase per day. Today a review's 8 purchases
+   fall within 2–3 days and make the slowest days 0.6–1.0 s. Spread over 8 days of the 60-day cycle, the
+   slowest day should fall to about 0.3 s.
+
+Order: 1, 6 and 4 first; measure; then 3 and 5. Every change goes behind a switch, judged by the benchmark,
+and the passengers-off audit stays byte-identical.
