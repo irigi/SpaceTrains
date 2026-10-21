@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -1097,6 +1098,95 @@ int main() {
                 require(sim.wear_cr_per_drive_hour(c) == 0.0 && sim.wear_cr_per_flight_day(c) == 0.0
                         && sim.wear_cr_per_propellant_kg(c) == 0.0, "wear off should cost nothing");
             }
+        }
+        {
+            // Passengers (docs/plans/passengers.md). Off: no liner classes, no queues.
+            auto off = spacetrains::simulation::Simulation::from_data_root(data_root);
+            for (const auto& c : off.universe().ship_classes) {
+                require(c.berths == 0.0, "without passengers no class should have berths");
+            }
+            // On, with a Plasma Liner in the starting fleet at Low Earth Logistics.
+            const auto root = std::filesystem::temp_directory_path() / "spacetrains_passengers";
+            std::filesystem::remove_all(root);
+            std::filesystem::create_directories(root);
+            std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
+            std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+            const auto rewrite = [](const std::filesystem::path& path, const std::string& from, const std::string& to) {
+                std::ifstream in(path);
+                std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                const auto at = text.find(from);
+                require(at != std::string::npos, "the test data should contain the text to rewrite");
+                text.replace(at, from.size(), to);
+                std::ofstream(path) << text;
+            };
+            rewrite(root / "data" / "economy" / "passengers.csv", "passengers,0", "passengers,1");
+            rewrite(root / "data" / "ships" / "ships.csv", "IN Celeris,independent,plasma_courier", "IN Celeris,independent,plasma_liner");
+            const auto pax_root = (root / "data").string();
+            auto straight = spacetrains::simulation::Simulation::from_data_root(pax_root);
+            straight.set_timewarp(86400.0);
+            auto first = spacetrains::simulation::Simulation::from_data_root(pax_root);
+            first.set_timewarp(86400.0);
+            const auto& pax_universe = straight.universe();
+            require(std::any_of(pax_universe.ship_classes.begin(), pax_universe.ship_classes.end(),
+                        [](const auto& c) { return c.id == "plasma_liner" && c.berths == 40.0; }),
+                "with passengers the Plasma Liner should load with its 40 berths");
+            // Reference fares: dearer the farther; the clearing fare rises with the queue.
+            const auto& fares = pax_universe.passengers.reference_fares;
+            require(fares.at("earth_orbit").at("mars_transfer").fare_cr > fares.at("earth_orbit").at("luna_base").fare_cr,
+                "Mars should cost more to reach than Luna");
+            const double days = fares.at("earth_orbit").at("mars_transfer").days;
+            const double at_reference = straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 40.0, 40.0);
+            require_near(at_reference, fares.at("earth_orbit").at("mars_transfer").fare_cr, 1e-6,
+                "berths just filled at the reference trip should pay the reference fare");
+            require(straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 80.0, 40.0) > 1.9 * at_reference,
+                "twice the demand should clear at about twice the reference cost");
+            require_near(straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 1e9, 40.0),
+                straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 160.0, 40.0), 1e-6,
+                "the clearing fare should stop at the highest band (4x the reference cost)");
+            std::map<std::string, double> population_before;
+            for (const auto& station : straight.snapshot().stations) {
+                population_before[station.station_id] = station.population;
+            }
+            const auto money = [](const spacetrains::domain::SimulationSnapshot& snap) {
+                double total = snap.outside_economy_credits;
+                for (const auto& station : snap.stations) total += station.credits;
+                for (const auto& ship : snap.ships) total += ship.credits;
+                for (const auto& [id, balance] : snap.faction_treasuries) total += balance;
+                return total;
+            };
+            const double money_before = money(straight.snapshot());
+            constexpr int kPaxHalfDays = 120;
+            for (int day = 0; day < kPaxHalfDays; ++day) {
+                straight.step(1.0);
+                first.step(1.0);
+            }
+            const auto saved = first.save_state_json();
+            auto resumed = spacetrains::simulation::Simulation::from_data_root(pax_root);
+            resumed.load_state_json(saved);
+            require(resumed.save_state_json() == saved, "a game with passengers should save back to the same JSON");
+            for (int day = 0; day < kPaxHalfDays; ++day) {
+                straight.step(1.0);
+                resumed.step(1.0);
+            }
+            require(resumed.save_state_json() == straight.save_state_json(),
+                "a game with passengers saved, loaded and continued should equal one that never stopped");
+            const auto after = straight.snapshot();
+            const auto& audit = straight.passenger_audit();
+            const auto migrant = static_cast<std::size_t>(spacetrains::domain::PassengerKind::Migrant);
+            const auto emigrant = static_cast<std::size_t>(spacetrains::domain::PassengerKind::Emigrant);
+            require(audit.boarded[migrant] >= 1.0 && audit.landed[migrant] >= 1.0, "the liner should carry settlers out of Earth");
+            require(audit.fares_cr[migrant] > 0.0, "settlers should pay fares");
+            require_near(money(after), money_before, 1e-6, "fares should move money, not make it");
+            // Off Earth, people come and go only by ship.
+            double change = 0.0;
+            for (const auto& station : after.stations) {
+                if (station.station_id != "earth_orbit" && station.station_id != "earth_l1") {
+                    change += station.population - population_before[station.station_id];
+                }
+            }
+            require_near(change, audit.landed[migrant] - audit.boarded[emigrant], 1e-6,
+                "populations off Earth should change by the settlers landed less the emigrants who left");
+            std::filesystem::remove_all(root);
         }
 
         // Tier 2 fits: a fitted ship loads, flies its derived design and saves back unchanged;

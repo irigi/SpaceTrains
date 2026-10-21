@@ -150,6 +150,63 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     return m;
 }
 
+// Passengers (save version 15).
+Json passenger_group_to_json(const domain::PassengerGroup& g) {
+    auto out = Json::object();
+    out.set("kind", static_cast<double>(static_cast<int>(g.kind)));
+    out.set("destination_id", g.destination_id);
+    out.set("work_station_id", g.work_station_id);
+    out.set("count", g.count);
+    out.set("since_s", g.since_s);
+    out.set("max_cost_cr", g.max_cost_cr);
+    out.set("value_of_time_cr_per_day", g.value_of_time_cr_per_day);
+    out.set("dose_msv", g.dose_msv);
+    out.set("band", static_cast<double>(g.band));
+    return out;
+}
+
+domain::PassengerGroup passenger_group_from_json(const Json& j) {
+    return {
+        .kind = static_cast<domain::PassengerKind>(static_cast<int>(j.get("kind").number())),
+        .destination_id = j.get("destination_id").string(),
+        .work_station_id = j.get("work_station_id").string(),
+        .count = j.get("count").number(),
+        .since_s = j.get("since_s").number(),
+        .max_cost_cr = j.get("max_cost_cr").number(),
+        .value_of_time_cr_per_day = j.get("value_of_time_cr_per_day").number(),
+        .dose_msv = j.get("dose_msv").number(),
+        .band = static_cast<int>(j.get("band").number()),
+    };
+}
+
+Json passenger_lot_to_json(const domain::PassengerLot& lot) {
+    auto out = Json::object();
+    out.set("kind", static_cast<double>(static_cast<int>(lot.kind)));
+    out.set("origin_id", lot.origin_id);
+    out.set("destination_id", lot.destination_id);
+    out.set("work_station_id", lot.work_station_id);
+    out.set("count", lot.count);
+    out.set("fare_cr", lot.fare_cr);
+    out.set("value_of_time_cr_per_day", lot.value_of_time_cr_per_day);
+    out.set("dose_msv", lot.dose_msv);
+    out.set("boarded_s", lot.boarded_s);
+    return out;
+}
+
+domain::PassengerLot passenger_lot_from_json(const Json& j) {
+    return {
+        .kind = static_cast<domain::PassengerKind>(static_cast<int>(j.get("kind").number())),
+        .origin_id = j.get("origin_id").string(),
+        .destination_id = j.get("destination_id").string(),
+        .work_station_id = j.get("work_station_id").string(),
+        .count = j.get("count").number(),
+        .fare_cr = j.get("fare_cr").number(),
+        .value_of_time_cr_per_day = j.get("value_of_time_cr_per_day").number(),
+        .dose_msv = j.get("dose_msv").number(),
+        .boarded_s = j.get("boarded_s").number(),
+    };
+}
+
 Json ship_to_json(const domain::ShipState& s) {
     auto out = Json::object();
     out.set("id", s.id);
@@ -179,6 +236,7 @@ Json ship_to_json(const domain::ShipState& s) {
     ledger.set("refits", s.ledger.refits);
     ledger.set("subsidies", s.ledger.subsidies);
     ledger.set("dividends", s.ledger.dividends);
+    ledger.set("fares", s.ledger.fares);
     out.set("ledger", std::move(ledger));
     out.set("next_review_s", s.next_review_s);
     out.set("idle_since_s", s.idle_since_s);
@@ -228,6 +286,11 @@ Json ship_to_json(const domain::ShipState& s) {
         contract.set("cycle_days", s.contract.cycle_days);
         out.set("contract", std::move(contract));
     }
+    auto passengers = Json::array();
+    for (const auto& lot : s.passengers) {
+        passengers.push(passenger_lot_to_json(lot));
+    }
+    out.set("passengers", std::move(passengers));
     return out;
 }
 
@@ -258,6 +321,7 @@ domain::ShipState ship_from_json(const Json& j) {
     s.ledger.refits = ledger.get("refits").number();
     s.ledger.subsidies = ledger.get("subsidies").number();
     s.ledger.dividends = ledger.get("dividends").number();
+    s.ledger.fares = ledger.get("fares").number();
     s.next_review_s = j.get("next_review_s").number();
     s.idle_since_s = j.get("idle_since_s").number();
     s.refit_class_id = j.get("refit_class_id").string();
@@ -297,6 +361,9 @@ domain::ShipState ship_from_json(const Json& j) {
         s.contract.signed_s = contract->get("signed_s").number();
         s.contract.until_s = contract->get("until_s").number();
         s.contract.cycle_days = contract->get("cycle_days").number();
+    }
+    for (const auto& lot : j.get("passengers").items()) {
+        s.passengers.push_back(passenger_lot_from_json(lot));
     }
     return s;
 }
@@ -348,6 +415,11 @@ Json station_to_json(const domain::StationState& s) {
         events.push(std::move(entry));
     }
     out.set("events", std::move(events));
+    auto waiting = Json::array();
+    for (const auto& group : s.waiting) {
+        waiting.push(passenger_group_to_json(group));
+    }
+    out.set("waiting", std::move(waiting));
     return out;
 }
 
@@ -394,6 +466,9 @@ domain::StationState station_from_json(const Json& j) {
             .start_s = entry.get("start_s").number(),
             .end_s = entry.get("end_s").number(),
         });
+    }
+    for (const auto& group : j.get("waiting").items()) {
+        s.waiting.push_back(passenger_group_from_json(group));
     }
     return s;
 }

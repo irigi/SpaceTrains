@@ -1,3 +1,4 @@
+#include <array>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -202,6 +203,47 @@ void print_station_inventories(
             }
         }
         std::cout << "\n";
+    }
+}
+
+// Passengers (docs/plans/passengers.md): who travelled, what they paid, who is still waiting.
+void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
+    const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::simulation::Simulation::PassengerAudit& audit) {
+    if (universe.passengers.enabled == 0.0) {
+        return;
+    }
+    using spacetrains::simulation::Simulation;
+    std::array<double, 6> waiting {};
+    for (const auto& station : snap.stations) {
+        for (const auto& group : station.waiting) {
+            waiting[static_cast<std::size_t>(group.kind)] += group.count;
+        }
+    }
+    std::array<double, 6> aboard {};
+    double fares = 0.0;
+    for (const auto& ship : snap.ships) {
+        fares += ship.ledger.fares;
+        for (const auto& lot : ship.passengers) {
+            aboard[static_cast<std::size_t>(lot.kind)] += lot.count;
+        }
+    }
+    double flown = 0.0;
+    for (const double days : audit.flight_days) {
+        flown += days;
+    }
+    std::cout << std::format("    Passengers: {:.0f} cr in fares, {} departures with passengers, load factor {:.0f}%\n",
+        fares, audit.departures_with_passengers, audit.berth_days > 0.0 ? 100.0 * flown / audit.berth_days : 0.0);
+    for (std::size_t k = 0; k < waiting.size(); ++k) {
+        if (audit.posted[k] <= 0.0 && waiting[k] <= 0.0 && aboard[k] <= 0.0) {
+            continue;
+        }
+        const double boarded = audit.boarded[k];
+        std::cout << std::format("      {:14s} posted {:.0f}, boarded {:.0f} (mean wait {:.0f} d, fare {:.0f} cr), landed {:.0f}, "
+                                 "gave up {:.0f}, waiting {:.0f}, aboard {:.0f}\n",
+            Simulation::passenger_kind_name(static_cast<spacetrains::domain::PassengerKind>(k)), audit.posted[k], boarded,
+            boarded > 0.0 ? audit.wait_days[k] / boarded : 0.0, boarded > 0.0 ? audit.fares_cr[k] / boarded : 0.0,
+            audit.landed[k], audit.gave_up[k], waiting[k], aboard[k]);
     }
 }
 
@@ -1032,6 +1074,7 @@ int main(int argc, char** argv) {
     bool no_events = false;
     int save_at_day = -1;
     std::string write_reference_prices_path;
+    std::string write_reference_fares_path;
 
     // Parse arguments
     std::vector<std::string> args(argv + 1, argv + argc);
@@ -1057,6 +1100,8 @@ int main(int argc, char** argv) {
             save_path = args[++i];
         } else if (args[i] == "--write-reference-prices" && i + 1 < args.size()) {
             write_reference_prices_path = args[++i];
+        } else if (args[i] == "--write-reference-fares" && i + 1 < args.size()) {
+            write_reference_fares_path = args[++i];
         } else if (args[i] == "--profile") {
             profile = true;
         } else if (args[i] == "--step-days" && i + 1 < args.size()) {
@@ -1101,6 +1146,20 @@ int main(int argc, char** argv) {
                 price.producer_id, price.class_id, price.round_trip_days);
         }
         std::cout << std::format("Wrote {} reference prices to {}\n", prices.size(), write_reference_prices_path);
+        return 0;
+    }
+    if (!write_reference_fares_path.empty()) {
+        // Plans the reference passenger trips and writes data/economy/reference_fares.csv.
+        const auto fares = sim.compute_reference_fares();
+        std::ofstream file(write_reference_fares_path);
+        file << "origin_id,destination_id,fare_cr,days,class_id\n";
+        for (const auto& fare : fares) {
+            file << std::format("{},{},{:.2f},{:.1f},{}\n", fare.origin_id, fare.destination_id, fare.fare_cr, fare.days,
+                fare.class_id);
+            std::cout << std::format("{:16s} -> {:16s} {:8.1f} cr  {:6.1f} d  by {}\n", fare.origin_id,
+                fare.destination_id, fare.fare_cr, fare.days, fare.class_id);
+        }
+        std::cout << std::format("Wrote {} reference fares to {}\n", fares.size(), write_reference_fares_path);
         return 0;
     }
     const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
@@ -1193,6 +1252,7 @@ int main(int argc, char** argv) {
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
                 print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
+                print_passenger_audit(snap, sim.universe(), sim.passenger_audit());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {

@@ -358,6 +358,14 @@ struct PassengerDefinition {
     double band_ratio {2.0};                    // each band's maximum cost x this the next one's
     double visit_days {90.0};
     std::vector<std::string> earth_gateways {"earth_orbit", "earth_l1"};
+    // data/economy/reference_fares.csv (spacetrains_headless --write-reference-fares): the
+    // cheapest cabin carrier's fare per berth and its days, origin -> destination.
+    struct ReferenceFare {
+        double fare_cr {0.0};
+        double days {0.0};
+        std::string class_id;
+    };
+    std::map<std::string, std::map<std::string, ReferenceFare>> reference_fares;
 };
 
 // Market redesign (2026-10-19, docs/plans/market_redesign.md): optional keys in
@@ -595,6 +603,7 @@ struct ShipLedger {
     double capital {0.0};
     double provisions {0.0};
     double refits {0.0};
+    double fares {0.0};      // passenger fares (paid at boarding)
     double dividends {0.0};  // surplus cash paid to the owner; not a cost, so not in lifetime_profit
     double subsidies {0.0};  // a liner's cash top-ups from its faction (step 22); not income, so not in lifetime_profit
 };
@@ -639,6 +648,7 @@ struct PassengerGroup {
     double max_cost_cr {0.0};              // highest generalized cost per person they accept
     double value_of_time_cr_per_day {0.0};
     double dose_msv {0.0};                 // rotation: dose already taken this career
+    int band {0};                          // demand band (groups merge by kind, destination, employer, band)
 };
 
 // People aboard, one lot per group that boarded.
@@ -803,6 +813,8 @@ struct StationState {
     double population_announced {0.0};
     // Events running here (step 28): the definition's id, and when each ends.
     std::vector<ActiveEvent> events {};
+    // People waiting here for a ship (passengers), in the order their groups formed.
+    std::vector<PassengerGroup> waiting {};
 };
 
 struct SimulationSnapshot {

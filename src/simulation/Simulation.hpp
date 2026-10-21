@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <functional>
 #include <iosfwd>
 #include <limits>
@@ -71,6 +72,18 @@ public:
         double round_trip_days {0.0};
     };
     [[nodiscard]] std::vector<ReferencePrice> compute_reference_prices() const;
+    // Passengers (docs/plans/passengers.md): for every station pair, the cheapest cabin carrier's
+    // cost per berth one way (carrier_margin x (its days out + return_share x the way back, at its
+    // daily cost, plus propellant) over berths x fill_ref, plus the passenger's provisions); median
+    // over departure dates. Written by `spacetrains_headless --write-reference-fares`.
+    struct ReferenceFareRow {
+        std::string origin_id;
+        std::string destination_id;
+        double fare_cr {0.0};
+        double days {0.0};
+        std::string class_id;
+    };
+    [[nodiscard]] std::vector<ReferenceFareRow> compute_reference_fares() const;
     // Tests and debugging: overwrite one good's stock at a station.
     void set_station_stock(const std::string& station_id, const std::string& commodity_id, double units);
     [[nodiscard]] std::string data_fingerprint() const;
@@ -115,6 +128,20 @@ public:
         double repair_days {0.0};
     };
     [[nodiscard]] const RadiationAudit& radiation_audit() const { return radiation_audit_; }
+    // Audit (passengers): since start or load, not saved. Index by PassengerKind.
+    struct PassengerAudit {
+        std::array<double, 6> posted {};       // people who began to wait
+        std::array<double, 6> boarded {};
+        std::array<double, 6> landed {};
+        std::array<double, 6> gave_up {};
+        std::array<double, 6> fares_cr {};
+        std::array<double, 6> wait_days {};    // person-days waited by those who boarded
+        std::array<double, 6> flight_days {};  // person-days aboard
+        double berth_days {0.0};               // berths flown (load factor = flight_days / berth_days)
+        int departures_with_passengers {0};
+    };
+    [[nodiscard]] const PassengerAudit& passenger_audit() const { return passenger_audit_; }
+    [[nodiscard]] static const char* passenger_kind_name(domain::PassengerKind kind);
     // Audit: deliveries with a reference price since start (or load), paid vs reference.
     [[nodiscard]] double delivered_price_ratio() const {
         return delivered_reference_cr_ > 0.0 ? delivered_paid_cr_ / delivered_reference_cr_ : 0.0;
@@ -142,6 +169,17 @@ public:
     [[nodiscard]] double wear_cr_per_flight_day(const domain::ShipClassDefinition& design) const;
     [[nodiscard]] double wear_cr_per_propellant_kg(const domain::ShipClassDefinition& design) const;
 
+    // Passengers (docs/plans/passengers.md). Fleet investment's probes and route commitments name passenger runs by this pseudo-good.
+    static constexpr const char* PASSENGER_GOOD = "passengers";
+    // People per day who would take the trip origin -> destination at about its reference cost:
+    // the demand a new carrier on that pair competes for (settlers posted, emigrants, and the
+    // queue spread over the route commitment).
+    [[nodiscard]] double passenger_flow_per_day(const std::string& origin_id, const std::string& destination_id) const;
+    // The fare a carrier can expect per passenger on that pair on a leg of `days`, filling
+    // `berths` from `demand_per_trip` people: the reference fare adjusted for its days, or the
+    // fare that clears the berths when demand exceeds them.
+    [[nodiscard]] double expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
+        double demand_per_trip, double berths) const;
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
     // The design a ship flies with: its class, or with modules fitted (tier 2,
@@ -376,6 +414,13 @@ private:
         // Missions: the follow-up load planned at the destination (see MissionAssignment).
         std::string pickup_commodity_id;
         double pickup_units {0.0};
+        // Passengers who would board, by waiting group at the origin, and their fares.
+        struct PassengerPick {
+            std::size_t group {0};
+            double count {0.0};
+            double fare_cr {0.0};
+        };
+        std::vector<PassengerPick> passengers;
         // Cargo-only probes (fleet investment): every feasible cargo run, which the
         // investment review values at its sustained flow and prices.
         struct CargoOption {
@@ -389,6 +434,48 @@ private:
         };
         std::vector<CargoOption> cargo_options;
     };
+    // --- Passengers (src/simulation/Passengers.cpp, docs/plans/passengers.md) ---
+    [[nodiscard]] bool passengers_on() const { return universe_.passengers.enabled != 0.0; }
+    [[nodiscard]] bool migration_by_ship() const { return passengers_on() && universe_.passengers.migration != 0.0; }
+    [[nodiscard]] bool is_earth_gateway(const std::string& station_id) const;
+    // What a person and their consumables weigh over a leg of `days`.
+    [[nodiscard]] double passenger_kg(double days) const;
+    [[nodiscard]] double value_of_time_cr_per_day(domain::PassengerKind kind) const;
+    // A person's costs of a leg other than the fare: time (flight and the reconditioning after
+    // it) and radiation (as hazard pay values it).
+    [[nodiscard]] double passenger_nonfare_cr(double value_of_time, double days, double dose_msv_per_day) const;
+    [[nodiscard]] const domain::PassengerDefinition::ReferenceFare* reference_fare(
+        const std::string& origin_id, const std::string& destination_id) const;
+    // The generalized cost of the reference trip for someone with this value of time.
+    [[nodiscard]] double reference_cost_cr(const std::string& origin_id, const std::string& destination_id,
+        double value_of_time) const;
+    // Adds `count` people who want to travel at reference cost, spread over the demand bands
+    // (fare elasticity): more come if trips are cheaper, fewer if dearer.
+    void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
+        const std::string& work_station_id, double count, double dose_msv = 0.0);
+    // The Earth gateway with the cheapest reference trip to or from a station.
+    [[nodiscard]] const std::string& gateway_for(const std::string& station_id, bool to_station) const;
+    // People already waiting for, or flying to, a station of this kind.
+    [[nodiscard]] double travellers_pending(const std::string& station_id, domain::PassengerKind kind) const;
+    // Passengers' daily step: demand (migration instead of formula growth), waiting groups give up.
+    void step_passengers(double dt_s);
+    // Who boards a ship leaving `origin` for `destination` on a leg of `days`: groups in order of
+    // what they pay over their marginal cost (provisions and the propellant their mass burns),
+    // up to `berths`. A group pays the reference fare adjusted by how much faster (or slower)
+    // and safer this trip is than the reference one, down to what it can still afford.
+    struct PassengerOffer {
+        std::vector<MissionChoice::PassengerPick> picks;
+        double people {0.0};
+        double revenue_cr {0.0};
+        double marginal_cr {0.0};   // provisions of those aboard (the propellant is in the plan)
+        double mass_kg {0.0};
+    };
+    [[nodiscard]] PassengerOffer passenger_offer(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
+        const domain::StationState& origin, const domain::StationDefinition& destination, double days,
+        double propellant_cr_per_kg, double berths) const;
+    void board_passengers(domain::ShipState& ship, domain::StationState& origin, const std::string& destination_id,
+        const std::vector<MissionChoice::PassengerPick>& picks, double days);
+    void land_passengers(domain::ShipState& ship, domain::StationState& destination);
     // `cargo_only`: only cargo runs from the ship's port (no empty legs, no repositioning).
     [[nodiscard]] MissionChoice choose_mission(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
@@ -521,6 +608,7 @@ private:
     std::vector<domain::TradeEntry> recent_trades_;
     double delivered_paid_cr_ {0.0};       // audit only, not saved
     RadiationAudit radiation_audit_;       // audit only, not saved
+    PassengerAudit passenger_audit_;       // audit only, not saved
     mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache_;  // time, AU
     double delivered_reference_cr_ {0.0};
     bool trajectory_audit_enabled_ {false};

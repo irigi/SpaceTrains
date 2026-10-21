@@ -1338,6 +1338,37 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
 
     {
+        // Written by `spacetrains_headless --write-reference-fares` (passengers): the cheapest cabin
+        // carrier's fare per berth and its days. Optional: without it nobody can price a trip.
+        const auto fares_path = root / "economy" / "reference_fares.csv";
+        if (std::filesystem::exists(fares_path)) {
+            const auto rows = read_csv_rows(fares_path);
+            require_header(rows.front(), {"origin_id", "destination_id", "fare_cr", "days", "class_id"}, fares_path);
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 5, fares_path, i + 1);
+                require_station(row[0], fares_path);
+                require_station(row[1], fares_path);
+                const double fare = parse_double(row[2], fares_path, i + 1, "fare_cr");
+                const double days = parse_double(row[3], fares_path, i + 1, "days");
+                if (fare <= 0.0 || days <= 0.0) {
+                    throw std::runtime_error("fare_cr and days must be positive in " + fares_path.string());
+                }
+                universe.passengers.reference_fares[row[0]][row[1]] = {.fare_cr = fare, .days = days, .class_id = row[4]};
+            }
+        }
+        for (const auto& gateway : universe.passengers.earth_gateways) {
+            require_station(gateway, root / "economy" / "passengers.csv");
+        }
+        if (universe.passengers.earth_gateways.empty()) {
+            throw std::runtime_error("passengers.csv: earth_gateways must name at least one station");
+        }
+        if (universe.passengers.enabled != 0.0 && !universe.labour.grades.contains(universe.passengers.rotation_grade)) {
+            throw std::runtime_error("passengers.csv: unknown rotation_grade '" + universe.passengers.rotation_grade + "'");
+        }
+    }
+
+    {
         // Random events (step 28).
         const auto settings_path = root / "events" / "settings.csv";
         const auto settings = read_csv_rows(settings_path);
