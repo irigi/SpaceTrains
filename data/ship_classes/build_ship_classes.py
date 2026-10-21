@@ -131,6 +131,20 @@ COMPONENT_HEADER = ["class_id", "component_id", "parent_id", "kind", "name", "ma
                     "power_w", "heat_w", "temperature_k", "volume_m3", "area_m2", "capacity_kg",
                     "crew_capacity", "isp_s", "thrust_n"]
 
+# --- Modules (tier 2, docs/plans/ship_structures_tier2.md) ----------------------------
+# Optional parts fitted at the home yard, sized per hull. Each module's mass includes its share
+# of truss (STRUCTURE_FRACTION), so a fitted design is the class plus the module rows.
+MODULE_HEADER = ["hull_id", "module_id", "slot", "name", "mass_kg", "price_cr", "power_w", "heat_w",
+                 "temperature_k", "volume_m3", "area_m2", "capacity_kg", "crew_capacity", "effects"]
+SLOT_HEADER = ["hull_id", "slot", "count"]
+# Storm shelter: a refuge lined with water where the crew sits out a solar particle event.
+# 20 g/cm2 of water (200 kg/m2) keeps even an August-1972-class event under the 30-day limits
+# (estimate from NASA shielding studies, to be sourced in step D); 2 m3 of refuge per crew
+# member, a cylinder as tall as it is wide (game geometry). The water doubles as a reserve.
+SHELTER_AREAL_KG_PER_M2 = 200.0
+SHELTER_M3_PER_CREW = 2.0
+SHELTER_TANK_FRACTION = 0.10      # tank walls per kg of water (estimate, like the plasma tanks' 5-10%)
+
 # Tank refit options, as multiples of the class's nominal propellant capacity. The engine
 # keeps the nominal size (thrust, jet power); tanks and structure follow the propellant.
 TANK_OPTIONS = (0.5, 1.0, 1.5, 2.0)
@@ -384,6 +398,55 @@ def components(b: Build) -> list[dict]:
     return out
 
 
+def hull_slots(spec: ClassSpec) -> dict[str, int]:
+    """Module slots by hull (game): couriers have room for less."""
+    small = spec.cargo_units < 100
+    slots = {"habitat": 2 if small else 3, "hold": 0 if small else 1}
+    slots["drive" if spec.drive == "plasma" else "tank"] = 1
+    return slots
+
+
+def modules(b: Build) -> list[dict]:
+    """The modules a nominal hull can fit, sized for it."""
+    rate = lambda key: USD_PER_KG[key] * CR_PER_USD
+    out = []
+    # Storm shelter: water wall around the refuge (cylinder, height = diameter).
+    volume = SHELTER_M3_PER_CREW * b.spec.crew
+    radius = (volume / (2.0 * math.pi)) ** (1.0 / 3.0)
+    area = 6.0 * math.pi * radius ** 2
+    water = SHELTER_AREAL_KG_PER_M2 * area
+    walls = SHELTER_TANK_FRACTION * water
+    truss = STRUCTURE_FRACTION * (water + walls)
+    out.append({"module_id": "storm_shelter", "slot": "habitat", "name": "Storm shelter (water wall)",
+                "mass_kg": round(water + walls + truss),
+                "price_cr": round((walls * USD_PER_KG["plasma_tank"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                "volume_m3": volume, "area_m2": area, "capacity_kg": water,
+                "effects": f"spe_shield_g_cm2={SHELTER_AREAL_KG_PER_M2 / 10.0:g}"})
+    return out
+
+
+def write_modules_csv(nominal: list[Build], modules_path: Path, slots_path: Path) -> None:
+    def cell(value) -> str:
+        if value is None or value == "":
+            return ""
+        if isinstance(value, float):
+            return f"{value:.6g}"
+        return str(value)
+    with modules_path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(MODULE_HEADER)
+        for b in nominal:
+            for m in modules(b):
+                writer.writerow([b.spec.id] + [cell(m.get(k)) for k in MODULE_HEADER[1:]])
+    with slots_path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(SLOT_HEADER)
+        for b in nominal:
+            for slot, count in hull_slots(b.spec).items():
+                if count > 0:
+                    writer.writerow([b.spec.id, slot, count])
+
+
 def write_components_csv(builds: list[Build], path: Path) -> None:
     def cell(value) -> str:
         if value is None or value == "":
@@ -457,6 +520,7 @@ def main() -> None:
     if not args.dry_run:
         write_csv(variants, Path(__file__).with_name("ship_classes.csv"))
         write_components_csv(variants, Path(__file__).with_name("ship_components.csv"))
+        write_modules_csv(nominal, Path(__file__).with_name("modules.csv"), Path(__file__).with_name("hull_slots.csv"))
     summary(variants)
     if args.markdown:
         markdown(nominal)

@@ -556,7 +556,7 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
 # (ShipSchematic), whether the engine runs, and the parts as a list (folded by default).
 func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
     var designs: Dictionary = context.get("designs", {})
-    var design: Dictionary = designs.get(String(detail.get("class_id", "")), {})
+    var design: Dictionary = designs.get(String(detail.get("design_id", detail.get("class_id", ""))), {})
     if design.is_empty():
         return
     _add_separator()

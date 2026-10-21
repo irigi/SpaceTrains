@@ -222,7 +222,7 @@ func _run() -> void:
                 var burning: Dictionary = main.entity_details[pick].duplicate()
                 burning["engine_state"] = "burning"
                 var designs: Dictionary = main.get("bridge_designs")
-                schematic.set_ship(designs.get(String(burning.get("class_id", "")), {}), burning)
+                schematic.set_ship(designs.get(String(burning.get("design_id", burning.get("class_id", ""))), {}), burning)
                 await _shoot("ship_systems_nuclear_thermal_burning")
     # The 3D models up close, one per hull that is flying (paused, so they hold still).
     main._on_pause_toggled()

@@ -87,6 +87,20 @@ struct ShipClassDefinition {
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
     std::vector<ShipComponentDefinition> components;  // in file order, parents before their parts
+    // Fitted designs only (tier 2): the modules and the sum of their effects by key.
+    std::vector<std::string> fit;
+    std::unordered_map<std::string, double> effects;
+};
+
+// A module a hull can fit at its home yard (data/ship_classes/modules.csv, written by
+// build_ship_classes.py; tier 2, docs/plans/ship_structures_tier2.md). Its part joins the
+// design's components; its effects (key=value) act through the quantities they name.
+struct ShipModuleDefinition {
+    std::string hull_id;
+    std::string id;
+    std::string slot;           // habitat | hold | drive | tank | cabin
+    ShipComponentDefinition part;
+    std::unordered_map<std::string, double> effects;
 };
 
 // Fleet-wide operating parameters (data/economy/ship_operations.csv).
@@ -300,6 +314,9 @@ struct UniverseDefinition {
     std::vector<FactionDefinition> factions;
     std::vector<CommodityDefinition> commodities;
     std::vector<ShipClassDefinition> ship_classes;
+    std::vector<ShipModuleDefinition> ship_modules;
+    // Module slots by hull id and slot (data/ship_classes/hull_slots.csv).
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> hull_slots;
     std::vector<StationDefinition> stations;
     std::vector<RecipeDefinition> recipes;
     std::vector<ExportMarketDefinition> export_markets;
@@ -478,6 +495,7 @@ struct ShipState {
     double idle_since_s {0.0};         // when the ship last became idle (crewed, docked)
     // Tank refits (part C): the class the ship becomes when the yard is done.
     std::string refit_class_id;
+    std::vector<std::string> refit_fit;   // and the modules it leaves the yard with
     double refit_done_s {0.0};
     double next_refit_review_s {0.0};
     double laid_up_since_s {0.0};      // when the ship was last laid up

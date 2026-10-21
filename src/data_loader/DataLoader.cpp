@@ -200,6 +200,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto commodities_path = root / "commodities" / "commodities.csv";
     const auto ship_classes_path = root / "ship_classes" / "ship_classes.csv";
     const auto ship_components_path = root / "ship_classes" / "ship_components.csv";
+    const auto ship_modules_path = root / "ship_classes" / "modules.csv";
+    const auto hull_slots_path = root / "ship_classes" / "hull_slots.csv";
     const auto stations_path = root / "stations" / "stations.csv";
     const auto recipes_path = root / "recipes" / "recipes.csv";
     const auto station_recipes_path = root / "recipes" / "station_recipes.csv";
@@ -392,6 +394,93 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                         ship_components_path.string(), parent_id, ship_class.id));
                 }
             }
+        }
+    }
+
+    // Modules and hull slots (tier 2): what each hull can fit at its home yard.
+    {
+        static const std::unordered_set<std::string> slots {"habitat", "hold", "drive", "tank", "cabin"};
+        std::unordered_set<std::string> hulls;
+        for (const auto& ship_class : universe.ship_classes) {
+            hulls.insert(ship_class.hull_id);
+        }
+        const auto slot_rows = read_csv_rows(hull_slots_path);
+        require_header(slot_rows.front(), {"hull_id", "slot", "count"}, hull_slots_path);
+        for (std::size_t i = 1; i < slot_rows.size(); ++i) {
+            const auto& row = slot_rows[i];
+            require_field_count(row, 3, hull_slots_path, i + 1);
+            const auto where = std::format("{}:{}", hull_slots_path.string(), i + 1);
+            if (!hulls.contains(row[0]) || !slots.contains(row[1])) {
+                throw std::runtime_error(where + ": unknown hull or slot");
+            }
+            const double count = parse_double(row[2], hull_slots_path, i + 1, "count");
+            if (count < 0.0 || count != std::floor(count)) {
+                throw std::runtime_error(where + ": count must be a whole number");
+            }
+            universe.hull_slots[row[0]][row[1]] = static_cast<int>(count);
+        }
+        const auto rows = read_csv_rows(ship_modules_path);
+        require_header(rows.front(),
+            {"hull_id", "module_id", "slot", "name", "mass_kg", "price_cr", "power_w", "heat_w", "temperature_k",
+             "volume_m3", "area_m2", "capacity_kg", "crew_capacity", "effects"},
+            ship_modules_path);
+        std::unordered_set<std::string> seen;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            const auto line = i + 1;
+            require_field_count(row, 14, ship_modules_path, line);
+            const auto where = std::format("{}:{}", ship_modules_path.string(), line);
+            if (!hulls.contains(row[0])) {
+                throw std::runtime_error(where + ": unknown hull '" + row[0] + "'");
+            }
+            if (!slots.contains(row[2])) {
+                throw std::runtime_error(where + ": unknown slot '" + row[2] + "'");
+            }
+            if (!seen.insert(row[0] + "|" + row[1]).second) {
+                throw std::runtime_error(where + ": duplicate module '" + row[1] + "' for " + row[0]);
+            }
+            const auto number = [&](std::size_t column, const char* field) {
+                const double value = row[column].empty() ? 0.0 : parse_double(row[column], ship_modules_path, line, field);
+                if (value < 0.0) {
+                    throw std::runtime_error(where + ": " + field + " must not be negative");
+                }
+                return value;
+            };
+            domain::ShipModuleDefinition module {
+                .hull_id = row[0],
+                .id = row[1],
+                .slot = row[2],
+                .part = {
+                    .id = "module." + row[1],
+                    .parent_id = "",
+                    .kind = "module",
+                    .name = row[3],
+                    .mass_kg = number(4, "mass_kg"),
+                    .price_cr = number(5, "price_cr"),
+                    .power_w = number(6, "power_w"),
+                    .heat_w = number(7, "heat_w"),
+                    .temperature_k = number(8, "temperature_k"),
+                    .volume_m3 = number(9, "volume_m3"),
+                    .area_m2 = number(10, "area_m2"),
+                    .capacity_kg = number(11, "capacity_kg"),
+                    .crew_capacity = number(12, "crew_capacity"),
+                },
+                .effects = {},
+            };
+            // effects: key=value;key=value
+            std::size_t at = 0;
+            const auto& text = row[13];
+            while (at < text.size()) {
+                const auto end = std::min(text.find(';', at), text.size());
+                const auto item = text.substr(at, end - at);
+                const auto eq = item.find('=');
+                if (eq == std::string::npos || eq == 0) {
+                    throw std::runtime_error(where + ": effect '" + item + "' is not key=value");
+                }
+                module.effects[item.substr(0, eq)] = parse_double(item.substr(eq + 1), ship_modules_path, line, "effect");
+                at = end + 1;
+            }
+            universe.ship_modules.push_back(std::move(module));
         }
     }
 

@@ -85,7 +85,8 @@ public:
     // Static today, so the bridge writes it once as <snapshot>.designs; with refittable
     // modules (tier 2) it changes when a ship's fit does, keyed by bridge_designs_signature().
     [[nodiscard]] std::string build_bridge_designs_json() const;
-    [[nodiscard]] std::string bridge_designs_signature() const { return "classes"; }
+    // Designs are only ever added, so their count tells the bridge when to rewrite the file.
+    [[nodiscard]] std::string bridge_designs_signature() const { return "classes+" + std::to_string(designs_.size()); }
     [[nodiscard]] std::string bridge_paths_signature() const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
@@ -109,6 +110,10 @@ private:
     // Ship-level code asks this, never get_ship_class(ship.class_id). Fitted designs must be
     // registered first (serial code only: planning passes read the cache in parallel).
     [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
+    // Derives and caches the design class_id + fit (serial code only); throws on a fit the
+    // hull cannot take (unknown module, slots overfilled, a module twice).
+    const domain::ShipClassDefinition& register_design(const std::string& class_id, const std::vector<std::string>& fit);
+    [[nodiscard]] const domain::ShipModuleDefinition* find_module(const std::string& hull_id, const std::string& module_id) const;
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
@@ -438,6 +443,7 @@ private:
     // Fitted designs by design id. A std::map, so references handed out stay valid; derived
     // from data and fits only, never saved.
     std::map<std::string, domain::ShipClassDefinition> designs_;
+    std::unordered_map<std::string, const domain::ShipModuleDefinition*> modules_by_key_;  // "hull|module"
 };
 
 }  // namespace spacetrains::simulation

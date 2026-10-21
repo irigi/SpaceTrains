@@ -183,6 +183,9 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     for (const auto& ship_class : universe_.ship_classes) {
         ship_classes_by_id_[ship_class.id] = &ship_class;
     }
+    for (const auto& module : universe_.ship_modules) {
+        modules_by_key_[module.hull_id + "|" + module.id] = &module;
+    }
     event_rng_.seed(universe_.event_seed);
     for (const auto& faction : universe_.factions) {
         faction_treasuries_[faction.id] = 0.0;
@@ -333,6 +336,54 @@ const domain::ShipClassDefinition& Simulation::ship_design(const domain::ShipSta
         throw std::runtime_error("Unregistered ship design: " + key);
     }
     return it->second;
+}
+
+const domain::ShipModuleDefinition* Simulation::find_module(const std::string& hull_id, const std::string& module_id) const {
+    const auto it = modules_by_key_.find(hull_id + "|" + module_id);
+    return it == modules_by_key_.end() ? nullptr : it->second;
+}
+
+const domain::ShipClassDefinition& Simulation::register_design(
+    const std::string& class_id, const std::vector<std::string>& fit) {
+    const auto& base = get_ship_class(class_id);
+    if (fit.empty()) {
+        return base;
+    }
+    const auto key = domain::design_id(class_id, fit);
+    if (const auto it = designs_.find(key); it != designs_.end()) {
+        return it->second;
+    }
+    std::vector<std::string> sorted = fit;
+    std::sort(sorted.begin(), sorted.end());
+    if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
+        throw std::runtime_error("Ship design fits a module twice: " + key);
+    }
+    std::vector<domain::ShipComponentDefinition> parts;
+    std::unordered_map<std::string, int> used;
+    std::unordered_map<std::string, double> effects;
+    std::string names;
+    for (const auto& module_id : sorted) {
+        const auto* module = find_module(base.hull_id, module_id);
+        if (module == nullptr) {
+            throw std::runtime_error("Hull " + base.hull_id + " has no module " + module_id);
+        }
+        const auto slots = universe_.hull_slots.find(base.hull_id);
+        const int capacity = slots == universe_.hull_slots.end() || !slots->second.contains(module->slot)
+            ? 0 : slots->second.at(module->slot);
+        if (++used[module->slot] > capacity) {
+            throw std::runtime_error("Ship design overfills the " + module->slot + " slots: " + key);
+        }
+        parts.push_back(module->part);
+        for (const auto& [effect, value] : module->effects) {
+            effects[effect] += value;
+        }
+        names += (names.empty() ? "" : ", ") + module->part.name;
+    }
+    auto design = domain::derive_design(base, parts, key);
+    design.name = base.name + " [" + names + "]";
+    design.fit = std::move(sorted);
+    design.effects = std::move(effects);
+    return designs_.emplace(key, std::move(design)).first->second;
 }
 
 const domain::ShipClassDefinition& Simulation::get_ship_class(const std::string& class_id) const {
@@ -3091,8 +3142,11 @@ void Simulation::step_refitting_ship(domain::ShipState& ship) {
     if (game_time_s_ < ship.refit_done_s) {
         return;
     }
+    (void)register_design(ship.refit_class_id, ship.refit_fit);
     ship.class_id = ship.refit_class_id;
+    ship.fit = std::move(ship.refit_fit);
     ship.refit_class_id.clear();
+    ship.refit_fit.clear();
     ship.phase = domain::ShipMissionPhase::Idle;
     ship.idle_since_s = game_time_s_;
     ship.next_review_s = game_time_s_;
@@ -4670,7 +4724,15 @@ std::string Simulation::build_bridge_designs_json() const {
     output << std::setprecision(10);
     output << "{\"designs\":{";
     bool first_class = true;
+    std::vector<const domain::ShipClassDefinition*> all;
     for (const auto& ship_class : universe_.ship_classes) {
+        all.push_back(&ship_class);
+    }
+    for (const auto& [id, design] : designs_) {
+        all.push_back(&design);
+    }
+    for (const auto* class_ptr : all) {
+        const auto& ship_class = *class_ptr;
         output << (first_class ? "" : ",") << "\"" << json_escape(ship_class.id) << "\":{"
                << "\"name\":\"" << json_escape(ship_class.name) << "\","
                << "\"hull_id\":\"" << json_escape(ship_class.hull_id) << "\","
@@ -5041,6 +5103,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"name\":\"" << json_escape(ship.name) << "\","
                << "\"faction_id\":\"" << json_escape(ship.faction_id) << "\","
                << "\"class_id\":\"" << json_escape(ship.class_id) << "\","
+               << "\"design_id\":\"" << json_escape(ship_class.id) << "\","
                << "\"cargo_capacity_units\":" << ship_class.cargo_capacity_units << ","
                << "\"credits\":" << ship.credits << ","
                << "\"lifetime_profit\":" << ship.lifetime_profit << ","

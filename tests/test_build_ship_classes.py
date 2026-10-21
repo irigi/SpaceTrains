@@ -26,6 +26,10 @@ with tempfile.TemporaryDirectory() as tmp:
         write(variants, fresh)
         if fresh.read_text() != (ROOT / "data" / "ship_classes" / name).read_text():
             sys.exit(f"data/ship_classes/{name} differs from the builder's output: re-run build_ship_classes.py")
+    builder.write_modules_csv(nominal, Path(tmp) / "modules.csv", Path(tmp) / "hull_slots.csv")
+    for name in ("modules.csv", "hull_slots.csv"):
+        if (Path(tmp) / name).read_text() != (ROOT / "data" / "ship_classes" / name).read_text():
+            sys.exit(f"data/ship_classes/{name} differs from the builder's output: re-run build_ship_classes.py")
 
 # Physics spot checks: the plasma radiators of linopt Set A (4 kW/kg at 3 kg/m2) run near 594 K,
 # and a liquid-core engine is hotter than a solid-core one.

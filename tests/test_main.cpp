@@ -947,6 +947,32 @@ int main() {
         require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
         std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
             saved.size() / 1024, kHalfDays, kHalfDays);
+
+        // Tier 2 fits: a fitted ship loads, flies its derived design and saves back unchanged;
+        // a fit its hull cannot take is rejected.
+        const auto first_fit = saved.find("\"fit\":[]");
+        require(first_fit != std::string::npos, "test fixture: an unfitted ship in the save");
+        auto fitted_save = saved;
+        fitted_save.replace(first_fit, std::string("\"fit\":[]").size(), "\"fit\":[\"storm_shelter\"]");
+        auto fitted = spacetrains::simulation::Simulation::from_data_root(data_root);
+        fitted.load_state_json(fitted_save);
+        require(fitted.save_state_json() == fitted_save, "a fitted ship should save back to the same JSON");
+        const auto snapshot = fitted.build_bridge_snapshot_json(true, 1, 0.0, false);
+        require(snapshot.find("+storm_shelter\"") != std::string::npos, "the snapshot should carry the fitted design id");
+        require(fitted.build_bridge_designs_json().find("Storm shelter") != std::string::npos,
+            "the designs file should list the fitted design and its module");
+        for (const char* bad : {"[\"no_such_module\"]", "[\"storm_shelter\",\"storm_shelter\"]"}) {
+            auto bad_save = saved;
+            bad_save.replace(first_fit, std::string("\"fit\":[]").size(), std::string("\"fit\":") + bad);
+            bool bad_rejected = false;
+            try {
+                auto probe = spacetrains::simulation::Simulation::from_data_root(data_root);
+                probe.load_state_json(bad_save);
+            } catch (const std::exception&) {
+                bad_rejected = true;
+            }
+            require(bad_rejected, "a fit the hull cannot take should be rejected on load");
+        }
     }
 
     // --- Emergency resupply (step 14): a station about to run out of oxygen opens an emergency,
