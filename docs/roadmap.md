@@ -27,9 +27,10 @@ decisions to review: `docs/plans/overnight_2026-10-19.md`. Also fixed: a rare pl
 planner caches that broke exact save/load. Reviewed 2026-10-20: y2 kept, Lunar Gateway metals and water output
 +50% (unmet 0.6%, price 1.50× the reference), fleet cap 130; merged to `main`.
 
-Branch `feature/bugfixes_ship_structures_and_trajectories` (from `main` after PR #12; earlier work on
-`feature/opus5_5_return`) (solo repo: commit on the branch, no PRs, push only when asked).
-Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), fleet investment (v27), route commitment (v28), fuel factories (v29), sustained valuation (v30), investment rate (v31), outer exports (v32), bridge start-up fix, stockpile forecast (v33a), plasma reach (v33); overnight 2026-10-07/08 (steps 9-13 below, log removed 2026-10-11, in git history): speed, smooth display, map look, panels, save/load, unmet-demand findings (v36), mixed cargo (v37).
+Branch `feature/ship_structures_tier2` (from `main` at `ea7fede`, 2026-10-21: tier 2 ship structures,
+plan below under "Ship structures") (solo repo: commit on the branch, push only when asked). `main` holds
+every earlier branch: market redesign (PR #14), key bindings help (PR #15), close-zoom camera (PR #16).
+Older history: part C tank refits (v25) through mixed cargo (v37) and the overnight steps 9-13, in git history.
 
 ### Decisions so far
 
@@ -109,8 +110,10 @@ Last commits: `773443c` part C tank refits (v25), `9a5afaa` open economy (v26), 
    60-280x too weak, those leaving Mercury 10x too strong), and a refined window that just passed is
    flown at once instead of a whole synodic period later. Plasma ships reach every outer station in
    250-550 days in both directions. Nuclear-thermal Jupiter <-> Saturn plans of 2500-4500 days are
-   physical (Hohmann about 3700 days) and lose on cost. Left: theta branches, atlas time-optimality
-   (needs a regenerated atlas).
+   physical (Hohmann about 3700 days) and lose on cost. Leftovers reviewed 2026-10-20: theta branches are
+   handled (the shooting keeps the branch the seed flies); time-optimal transfers exist since the general
+   solver (`solve_min_time`, `spend_fuel_budget`, off: no economy gain). Still open: the low-κ atlas
+   extension (7.8% of plasma requests below the grid, see `docs/plans/visp_general_solver_log.md`).
 
 Steps 9-13 (the user's 2026-10-07 priorities):
 
@@ -171,13 +174,27 @@ Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in 
   Habitat, hold, structure) with mass, price, power, heat, temperature, volume and area in
   `ship_components.csv`; they add up exactly to the class, so the simulation is unchanged. Inspector "Ship
   systems" section, `<snapshot>.designs` bridge file, `Simulation::ship_design()` seam.
-- **Tier 2, next after the moon-path fix:** modules as refits (common room, hydroponics, storm shelter, cryo
-  bay, Set B radiators, passenger cabins), designs derived in C++, component condition and ship events whose
-  damage lowers drive power and κ.
+- **Tier 2, in progress (branch `feature/ship_structures_tier2`, plan `docs/plans/ship_structures_tier2.md`,
+  user's choices of 2026-10-21):** designs derived in C++, a module catalogue fitted as refits, crew radiation dose
+  (leg limit + hazard pay, storm shelter), habitability and hydroponics, cryo bay, liquid-hydrogen boil-off and a
+  cryocooler, Set B radiators, part condition and damage felt through physics, repairs that consume the yard's
+  machinery and electronics. Each effect is a switch and is benchmarked over 1460 days; passengers get their own
+  plan afterwards.
 - **Visuals, done 2026-10-11:** a to-scale ship schematic in the inspector (false-colour temperatures, live
   tank, hold, crew and plume, mass bar, hover) and map hints (burn-length glow sized by jet power, radiator
   wings in false colour). A shipyard panel and 3D close-ups are archived (`docs/archive/`), not planned.
 - Tier 3, stations: after tier 2.
+
+Added by the user 2026-10-20:
+- **Better 3D ship models:** the map models follow the inspector schematic (same parts and proportions, from
+  `ship_components.csv`), with more detail drawn only when the camera is near (level of detail: the far
+  view keeps today's cheap models, so un-zoomed speed is unchanged). Revives part of the archived 3D close-ups.
+- **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
+  mass/population scale (a ship is now drawn ~48,000 km long, about 4 Earth diameters). Icons already mark
+  them when far; check arrival snaps, docking, engine glow and the near plane at metre scale.
+- **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
+  into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
+  (below). Needs the game design: who chases whom, triggers, what happens at intercept.
 
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
