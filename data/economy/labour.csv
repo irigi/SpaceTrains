@@ -1,0 +1,7 @@
+key,value
+reference_wage_cr_per_day,0.5
+shift_hours,8
+grade.technician,1.5
+grade.engineer,2.6
+grade.nuclear_specialist,2.6
+grade.crew,4.0

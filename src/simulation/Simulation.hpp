@@ -108,6 +108,11 @@ public:
         double repair_bills_cr {0.0};
         std::map<std::string, double> spares_units;
         int repairs_waiting_for_spares {0};
+        int thermal_overhauls {0};
+        int plasma_overhauls {0};
+        double repair_spares_cr {0.0};
+        double repair_labour_cr {0.0};
+        double repair_days {0.0};
     };
     [[nodiscard]] const RadiationAudit& radiation_audit() const { return radiation_audit_; }
     // Audit: deliveries with a reference price since start (or load), paid vs reference.
@@ -121,6 +126,21 @@ public:
     [[nodiscard]] const std::vector<trajectory::TrajectoryAuditRecord>& trajectory_audit_records() const {
         return trajectory_audit_records_;
     }
+    // What an overhaul replaces and costs (tier 2): the wearing parts' goods, the hours to
+    // make and fit them and their wages, and the days in the yard.
+    struct OverhaulBill {
+        std::map<std::string, double> spares_units;
+        double hours {0.0};
+        double labour_cr {0.0};
+        double days {0.0};
+    };
+    [[nodiscard]] OverhaulBill overhaul_bill(const domain::ShipClassDefinition& design, double drive_share,
+        double radiator_share) const;
+    // Wear priced into planning: a drive life's overhaul (base prices) per hour of thrust, and
+    // that per day in flight (plasma) or per kg of propellant burned (nuclear-thermal); 0 with wear off.
+    [[nodiscard]] double wear_cr_per_drive_hour(const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] double wear_cr_per_flight_day(const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] double wear_cr_per_propellant_kg(const domain::ShipClassDefinition& design) const;
 
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;

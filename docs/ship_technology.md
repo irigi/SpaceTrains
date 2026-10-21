@@ -201,12 +201,38 @@ radiation-hardened ship parts.
 | 20 K cryocooler | ~100 W input per W lifted, ~5 kg per W lifted | estimate (Carnot COP 20/280; ~14% of Carnot) |
 | 90 K cryocooler | ~12 W per W lifted, ~1 kg per W lifted | estimate (Carnot COP 90/210; ~20% of Carnot) |
 | Cooler power | engine's bimodal Brayton loop, ~10 kg/kWe | estimate (NASA bimodal NTR studies, Borowski: ~25 kWe per stage) |
-| Nuclear-thermal core life | 10 h of full-power burn | sourced: NERVA flight-engine goal, 10 h over 60 restarts |
-| Plasma drive life | 50,000 h of thrust | estimate (NASA NEXT ion thruster class) |
+| Nuclear-thermal core life | 100 h of full-power burn (was 10 h, NERVA's 1960s graphite-fuel goal) | sourced: GE-710 W-UO₂ CERMET fuel qualified for 100 h at 2148 °C (NASA NTRS 20140002718); a Mars mission needs ~2 h (INL); liquid cores the same (estimate) |
+| Plasma drive life | 87,600 h = 10 full-power years (was 50,000 h) | estimate: electrodeless (VASIMR-type) thrusters do not erode; the fission reactor limits life: SP-100 aimed at 7-10 years, JIMO at more than 10 (NTRS 19930002210, SpaceNews) |
 | Meteoroids holing a heat pipe | ≥ 10⁻⁵ g: 0.146 per m² per year at 1 AU, × r^−1.3 | sourced flux model: Grün et al. 1985 (Icarus 62); 0.2 mm grain through a 1 mm wall at ~20 km/s (estimate); r-scaling estimate |
 | Radiator pipe share, segment size | 30% of the panel, 0.2 m² | estimates |
-| Overhaul spares | core fuel elements 40% of the engine mass (reactor fuel); plasma drive 30% (machinery, electronics); radiators 50% of the lost panels (machinery) | estimates |
+| Wearing parts (`spares.csv`) | NTR fuel elements 40% of the engine (reactor fuel); plasma drive reactor fuel 10% and power/RF electronics 15% (70% electronics, 30% machinery); radiator heat pipes 50% of the panel (machinery) | estimates |
+| Overhaul hours | fit 0.125 h/kg, make electronics or heat pipes from the goods 0.1 h/kg | derived: a CFM56-7B shop visit takes 2,500-3,500 h on a 2.4 t engine (~1.25 h/kg, Safe Fly Aviation), ÷ 10 for automated yards (estimate) |
+| Yard team | 10 people, two 8 h shifts a day, at least 3 days | estimate |
 | Cold hold | 255 K, spoilage × 0.1; MLI + 2 kg/m² liner, ~0.5 W/m² leak | estimates |
+
+### Labour and the price of parts (added 2026-10-21, tier 2 follow-up)
+
+One wage scale for all work (`data/economy/labour.csv`): a reference wage and grades as its multiples, with the
+ratios of US median wages (BLS: all occupations ~$48k; aircraft mechanics ~1.5×, aerospace and nuclear engineers
+~2.6×; ship officers ~1.8×).
+
+| Grade | × reference (0.5 cr/day) | cr/day | Note |
+|---|---|---|---|
+| technician | 1.5 | 0.75 | yard work: electronics, heat pipes |
+| engineer | 2.6 | 1.3 | |
+| nuclear specialist | 2.6 | 1.3 | reactor fuel handling |
+| crew | 4.0 | 2.0 | ship officer 1.8 × deep-space premium ~2.2 (months away; dose risk is paid apart as hazard pay); the old crew wage, unchanged |
+
+Cross-check: residents spend ~0.2 cr per person-day on traded goods, below the reference wage, as they should
+(not everyone works, and not all income buys traded goods).
+
+**A part's price is materials plus work.** The ship class builder splits the engine and radiators into the parts
+that wear out and the parts that last the ship's life. A wearing part is priced from the economy itself: its goods
+at base price plus the hours to make and fit it at the labour scale. The lasting part carries the rest of linopt's
+price: precision work on hardware no generic good stands for (an NTR's pressure vessel, turbopumps and nozzle at
+~12 cr/kg; a plasma drive's magnets and nozzle at ~9 cr/kg). The goods stay generic: "electronics" are the
+economy's chips and boards, not a finished drive. An overhaul replaces the worn share of the wearing parts, so at
+base prices a whole core's overhaul costs exactly its fuel elements' price.
 
 ### Open questions for the user
 

@@ -336,9 +336,12 @@ void print_economy_audit(
             for (const auto& [commodity_id, units] : radiation.spares_units) {
                 spares += std::format("{}{} {:.0f}u", spares.empty() ? "" : ", ", commodity_id, units);
             }
-            std::cout << std::format("    Overhauls: {} ({:.0f} cr; spares {}), {} reviews found no spares\n",
-                radiation.overhauls, radiation.repair_bills_cr, spares.empty() ? "none" : spares,
-                radiation.repairs_waiting_for_spares);
+            std::cout << std::format("    Overhauls: {} ({} nuclear-thermal, {} plasma; {:.0f} cr = spares {:.0f} + labour {:.0f}; "
+                "{:.1f} yard days each; spares {}), {} reviews found no spares\n",
+                radiation.overhauls, radiation.thermal_overhauls, radiation.plasma_overhauls, radiation.repair_bills_cr,
+                radiation.repair_spares_cr, radiation.repair_labour_cr,
+                radiation.overhauls > 0 ? radiation.repair_days / radiation.overhauls : 0.0,
+                spares.empty() ? "none" : spares, radiation.repairs_waiting_for_spares);
         }
     }
 
@@ -494,6 +497,13 @@ void print_economy_audit(
         stations_total.subsidies, stations_total.taxes);
     spacetrains::domain::ShipLedger fleet;
     int profitable = 0;
+    struct DriveTally {
+        int ships {0};
+        int profitable {0};
+        double profit {0.0};
+        double refits {0.0};
+    };
+    std::map<std::string, DriveTally> by_drive;
     std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s} {:>6s} {:>7s}  {}\n",
         "", "", "profit", "margin", "fuel", "wages", "capital", "prov", "refit", "divid", "class");
     // Sold ships keep their lifetime ledger; their cash went to the home station.
@@ -526,6 +536,24 @@ void print_economy_audit(
         fleet.refits += l.refits;
         fleet.dividends += l.dividends;
         profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
+        if (!sold) {
+            std::string propulsion = "?";
+            for (const auto& sc : universe.ship_classes) {
+                if (sc.id == ship.class_id) {
+                    propulsion = sc.propulsion_type == "variable_isp" ? "plasma" : "nuclear-thermal";
+                    break;
+                }
+            }
+            auto& tally = by_drive[propulsion];
+            tally.ships += 1;
+            tally.profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
+            tally.profit += ship.lifetime_profit;
+            tally.refits += l.refits;
+        }
+    }
+    for (const auto& [propulsion, tally] : by_drive) {
+        std::cout << std::format("    In service, {}: {}/{} profitable, profit {:.0f} cr, refits and overhauls {:.0f} cr\n",
+            propulsion, tally.profitable, tally.ships, tally.profit, tally.refits);
     }
     std::cout << std::format(
         "    Fleet: cargo margin {:.0f} (sold {:.0f}, bought {:.0f})  fuel {:.0f}  wages {:.0f}  capital {:.0f}"

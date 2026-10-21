@@ -147,3 +147,50 @@ mass bar shows modules in violet. ShotTour takes `--shot-load=<save>` and prefer
 
 A 730-day trial with everything on: 34 overhauls costing 375,000 cr (123 units of reactor fuel), 7 reviews
 found no spares; by day 730 13-17 shelters, 5-12 cold holds and 2-3 cooled tank shields; money drift 0.
+
+## Follow-up (2026-10-21, after the user's review): overhaul costs, drive life, boil-off audit
+
+The user asked: are overhauls too expensive (one wage scale across the economy, cheap automated electronics)?
+Are they one-off or recurring? Do they make ships unprofitable? Should engines last longer? Can boil-off strand
+a ship short of fuel? Plan: `~/.claude/plans/thank-you-please-start-elegant-pancake.md`.
+
+Findings before the change (start 0, 1460 days):
+- 57 overhauls, 658k cr (~11.5k each), ~85% "labour" = 30% of the engine's price × wear: tied to no wage (an
+  NTR freighter's ~17.8k cr labour is ~9,000 crew-days). Recurring: whenever 70% of the drive life is used
+  (NTR ships every 4-6 missions). ~600k of it fell on the 11 old NTR ships; none of the 3 NTR freighters made a
+  profit. Planning did not include wear, so no price could cover it.
+- Boil-off: fuel on arrival and the return-fuel check ignored the hydrogen boiled on the way; inbound legs
+  planned at the origin's (lower) rate; mission costs left the boiled hydrogen out; fleet investment and the
+  reference prices planned without it. Measured: no ship arrived short of its arrival burn, but the lowest
+  arrival kept only 0.80× its reserve.
+
+Decisions:
+1. **Boil-off: one loading class for both cases** (zero boil-off is a zero rate; a test pins it to the old plan
+   bit for bit). Plans carry `propellant_boiled_kg`; one leg-mean rate (r linear in time, exactly as the
+   simulation moves ships) serves planner and flight; the return leg's boil-off joins the return-fuel check.
+   Arrival audit: 559 nuclear-thermal arrivals, 0 short, lowest 1.00× the reserve.
+2. **One wage scale** (`labour.csv`): reference 0.5 cr/day, grades from US median-wage ratios; crew 4.0× = the
+   old 2 cr/day, unchanged.
+3. **Price = materials + work, per wearing part** (user's question on generic goods): the builder splits engines
+   and radiators into wearing parts (fuel elements, reactor fuel, power electronics, heat pipes), priced from
+   goods at base price plus hours at the labour scale, and lasting parts that carry the rest of linopt's price.
+   Ship list prices unchanged (user, 2026-10-21). An overhaul replaces the worn share of the wearing parts.
+4. **Hours:** 0.125 h/kg to fit (CFM56 shop visit ~1.25 h/kg ÷ 10 for automation), 0.1 h/kg to make
+   electronics or heat pipes; a 10-person, two-shift team, at least 3 days (was a flat 20).
+5. **Drive life:** NTR cores 100 h (GE-710 CERMET, qualified 100 h), plasma drives 10 full-power years.
+6. **Wear priced into planning** like hazard pay: per kg burned (NTR, ~1.6% on top of the fuel) and per day of
+   thrust (plasma, ~0.5 cr/day for a Plasma Freighter); in leg estimates, dispatch, asks, contracts, investment.
+7. **Spares orders not built:** with the new lives no review found the port out of spares (0, was 1,525 in
+   year 4 of the old model). The counter stays in the audit; build the orders if it rises.
+
+Results (start 0, 1460 days): 6 overhauls (5 NTR, 1 plasma) costing 19k cr (spares 19.1k, labour 0.2k),
+3 yard days each; NTR ships in service 8/12 profitable, plasma 91/120.
+
+| Run | Unmet % | Last fifth % | Price ÷ ref | Profitable | Ships | Money % |
+|---|---|---|---|---|---|---|
+| baseline (pre-tier-2) | 0.6 ± 0.5 | 1.2 ± 1.3 | 1.6 ± 0.1 | 98.8 / 133 | 133 | −15 ± 20 |
+| tier 2, all on (before) | 0.9 ± 0.3 | 2.1 ± 1.0 | 1.6 ± 0.1 | 101.2 / 141 | 141 | −16 ± 11 |
+| **follow-up (kept)** | **0.5 ± 0.2** | **1.0 ± 0.3** | **1.5 ± 0.0** | 101.0 / 138 | 138 | −20 ± 10 |
+
+Switches off: a 365-day audit is byte-identical to before the follow-up (apart from the new audit lines).
+0 trajectory flags, money drift 0.

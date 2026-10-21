@@ -1577,8 +1577,9 @@ void Simulation::update_market_prices() {
                     }
                     const double fuel_price = std::max(fuel_base, station_price(get_station_state(f.at->id), economy::FUEL_ID));
                     const double trip = leg.travel_days * (daily_capital_cost(ship_class) + crew
-                            + hazard_cr_per_day(ship_class, *f.at, destination, f.from_s))
-                        + leg.propellant_kg / FUEL_UNITS_TO_KG * fuel_price;
+                            + hazard_cr_per_day(ship_class, *f.at, destination, f.from_s) + wear_cr_per_flight_day(ship_class))
+                        + leg.propellant_kg / FUEL_UNITS_TO_KG * fuel_price
+                        + leg.propellant_kg * wear_cr_per_propellant_kg(ship_class);
                     double units = std::max(1.0, market.fill_ref * ship_class.cargo_capacity_units);
                     if (market.ask_open_units > 0.0) {
                         units = std::clamp(joint_load(*f.at, state), 1.0, units);
@@ -1877,6 +1878,68 @@ void Simulation::accrue_wear(domain::ShipState& ship, const domain::ShipClassDef
     }
 }
 
+Simulation::OverhaulBill Simulation::overhaul_bill(const domain::ShipClassDefinition& design, double drive_share,
+    double radiator_share) const {
+    // The wearing parts (spares.csv) in the share that is worn: their goods, and the hours to
+    // make the spares from them and fit them, at the labour scale.
+    OverhaulBill bill;
+    for (const auto& part : design.components) {
+        if (part.parent_id.empty()) {
+            continue;
+        }
+        const auto spec = universe_.spare_parts.find(part.kind);
+        if (spec == universe_.spare_parts.end()) {
+            continue;
+        }
+        const double share = spec->second.wears_with == "drive" ? drive_share : radiator_share;
+        const double kg = part.mass_kg * share;
+        if (kg <= 0.0) {
+            continue;
+        }
+        for (const auto& [commodity_id, mass_share] : spec->second.materials) {
+            bill.spares_units[commodity_id] += kg * mass_share / get_commodity(commodity_id).mass_per_unit_kg;
+        }
+        const double hours = kg * (spec->second.fabrication_h_per_kg + spec->second.install_h_per_kg);
+        bill.hours += hours;
+        bill.labour_cr += hours * universe_.labour.wage_cr_per_hour(spec->second.grade);
+    }
+    const auto& env = universe_.ship_environment;
+    bill.days = std::max(env.min_repair_days, bill.hours / (env.repair_team_size * env.repair_team_hours_per_day));
+    return bill;
+}
+
+double Simulation::wear_cr_per_drive_hour(const domain::ShipClassDefinition& design) const {
+    if (!universe_.ship_environment.wear) {
+        return 0.0;
+    }
+    // A whole drive life's overhaul (goods at base price), spread over its hours.
+    const auto bill = overhaul_bill(design, 1.0, 0.0);
+    double cost = bill.labour_cr;
+    for (const auto& [commodity_id, units] : bill.spares_units) {
+        cost += units * get_commodity(commodity_id).base_price;
+    }
+    return cost / drive_life_h(design);
+}
+
+double Simulation::wear_cr_per_flight_day(const domain::ShipClassDefinition& design) const {
+    // Plasma drives thrust the whole transfer.
+    return design.propulsion_type == "variable_isp" ? 24.0 * wear_cr_per_drive_hour(design) : 0.0;
+}
+
+double Simulation::wear_cr_per_propellant_kg(const domain::ShipClassDefinition& design) const {
+    // Nuclear-thermal cores wear by the hour of burn, that is by the kilogram burned.
+    if (design.propulsion_type == "variable_isp" || !universe_.ship_environment.wear) {
+        return 0.0;
+    }
+    for (const auto& part : design.components) {
+        if (part.kind == "engine" && part.thrust_n > 0.0 && part.isp_s > 0.0) {
+            const double mass_flow_kg_s = part.thrust_n / (part.isp_s * 9.80665);
+            return wear_cr_per_drive_hour(design) / (mass_flow_kg_s * 3600.0);
+        }
+    }
+    return 0.0;
+}
+
 bool Simulation::consider_repair(domain::ShipState& ship) {
     const auto& env = universe_.ship_environment;
     if (!env.wear || ship.phase != domain::ShipMissionPhase::Idle) {
@@ -1888,31 +1951,11 @@ bool Simulation::consider_repair(domain::ShipState& ship) {
     if (!drive_due && !radiators_due) {
         return false;
     }
-    // The spares and the labour (the yard's share of the replaced hardware's price).
-    std::map<std::string, double> spares;
-    double labour = 0.0;
-    for (const auto& part : design.components) {
-        if (drive_due && part.kind == "engine") {
-            labour += env.repair_labour_fraction * part.price_cr * ship.engine_wear;
-            if (design.propulsion_type == "variable_isp") {
-                const double kg = env.drive_spares_fraction * part.mass_kg * ship.engine_wear;
-                spares["machinery"] += 0.5 * kg / get_commodity("machinery").mass_per_unit_kg;
-                spares["electronics"] += 0.5 * kg / get_commodity("electronics").mass_per_unit_kg;
-            } else {
-                spares["reactor_fuel"] += env.core_spares_fraction * part.mass_kg * ship.engine_wear
-                    / get_commodity("reactor_fuel").mass_per_unit_kg;
-            }
-        }
-        if (radiators_due && part.kind == "radiator") {
-            const double lost = 1.0 - ship.radiator_condition;
-            labour += env.repair_labour_fraction * part.price_cr * lost;
-            spares["machinery"] += env.radiator_spares_fraction * part.mass_kg * lost
-                / get_commodity("machinery").mass_per_unit_kg;
-        }
-    }
+    const auto bill = overhaul_bill(design, drive_due ? ship.engine_wear : 0.0,
+        radiators_due ? 1.0 - ship.radiator_condition : 0.0);
     auto& yard = get_station_state(ship.current_station_id);
-    double cost = labour;
-    for (const auto& [commodity_id, units] : spares) {
+    double cost = bill.labour_cr;
+    for (const auto& [commodity_id, units] : bill.spares_units) {
         const auto stock = yard.inventory.find(commodity_id);
         if (stock == yard.inventory.end() || stock->second < units) {
             ++radiation_audit_.repairs_waiting_for_spares;
@@ -1923,8 +1966,10 @@ bool Simulation::consider_repair(domain::ShipState& ship) {
     if (ship.credits - cost < -credit_line(design)) {
         return false;
     }
-    for (const auto& [commodity_id, units] : spares) {
+    double spares_cr = 0.0;
+    for (const auto& [commodity_id, units] : bill.spares_units) {
         const double value = units * station_price(yard, commodity_id);
+        spares_cr += value;
         yard.inventory[commodity_id] -= units;
         record_trade({
             .time_s = game_time_s_,
@@ -1943,16 +1988,20 @@ bool Simulation::consider_repair(domain::ShipState& ship) {
     ship.ledger.refits += cost;
     yard.credits += cost;
     radiation_audit_.repair_bills_cr += cost;
+    radiation_audit_.repair_spares_cr += spares_cr;
+    radiation_audit_.repair_labour_cr += bill.labour_cr;
+    radiation_audit_.repair_days += bill.days;
     ++radiation_audit_.overhauls;
+    ++(design.propulsion_type == "variable_isp" ? radiation_audit_.plasma_overhauls : radiation_audit_.thermal_overhauls);
     ship.overhaul = true;
     ship.refit_class_id = ship.class_id;
     ship.refit_fit = ship.fit;
-    ship.refit_done_s = game_time_s_ + env.repair_days * 86400.0;
+    ship.refit_done_s = game_time_s_ + bill.days * 86400.0;
     ship.phase = domain::ShipMissionPhase::Refitting;
-    add_event(std::format("{} overhauling at {}: {}{}{} ({:.0f} cr, {:.0f} days)", ship.name,
+    add_event(std::format("{} overhauling at {}: {}{}{} ({:.0f} cr, {:.1f} days)", ship.name,
         get_station_definition(ship.current_station_id).name,
         drive_due ? (design.propulsion_type == "variable_isp" ? "plasma drive" : "reactor core") : "",
-        drive_due && radiators_due ? " and " : "", radiators_due ? "radiators" : "", cost, env.repair_days), "mission");
+        drive_due && radiators_due ? " and " : "", radiators_due ? "radiators" : "", cost, bill.days), "mission");
     return true;
 }
 
@@ -2227,9 +2276,10 @@ Simulation::LegEstimate Simulation::estimate_leg(
     constexpr double PAYLOAD_STEP_KG = 2000.0;
     const auto payload_bucket = static_cast<std::int64_t>(std::ceil(std::max(0.0, payload_kg) / PAYLOAD_STEP_KG));
     const trajectory::PlanningOptions options {
-        .propellant_cr_per_kg = get_commodity("fuel").base_price / FUEL_UNITS_TO_KG,
+        .propellant_cr_per_kg = get_commodity("fuel").base_price / FUEL_UNITS_TO_KG + wear_cr_per_propellant_kg(ship_class),
         .time_cr_per_day = daily_capital_cost(ship_class) + typical_crew_cost
-            + hazard_cr_per_day(ship_class, origin, destination, static_cast<double>(bucket) * BUCKET_S),
+            + hazard_cr_per_day(ship_class, origin, destination, static_cast<double>(bucket) * BUCKET_S)
+            + wear_cr_per_flight_day(ship_class),
         .payload_kg = static_cast<double>(payload_bucket) * PAYLOAD_STEP_KG,
         .purchasable_propellant_kg = static_cast<double>(fuel_bucket) * fuel_step_kg,
         .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
@@ -2409,7 +2459,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // Every day of a mission (waiting for the window included) costs capital,
     // wages and provisions; missions are compared on profit after that cost.
     const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state)
-        + hazard_cr_per_day(ship_class, origin_def, origin_def, game_time_s_);
+        + hazard_cr_per_day(ship_class, origin_def, origin_def, game_time_s_) + wear_cr_per_flight_day(ship_class);
     // The crew must be provisionable from here for the whole mission.
     // (The return-leg reserve is bought too, but only if the station has it.)
     const double max_mission_days = provisionable_days(ship, origin_state) / PROVISION_MARGIN;
@@ -2471,7 +2521,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // Hydrogen boil-off averaged over the leg (tier 2, step F).
     const auto planning_options = [&](const domain::StationDefinition& destination, double cargo_kg) {
         return trajectory::PlanningOptions {
-            .propellant_cr_per_kg = planning_fuel_price / FUEL_UNITS_TO_KG,
+            .propellant_cr_per_kg = planning_fuel_price / FUEL_UNITS_TO_KG + wear_cr_per_propellant_kg(ship_class),
             .time_cr_per_day = time_cost_per_day,
             .payload_kg = provisions_kg + cargo_kg,
             .purchasable_propellant_kg = origin_fuel_for_sale_kg,
@@ -2549,7 +2599,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // Fuel burned on a mission comes out of the tank, already bought and not resalable,
     // so it is valued at the neutral base price, not the origin's scarcity price: a ship
     // holding 100 t of fuel at a fuel-starved port (16x) would otherwise never leave.
-    const double origin_fuel_price = get_commodity("fuel").base_price;
+    // Burning it also wears a nuclear-thermal core (0 with wear off).
+    const double origin_fuel_price = get_commodity("fuel").base_price + wear_cr_per_propellant_kg(ship_class) * FUEL_UNITS_TO_KG;
     // But fuel bought here for a mission is paid at this port's price: since only fuel
     // factories make fuel, a drained depot sells at up to 16x base, and that premium is a
     // real cost of leaving from here (the tanks' contents are not).
@@ -3382,7 +3433,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         return;
     }
     const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state)
-        + hazard_cr_per_day(ship_class, origin_def, origin_def, game_time_s_);
+        + hazard_cr_per_day(ship_class, origin_def, origin_def, game_time_s_) + wear_cr_per_flight_day(ship_class);
     if (trajectory_audit_enabled_) {
         record_trajectory_audit(ship, origin_def, *best_destination, plan, plan.propellant_load_kg);
     }
@@ -4133,7 +4184,8 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     for (const auto& [good, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
         crew += ship_class.crew_size * units_per_crew_day * get_commodity(good).base_price;
     }
-    const double time_cost = daily_capital_cost(ship_class) + crew + hazard_cr_per_day(ship_class, origin, origin, game_time_s_);
+    const double time_cost = daily_capital_cost(ship_class) + crew + hazard_cr_per_day(ship_class, origin, origin, game_time_s_)
+        + wear_cr_per_flight_day(ship_class);
     const double fuel_base = get_commodity(economy::FUEL_ID).base_price;
     const auto n = universe_.stations.size();
     // Every leg once, from today's bucket (later legs' windows are not dated: an estimate).
@@ -4219,7 +4271,8 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
             const auto to = loop[(k + 1) % loop.size()];
             const auto& from_state = get_station_state(universe_.stations[from].id);
             const double fuel_price = std::max(fuel_base, station_price(from_state, economy::FUEL_ID));
-            profit -= loop_legs[k].propellant_kg / FUEL_UNITS_TO_KG * fuel_price;
+            profit -= loop_legs[k].propellant_kg / FUEL_UNITS_TO_KG * fuel_price
+                + loop_legs[k].propellant_kg * wear_cr_per_propellant_kg(ship_class);
             struct Pick {
                 const Need* need;
                 double units;
@@ -4716,7 +4769,7 @@ Simulation::CommissionStep Simulation::commission_step() {
                 margin_bound = std::max(margin_bound, outlet.unit_margin * std::min(outlet.rate, ship_class.cargo_capacity_units));
             }
             const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, yard_state)
-                + hazard_cr_per_day(ship_class, yard, yard, game_time_s_);
+                + hazard_cr_per_day(ship_class, yard, yard, game_time_s_) + wear_cr_per_flight_day(ship_class);
             const double return_bound = (margin_bound - running_cost) * 365.0 / ship_class.ship_value_cr;
             if (return_bound >= investment.hurdle_return_per_year) {
                 candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound,
@@ -4845,7 +4898,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     const auto value_candidate = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
                                      double return_bound, const MissionChoice& choice) {
         const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id))
-            + hazard_cr_per_day(ship_class, yard, yard, game_time_s_);
+            + hazard_cr_per_day(ship_class, yard, yard, game_time_s_) + wear_cr_per_flight_day(ship_class);
         Valuation valuation;
         valuation.label = "no cargo run";
         // A single-good run is valued alone; the lots of a mixed hold together (each along its

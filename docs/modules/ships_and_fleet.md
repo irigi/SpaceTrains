@@ -13,7 +13,8 @@ Time costs money, so feasible but uneconomic trips (multi-revolution spirals, ye
 lose on their own instead of being cut off by rules. Each ship accrues, prorated per tick:
 - **Capital:** `ship_value_cr × (interest_rate_per_year + 1 / lifetime_years) / 365` a day, in every phase,
   laid up included.
-- **Wages:** `crew_size × wage_cr_per_crew_day`, not while laid up.
+- **Wages:** `crew_size × wage_cr_per_crew_day`, not while laid up. The wage is the crew grade of the labour
+  scale (`data/economy/labour.csv`, which also prices yard work).
 - **Life support:** food, water and oxygen per crew-day, bought as real goods. Ships start with 730 days aboard
   (`PROVISION_ENDURANCE_DAYS`) and top up where a port can spare it. A departing crew must hold the mission
   × 1.1 plus a 120-day return reserve; a docked crew doesn't eat into that reserve, it lays up instead.
@@ -75,9 +76,16 @@ Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/pla
 - **Boil-off:** nuclear-thermal ships lose liquid hydrogen in flight; the Kepler planner loads and pays for it.
   Modules: 90 K cooled tank shield, 20 K zero-boil-off cryocooler.
 - **Cold hold:** perishables spoil at a tenth of the ambient rate.
-- **Wear:** drives use their rated life (nuclear-thermal burn hours, plasma thrust hours; a leg must fit in what
-  is left) and meteoroids hole plasma radiators, cutting jet power. `consider_repair` overhauls at any port with
-  the spares (reactor fuel, machinery, electronics), 20 days in the yard.
+- **Boil-off in the planners:** a plan carries the hydrogen it expects to boil (`propellant_boiled_kg`, at the
+  leg's mean rate, `leg_boiloff_kg_per_day`); fuel on arrival, the return-fuel check and the mission's fuel cost
+  all count it. The audit's `Boil-off:` line counts nuclear-thermal arrivals short of the arrival burn or under
+  half the reserve.
+- **Wear:** drives use their rated life (nuclear-thermal cores 100 burn hours, plasma drives 10 full-power
+  years; a leg must fit in what is left) and meteoroids hole plasma radiators, cutting jet power.
+  `consider_repair` overhauls at any port with the spares: the wearing parts (`spares.csv`: fuel elements,
+  reactor fuel, power electronics, heat pipes) in goods at the port's price plus hours at the labour scale
+  (`overhaul_bill`), a few days in the yard. The planners price wear in (`wear_cr_per_propellant_kg` for
+  nuclear-thermal burns, `wear_cr_per_flight_day` for plasma thrust), so asks and contracts cover it.
 
 ## Fleet investment (`step_fleet_investment`)
 

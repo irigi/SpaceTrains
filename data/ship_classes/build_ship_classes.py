@@ -127,6 +127,67 @@ CABIN_TEMPERATURE_K = 295.0
 CABIN_RADIATOR_TEMPERATURE_K = 277.0  # estimate: ISS-style external ammonia loop, 2-6 C
 HOLD_M3_PER_CARGO_UNIT = 1.0      # game: one unit of cargo is about a cubic metre
 
+# Wearing and lasting parts (tier 2 follow-up, docs/plans/tier2_log.md). A part's price is
+# materials (commodities at base price) plus work. The parts that wear out are priced that way
+# from the economy's own goods and wages, so an overhaul that replaces them costs what they
+# cost; the parts that last the ship's life (pressure vessel, magnets, frames) carry the rest
+# of linopt's price: precision work, not goods.
+#   NTR fuel elements: 40% of the engine (estimate; NERVA-class cores were mostly fuel
+#   elements by mass); the game's reactor fuel is the finished element.
+#   Plasma drive: the fission reactor's fuel (10%) and its power conversion and RF electronics
+#   (15%, degraded by radiation) wear (estimates); magnets, nozzle and structure last.
+#   Radiators: the heat-pipe segments (50% of a panel, as before) wear; frames and manifolds last.
+# Hours per kg: a jet-engine shop visit takes ~1.25 h/kg (CFM56-7B: 2,500-3,500 h on a 2.4 t
+# engine, Safe Fly Aviation) and the game's yards are automated ten-fold (estimate):
+# 0.125 h/kg to fit a part; fabricating electronics or heat pipes from the goods 0.1 h/kg.
+ENGINE_WEAR_PARTS = {
+    "nuclear_thermal": [
+        {"kind": "fuel_elements", "name": "Reactor fuel elements", "mass_share": 0.40,
+         "materials": {"reactor_fuel": 1.0}, "fabrication_h_per_kg": 0.0, "install_h_per_kg": 0.125,
+         "grade": "nuclear_specialist"},
+    ],
+    "plasma": [
+        {"kind": "reactor_fuel_load", "name": "Reactor fuel load", "mass_share": 0.10,
+         "materials": {"reactor_fuel": 1.0}, "fabrication_h_per_kg": 0.0, "install_h_per_kg": 0.125,
+         "grade": "nuclear_specialist"},
+        {"kind": "power_electronics", "name": "Power conversion and RF electronics", "mass_share": 0.15,
+         "materials": {"electronics": 0.7, "machinery": 0.3}, "fabrication_h_per_kg": 0.1, "install_h_per_kg": 0.125,
+         "grade": "technician"},
+    ],
+}
+ENGINE_LASTING = {"nuclear_thermal": ("reactor_vessel", "Pressure vessel, turbopumps and nozzle"),
+                  "plasma": ("magnets_structure", "Magnets, nozzle and structure")}
+RADIATOR_WEAR_PARTS = [
+    {"kind": "heat_pipes", "name": "Heat-pipe segments", "mass_share": 0.50,
+     "materials": {"machinery": 1.0}, "fabrication_h_per_kg": 0.1, "install_h_per_kg": 0.125, "grade": "technician"},
+]
+RADIATOR_LASTING = ("panel_frame", "Panel frames and manifolds")
+SPARES_HEADER = ["kind", "wears_with", "grade", "fabrication_h_per_kg", "install_h_per_kg", "materials"]
+
+
+def _read_key_values(path: Path) -> dict[str, str]:
+    with path.open() as handle:
+        return {row["key"]: row["value"] for row in csv.DictReader(handle)}
+
+
+DATA_DIR = Path(__file__).resolve().parent.parent
+COMMODITY_CR_PER_KG = {}
+with (DATA_DIR / "commodities" / "commodities.csv").open() as _handle:
+    for _row in csv.DictReader(_handle):
+        COMMODITY_CR_PER_KG[_row["id"]] = float(_row["base_price"]) / float(_row["mass_per_unit_kg"])
+_LABOUR = _read_key_values(DATA_DIR / "economy" / "labour.csv")
+
+
+def wage_cr_per_hour(grade: str) -> float:
+    return float(_LABOUR["reference_wage_cr_per_day"]) * float(_LABOUR["grade." + grade]) / float(_LABOUR["shift_hours"])
+
+
+def wear_part_cr_per_kg(part: dict) -> float:
+    """Materials at base price plus fabricating and fitting them."""
+    materials = sum(share * COMMODITY_CR_PER_KG[good] for good, share in part["materials"].items())
+    return materials + (part["fabrication_h_per_kg"] + part["install_h_per_kg"]) * wage_cr_per_hour(part["grade"])
+
+
 COMPONENT_HEADER = ["class_id", "component_id", "parent_id", "kind", "name", "mass_kg", "price_cr",
                     "power_w", "heat_w", "temperature_k", "volume_m3", "area_m2", "capacity_kg",
                     "crew_capacity", "isp_s", "thrust_n"]
@@ -430,7 +491,34 @@ def components(b: Build) -> list[dict]:
                 child["heat_w"] = r["heat_w"]
                 child["temperature_k"] = CABIN_RADIATOR_TEMPERATURE_K
             out.append(child)
+    for key, wear_parts, lasting in (
+            ("engine", ENGINE_WEAR_PARTS["plasma" if plasma else "nuclear_thermal"],
+             ENGINE_LASTING["plasma" if plasma else "nuclear_thermal"]),
+            ("radiators", RADIATOR_WEAR_PARTS, RADIATOR_LASTING)):
+        if key not in rows:
+            continue
+        shares = {p["kind"]: p["mass_share"] for p in wear_parts}
+        shares[lasting[0]] = 1.0 - sum(shares.values())
+        child_mass = split_rounded(masses[key], shares)
+        for p in wear_parts:
+            out.append({"kind": p["kind"], "name": p["name"], "component_id": f"{key}.{p['kind']}", "parent_id": key,
+                        "mass_kg": child_mass[p["kind"]], "price_cr": round(child_mass[p["kind"]] * wear_part_cr_per_kg(p))})
+        worn_price = sum(c["price_cr"] for c in out if c["parent_id"] == key)
+        out.append({"kind": lasting[0], "name": lasting[1], "component_id": f"{key}.{lasting[0]}", "parent_id": key,
+                    "mass_kg": child_mass[lasting[0]], "price_cr": prices[key] - worn_price})
     return out
+
+
+def write_spares_csv(path: Path) -> None:
+    """What an overhaul replaces: the wearing parts, their goods, hours and grade."""
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(SPARES_HEADER)
+        for wears_with, parts in (("drive", ENGINE_WEAR_PARTS["nuclear_thermal"] + ENGINE_WEAR_PARTS["plasma"]),
+                                  ("radiators", RADIATOR_WEAR_PARTS)):
+            for p in parts:
+                writer.writerow([p["kind"], wears_with, p["grade"], p["fabrication_h_per_kg"], p["install_h_per_kg"],
+                                 ";".join(f"{good}={share}" for good, share in p["materials"].items())])
 
 
 def hull_slots(spec: ClassSpec) -> dict[str, int]:
@@ -559,9 +647,16 @@ def check(builds: list[Build]) -> None:
         assert sum(c["mass_kg"] for c in top) == round(b.dry_kg), b.id
         assert sum(c["price_cr"] for c in top) == int(round(b.value_cr, -2)), b.id
         habitat = next(c for c in top if c["kind"] == "habitat")
-        children = [c for c in parts if c["parent_id"] == "habitat"]
-        assert sum(c["mass_kg"] for c in children) == habitat["mass_kg"], b.id
-        assert sum(c["price_cr"] for c in children) == habitat["price_cr"], b.id
+        for parent in top:
+            children = [c for c in parts if c["parent_id"] == parent["component_id"]]
+            if parent["kind"] in ("habitat", "engine", "radiator"):
+                assert children, (b.id, parent["component_id"])
+            if children:
+                assert sum(c["mass_kg"] for c in children) == parent["mass_kg"], (b.id, parent["component_id"])
+                assert sum(c["price_cr"] for c in children) == parent["price_cr"], (b.id, parent["component_id"])
+                # The lasting part carries the precision work: it must cost more per kg than the goods.
+                assert all(c["price_cr"] > 0 for c in children), (b.id, parent["component_id"])
+        del habitat
     print(f"check: components of {len(builds)} classes add up")
 
 
@@ -608,6 +703,7 @@ def main() -> None:
         write_csv(variants, Path(__file__).with_name("ship_classes.csv"))
         write_components_csv(variants, Path(__file__).with_name("ship_components.csv"))
         write_modules_csv(nominal, Path(__file__).with_name("modules.csv"), Path(__file__).with_name("hull_slots.csv"))
+        write_spares_csv(Path(__file__).with_name("spares.csv"))
     summary(variants)
     if args.markdown:
         markdown(nominal)

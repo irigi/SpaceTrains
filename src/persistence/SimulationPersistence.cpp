@@ -422,6 +422,19 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("b{}|{}|{}|{};", env.boiloff, env.mli_flux_w_m2, env.mli_flux_exponent, env.cold_storage));
         mix(std::format("w{}|{}|{}|{}|{}|{};", env.wear, env.ntr_core_life_h, env.plasma_drive_life_h, env.puncture_flux_m2_yr,
             env.overhaul_wear, env.initial_wear_max));
+        mix(std::format("r{}|{}|{};", env.repair_team_size, env.repair_team_hours_per_day, env.min_repair_days));
+        std::map<std::string, double> grades(universe_.labour.grades.begin(), universe_.labour.grades.end());
+        mix(std::format("l{}|{};", universe_.labour.reference_wage_cr_per_day, universe_.labour.shift_hours));
+        for (const auto& [grade, multiple] : grades) {
+            mix(std::format("g{}|{};", grade, multiple));
+        }
+        std::map<std::string, domain::SparePartDefinition> spares(universe_.spare_parts.begin(), universe_.spare_parts.end());
+        for (const auto& [kind, part] : spares) {
+            mix(std::format("p{}|{}|{}|{}|{};", kind, part.wears_with, part.grade, part.fabrication_h_per_kg, part.install_h_per_kg));
+            for (const auto& [good, share] : part.materials) {
+                mix(std::format("q{}|{};", good, share));
+            }
+        }
         std::map<std::string, domain::StationRadiationDefinition> sorted(
             universe_.station_radiation.begin(), universe_.station_radiation.end());
         for (const auto& [station_id, radiation] : sorted) {

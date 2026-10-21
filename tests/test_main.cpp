@@ -1069,7 +1069,34 @@ int main() {
                 "a tier 2 game saved, loaded and continued should equal one that never stopped");
             require(env_saved.find("\"engine_wear\":0,") == std::string::npos || env_saved.find("\"engine_wear\":0.") != std::string::npos,
                 "the starting fleet should be of mixed ages");
+            // Overhauls (tier 2 follow-up): a worn-out core costs its fuel elements' goods plus the
+            // hours to fit them at the nuclear grade, which together are the elements' list price;
+            // the yard team needs at least the minimum days.
+            const auto& universe_on = env_straight.universe();
+            const auto& ntr = *std::find_if(universe_on.ship_classes.begin(), universe_on.ship_classes.end(),
+                [](const auto& c) { return c.id == "ntr_freighter"; });
+            const auto& elements = *std::find_if(ntr.components.begin(), ntr.components.end(),
+                [](const auto& c) { return c.kind == "fuel_elements"; });
+            const auto bill = env_straight.overhaul_bill(ntr, 1.0, 0.0);
+            require(bill.spares_units.size() == 1 && std::abs(bill.spares_units.at("reactor_fuel") - elements.mass_kg / 500.0) < 1e-9,
+                "a core overhaul should take the fuel elements as reactor fuel");
+            const double base_cost = bill.spares_units.at("reactor_fuel") * 400.0 + bill.labour_cr;
+            require(std::abs(base_cost - elements.price_cr) < 1.0, "the spares and labour at base prices should be the elements' price");
+            require(bill.labour_cr < 0.05 * base_cost, "with automated yards labour should be a small share of an overhaul");
+            require(bill.days >= universe_on.ship_environment.min_repair_days, "an overhaul takes at least the minimum days");
+            require(std::abs(env_straight.wear_cr_per_drive_hour(ntr) * universe_on.ship_environment.ntr_core_life_h - base_cost) < 1e-6,
+                "wear should be priced as a core life's overhaul per hour of burn");
+            require(env_straight.overhaul_bill(ntr, 0.0, 0.0).spares_units.empty(), "nothing worn, nothing replaced");
             std::filesystem::remove_all(root);
+        }
+        {
+            // With wear off no planner pays for it.
+            auto sim = spacetrains::simulation::Simulation::from_data_root(data_root,
+                [](spacetrains::domain::UniverseDefinition& u) { u.ship_environment.wear = false; });
+            for (const auto& c : sim.universe().ship_classes) {
+                require(sim.wear_cr_per_drive_hour(c) == 0.0 && sim.wear_cr_per_flight_day(c) == 0.0
+                        && sim.wear_cr_per_propellant_kg(c) == 0.0, "wear off should cost nothing");
+            }
         }
 
         // Tier 2 fits: a fitted ship loads, flies its derived design and saves back unchanged;

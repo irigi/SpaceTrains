@@ -5,6 +5,7 @@
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "math/Vec3d.hpp"
@@ -105,9 +106,36 @@ struct ShipModuleDefinition {
     std::unordered_map<std::string, double> effects;
 };
 
+// One wage scale for all work (data/economy/labour.csv): a reference wage and grades as its
+// multiples, from US BLS median-wage ratios (docs/ship_technology.md, "Labour").
+struct LabourDefinition {
+    double reference_wage_cr_per_day {0.5};
+    double shift_hours {8.0};
+    std::unordered_map<std::string, double> grades;  // grade -> multiple of the reference wage
+    [[nodiscard]] double wage_cr_per_day(const std::string& grade) const {
+        const auto it = grades.find(grade);
+        return it == grades.end() ? 0.0 : reference_wage_cr_per_day * it->second;
+    }
+    [[nodiscard]] double wage_cr_per_hour(const std::string& grade) const {
+        return wage_cr_per_day(grade) / shift_hours;
+    }
+};
+
+// A part that wears out (data/ship_classes/spares.csv, from the ship class builder): the
+// sub-part kind, what wears it (the drive's hours or meteoroids on the radiators), the goods
+// it is made of (shares of its mass), and the hours to make and fit it at a yard.
+struct SparePartDefinition {
+    std::string kind;
+    std::string wears_with;   // drive | radiators
+    std::string grade;
+    double fabrication_h_per_kg {0.0};
+    double install_h_per_kg {0.0};
+    std::vector<std::pair<std::string, double>> materials;  // commodity, share of the mass
+};
+
 // Fleet-wide operating parameters (data/economy/ship_operations.csv).
 struct ShipOperationsDefinition {
-    double wage_cr_per_crew_day {0.0};
+    double wage_cr_per_crew_day {0.0};   // the crew grade of the labour scale
     double interest_rate_per_year {0.0};
     double lifetime_years {30.0};
     // Tank refits at the home base: days in the yard, and the yard's bill as a fraction
@@ -167,29 +195,28 @@ struct ShipEnvironmentDefinition {
     // perishable_decay_factor times the ambient rate.
     bool cold_storage {false};
 
-    // Wear and repairs (step H). Nuclear-thermal cores are rated for ~10 h of full-power burn
-    // (NERVA's flight-engine goal: 10 h over 60 restarts); plasma drives for 50,000 h of thrust
-    // (estimate, like NASA's NEXT ion thruster qualification). Radiator heat pipes are holed by
+    // Wear and repairs (step H, revised). Nuclear-thermal cores are rated for 100 h of
+    // full-power burn (GE-710 CERMET fuel was qualified for 100 h at 2148 C; NERVA's 10 h was
+    // 1960s graphite fuel); plasma drives for 10 full-power years (electrodeless thrusters; the
+    // reactor limits life, as SP-100's 7-10 and JIMO's 10+ year goals). Radiator heat pipes are holed by
     // meteoroids of 1e-5 g and up (a 0.2 mm grain through a 1 mm wall at ~20 km/s): Grun et al.
     // 1985 give 0.146 per m2 per year at 1 AU, about r^-1.3 with distance; a hit kills one
     // 0.2 m2 segment, and 30% of a panel is pipe (estimates). A drive is overhauled when 70% of
-    // its life is used, radiators below 85%, at any port that has the spares: the core's fuel
-    // elements (reactor fuel, 40% of the engine mass), plasma drives machinery and electronics
-    // (30%), radiator panels machinery (50% of the lost panels), plus labour at the refit share.
+    // its life is used, radiators below 85%, at any port that has the spares: the wearing
+    // parts (spares.csv) in goods at the port's price, plus the hours to make and fit them at
+    // the labour scale; a team of 10 working two shifts, at least 3 days in the yard.
     bool wear {false};
-    double ntr_core_life_h {10.0};
-    double plasma_drive_life_h {50000.0};
+    double ntr_core_life_h {100.0};
+    double plasma_drive_life_h {87600.0};
     double puncture_flux_m2_yr {0.146};
     double puncture_flux_exponent {1.3};
     double radiator_vulnerable_fraction {0.3};
     double radiator_segment_m2 {0.2};
     double overhaul_wear {0.7};
     double radiator_repair_condition {0.85};
-    double repair_labour_fraction {0.3};
-    double core_spares_fraction {0.4};
-    double drive_spares_fraction {0.3};
-    double radiator_spares_fraction {0.5};
-    double repair_days {20.0};
+    double repair_team_size {10.0};
+    double repair_team_hours_per_day {16.0};
+    double min_repair_days {3.0};
     double initial_wear_max {0.5};   // the starting fleet is of mixed ages
 };
 
@@ -400,6 +427,8 @@ struct UniverseDefinition {
     std::vector<ShipClassDefinition> ship_classes;
     std::vector<ShipModuleDefinition> ship_modules;
     ShipEnvironmentDefinition ship_environment;
+    LabourDefinition labour;
+    std::unordered_map<std::string, SparePartDefinition> spare_parts;  // by sub-part kind
     std::unordered_map<std::string, StationRadiationDefinition> station_radiation;
     // Module slots by hull id and slot (data/ship_classes/hull_slots.csv).
     std::unordered_map<std::string, std::unordered_map<std::string, int>> hull_slots;
