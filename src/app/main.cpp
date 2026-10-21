@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "domain/ShipDesign.hpp"
 #include "celestial/CelestialMechanics.hpp"
 #include "economy/EconomySystem.hpp"
 #include "simulation/Simulation.hpp"
@@ -488,7 +489,8 @@ void print_economy_audit(
         const auto& l = ship.ledger;
         std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}{}{}\n",
             ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
-            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id,
+            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends,
+            ship.fit.empty() ? ship.class_id : spacetrains::domain::design_id(ship.class_id, ship.fit),
             ship.commissioned_s > 0.0
                 ? std::format("  (new day {:.0f}, {} -> {} until day {:.0f})", ship.commissioned_s / 86400.0,
                       ship.route_commodity_id, ship.route_destination_id, ship.route_until_s / 86400.0)
@@ -509,6 +511,20 @@ void print_economy_audit(
         "  provisions {:.0f}  refits {:.0f}  dividends {:.0f}  -> {}/{} ships profitable\n",
         fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
         fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, all_ships.size());
+    // Tier 2: how many ships in service fly each module (printed once any ship is fitted).
+    std::map<std::string, int> module_census;
+    for (const auto& ship : snap.ships) {
+        for (const auto& module : ship.fit) {
+            ++module_census[module];
+        }
+    }
+    if (!module_census.empty()) {
+        std::string line;
+        for (const auto& [module, count] : module_census) {
+            line += std::format("{}{} {}", line.empty() ? "" : ", ", module, count);
+        }
+        std::cout << std::format("    Fits: {}\n", line);
+    }
     // Scheduled liners (step 22): their loop, where they are, what they earned and the top-ups.
     for (const auto& ship : snap.ships) {
         const auto loop = universe.liners.find(ship.id);

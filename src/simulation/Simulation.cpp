@@ -196,6 +196,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .name = seed.name,
             .faction_id = seed.faction_id,
             .class_id = seed.class_id,
+            .fit = {},
             .home_station_id = seed.home_station_id,
             .current_station_id = seed.start_station_id,
             .phase = domain::ShipMissionPhase::Idle,
@@ -343,6 +344,69 @@ const domain::ShipModuleDefinition* Simulation::find_module(const std::string& h
     return it == modules_by_key_.end() ? nullptr : it->second;
 }
 
+bool Simulation::module_has_active_effect(const domain::ShipModuleDefinition& module) const {
+    for (const auto& [effect, value] : module.effects) {
+        if (value != 0.0 && active_effects_.contains(effect)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<Simulation::FitOption> Simulation::neighbouring_fits(
+    const std::string& class_id, const std::vector<std::string>& fit) {
+    const auto& current = get_ship_class(class_id);
+    std::vector<FitOption> options;
+    const auto add = [&](const std::string& option_class, std::vector<std::string> option_fit) {
+        try {
+            const auto& design = register_design(option_class, option_fit);
+            options.push_back({.design = &design, .class_id = option_class, .fit = std::move(option_fit)});
+        } catch (const std::runtime_error&) {
+            // The fit does not suit this hull (slots full): not an option.
+        }
+    };
+    // Only the neighbouring tank sizes: larger steps take several refits.
+    const domain::ShipClassDefinition* next_smaller = nullptr;
+    const domain::ShipClassDefinition* next_larger = nullptr;
+    for (const auto& other : universe_.ship_classes) {
+        if (other.hull_id != current.hull_id) {
+            continue;
+        }
+        const double tank_kg = other.propellant_capacity_kg;
+        if (tank_kg < current.propellant_capacity_kg
+            && (next_smaller == nullptr || tank_kg > next_smaller->propellant_capacity_kg)) {
+            next_smaller = &other;
+        }
+        if (tank_kg > current.propellant_capacity_kg
+            && (next_larger == nullptr || tank_kg < next_larger->propellant_capacity_kg)) {
+            next_larger = &other;
+        }
+    }
+    for (const auto* tank : {next_smaller, next_larger}) {
+        if (tank != nullptr) {
+            add(tank->id, fit);
+        }
+    }
+    for (const auto& module : universe_.ship_modules) {
+        if (module.hull_id != current.hull_id) {
+            continue;
+        }
+        const bool fitted = std::find(fit.begin(), fit.end(), module.id) != fit.end();
+        if (fitted) {
+            std::vector<std::string> without;
+            std::copy_if(fit.begin(), fit.end(), std::back_inserter(without),
+                [&](const auto& id) { return id != module.id; });
+            add(class_id, std::move(without));
+        } else if (module_has_active_effect(module)) {
+            auto with = fit;
+            with.push_back(module.id);
+            std::sort(with.begin(), with.end());
+            add(class_id, std::move(with));
+        }
+    }
+    return options;
+}
+
 const domain::ShipClassDefinition& Simulation::register_design(
     const std::string& class_id, const std::vector<std::string>& fit) {
     const auto& base = get_ship_class(class_id);
@@ -381,6 +445,7 @@ const domain::ShipClassDefinition& Simulation::register_design(
     }
     auto design = domain::derive_design(base, parts, key);
     design.name = base.name + " [" + names + "]";
+    design.base_class_id = base.id;
     design.fit = std::move(sorted);
     design.effects = std::move(effects);
     return designs_.emplace(key, std::move(design)).first->second;
@@ -3045,37 +3110,20 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
     // score is not a profit, and such a ship has no paying work here either).
     const double current_score = current.kind == MissionChoice::Kind::Mission ? std::max(0.0, current.score) : 0.0;
 
-    // Only the neighbouring tank sizes: larger steps take several refits.
-    const domain::ShipClassDefinition* next_smaller = nullptr;
-    const domain::ShipClassDefinition* next_larger = nullptr;
-    for (const auto& other : universe_.ship_classes) {
-        if (other.hull_id != ship_class.hull_id) {
-            continue;
-        }
-        const double tank_kg = other.propellant_capacity_kg;
-        if (tank_kg < ship_class.propellant_capacity_kg
-            && (next_smaller == nullptr || tank_kg > next_smaller->propellant_capacity_kg)) {
-            next_smaller = &other;
-        }
-        if (tank_kg > ship_class.propellant_capacity_kg
-            && (next_larger == nullptr || tank_kg < next_larger->propellant_capacity_kg)) {
-            next_larger = &other;
-        }
-    }
-
+    // One yard visit: the next tank size either way, or one module in or out.
+    const auto options = neighbouring_fits(ship.class_id, ship.fit);
+    const FitOption* best_option = nullptr;
     const domain::ShipClassDefinition* best_class = nullptr;
     double best_gain = 0.0;
-    for (const auto* candidate_ptr : {next_smaller, next_larger}) {
-        if (candidate_ptr == nullptr) {
-            continue;
-        }
-        const auto& candidate = *candidate_ptr;
+    for (const auto& fit_option : options) {
+        const auto& candidate = *fit_option.design;
         const double bill = refit_bill(ship_class, candidate);
         if (ship.credits - bill < -credit_line(candidate)) {
             continue;
         }
         domain::ShipState probe = ship;
-        probe.class_id = candidate.id;
+        probe.class_id = fit_option.class_id;
+        probe.fit = fit_option.fit;
         probe.propellant_kg = std::min(ship.propellant_kg, candidate.propellant_capacity_kg);
         // Scored on departures after the yard is done: launch windows close meanwhile.
         const auto option = choose_mission(probe, candidate, trace, game_time_s_ + refit_days * 86400.0);
@@ -3092,6 +3140,7 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
         if (gain > best_gain) {
             best_gain = gain;
             best_class = &candidate;
+            best_option = &fit_option;
         }
     }
     if (best_class == nullptr) {
@@ -3126,7 +3175,8 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
     ship.lifetime_profit -= bill;
     ship.ledger.refits += bill;
     yard.credits += bill;
-    ship.refit_class_id = best_class->id;
+    ship.refit_class_id = best_option->class_id;
+    ship.refit_fit = best_option->fit;
     ship.refit_done_s = game_time_s_ + refit_days * 86400.0;
     // The refit was justified by a payback period of better missions: give it that long
     // before reconsidering, or ships swap tanks back and forth on each new forecast.
@@ -4071,7 +4121,8 @@ Simulation::CommissionStep Simulation::commission_step() {
             .id = "probe",
             .name = "probe",
             .faction_id = yard.faction_id,
-            .class_id = ship_class.id,
+            .class_id = ship_class.base_class_id.empty() ? ship_class.id : ship_class.base_class_id,
+            .fit = ship_class.fit,
             .home_station_id = yard.id,
             .current_station_id = yard.id,
             .phase = domain::ShipMissionPhase::Idle,
@@ -4455,6 +4506,15 @@ Simulation::CommissionStep Simulation::commission_step() {
                 variants.push_back(&variant);
             }
         }
+        // And the standard tanks with each module that does something (tier 2).
+        for (const auto& module : universe_.ship_modules) {
+            if (module.hull_id == hull->id && module_has_active_effect(module)) {
+                const auto& fitted = register_design(hull->id, {module.id});
+                if (fitted.ship_value_cr + investment.working_capital <= richest_treasury) {
+                    variants.push_back(&fitted);
+                }
+            }
+        }
         variant_ships.reserve(variants.size());
         std::vector<MissionRequest> requests;
         for (const auto* variant : variants) {
@@ -4522,6 +4582,7 @@ Simulation::CommissionStep Simulation::commission_step() {
     // Built in the home yard: the refit machinery launches it when the build is done.
     ship.phase = domain::ShipMissionPhase::Refitting;
     ship.refit_class_id = ship.class_id;
+    ship.refit_fit = ship.fit;
     ship.refit_done_s = game_time_s_ + investment.build_days * 86400.0;
     // Like a refit, the tank choice holds for the payback period before it is reconsidered.
     ship.next_refit_review_s = ship.refit_done_s + REFIT_PAYBACK_DAYS * 86400.0;

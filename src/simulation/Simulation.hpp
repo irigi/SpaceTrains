@@ -114,6 +114,18 @@ private:
     // hull cannot take (unknown module, slots overfilled, a module twice).
     const domain::ShipClassDefinition& register_design(const std::string& class_id, const std::vector<std::string>& fit);
     [[nodiscard]] const domain::ShipModuleDefinition* find_module(const std::string& hull_id, const std::string& module_id) const;
+    // A module is offered at refits and to new ships only if one of its effects is switched on
+    // (data/economy/ship_environment.csv): an inert module only adds mass.
+    [[nodiscard]] bool module_has_active_effect(const domain::ShipModuleDefinition& module) const;
+    // A refit or build option: a class (tank variant) and the modules fitted with it.
+    struct FitOption {
+        const domain::ShipClassDefinition* design {nullptr};
+        std::string class_id;
+        std::vector<std::string> fit;
+    };
+    // The fits one yard visit can reach from class_id + fit: the next tank size either way, and
+    // one module added (into a free slot) or removed. Registers the designs (serial code only).
+    std::vector<FitOption> neighbouring_fits(const std::string& class_id, const std::vector<std::string>& fit);
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
@@ -444,6 +456,7 @@ private:
     // from data and fits only, never saved.
     std::map<std::string, domain::ShipClassDefinition> designs_;
     std::unordered_map<std::string, const domain::ShipModuleDefinition*> modules_by_key_;  // "hull|module"
+    std::unordered_set<std::string> active_effects_;  // module effect keys switched on
 };
 
 }  // namespace spacetrains::simulation

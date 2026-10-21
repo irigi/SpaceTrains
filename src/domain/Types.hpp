@@ -87,7 +87,9 @@ struct ShipClassDefinition {
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
     std::vector<ShipComponentDefinition> components;  // in file order, parents before their parts
-    // Fitted designs only (tier 2): the modules and the sum of their effects by key.
+    // Fitted designs only (tier 2): the class they derive from, the modules and the sum of
+    // their effects by key.
+    std::string base_class_id;
     std::vector<std::string> fit;
     std::unordered_map<std::string, double> effects;
 };
