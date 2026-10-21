@@ -234,6 +234,23 @@ price: precision work on hardware no generic good stands for (an NTR's pressure 
 economy's chips and boards, not a finished drive. An overhaul replaces the worn share of the wearing parts, so at
 base prices a whole core's overhaul costs exactly its fuel elements' price.
 
+### Passengers (added 2026-10-21, `docs/plans/passengers.md`)
+
+Values in `data/economy/passengers.csv` and the ship class builder.
+
+| Quantity | Value | Status, source |
+|---|---|---|
+| Cabin per berth | 2.5 t at 1,000 $/kg, plus 0.5 t of shared structure and life support at 1,500 $/kg | sourced: the user's linopt fare study (`passenger_ticket_optimizer.py` defaults: 2,500 kg per passenger, 300 t for 600); the shared part per berth is an estimate |
+| Volume and heat per berth | ~18 m³, 3.2 kW | estimates: the Deep Space Habitat's pressurized volume per kg; a crew member's heat |
+| Consumables | 2 kg per passenger-day | sourced: linopt |
+| Body and luggage | 100 kg | sourced: EASA 2009 standard passenger masses (~84 kg adult plus baggage) |
+| Reconditioning after flight | 0.25 days per day in free fall | derived: NASA's 45-day post-flight reconditioning after ~6-month ISS flights (NTRS 20110020318) |
+| Fare elasticity | −1 | sourced range: IATA/InterVISTAS 2007, −0.8 (national, long haul) to −1.4 (route) |
+| Rotating staff | 3% of each off-Earth station's people, at the engineer grade | estimate |
+| Hardship premium | 0.2 of the wage per year of tour | estimate; tours from it are checked against the ISS's 6 months and the Antarctic winter-over's 12-14 months |
+| Discretionary trips | 0.05 per person-year at a cost of a year's income; Earth weighs 100,000 people; stays of 90 days | estimates |
+| Radiation | passengers take the crew's per-leg limit (1 Sv) and value dose at the hazard rate (0.43 cr/mSv) | as crews |
+
 ### Open questions for the user
 
 1. Variable-Isp hardware: Set A (recommended) or Set B?

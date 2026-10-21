@@ -420,6 +420,11 @@ Json station_to_json(const domain::StationState& s) {
         waiting.push(passenger_group_to_json(group));
     }
     out.set("waiting", std::move(waiting));
+    auto visiting = Json::array();
+    for (const auto& group : s.visiting) {
+        visiting.push(passenger_group_to_json(group));
+    }
+    out.set("visiting", std::move(visiting));
     return out;
 }
 
@@ -469,6 +474,9 @@ domain::StationState station_from_json(const Json& j) {
     }
     for (const auto& group : j.get("waiting").items()) {
         s.waiting.push_back(passenger_group_from_json(group));
+    }
+    for (const auto& group : j.get("visiting").items()) {
+        s.visiting.push_back(passenger_group_from_json(group));
     }
     return s;
 }

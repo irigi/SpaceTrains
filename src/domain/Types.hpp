@@ -352,7 +352,7 @@ struct PassengerDefinition {
     double hardship_per_year {0.2};             // eta: tour premium, share of the wage per year of tour
     double resident_wage_multiple {1.0};        // migrants' and visitors' value of time, x reference wage
     double visit_trips_per_person_year {0.05};  // discretionary trips (estimate)
-    double earth_population_weight {1.0e6};     // Earth's weight in the gravity model (estimate)
+    double earth_population_weight {1.0e5};     // Earth's weight in the gravity model (estimate)
     double fare_elasticity {-1.0};              // IATA/InterVISTAS 2007: -0.8 (national) to -1.4 (route)
     double demand_bands {4.0};
     double band_ratio {2.0};                    // each band's maximum cost x this the next one's
@@ -815,6 +815,8 @@ struct StationState {
     std::vector<ActiveEvent> events {};
     // People waiting here for a ship (passengers), in the order their groups formed.
     std::vector<PassengerGroup> waiting {};
+    // Visitors staying here until they go home (since_s: when they leave for the ship).
+    std::vector<PassengerGroup> visiting {};
 };
 
 struct SimulationSnapshot {

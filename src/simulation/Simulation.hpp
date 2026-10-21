@@ -180,6 +180,16 @@ public:
     // fare that clears the berths when demand exceeds them.
     [[nodiscard]] double expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
         double demand_per_trip, double berths) const;
+    // Rotation (step 4): each off-Earth station's tour, which minimises its cost per day on site,
+    // T* = sqrt(C x 365 / (eta x wage)), C the round trip's fares, time and dose; and the fares
+    // per position-day it costs. From the reference fares; empty without rotation.
+    struct RotationTour {
+        std::string out_gateway;
+        std::string home_gateway;
+        double tour_days {0.0};
+        double fares_per_day {0.0};   // per position
+    };
+    [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return rotation_tours_; }
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
     // The design a ship flies with: its class, or with modules fitted (tier 2,
@@ -437,6 +447,13 @@ private:
     // --- Passengers (src/simulation/Passengers.cpp, docs/plans/passengers.md) ---
     [[nodiscard]] bool passengers_on() const { return universe_.passengers.enabled != 0.0; }
     [[nodiscard]] bool migration_by_ship() const { return passengers_on() && universe_.passengers.migration != 0.0; }
+    [[nodiscard]] bool rotation_on() const { return passengers_on() && universe_.passengers.rotation != 0.0; }
+    [[nodiscard]] bool visits_on() const { return passengers_on() && universe_.passengers.discretionary != 0.0; }
+    // Discretionary trips (step 5) per day origin -> destination at reference cost: a gravity
+    // model, visit_trips_per_person_year x the origin's people x the destination's share of the
+    // others, deterred by the trip's cost against a year's income (elasticity). Earth weighs in
+    // as earth_population_weight, shared by its gateways. 0 without a fare both ways.
+    [[nodiscard]] double visitor_trips_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] bool is_earth_gateway(const std::string& station_id) const;
     // What a person and their consumables weigh over a leg of `days`.
     [[nodiscard]] double passenger_kg(double days) const;
@@ -450,9 +467,13 @@ private:
     [[nodiscard]] double reference_cost_cr(const std::string& origin_id, const std::string& destination_id,
         double value_of_time) const;
     // Adds `count` people who want to travel at reference cost, spread over the demand bands
-    // (fare elasticity): more come if trips are cheaper, fewer if dearer.
+    // (fare elasticity): more come if trips are cheaper, fewer if dearer. `fixed`: exactly
+    // `count` people travel (a relief, a worker going home), their budgets spread the same way.
     void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
-        const std::string& work_station_id, double count, double dose_msv = 0.0);
+        const std::string& work_station_id, double count, bool fixed = false);
+    void compute_rotation_tours();
+    [[nodiscard]] const RotationTour* rotation_tour(const std::string& station_id) const;
+    [[nodiscard]] double rotation_positions(const domain::StationState& station) const;
     // The Earth gateway with the cheapest reference trip to or from a station.
     [[nodiscard]] const std::string& gateway_for(const std::string& station_id, bool to_station) const;
     // People already waiting for, or flying to, a station of this kind.
@@ -469,6 +490,7 @@ private:
         double revenue_cr {0.0};
         double marginal_cr {0.0};   // provisions of those aboard (the propellant is in the plan)
         double mass_kg {0.0};
+        double time_cr_per_day {0.0};  // what a day aboard costs them (time and dose): the planner's too
     };
     [[nodiscard]] PassengerOffer passenger_offer(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
         const domain::StationState& origin, const domain::StationDefinition& destination, double days,
@@ -609,6 +631,7 @@ private:
     double delivered_paid_cr_ {0.0};       // audit only, not saved
     RadiationAudit radiation_audit_;       // audit only, not saved
     PassengerAudit passenger_audit_;       // audit only, not saved
+    std::map<std::string, RotationTour> rotation_tours_;  // from data, not saved
     mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache_;  // time, AU
     double delivered_reference_cr_ {0.0};
     bool trajectory_audit_enabled_ {false};

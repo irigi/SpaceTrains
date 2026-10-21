@@ -209,9 +209,18 @@ void print_station_inventories(
 // Passengers (docs/plans/passengers.md): who travelled, what they paid, who is still waiting.
 void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe,
-    const spacetrains::simulation::Simulation::PassengerAudit& audit) {
+    const spacetrains::simulation::Simulation::PassengerAudit& audit,
+    const std::map<std::string, spacetrains::simulation::Simulation::RotationTour>& tours) {
     if (universe.passengers.enabled == 0.0) {
         return;
+    }
+    if (!tours.empty()) {
+        std::string line;
+        for (const auto& [station_id, tour] : tours) {
+            line += std::format("{}{} {:.0f} d ({:.2f} cr/day)", line.empty() ? "" : ", ", station_id, tour.tour_days,
+                tour.fares_per_day);
+        }
+        std::cout << "    Rotation tours (fares per position-day): " << line << "\n";
     }
     using spacetrains::simulation::Simulation;
     std::array<double, 6> waiting {};
@@ -1252,7 +1261,7 @@ int main(int argc, char** argv) {
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
                 print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
-                print_passenger_audit(snap, sim.universe(), sim.passenger_audit());
+                print_passenger_audit(snap, sim.universe(), sim.passenger_audit(), sim.rotation_tours());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {

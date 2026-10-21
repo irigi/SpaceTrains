@@ -88,7 +88,8 @@ double Simulation::reference_cost_cr(const std::string& origin_id, const std::st
 }
 
 void Simulation::post_travellers(domain::StationState& origin, domain::PassengerKind kind,
-    const std::string& destination_id, const std::string& work_station_id, double count, double dose_msv) {
+    const std::string& destination_id, const std::string& work_station_id, double count, bool fixed) {
+    const double dose_msv = 0.0;
     if (count <= 0.0) {
         return;
     }
@@ -103,10 +104,12 @@ void Simulation::post_travellers(domain::StationState& origin, domain::Passenger
     // maximum m_k = reference x ratio^(k-1) and the next band's.
     const int bands = std::max(1, static_cast<int>(pax.demand_bands));
     const auto share_above = [&](double multiple) { return std::pow(multiple, pax.fare_elasticity); };
+    // A fixed number of travellers is spread over the bands in the same proportions.
+    const double scale = fixed ? 1.0 / share_above(std::pow(pax.band_ratio, -1.0)) : 1.0;
     for (int band = 0; band < bands; ++band) {
         const double multiple = std::pow(pax.band_ratio, band - 1);
         const double share = share_above(multiple) - (band + 1 < bands ? share_above(multiple * pax.band_ratio) : 0.0);
-        const double people = count * share;
+        const double people = count * share * scale;
         if (people <= 0.0) {
             continue;
         }
@@ -171,8 +174,84 @@ double Simulation::travellers_pending(const std::string& station_id, domain::Pas
     return pending;
 }
 
+void Simulation::compute_rotation_tours() {
+    rotation_tours_.clear();
+    if (!rotation_on()) {
+        return;
+    }
+    const auto& pax = universe_.passengers;
+    const auto& env = universe_.ship_environment;
+    const double wage = value_of_time_cr_per_day(domain::PassengerKind::RotationOut);
+    const double dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
+    for (const auto& station : universe_.stations) {
+        if (is_earth_gateway(station.id)) {
+            continue;
+        }
+        const auto& out_gateway = gateway_for(station.id, true);
+        const auto& home_gateway = gateway_for(station.id, false);
+        const auto* out = reference_fare(out_gateway, station.id);
+        const auto* home = reference_fare(station.id, home_gateway);
+        if (out == nullptr || home == nullptr || wage <= 0.0) {
+            continue;  // no trip there or back: no rotation (the staff settle)
+        }
+        const double round_trip = out->fare_cr + home->fare_cr + passenger_nonfare_cr(wage, out->days, dose_rate)
+            + passenger_nonfare_cr(wage, home->days, dose_rate);
+        const double tour_days = std::sqrt(round_trip * 365.0 / (pax.hardship_per_year * wage));
+        rotation_tours_[station.id] = {
+            .out_gateway = out_gateway,
+            .home_gateway = home_gateway,
+            .tour_days = tour_days,
+            .fares_per_day = (out->fare_cr + home->fare_cr) / tour_days,
+        };
+    }
+}
+
+const Simulation::RotationTour* Simulation::rotation_tour(const std::string& station_id) const {
+    const auto it = rotation_tours_.find(station_id);
+    return it == rotation_tours_.end() ? nullptr : &it->second;
+}
+
+double Simulation::rotation_positions(const domain::StationState& station) const {
+    return universe_.passengers.rotation_share * station.population;
+}
+
+double Simulation::visitor_trips_per_day(const std::string& origin_id, const std::string& destination_id) const {
+    if (!visits_on() || origin_id == destination_id || (is_earth_gateway(origin_id) && is_earth_gateway(destination_id))
+        || reference_fare(origin_id, destination_id) == nullptr || reference_fare(destination_id, origin_id) == nullptr) {
+        return 0.0;
+    }
+    const auto& pax = universe_.passengers;
+    const double gateways = static_cast<double>(pax.earth_gateways.size());
+    const auto people = [&](const std::string& station_id) {
+        return is_earth_gateway(station_id) ? pax.earth_population_weight / gateways
+                                            : get_station_state(station_id).population;
+    };
+    double others = 0.0;
+    for (const auto& station : universe_.stations) {
+        if (station.id != origin_id && !(is_earth_gateway(origin_id) && is_earth_gateway(station.id))) {
+            others += people(station.id);
+        }
+    }
+    if (others <= 0.0) {
+        return 0.0;
+    }
+    const double vot = value_of_time_cr_per_day(domain::PassengerKind::Visitor);
+    const double year_of_income = 365.0 * vot;
+    const double deterrence = std::pow(reference_cost_cr(origin_id, destination_id, vot) / year_of_income, pax.fare_elasticity);
+    return pax.visit_trips_per_person_year / 365.0 * people(origin_id) * people(destination_id) / others * deterrence;
+}
+
 double Simulation::passenger_flow_per_day(const std::string& origin_id, const std::string& destination_id) const {
     double flow = 0.0;
+    // Visitors out, and visitors from there going home.
+    flow += visitor_trips_per_day(origin_id, destination_id) + visitor_trips_per_day(destination_id, origin_id);
+    // Rotation: reliefs out to a station and the relieved home, one per position and tour.
+    if (const auto* tour = rotation_tour(destination_id); tour != nullptr && tour->out_gateway == origin_id) {
+        flow += rotation_positions(get_station_state(destination_id)) / tour->tour_days;
+    }
+    if (const auto* tour = rotation_tour(origin_id); tour != nullptr && tour->home_gateway == destination_id) {
+        flow += rotation_positions(get_station_state(origin_id)) / tour->tour_days;
+    }
     if (migration_by_ship()) {
         const auto& growth = universe_.growth;
         const double floor_credits = universe_.open_economy.station_credit_floor;
@@ -221,9 +300,41 @@ double Simulation::expected_fare_cr(const std::string& origin_id, const std::str
 }
 
 void Simulation::step_passengers(double dt_s) {
+    const double dt_days = dt_s / 86400.0;
+    // Rotation: each position is relieved once a tour. The station pays, so it sends for a
+    // relief only while it can (above its credit floor by the fare); otherwise tours run long.
+    for (const auto& [station_id, tour] : rotation_tours_) {
+        auto& station = get_station_state(station_id);
+        const auto* fare = reference_fare(tour.out_gateway, station_id);
+        if (station.credits < universe_.open_economy.station_credit_floor + fare->fare_cr) {
+            continue;
+        }
+        post_travellers(get_station_state(tour.out_gateway), domain::PassengerKind::RotationOut, station_id, station_id,
+            rotation_positions(station) / tour.tour_days * dt_days, true);
+    }
+    // Discretionary trips: posted at the origin; visitors whose stay is over head home.
+    if (visits_on()) {
+        for (auto& origin : stations_) {
+            for (const auto& destination : universe_.stations) {
+                const double trips = visitor_trips_per_day(origin.station_id, destination.id) * dt_days;
+                if (trips > 0.0) {
+                    post_travellers(origin, domain::PassengerKind::Visitor, destination.id, origin.station_id, trips);
+                }
+            }
+        }
+        for (auto& station : stations_) {
+            std::erase_if(station.visiting, [&](const domain::PassengerGroup& stay) {
+                if (stay.since_s > game_time_s_) {
+                    return false;
+                }
+                post_travellers(station, domain::PassengerKind::VisitorHome, stay.destination_id, stay.destination_id,
+                    stay.count, true);
+                return true;
+            });
+        }
+    }
     // Waiting costs time: a person whose budget the wait would use up leaves the queue. In
     // expectation the group thins at value of time / highest cost per day.
-    const double dt_days = dt_s / 86400.0;
     for (auto& station : stations_) {
         for (auto& group : station.waiting) {
             const double rate = group.max_cost_cr > 0.0 ? group.value_of_time_cr_per_day / group.max_cost_cr : 1.0;
@@ -322,6 +433,7 @@ Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& 
         offer.people += count;
         offer.revenue_cr += count * fare;
         offer.marginal_cr += count * provisions_per_day * days;
+        offer.time_cr_per_day += count * passenger_nonfare_cr(origin.waiting[candidate.group].value_of_time_cr_per_day, 1.0, dose_rate);
     }
     offer.mass_kg = offer.people * passenger_kg(days);
     return offer;
@@ -350,7 +462,7 @@ void Simulation::board_passengers(domain::ShipState& ship, domain::StationState&
         ship.credits += fares;
         ship.lifetime_profit += fares;
         ship.ledger.fares += fares;
-        if (group.kind == domain::PassengerKind::Emigrant) {
+        if (group.kind == domain::PassengerKind::Emigrant || group.kind == domain::PassengerKind::RotationHome) {
             origin.population = std::max(0.0, origin.population - count);
             economy_.set_population(origin.station_id, origin.population);
         }
@@ -391,9 +503,26 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
         const auto kind = static_cast<std::size_t>(lot.kind);
         passenger_audit_.landed[kind] += lot.count;
         passenger_audit_.flight_days[kind] += lot.count * std::max(0.0, game_time_s_ - lot.boarded_s) / 86400.0;
-        if (lot.kind == domain::PassengerKind::Migrant) {
+        if (lot.kind == domain::PassengerKind::Migrant || lot.kind == domain::PassengerKind::RotationOut) {
             destination.population += lot.count;
             economy_.set_population(destination.station_id, destination.population);
+        }
+        if (lot.kind == domain::PassengerKind::Visitor) {
+            // Visitors stay a while, then go home (a stay per arrival).
+            destination.visiting.push_back({
+                .kind = domain::PassengerKind::VisitorHome,
+                .destination_id = lot.origin_id,
+                .work_station_id = lot.origin_id,
+                .count = lot.count,
+                .since_s = game_time_s_ + universe_.passengers.visit_days * 86400.0,
+            });
+        }
+        if (lot.kind == domain::PassengerKind::RotationOut) {
+            // Each relief sends one worker home, at the station's expense.
+            if (const auto* tour = rotation_tour(destination.station_id); tour != nullptr) {
+                post_travellers(destination, domain::PassengerKind::RotationHome, tour->home_gateway,
+                    destination.station_id, lot.count, true);
+            }
         }
     }
     double people = 0.0;

@@ -1184,8 +1184,10 @@ int main() {
                     change += station.population - population_before[station.station_id];
                 }
             }
-            require_near(change, audit.landed[migrant] - audit.boarded[emigrant], 1e-6,
-                "populations off Earth should change by the settlers landed less the emigrants who left");
+            const auto relief = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationOut);
+            const auto relieved = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationHome);
+            require_near(change, audit.landed[migrant] + audit.landed[relief] - audit.boarded[emigrant] - audit.boarded[relieved],
+                1e-6, "populations off Earth should change by the people landed less those who left");
             std::filesystem::remove_all(root);
         }
 

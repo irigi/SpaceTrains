@@ -27,9 +27,11 @@ decisions to review: `docs/plans/overnight_2026-10-19.md`. Also fixed: a rare pl
 planner caches that broke exact save/load. Reviewed 2026-10-20: y2 kept, Lunar Gateway metals and water output
 +50% (unmet 0.6%, price 1.50× the reference), fleet cap 130; merged to `main`.
 
-Branch `feature/ship_structures_tier2` (from `main` at `ea7fede`, 2026-10-21: tier 2 ship structures,
-plan below under "Ship structures") (solo repo: commit on the branch, push only when asked). `main` holds
-every earlier branch: market redesign (PR #14), key bindings help (PR #15), close-zoom camera (PR #16).
+Branch `feature/passengers` (from `main` at `5442d96`, 2026-10-21; plan `docs/plans/passengers.md`, decisions
+and results to review in `docs/plans/passengers_log.md`): settlers, rotation and visitors travel by ship
+(`data/economy/passengers.csv`, off in data until reviewed); the UI is still to do. `main` holds every earlier
+branch: market redesign (PR #14), key bindings help (PR #15), close-zoom camera (PR #16), tier 2 ship
+structures (PR #17).
 Older history: part C tank refits (v25) through mixed cargo (v37) and the overnight steps 9-13, in git history.
 
 ### Decisions so far
@@ -174,7 +176,7 @@ Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in 
   Habitat, hold, structure) with mass, price, power, heat, temperature, volume and area in
   `ship_components.csv`; they add up exactly to the class, so the simulation is unchanged. Inspector "Ship
   systems" section, `<snapshot>.designs` bridge file, `Simulation::ship_design()` seam.
-- **Tier 2, built 2026-10-21, awaiting the user's review** (branch `feature/ship_structures_tier2`, plan
+- **Tier 2, built 2026-10-21, reviewed and merged (PR #17)** (plan
   `docs/plans/ship_structures_tier2.md`, decisions to review in `docs/plans/tier2_log.md`): designs derived in
   C++, modules fitted as refits (storm shelter, cold hold, 90 K tank shield, 20 K cryocooler), crew radiation
   (leg limit at the 1 Sv career limit, hazard pay 0.43 cr/mSv), hydrogen boil-off in flight, drive life and

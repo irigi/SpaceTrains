@@ -87,6 +87,44 @@ Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/pla
   (`overhaul_bill`), a few days in the yard. The planners price wear in (`wear_cr_per_propellant_kg` for
   nuclear-thermal burns, `wear_cr_per_flight_day` for plasma thrust), so asks and contracts cover it.
 
+## Passengers (2026-10-21, `src/simulation/Passengers.cpp`)
+
+Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, sub-switches `rotation`,
+`migration`, `discretionary`). Plan in `docs/plans/passengers.md`, decisions and results in
+`docs/plans/passengers_log.md`. With `passengers,0` the economy is the one before passengers: the liner classes
+do not load and cabins are never offered.
+
+**Who travels.** People wait at stations in groups (kind, destination, employer, demand band):
+- **Settlers:**
+  - posted at the cheapest Earth gateway for a thriving station, at the growth rate;
+  - off Earth, growth now happens only as they land, and a failing station loses emigrants by ship;
+  - migration events post a convoy of settlers at Earth.
+- **Rotation:**
+  - a share of each off-Earth station's people is relieved once a tour;
+  - the tour minimises the cost per day on site from the reference fares;
+  - the station pays both fares, and sends no relief while it is too poor.
+- **Visitors:** a gravity model deterred by the trip's cost against a year's income. They stay `visit_days`
+  and go home.
+
+**Prices.**
+- **Reference fares** (`data/economy/reference_fares.csv`, `--write-reference-fares`): the cheapest cabin
+  carrier's cost per berth, planned with the passengers' time.
+- **What a group pays:** the reference fare adjusted for the trip's time and dose. When more wait than fit,
+  everyone pays the fare that clears the berths (up to 4× the reference cost, the top demand band).
+- **Giving up:** groups give up as waiting uses up their budget.
+- **Who pays:** fares go from the outside account (settlers, emigrants, visitors) or the work station
+  (rotation) to the ship.
+
+**Ships.**
+- **Carriers:** a cabin module in the new `cabin` slot (12/24/60 berths) and two 40-berth liners. Berths are
+  apart from the hold; passengers' mass and their 2 kg/day are payload.
+- **Dispatch** fills berths alongside the hold:
+  - each destination's manifest adds the boarding passengers' fares less their provisions;
+  - follow-ups count passengers waiting at the next port;
+  - the planner adds their time to the ship's.
+- **Fleet investment** values cabin designs and liners at the sustained passenger flow and its clearing fare,
+  and commits them to their route like cargo ships.
+
 ## Fleet investment (`step_fleet_investment`)
 
 - **Selling:** a ship laid up for `layup_sale_days` without a break is sold for `salvage_fraction` of its value
