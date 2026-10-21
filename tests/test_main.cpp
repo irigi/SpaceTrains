@@ -262,6 +262,29 @@ int main() {
         .active_mission = {},
     };
 
+    {
+        // Hydrogen boil-off (tier 2, step F): the load covers the burn, the 10% reserve and
+        // what boils from loading to arrival; lossless planning is unchanged by a zero rate.
+        auto empty = ship;
+        empty.propellant_kg = 0.0;
+        spacetrains::trajectory::PlanningOptions lossless {
+            .propellant_cr_per_kg = 0.08, .time_cr_per_day = 20.0, .purchasable_propellant_kg = ship_class.propellant_capacity_kg,
+            .reserve_fraction = 0.1, .include_path = false};
+        auto boiling = lossless;
+        boiling.boiloff_kg_per_day = 25.0;
+        auto zero = lossless;
+        zero.boiloff_kg_per_day = 0.0;
+        const auto dry_plan = planner.plan_transfer(origin, mars_destination, empty, ship_class, 0.0, lossless);
+        const auto zero_plan = planner.plan_transfer(origin, mars_destination, empty, ship_class, 0.0, zero);
+        const auto boil_plan = planner.plan_transfer(origin, mars_destination, empty, ship_class, 0.0, boiling);
+        require(dry_plan.feasible && boil_plan.feasible, "a Mars transfer should be feasible with and without boil-off");
+        require(zero_plan.propellant_load_kg == dry_plan.propellant_load_kg && zero_plan.travel_time_s == dry_plan.travel_time_s,
+            "a zero boil-off rate should plan exactly as before");
+        require(boil_plan.propellant_load_kg + 1.0
+                >= 1.1 * boil_plan.propellant_required_kg + 25.0 * boil_plan.coast_time_s / 86400.0,
+            "the load should cover burn, reserve and the hydrogen that boils off in flight");
+    }
+
     const auto local_plan = planner.plan_transfer(origin, destination, ship, ship_class, 0.0);
     require(local_plan.feasible, "fully fueled test ship should be feasible for local transfer");
     require(local_plan.wait_time_s == 0.0, "same-parent transfer should depart immediately");
@@ -988,6 +1011,40 @@ int main() {
         require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
         std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
             saved.size() / 1024, kHalfDays, kHalfDays);
+
+        // Tier 2 with every environment switch on (radiation, boil-off, cold holds, wear): the
+        // new state (doses, wear, boiled hydrogen, the environment RNG) continues exactly.
+        {
+            const auto root = std::filesystem::temp_directory_path() / "spacetrains_tier2_save";
+            std::filesystem::remove_all(root);
+            std::filesystem::create_directories(root);
+            std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
+            std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+            std::ofstream(root / "data" / "economy" / "ship_environment.csv")
+                << "key,value\nradiation,1\nboiloff,1\ncold_storage,1\nwear,1\n";
+            const auto env_root = (root / "data").string();
+            auto env_straight = spacetrains::simulation::Simulation::from_data_root(env_root);
+            env_straight.set_timewarp(86400.0);
+            auto env_first = spacetrains::simulation::Simulation::from_data_root(env_root);
+            env_first.set_timewarp(86400.0);
+            for (int day = 0; day < kHalfDays; ++day) {
+                env_straight.step(1.0);
+                env_first.step(1.0);
+            }
+            const auto env_saved = env_first.save_state_json();
+            auto env_resumed = spacetrains::simulation::Simulation::from_data_root(env_root);
+            env_resumed.load_state_json(env_saved);
+            require(env_resumed.save_state_json() == env_saved, "a tier 2 game should save back to the same JSON");
+            for (int day = 0; day < kHalfDays; ++day) {
+                env_straight.step(1.0);
+                env_resumed.step(1.0);
+            }
+            require(env_resumed.save_state_json() == env_straight.save_state_json(),
+                "a tier 2 game saved, loaded and continued should equal one that never stopped");
+            require(env_saved.find("\"engine_wear\":0,") == std::string::npos || env_saved.find("\"engine_wear\":0.") != std::string::npos,
+                "the starting fleet should be of mixed ages");
+            std::filesystem::remove_all(root);
+        }
 
         // Tier 2 fits: a fitted ship loads, flies its derived design and saves back unchanged;
         // a fit its hull cannot take is rejected.

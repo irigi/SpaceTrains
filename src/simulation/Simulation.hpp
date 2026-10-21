@@ -99,6 +99,10 @@ public:
         int particle_events {0};
         double largest_event_magnitude {0.0};
         double hydrogen_boiled_kg {0.0};   // step F
+        int overhauls {0};                 // step H
+        double repair_bills_cr {0.0};
+        std::map<std::string, double> spares_units;
+        int repairs_waiting_for_spares {0};
     };
     [[nodiscard]] const RadiationAudit& radiation_audit() const { return radiation_audit_; }
     // Audit: deliveries with a reference price since start (or load), paid vs reference.
@@ -122,7 +126,20 @@ private:
     [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
     // Derives and caches the design class_id + fit (serial code only); throws on a fit the
     // hull cannot take (unknown module, slots overfilled, a module twice).
-    const domain::ShipClassDefinition& register_design(const std::string& class_id, const std::vector<std::string>& fit);
+    const domain::ShipClassDefinition& register_design(const std::string& class_id, const std::vector<std::string>& fit,
+        double radiator_bucket = 1.0);
+    // Radiator condition in the 10% steps designs are derived at (1 = intact, or wear off).
+    [[nodiscard]] double radiator_bucket(const domain::ShipState& ship) const;
+    // Wear and repairs (tier 2, step H).
+    // Hours of drive life a plan uses: burn time (nuclear-thermal) or thrust time (plasma).
+    [[nodiscard]] double drive_hours(const domain::ShipClassDefinition& design, const domain::TrajectoryPlan& plan) const;
+    [[nodiscard]] double drive_life_h(const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] bool drive_life_allows(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
+        const domain::TrajectoryPlan& plan) const;
+    void accrue_wear(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
+    // Overhauls a worn drive or holed radiators where the port has the spares; true if the
+    // ship went into the yard.
+    bool consider_repair(domain::ShipState& ship);
     [[nodiscard]] const domain::ShipModuleDefinition* find_module(const std::string& hull_id, const std::string& module_id) const;
     // A module is offered at refits and to new ships only if one of its effects is switched on
     // (data/economy/ship_environment.csv): an inert module only adds mass.
@@ -135,7 +152,8 @@ private:
     };
     // The fits one yard visit can reach from class_id + fit: the next tank size either way, and
     // one module added (into a free slot) or removed. Registers the designs (serial code only).
-    std::vector<FitOption> neighbouring_fits(const std::string& class_id, const std::vector<std::string>& fit);
+    std::vector<FitOption> neighbouring_fits(const std::string& class_id, const std::vector<std::string>& fit,
+        double radiator_bucket = 1.0);
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
@@ -410,6 +428,8 @@ private:
     void accrue_radiation(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
     // Where a ship is from the Sun now: its station, or interpolated over its leg.
     [[nodiscard]] double ship_r_au(const domain::ShipState& ship) const;
+    // Spoilage per day of a good in this design's hold (a cold hold slows food and medicine).
+    [[nodiscard]] double cargo_decay_per_day(const domain::ShipClassDefinition& design, const std::string& commodity_id) const;
     // Liquid hydrogen a design loses per day at r (AU): the tanks' heat leak less what its
     // cryocooler lifts (tier 2, step F; 0 for water-propellant plasma ships or boil-off off).
     [[nodiscard]] double boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const;

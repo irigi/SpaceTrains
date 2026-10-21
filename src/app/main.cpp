@@ -328,6 +328,15 @@ void print_economy_audit(
         if (radiation.hydrogen_boiled_kg > 0.0) {
             std::cout << std::format("    Boil-off: {:.0f} t of hydrogen\n", radiation.hydrogen_boiled_kg / 1000.0);
         }
+        if (radiation.overhauls > 0 || radiation.repairs_waiting_for_spares > 0) {
+            std::string spares;
+            for (const auto& [commodity_id, units] : radiation.spares_units) {
+                spares += std::format("{}{} {:.0f}u", spares.empty() ? "" : ", ", commodity_id, units);
+            }
+            std::cout << std::format("    Overhauls: {} ({:.0f} cr; spares {}), {} reviews found no spares\n",
+                radiation.overhauls, radiation.repair_bills_cr, spares.empty() ? "none" : spares,
+                radiation.repairs_waiting_for_spares);
+        }
     }
 
     // Purchase orders (step 29, step 1: observed only, nothing uses them yet).

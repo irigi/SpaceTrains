@@ -195,6 +195,10 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     }
     if (universe_.ship_environment.boiloff) {
         active_effects_.insert("zbo_lift_w");
+        active_effects_.insert("boiloff_intercept");
+    }
+    if (universe_.ship_environment.cold_storage) {
+        active_effects_.insert("perishable_decay_factor");
     }
     for (const auto& faction : universe_.factions) {
         faction_treasuries_[faction.id] = 0.0;
@@ -235,6 +239,15 @@ Simulation::Simulation(domain::UniverseDefinition universe)
         const auto& ship_class = ship_design(ship);
         for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
             ship.provisions[commodity_id] = ship_class.crew_size * units_per_crew_day * INITIAL_PROVISION_DAYS;
+        }
+        // The starting fleet is of mixed ages (tier 2 wear): spread by a hash of the ship id
+        // (FNV-1a, the same on every platform), so overhauls do not all fall due at once.
+        if (universe_.ship_environment.wear) {
+            std::uint64_t hash = 1469598103934665603ULL;
+            for (const char ch : ship.id) {
+                hash = (hash ^ static_cast<unsigned char>(ch)) * 1099511628211ULL;
+            }
+            ship.engine_wear = universe_.ship_environment.initial_wear_max * static_cast<double>(hash % 10000) / 10000.0;
         }
     }
     seed_order_stats();
@@ -337,11 +350,29 @@ const economy::EconomySystem& Simulation::economy_system() const {
     return economy_;
 }
 
+double Simulation::radiator_bucket(const domain::ShipState& ship) const {
+    if (!universe_.ship_environment.wear) {
+        return 1.0;
+    }
+    return std::clamp(std::round(ship.radiator_condition * 10.0) / 10.0, 0.1, 1.0);
+}
+
+namespace {
+std::string damaged_design_id(const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
+    auto key = domain::design_id(class_id, fit);
+    if (radiator_bucket < 1.0) {
+        key += std::format("#r{}", static_cast<int>(std::lround(radiator_bucket * 10.0)));
+    }
+    return key;
+}
+}  // namespace
+
 const domain::ShipClassDefinition& Simulation::ship_design(const domain::ShipState& ship) const {
-    if (ship.fit.empty()) {
+    const double bucket = radiator_bucket(ship);
+    if (ship.fit.empty() && bucket >= 1.0) {
         return get_ship_class(ship.class_id);
     }
-    const auto key = domain::design_id(ship.class_id, ship.fit);
+    const auto key = damaged_design_id(ship.class_id, ship.fit, bucket);
     const auto it = designs_.find(key);
     if (it == designs_.end()) {
         throw std::runtime_error("Unregistered ship design: " + key);
@@ -364,12 +395,12 @@ bool Simulation::module_has_active_effect(const domain::ShipModuleDefinition& mo
 }
 
 std::vector<Simulation::FitOption> Simulation::neighbouring_fits(
-    const std::string& class_id, const std::vector<std::string>& fit) {
+    const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
     const auto& current = get_ship_class(class_id);
     std::vector<FitOption> options;
     const auto add = [&](const std::string& option_class, std::vector<std::string> option_fit) {
         try {
-            const auto& design = register_design(option_class, option_fit);
+            const auto& design = register_design(option_class, option_fit, radiator_bucket);
             options.push_back({.design = &design, .class_id = option_class, .fit = std::move(option_fit)});
         } catch (const std::runtime_error&) {
             // The fit does not suit this hull (slots full): not an option.
@@ -418,12 +449,13 @@ std::vector<Simulation::FitOption> Simulation::neighbouring_fits(
 }
 
 const domain::ShipClassDefinition& Simulation::register_design(
-    const std::string& class_id, const std::vector<std::string>& fit) {
+    const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
     const auto& base = get_ship_class(class_id);
-    if (fit.empty()) {
+    const bool damaged = radiator_bucket < 1.0 && base.propulsion_type == "variable_isp";
+    if (fit.empty() && !damaged) {
         return base;
     }
-    const auto key = domain::design_id(class_id, fit);
+    const auto key = damaged_design_id(class_id, fit, damaged ? radiator_bucket : 1.0);
     if (const auto it = designs_.find(key); it != designs_.end()) {
         return it->second;
     }
@@ -454,8 +486,22 @@ const domain::ShipClassDefinition& Simulation::register_design(
         names += (names.empty() ? "" : ", ") + module->part.name;
     }
     auto design = domain::derive_design(base, parts, key);
-    design.name = base.name + " [" + names + "]";
+    design.name = names.empty() ? base.name : base.name + " [" + names + "]";
     design.base_class_id = base.id;
+    if (damaged) {
+        // Holed radiators reject less heat, and the drive may only make as much waste heat as
+        // they reject: jet power, and with it alpha, falls in proportion.
+        design.specific_engine_power_w_per_kg *= radiator_bucket;
+        for (auto& part : design.components) {
+            if (part.kind == "engine") {
+                part.power_w *= radiator_bucket;
+                part.heat_w *= radiator_bucket;
+            } else if (part.kind == "radiator") {
+                part.heat_w *= radiator_bucket;
+            }
+        }
+        design.name += std::format(" (radiators {:.0f}%)", 100.0 * radiator_bucket);
+    }
     design.fit = std::move(sorted);
     design.effects = std::move(effects);
     return designs_.emplace(key, std::move(design)).first->second;
@@ -1762,6 +1808,149 @@ void Simulation::accrue_radiation(domain::ShipState& ship, const domain::ShipCla
     radiation_audit_.highest_leg_dose_msv = std::max(radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
 }
 
+double Simulation::cargo_decay_per_day(const domain::ShipClassDefinition& design, const std::string& commodity_id) const {
+    const double ambient = get_commodity(commodity_id).decay_fraction_per_day;
+    if (ambient <= 0.0 || commodity_id == economy::FUEL_ID || !universe_.ship_environment.cold_storage) {
+        return ambient;
+    }
+    const auto it = design.effects.find("perishable_decay_factor");
+    return it == design.effects.end() ? ambient : ambient * it->second;
+}
+
+double Simulation::drive_life_h(const domain::ShipClassDefinition& design) const {
+    const auto& env = universe_.ship_environment;
+    return design.propulsion_type == "variable_isp" ? env.plasma_drive_life_h : env.ntr_core_life_h;
+}
+
+double Simulation::drive_hours(const domain::ShipClassDefinition& design, const domain::TrajectoryPlan& plan) const {
+    if (design.propulsion_type == "variable_isp") {
+        return plan.coast_time_s / 3600.0;  // plasma drives thrust the whole transfer
+    }
+    for (const auto& part : design.components) {
+        if (part.kind == "engine" && part.thrust_n > 0.0 && part.isp_s > 0.0) {
+            const double mass_flow_kg_s = part.thrust_n / (part.isp_s * 9.80665);
+            return plan.propellant_required_kg / mass_flow_kg_s / 3600.0;
+        }
+    }
+    return 0.0;
+}
+
+bool Simulation::drive_life_allows(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
+    const domain::TrajectoryPlan& plan) const {
+    if (!universe_.ship_environment.wear) {
+        return true;
+    }
+    return drive_hours(design, plan) <= (1.0 - ship.engine_wear) * drive_life_h(design);
+}
+
+void Simulation::accrue_wear(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days) {
+    const auto& env = universe_.ship_environment;
+    if (!env.wear || days <= 0.0) {
+        return;
+    }
+    // Nuclear-thermal burns are booked when the mission starts (they are impulsive).
+    if (design.propulsion_type == "variable_isp" && ship.phase == domain::ShipMissionPhase::InTransit) {
+        ship.engine_wear = std::min(1.0, ship.engine_wear + days * 24.0 / env.plasma_drive_life_h);
+    }
+    double radiator_area = 0.0;
+    for (const auto& part : design.components) {
+        if (part.kind == "radiator") {
+            radiator_area += part.area_m2;
+        }
+    }
+    if (radiator_area <= 0.0) {
+        return;
+    }
+    // Expected heat-pipe segments lost: hits per m2 of pipe x segment area / panel area.
+    const double r = std::max(0.1, ship_r_au(ship));
+    const double hits_per_m2 = env.puncture_flux_m2_yr * std::pow(r, -env.puncture_flux_exponent) * days / 365.25;
+    const double before = radiator_bucket(ship);
+    ship.radiator_condition = std::max(0.0,
+        ship.radiator_condition - hits_per_m2 * env.radiator_vulnerable_fraction * env.radiator_segment_m2);
+    if (const double after = radiator_bucket(ship); after != before) {
+        (void)register_design(ship.class_id, ship.fit, after);
+    }
+}
+
+bool Simulation::consider_repair(domain::ShipState& ship) {
+    const auto& env = universe_.ship_environment;
+    if (!env.wear || ship.phase != domain::ShipMissionPhase::Idle) {
+        return false;
+    }
+    const auto& design = ship_design(ship);
+    const bool drive_due = ship.engine_wear >= env.overhaul_wear;
+    const bool radiators_due = ship.radiator_condition < env.radiator_repair_condition;
+    if (!drive_due && !radiators_due) {
+        return false;
+    }
+    // The spares and the labour (the yard's share of the replaced hardware's price).
+    std::map<std::string, double> spares;
+    double labour = 0.0;
+    for (const auto& part : design.components) {
+        if (drive_due && part.kind == "engine") {
+            labour += env.repair_labour_fraction * part.price_cr * ship.engine_wear;
+            if (design.propulsion_type == "variable_isp") {
+                const double kg = env.drive_spares_fraction * part.mass_kg * ship.engine_wear;
+                spares["machinery"] += 0.5 * kg / get_commodity("machinery").mass_per_unit_kg;
+                spares["electronics"] += 0.5 * kg / get_commodity("electronics").mass_per_unit_kg;
+            } else {
+                spares["reactor_fuel"] += env.core_spares_fraction * part.mass_kg * ship.engine_wear
+                    / get_commodity("reactor_fuel").mass_per_unit_kg;
+            }
+        }
+        if (radiators_due && part.kind == "radiator") {
+            const double lost = 1.0 - ship.radiator_condition;
+            labour += env.repair_labour_fraction * part.price_cr * lost;
+            spares["machinery"] += env.radiator_spares_fraction * part.mass_kg * lost
+                / get_commodity("machinery").mass_per_unit_kg;
+        }
+    }
+    auto& yard = get_station_state(ship.current_station_id);
+    double cost = labour;
+    for (const auto& [commodity_id, units] : spares) {
+        const auto stock = yard.inventory.find(commodity_id);
+        if (stock == yard.inventory.end() || stock->second < units) {
+            ++radiation_audit_.repairs_waiting_for_spares;
+            return false;  // no spares here: fly on within the drive's remaining life
+        }
+        cost += units * station_price(yard, commodity_id);
+    }
+    if (ship.credits - cost < -credit_line(design)) {
+        return false;
+    }
+    for (const auto& [commodity_id, units] : spares) {
+        const double value = units * station_price(yard, commodity_id);
+        yard.inventory[commodity_id] -= units;
+        record_trade({
+            .time_s = game_time_s_,
+            .ship_id = ship.id,
+            .station_id = yard.station_id,
+            .commodity_id = commodity_id,
+            .kind = "spares",
+            .units = units,
+            .unit_price = station_price(yard, commodity_id),
+            .total = value,
+        });
+        radiation_audit_.spares_units[commodity_id] += units;
+    }
+    ship.credits -= cost;
+    ship.lifetime_profit -= cost;
+    ship.ledger.refits += cost;
+    yard.credits += cost;
+    radiation_audit_.repair_bills_cr += cost;
+    ++radiation_audit_.overhauls;
+    ship.overhaul = true;
+    ship.refit_class_id = ship.class_id;
+    ship.refit_fit = ship.fit;
+    ship.refit_done_s = game_time_s_ + env.repair_days * 86400.0;
+    ship.phase = domain::ShipMissionPhase::Refitting;
+    add_event(std::format("{} overhauling at {}: {}{}{} ({:.0f} cr, {:.0f} days)", ship.name,
+        get_station_definition(ship.current_station_id).name,
+        drive_due ? (design.propulsion_type == "variable_isp" ? "plasma drive" : "reactor core") : "",
+        drive_due && radiators_due ? " and " : "", radiators_due ? "radiators" : "", cost, env.repair_days), "mission");
+    return true;
+}
+
 double Simulation::ship_r_au(const domain::ShipState& ship) const {
     if (ship.phase != domain::ShipMissionPhase::InTransit) {
         return station_r_au(get_station_definition(ship.current_station_id), game_time_s_);
@@ -1788,8 +1977,12 @@ double Simulation::boiloff_kg_per_day(const domain::ShipClassDefinition& design,
     const double area_m2 = env.tank_area_factor * 4.0 * std::numbers::pi
         * std::pow(3.0 * volume_m3 / (4.0 * std::numbers::pi), 2.0 / 3.0);
     const double leak_w = env.mli_flux_w_m2 * std::pow(std::max(0.05, r_au), -env.mli_flux_exponent) * area_m2;
+    // A 90 K broad-area-cooled shield intercepts a share of the leak; a 20 K cryocooler lifts
+    // the rest up to its rating.
+    const auto shield = design.effects.find("boiloff_intercept");
     const auto lift = design.effects.find("zbo_lift_w");
-    const double net_w = std::max(0.0, leak_w - (lift == design.effects.end() ? 0.0 : lift->second));
+    const double intercepted = shield == design.effects.end() ? 0.0 : std::clamp(shield->second, 0.0, 1.0);
+    const double net_w = std::max(0.0, leak_w * (1.0 - intercepted) - (lift == design.effects.end() ? 0.0 : lift->second));
     return net_w / env.lh2_latent_j_kg * 86400.0;
 }
 
@@ -1861,16 +2054,17 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     const auto& ship_class = ship_design(ship);
     const double days = dt_s / 86400.0;
 
-    // Liquid hydrogen boils off whatever the ship does (tier 2, step F).
-    if (const double boil = boiloff_kg_per_day(ship_class, ship_r_au(ship)) * days; boil > 0.0 && ship.propellant_kg > 0.0) {
+    // Liquid hydrogen boils off in flight (tier 2, step F); in port the depot keeps it cold.
+    if (const double boil = ship.phase == domain::ShipMissionPhase::InTransit
+                ? boiloff_kg_per_day(ship_class, ship_r_au(ship)) * days : 0.0;
+        boil > 0.0 && ship.propellant_kg > 0.0) {
         const double lost = std::min(ship.propellant_kg, boil);
         ship.propellant_kg -= lost;
         radiation_audit_.hydrogen_boiled_kg += lost;
         // Under way the tank level follows the plan's mass samples less what has boiled.
-        if (ship.phase == domain::ShipMissionPhase::AwaitingDeparture || ship.phase == domain::ShipMissionPhase::InTransit) {
-            ship.active_mission.boiled_propellant_kg += lost;
-        }
+        ship.active_mission.boiled_propellant_kg += lost;
     }
+    accrue_wear(ship, ship_class, days);
     // Capital (interest + amortisation) is owed whatever the ship does.
     const double capital = daily_capital_cost(ship_class) * days;
     pay_home_station(ship, capital);
@@ -2424,7 +2618,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             if (full_units <= 1.0) {
                 continue;
             }
-            const double decay_per_day = get_commodity(commodity_id).decay_fraction_per_day;
+            const double decay_per_day = cargo_decay_per_day(ship_class, commodity_id);
             for (const auto& next : universe_.stations) {
                 if (next.id == destination.id || !route_leg_allowed(destination.id, next.id)) {
                     continue;
@@ -2678,7 +2872,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 if (units < 0.5) {
                     continue;
                 }
-                const double surviving = std::pow(1.0 - good.commodity->decay_fraction_per_day, probe_days);
+                const double surviving = std::pow(1.0 - cargo_decay_per_day(ship_class, good.commodity->id), probe_days);
                 const double spot_loaded = good.loaded - good.contract_units;
                 const double sale = good.ordered
                     ? quote_split(good.quote, spot_loaded * surviving, units * surviving).total
@@ -2759,6 +2953,10 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 trace_line(std::format("{}: {:.0f} days exceeds the crew's dose limit", cargo_label, travel_days));
                 continue;
             }
+            if (!drive_life_allows(ship, ship_class, plan)) {
+                trace_line(cargo_label + ": the drive's remaining life is too short");
+                continue;
+            }
             const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                 + fuel_premium(plan, fuel_plan.carried_kg);
             if (cargo_only) {
@@ -2777,7 +2975,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             for (std::size_t l = 0; l < lots.size(); ++l) {
                 const auto& lot = lots[l];
                 const double surviving = lot.units
-                    * std::pow(1.0 - get_commodity(lot.commodity_id).decay_fraction_per_day, travel_days);
+                    * std::pow(1.0 - cargo_decay_per_day(ship_class, lot.commodity_id), travel_days);
                 const double lot_revenue = lot.fixed_unit_price > 0.0 ? surviving * lot.fixed_unit_price
                     : sale_value_on_arrival(destination_state, lot.commodity_id, surviving, delay_days + travel_days, ship.id);
                 const double lot_cost = trade_value(origin_state, lot.commodity_id, -lot.units);
@@ -2819,7 +3017,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         }
         const auto& plan = *fuel_plan.plan;
         const double leg_days = plan.travel_time_s / 86400.0;
-        if (leg_days > max_mission_days || !dose_allows(destination, leg_days)) {
+        if (leg_days > max_mission_days || !dose_allows(destination, leg_days) || !drive_life_allows(ship, ship_class, plan)) {
             continue;
         }
         const double leg_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
@@ -2849,7 +3047,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         const auto& next = get_station_definition(next_scheduled_stop(ship, origin_def.id));
         const auto fuel_plan = plan_with_return_fuel(next, 0.0);
         if (fuel_plan.plan->feasible && fuel_plan.feasible && fuel_plan.plan->travel_time_s / 86400.0 <= max_mission_days
-            && dose_allows(next, fuel_plan.plan->travel_time_s / 86400.0)) {
+            && dose_allows(next, fuel_plan.plan->travel_time_s / 86400.0)
+            && drive_life_allows(ship, ship_class, *fuel_plan.plan)) {
             trace_line("liner: next stop empty to " + next.id);
             best_pickup_commodity.clear();
             best_pickup_units = 0.0;
@@ -2865,7 +3064,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         const auto& home = get_station_definition(ship.home_station_id);
         const auto& plan = plan_to(home, 0.0);
         if (plan.feasible && plan.travel_time_s / 86400.0 <= max_mission_days
-            && dose_allows(home, plan.travel_time_s / 86400.0)) {
+            && dose_allows(home, plan.travel_time_s / 86400.0) && drive_life_allows(ship, ship_class, plan)) {
             trace_line("on route: back home empty to " + home.id);
             best_pickup_commodity.clear();
             best_pickup_units = 0.0;
@@ -2958,7 +3157,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 continue;
             }
             const double reposition_days = plan.travel_time_s / 86400.0;
-            if (reposition_days > max_mission_days || !dose_allows(destination, reposition_days)) {
+            if (reposition_days > max_mission_days || !dose_allows(destination, reposition_days)
+                || !drive_life_allows(ship, ship_class, plan)) {
                 trace_line(std::format("reposition -> {}: {:.0f} days exceeds provisionable {:.0f}",
                     destination.id, reposition_days, max_mission_days));
                 continue;
@@ -3043,6 +3243,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     static const char* const trace_ship = std::getenv("SPACETRAINS_TRACE_SHIP");
     const bool trace = trace_ship != nullptr && ship.name == trace_ship;
 
+    if (consider_repair(ship)) {
+        return;
+    }
     const auto& ship_class = ship_design(ship);
     const auto review_start = std::chrono::steady_clock::now();
     // A rotation contract that ran out ends here.
@@ -3172,7 +3375,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     const double arrival_days = std::max(0.0, plan.arrival_time_s - game_time_s_) / 86400.0;
     for (auto& lot : contracted_cargo) {
         const double surviving = lot.units
-            * std::pow(1.0 - get_commodity(lot.commodity_id).decay_fraction_per_day, plan.travel_time_s / 86400.0);
+            * std::pow(1.0 - cargo_decay_per_day(ship_class, lot.commodity_id), plan.travel_time_s / 86400.0);
         if (lot.fixed_unit_price > 0.0) {
             lot.contract_value = surviving * lot.fixed_unit_price;
             observe_contract(get_station_state(best_destination->id), lot.commodity_id, surviving, lot.fixed_unit_price);
@@ -3233,6 +3436,9 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     // in step_in_transit_ship from sampled_propellant_kg.
     if (ship_class.propulsion_type != "variable_isp") {
         ship.propellant_kg -= plan.propellant_required_kg;
+        if (universe_.ship_environment.wear) {
+            ship.engine_wear = std::min(1.0, ship.engine_wear + drive_hours(ship_class, plan) / drive_life_h(ship_class));
+        }
     }
     auto sampled_propellant = plan.sampled_propellant_kg;
     ship.phase = plan.wait_time_s > 0.0 ? domain::ShipMissionPhase::AwaitingDeparture : domain::ShipMissionPhase::InTransit;
@@ -3318,7 +3524,7 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
     const double current_score = current.kind == MissionChoice::Kind::Mission ? std::max(0.0, current.score) : 0.0;
 
     // One yard visit: the next tank size either way, or one module in or out.
-    const auto options = neighbouring_fits(ship.class_id, ship.fit);
+    const auto options = neighbouring_fits(ship.class_id, ship.fit, radiator_bucket(ship));
     const FitOption* best_option = nullptr;
     const domain::ShipClassDefinition* best_class = nullptr;
     double best_gain = 0.0;
@@ -3399,7 +3605,12 @@ void Simulation::step_refitting_ship(domain::ShipState& ship) {
     if (game_time_s_ < ship.refit_done_s) {
         return;
     }
-    (void)register_design(ship.refit_class_id, ship.refit_fit);
+    if (ship.overhaul) {
+        ship.engine_wear = 0.0;
+        ship.radiator_condition = 1.0;
+        ship.overhaul = false;
+    }
+    (void)register_design(ship.refit_class_id, ship.refit_fit, radiator_bucket(ship));
     ship.class_id = ship.refit_class_id;
     ship.fit = std::move(ship.refit_fit);
     ship.refit_class_id.clear();
@@ -3463,7 +3674,7 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         std::vector<domain::CargoLot> sold;
         for (const auto& lot : ship.active_mission.cargo) {
             // Some goods (food, medicine) spoil in transit.
-            const double decay_per_day = get_commodity(lot.commodity_id).decay_fraction_per_day;
+            const double decay_per_day = cargo_decay_per_day(ship_design(ship), lot.commodity_id);
             const double surviving = decay_per_day > 0.0 ? std::max(0.0, std::pow(1.0 - decay_per_day, transit_days)) : 1.0;
             double arrived = lot.units * surviving;
             total_spoiled += lot.units - arrived;
@@ -4987,8 +5198,26 @@ std::string Simulation::ship_systems_json(
         const double r_au = std::max(0.05, std::hypot(position.x, position.z) / 1.495978707e11);
         radiator_temperature_k = engine_state == "thrusting" ? radiator->temperature_k : 278.6 / std::sqrt(r_au);
     }
-    return std::format("\"engine_state\":\"{}\",\"engine_burn_s\":{:.1f},\"radiator_temperature_k\":{:.1f},",
-        engine_state, burn_s, radiator_temperature_k);
+    // Tier 2: the crew's dose this leg against the limit, today's dose rate, boil-off and wear.
+    const auto& env = universe_.ship_environment;
+    std::string tier2;
+    if (env.radiation) {
+        const double rate = ship.phase == domain::ShipMissionPhase::InTransit
+            ? crew_environment::gcr_msv_per_day(env, ship_r_au(ship), game_time_s_ / 86400.0)
+                * crew_environment::gcr_factor(env, crew_environment::shelter_g_cm2(ship_class))
+            : docked_dose_msv_per_day(ship.current_station_id, game_time_s_);
+        tier2 += std::format("\"leg_dose_msv\":{:.1f},\"dose_limit_msv\":{:.0f},\"dose_rate_msv_day\":{:.3f},",
+            ship.leg_dose_msv, env.career_limit_msv, rate);
+    }
+    if (const double boil = boiloff_kg_per_day(ship_class, ship_r_au(ship)); boil > 0.0) {
+        tier2 += std::format("\"boiloff_kg_day\":{:.1f},", ship.phase == domain::ShipMissionPhase::InTransit ? boil : 0.0);
+    }
+    if (env.wear) {
+        tier2 += std::format("\"engine_wear\":{:.4f},\"drive_life_h\":{:.0f},\"radiator_condition\":{:.4f},",
+            ship.engine_wear, drive_life_h(ship_class), ship.radiator_condition);
+    }
+    return std::format("\"engine_state\":\"{}\",\"engine_burn_s\":{:.1f},\"radiator_temperature_k\":{:.1f},{}",
+        engine_state, burn_s, radiator_temperature_k, tier2);
 }
 
 std::string Simulation::build_bridge_designs_json() const {

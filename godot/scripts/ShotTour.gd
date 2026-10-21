@@ -82,6 +82,16 @@ func _measure_smoothness(seconds: float, timewarp: float) -> void:
         timewarp, frames, seconds, stalled_frames, longest_stall, slow_frames, last_time / 86400.0])
 
 func _run() -> void:
+    # --shot-load=<save>: start from a saved game (made from the same data files), e.g. a
+    # late game with modules fitted and worn drives.
+    for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-load="):
+            main.command_request += 1
+            main.command_save_path = ""
+            main.command_load_path = arg.trim_prefix("--shot-load=")
+            main._write_bridge_commands()
+            await get_tree().create_timer(8.0).timeout
+            print("[ShotTour] loaded %s: display day %.1f" % [main.command_load_path, float(main.get("display_time_s")) / 86400.0])
     # Run the simulation a while (fast) so the panels have history, then back to 1 day/s.
     var start_day := 3.0
     for arg in OS.get_cmdline_user_args():
@@ -176,7 +186,11 @@ func _run() -> void:
             if main.entity_kinds.get(ship_id, "") != "ship" or String(ship.get("propulsion_type", "")) != propulsion \
                     or String(ship.get("phase", "")) != "in_transit":
                 continue
-            if pick == "" or String(ship.get("engine_state", "")) == "burning":
+            # Prefer a ship with modules fitted (tier 2), then a burning one.
+            var fitted := String(ship.get("design_id", "")).contains("+")
+            var pick_fitted := pick != "" and String(main.entity_details[pick].get("design_id", "")).contains("+")
+            if pick == "" or (fitted and not pick_fitted) \
+                    or (fitted == pick_fitted and String(ship.get("engine_state", "")) == "burning"):
                 pick = ship_id
         if pick == "":
             continue

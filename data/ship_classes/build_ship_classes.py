@@ -162,6 +162,23 @@ ZBO_KG_PER_W_LIFT = 5.0
 BRAYTON_KG_PER_KWE = 10.0
 ZBO_RADIATOR_K = 300.0
 USD_PER_KG_CRYOCOOLER = 10_000.0   # estimate, like the plasma drive's precision hardware
+# Reduced boil-off: a 90 K broad-area-cooled shield in the MLI (NASA Glenn, Christie et al. 2011,
+# NTRS 20110016177: up to 70% of the heat load, theoretical) intercepts 60% of the leak (estimate).
+# A 90 K cooler (Carnot COP 90/210) at ~20% of Carnot: ~12 W per W lifted; ~1 kg per W lifted;
+# shield tubing ~0.3 kg/m2 of tank (estimates). Lift sized like the 20 K cooler (1.5x at 1 AU).
+BAC_INTERCEPT = 0.6
+BAC_W_INPUT_PER_W_LIFT = 12.0
+BAC_KG_PER_W_LIFT = 1.0
+BAC_TUBING_KG_PER_M2 = 0.3
+
+# Cold hold: the whole hold lined and kept at 255 K (-18 C), where frozen food keeps a year or
+# more and medicines their shelf life; perishables then spoil at a tenth of the game's ambient
+# rate (estimate). Liner: MLI blanket (~0.5 kg/m2) on a 2 kg/m2 insulated panel over the hold's
+# surface (a cube of the hold volume); heat leak ~0.5 W/m2 in vacuum (estimate); a 255 K cooler at
+# ~1 W input per W lifted, ~1 kg per W lifted, on 300 K panels (estimates).
+COLD_HOLD_LINER_KG_PER_M2 = 2.5
+COLD_HOLD_LEAK_W_PER_M2 = 0.5
+COLD_HOLD_DECAY_FACTOR = 0.1
 
 # Tank refit options, as multiples of the class's nominal propellant capacity. The engine
 # keeps the nominal size (thrust, jet power); tanks and structure follow the propellant.
@@ -440,6 +457,22 @@ def modules(b: Build) -> list[dict]:
                 "price_cr": round((walls * USD_PER_KG["plasma_tank"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
                 "volume_m3": volume, "area_m2": area, "capacity_kg": water,
                 "effects": f"spe_shield_g_cm2={SHELTER_AREAL_KG_PER_M2 / 10.0:g}"})
+    if hull_slots(b.spec).get("hold", 0) > 0:
+        hold_volume = b.spec.cargo_units * HOLD_M3_PER_CARGO_UNIT
+        area = 6.0 * hold_volume ** (2.0 / 3.0)
+        liner = COLD_HOLD_LINER_KG_PER_M2 * area
+        lift = COLD_HOLD_LEAK_W_PER_M2 * area
+        cooler = 1.0 * lift
+        heat = 2.0 * lift
+        panel_w_per_m2 = 2.0 * RADIATOR_EMISSIVITY * STEFAN_BOLTZMANN * ZBO_RADIATOR_K ** 4
+        radiator = heat / panel_w_per_m2 * RADIATOR_AREAL_KG_PER_M2
+        truss = STRUCTURE_FRACTION * (liner + cooler + radiator)
+        out.append({"module_id": "cold_hold", "slot": "hold", "name": "Cold hold (255 K)",
+                    "mass_kg": round(liner + cooler + radiator + truss),
+                    "price_cr": round((liner * USD_PER_KG["hold"] + cooler * USD_PER_KG_CRYOCOOLER
+                                       + radiator * USD_PER_KG["radiator"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": lift, "heat_w": heat, "temperature_k": 255.0, "volume_m3": hold_volume,
+                    "area_m2": area, "effects": f"perishable_decay_factor={COLD_HOLD_DECAY_FACTOR:g}"})
     if spec_is_thermal(b):
         volume = b.propellant_kg / PROPELLANT["lh2"]["density_kg_m3"]
         area = TANK_AREA_FACTOR * 4.0 * math.pi * (3.0 * volume / (4.0 * math.pi)) ** (2.0 / 3.0)
@@ -457,6 +490,21 @@ def modules(b: Build) -> list[dict]:
                                        + radiator * USD_PER_KG["radiator"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
                     "power_w": power, "heat_w": heat, "temperature_k": 20.0,
                     "area_m2": heat / panel_w_per_m2, "effects": f"zbo_lift_w={lift:.6g}"})
+        bac_lift = BAC_INTERCEPT * lift
+        bac_power = BAC_W_INPUT_PER_W_LIFT * bac_lift
+        bac_heat = bac_power + bac_lift
+        bac_radiator = bac_heat / panel_w_per_m2 * RADIATOR_AREAL_KG_PER_M2
+        bac_cooler = BAC_KG_PER_W_LIFT * bac_lift
+        tubing = BAC_TUBING_KG_PER_M2 * area
+        bac_brayton = BRAYTON_KG_PER_KWE * bac_power / 1000.0
+        bac_truss = STRUCTURE_FRACTION * (bac_cooler + tubing + bac_brayton + bac_radiator)
+        out.append({"module_id": "boiloff_shield", "slot": "tank", "name": "90 K cooled tank shield (reduced boil-off)",
+                    "mass_kg": round(bac_cooler + tubing + bac_brayton + bac_radiator + bac_truss),
+                    "price_cr": round((bac_cooler * USD_PER_KG_CRYOCOOLER + tubing * USD_PER_KG["lh2_tank"]
+                                       + bac_brayton * USD_PER_KG["liquid_core"] + bac_radiator * USD_PER_KG["radiator"]
+                                       + bac_truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": bac_power, "heat_w": bac_heat, "temperature_k": 90.0,
+                    "area_m2": area, "effects": f"boiloff_intercept={BAC_INTERCEPT:g}"})
     return out
 
 

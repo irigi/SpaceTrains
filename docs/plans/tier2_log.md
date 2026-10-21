@@ -71,3 +71,79 @@ Results (4 starts × 1460 days):
   event dose).
 - Run time: a 730-day run takes 37 s with and without radiation (the 1460-day benchmark times were inflated by
   builds running alongside).
+
+## Step E: cold hold (hydroponics, habitability and spin gravity not built)
+
+Decisions:
+1. **Hydroponics not built.** With sourced numbers it never pays on a transport ship. A bay growing a quarter
+   of the food needs ~10 m² per crew member (a full diet takes ~40 m²), ~2.2 kW of LED light per crew (600
+   µmol/m²/s at 2.7 µmol/J) and weighs ~0.9 t per crew. It saves 0.15 kg of food per crew-day, ~0.2 cr/day on a
+   3-crew ship, against ~0.7 cr/day of capital alone. Bioregenerative life support pays on bases, not ships.
+2. **Common room, habitability premium and spin gravity not built:** no sourced economic size for a comfort
+   premium; inventing one would be a heuristic. They belong to the passenger plan, where fares can pay for
+   volume and gravity.
+3. **Cold hold built** (`cold_hold`, hold slot): the whole hold at 255 K (−18 °C), food and medicine spoil at a
+   tenth of the ambient rate (estimate: frozen food keeps a year or more, cold-chain medicine its shelf life).
+   0.6-3.1 t (MLI and a 2 kg/m² liner over the hold, a small cooler), 800-4,300 cr. The investment valuation
+   keeps the ambient spoilage (it has no design in scope): conservative.
+
+## Step F: liquid-hydrogen boil-off
+
+Model: heat leak 0.2 W/m² at 1 AU through high-performance MLI (estimate), × r⁻¹, over 1.3 × a sphere of the
+tank volume; boil-off = leak ÷ 446 kJ/kg. A Light Freighter's 90 t tank leaks ~150 W: 28 kg/day, ~7 t on a
+260-day Mars Hohmann transfer. The Kepler planner loads burn + 10% reserve + boil-off, and its cost objective
+pays for the boiled hydrogen. Decisions:
+1. **Boil-off only in flight:** every station has a depot that already keeps its fuel cold (0.02%/day), and a
+   docked ship plugs into it. (First version boiled in port too: unmet 1.0-1.1% with nobody buying coolers.)
+2. **Two modules for the tank slot:** a 20 K zero-boil-off cryocooler (1.5-3.5 t, 10-23k cr: ~100 W of power
+   per W lifted, from the engine's bimodal Brayton loop as in NASA's bimodal NTR studies), and a 90 K cooled
+   tank shield that intercepts 60% of the leak (NASA Glenn broad-area cooling: up to 70%, theoretical; 0.4-0.9 t,
+   1.3-2.9k cr). The shield sells; the full cryocooler, at about the cost of the hydrogen it saves, does not.
+3. **Not modelled:** the arrival burn's lower mass after boil-off (conservative), LH2 slosh and stratification.
+
+## Step G: Set B radiators (not built)
+
+Two reasons: the tech-era decision keeps linopt's Set A hardware (Set B is "a later generation"), and the gain is
+~2% of α for the freighters (their radiators are ~1 t of 34 t dry).
+
+## Step H: wear and overhauls
+
+Decisions:
+1. **Drive life:** nuclear-thermal cores 10 h of full-power burn (NERVA's flight-engine goal, 10 h over 60
+   restarts); a Light Freighter burns ~1.6 h a mission, so it needs a new core every 4-6 missions. Plasma drives
+   50,000 h of thrust (estimate, NEXT ion thruster class): ~7 legs of 300 days. No leg may need more drive life
+   than is left.
+2. **Radiator punctures as a smooth expected rate, not random events:** Grün et al. 1985 give 0.146 grains of
+   ≥ 10⁻⁵ g per m² per year at 1 AU (a 0.2 mm grain holes a 1 mm heat-pipe wall at ~20 km/s); 30% of a panel is
+   pipe, a hit kills a 0.2 m² segment, about r^−1.3. That is ~1% of the pipes a year, so a 10% α step takes ~5½
+   years; jet power is limited to what the remaining radiators reject (the design id carries `#r9` etc.).
+3. **Overhauls at any port with the spares** (a home-yard rule could strand a ship with a dead engine far away):
+   when 70% of the drive life is used or radiators fall below 85%. Spares bought from the port's stock at its
+   price: the core's fuel elements as reactor fuel (40% of the engine mass × wear), plasma drives machinery and
+   electronics (30%), radiators machinery (50% of the lost panels); labour at the refit share (30%) of the worn
+   hardware's price; 20 days in the yard. A port without the spares lets the ship fly on within its remaining
+   life; the stock drop raises the station's bids for the goods.
+4. **The starting fleet is of mixed ages** (wear 0-50% by a hash of the ship id).
+5. **ECLSS wear not modelled:** life support costs ~0.3 cr per crew-day, too little to matter; it would touch a
+   dozen formulas.
+
+## Step I: UI
+
+The inspector's "Ship systems" section shows the fitted modules, the crew's dose this leg against the limit
+and today's rate, hydrogen boil-off, drive life left and radiator condition (warnings in amber). The schematic
+draws the shelter's water wall, the cold hold's liner, the tanks' cooling and the holed radiator segments; the
+mass bar shows modules in violet. ShotTour takes `--shot-load=<save>` and prefers fitted ships.
+
+## All switches on (the new default)
+
+| Run | Unmet % | Last fifth % | Price ÷ ref | Profitable | Ships | Money % |
+|---|---|---|---|---|---|---|
+| baseline | 0.6 ± 0.5 | 1.2 ± 1.3 | 1.6 ± 0.1 | 98.8 / 133 | 133 | −15 ± 20 |
+| D2 radiation | 0.6 ± 0.2 | 1.8 ± 1.2 | 1.5 ± 0.0 | 107.0 / 139 | 139 | −16 ± 15 |
+| + boil-off, docked too (first version) | 1.0 ± 1.1 | 2.5 ± 3.3 | 1.5 ± 0.0 | 105.2 / 142 | 142 | −21 |
+| + boil-off in flight, cooled shield (F2) | 1.0 ± 0.6 | 1.9 ± 1.0 | 1.6 ± 0.0 | 106.5 / 139 | 139 | −21 ± 5 |
+| + cold holds (E) | 1.1 ± 0.7 | 2.0 ± 1.2 | 1.5 ± 0.1 | 104.5 / 139 | 139 | −14 ± 12 |
+| + wear and overhauls (H, all on) | 0.9 ± 0.3 | 2.1 ± 1.0 | 1.6 ± 0.1 | 101.2 / 141 | 141 | −16 ± 11 |
+
+A 730-day trial with everything on: 34 overhauls costing 375,000 cr (123 units of reactor fuel), 7 reviews
+found no spares; by day 730 13-17 shelters, 5-12 cold holds and 2-3 cooled tank shields; money drift 0.

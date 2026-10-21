@@ -1054,6 +1054,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             auto& env = universe.ship_environment;
             double radiation = env.radiation ? 1.0 : 0.0;
             double boiloff = env.boiloff ? 1.0 : 0.0;
+            double cold_storage = env.cold_storage ? 1.0 : 0.0;
+            double wear = env.wear ? 1.0 : 0.0;
             const std::unordered_map<std::string, double*> fields {
                 {"radiation", &radiation},
                 {"gcr_msv_per_day", &env.gcr_msv_per_day},
@@ -1077,6 +1079,22 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 {"mli_flux_exponent", &env.mli_flux_exponent},
                 {"lh2_latent_j_kg", &env.lh2_latent_j_kg},
                 {"tank_area_factor", &env.tank_area_factor},
+                {"cold_storage", &cold_storage},
+                {"wear", &wear},
+                {"ntr_core_life_h", &env.ntr_core_life_h},
+                {"plasma_drive_life_h", &env.plasma_drive_life_h},
+                {"puncture_flux_m2_yr", &env.puncture_flux_m2_yr},
+                {"puncture_flux_exponent", &env.puncture_flux_exponent},
+                {"radiator_vulnerable_fraction", &env.radiator_vulnerable_fraction},
+                {"radiator_segment_m2", &env.radiator_segment_m2},
+                {"overhaul_wear", &env.overhaul_wear},
+                {"radiator_repair_condition", &env.radiator_repair_condition},
+                {"repair_labour_fraction", &env.repair_labour_fraction},
+                {"core_spares_fraction", &env.core_spares_fraction},
+                {"drive_spares_fraction", &env.drive_spares_fraction},
+                {"radiator_spares_fraction", &env.radiator_spares_fraction},
+                {"repair_days", &env.repair_days},
+                {"initial_wear_max", &env.initial_wear_max},
             };
             for (std::size_t i = 1; i < rows.size(); ++i) {
                 const auto& row = rows[i];
@@ -1090,6 +1108,12 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             }
             env.radiation = radiation != 0.0;
             env.boiloff = boiloff != 0.0;
+            env.cold_storage = cold_storage != 0.0;
+            env.wear = wear != 0.0;
+            if (env.ntr_core_life_h <= 0.0 || env.plasma_drive_life_h <= 0.0 || env.overhaul_wear <= 0.0
+                || env.overhaul_wear > 1.0 || env.repair_days < 0.0) {
+                throw std::runtime_error(env_path.string() + ": drive lives, overhaul share or repair days out of range");
+            }
             if (env.lh2_latent_j_kg <= 0.0 || env.tank_area_factor <= 0.0 || env.mli_flux_w_m2 < 0.0) {
                 throw std::runtime_error(env_path.string() + ": boil-off latent heat, tank area factor or flux out of range");
             }

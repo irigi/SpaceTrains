@@ -566,6 +566,7 @@ func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
     if not _systems_open:
         return
     _add_label(_engine_line(detail, design), UiTheme.TEXT_PRIMARY, 12)
+    _add_tier2_lines(detail, design)
     if _schematic == null:
         _schematic = ShipSchematicScript.new()
         _schematic.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -604,6 +605,35 @@ func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
         var spec := ShipSchematicScript.component_spec(c)
         if spec != "":
             _add_label(("      " if child else "  ") + spec, UiTheme.TEXT_DIM, 11)
+
+# Tier 2: modules fitted, the crew's dose, boil-off and wear (fields sent only when switched on).
+func _add_tier2_lines(detail: Dictionary, design: Dictionary) -> void:
+    var modules: Array[String] = []
+    for component in design.get("components", []):
+        if String(component.get("kind", "")) == "module":
+            modules.append(String(component.get("name", "")))
+    if not modules.is_empty():
+        _add_label("Fitted: " + ", ".join(modules), UiTheme.TEXT_DIM, 11)
+    if detail.has("leg_dose_msv"):
+        var dose := float(detail.get("leg_dose_msv", 0.0))
+        var limit := maxf(float(detail.get("dose_limit_msv", 1000.0)), 1.0)
+        var color := UiTheme.ALERT if dose > limit else (UiTheme.WARN if dose > 0.8 * limit else UiTheme.TEXT_DIM)
+        _add_label("Crew dose this leg %.0f of %.0f mSv · now %.2f mSv/day" % [dose, limit,
+            float(detail.get("dose_rate_msv_day", 0.0))], color, 11)
+    if float(detail.get("boiloff_kg_day", 0.0)) > 0.0:
+        _add_label("Hydrogen boiling off %.0f kg/day" % float(detail.get("boiloff_kg_day", 0.0)), UiTheme.TEXT_DIM, 11)
+    if detail.has("engine_wear"):
+        var wear := float(detail.get("engine_wear", 0.0))
+        var life := float(detail.get("drive_life_h", 0.0))
+        var text := "Drive life left %.0f%% (%s of %s h)" % [100.0 * (1.0 - wear),
+            _hours((1.0 - wear) * life), _hours(life)]
+        var radiators := float(detail.get("radiator_condition", 1.0))
+        if String(detail.get("propulsion_type", design.get("propulsion_type", ""))) == "variable_isp":
+            text += " · radiators %.1f%%" % (100.0 * radiators)
+        _add_label(text, UiTheme.WARN if wear > 0.7 else UiTheme.TEXT_DIM, 11)
+
+func _hours(h: float) -> String:
+    return "%.0f" % h if h >= 100.0 else "%.1f" % h
 
 func _add_toggle(title: String, open: bool, font_size: int, color: Color, on_pressed: Callable) -> void:
     var toggle := Button.new()

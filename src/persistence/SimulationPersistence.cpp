@@ -190,6 +190,9 @@ Json ship_to_json(const domain::ShipState& s) {
     out.set("refit_fit", std::move(refit_fit));
     out.set("refit_done_s", s.refit_done_s);
     out.set("leg_dose_msv", s.leg_dose_msv);
+    out.set("engine_wear", s.engine_wear);
+    out.set("radiator_condition", s.radiator_condition);
+    out.set("overhaul", s.overhaul);
     out.set("next_refit_review_s", s.next_refit_review_s);
     out.set("laid_up_since_s", s.laid_up_since_s);
     out.set("commissioned_s", s.commissioned_s);
@@ -263,6 +266,9 @@ domain::ShipState ship_from_json(const Json& j) {
     }
     s.refit_done_s = j.get("refit_done_s").number();
     s.leg_dose_msv = j.get("leg_dose_msv").number();
+    s.engine_wear = j.get("engine_wear").number();
+    s.radiator_condition = j.get("radiator_condition").number();
+    s.overhaul = j.get("overhaul").boolean();
     s.next_refit_review_s = j.get("next_refit_review_s").number();
     s.laid_up_since_s = j.get("laid_up_since_s").number();
     s.commissioned_s = j.get("commissioned_s").number();
@@ -413,6 +419,9 @@ std::string Simulation::data_fingerprint() const {
         const auto& env = universe_.ship_environment;
         mix(std::format("e{}|{}|{}|{}|{}|{}|{}|{};", env.radiation, env.gcr_msv_per_day, env.gcr_cycle_amplitude,
             env.solar_minimum_day, env.spe_rate_per_year, env.spe_hull_msv, env.career_limit_msv, env.hazard_cr_per_msv));
+        mix(std::format("b{}|{}|{}|{};", env.boiloff, env.mli_flux_w_m2, env.mli_flux_exponent, env.cold_storage));
+        mix(std::format("w{}|{}|{}|{}|{}|{};", env.wear, env.ntr_core_life_h, env.plasma_drive_life_h, env.puncture_flux_m2_yr,
+            env.overhaul_wear, env.initial_wear_max));
         std::map<std::string, domain::StationRadiationDefinition> sorted(
             universe_.station_radiation.begin(), universe_.station_radiation.end());
         for (const auto& [station_id, radiation] : sorted) {
@@ -587,7 +596,7 @@ void Simulation::load_state_json(const std::string& text) {
     std::vector<domain::ShipState> ships;
     for (const auto& item : root.get("ships").items()) {
         ships.push_back(ship_from_json(item));
-        (void)register_design(ships.back().class_id, ships.back().fit);  // throws on an unknown class or bad fit
+        (void)register_design(ships.back().class_id, ships.back().fit, radiator_bucket(ships.back()));  // throws on a bad class or fit
         if (!ships.back().refit_class_id.empty()) {
             (void)register_design(ships.back().refit_class_id, ships.back().refit_fit);
         }
@@ -595,7 +604,7 @@ void Simulation::load_state_json(const std::string& text) {
     std::vector<domain::ShipState> sold;
     for (const auto& item : root.get("sold_ships").items()) {
         sold.push_back(ship_from_json(item));
-        (void)register_design(sold.back().class_id, sold.back().fit);
+        (void)register_design(sold.back().class_id, sold.back().fit, radiator_bucket(sold.back()));
     }
     std::map<std::string, double> treasuries;
     for (const auto& [faction_id, balance] : root.get("faction_treasuries").fields()) {

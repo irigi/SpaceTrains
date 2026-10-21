@@ -448,7 +448,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.wait_time_s = 0.0;
         plan.coast_time_s = coast_time_s;
         plan.travel_time_s = coast_time_s;
-        const double days = plan.travel_time_s / 86400.0;
+        const double days = plan.coast_time_s / 86400.0;  // docked ships keep their hydrogen cold at the depot
         const auto ship = loading.loaded(ship_aboard, delta_v, days);
         plan.propellant_load_kg = ship.propellant_kg;
         plan.propellant_required_kg = loading.burn_kg(delta_v, days);
@@ -545,7 +545,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.coast_time_s = transfer_s;
         plan.arrival_time_s = plan.departure_time_s + transfer_s;
         plan.travel_time_s = best_wait_s + transfer_s;
-        const double days = plan.travel_time_s / 86400.0;
+        const double days = transfer_s / 86400.0;
         const auto ship = loading.loaded(ship_aboard, dv_departure + dv_arrival, days);
         plan.propellant_load_kg = ship.propellant_kg;
         plan.propellant_required_kg = loading.burn_kg(dv_departure + dv_arrival, days);
@@ -618,16 +618,17 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     double best_dv_dep = hohmann_dv_dep;
     double best_dv_arr = hohmann_dv_arr;
     double best_dv = hohmann_dv_dep + hohmann_dv_arr;
-    bool found_feasible = loading.feasible(best_dv, (hohmann_wait_s + hohmann_time_s) / 86400.0);
+    bool found_feasible = loading.feasible(best_dv, hohmann_time_s / 86400.0);
     // Cheapest feasible transfer when the owner's costs are known, else the fastest.
     const bool by_cost = costs.propellant_cr_per_kg > 0.0 || costs.time_cr_per_day > 0.0;
-    const auto objective = [&](double total_s, double dv) {
+    // Hydrogen boils only in flight (in port the depot keeps it cold).
+    const auto objective = [&](double total_s, double transit_s, double dv) {
         return by_cost
-            ? (loading.burn_kg(dv, total_s / 86400.0) + loading.boiled_kg(total_s / 86400.0)) * costs.propellant_cr_per_kg
+            ? (loading.burn_kg(dv, transit_s / 86400.0) + loading.boiled_kg(transit_s / 86400.0)) * costs.propellant_cr_per_kg
                 + total_s / 86400.0 * costs.time_cr_per_day
             : total_s;
     };
-    double best_objective = objective(hohmann_wait_s + hohmann_time_s, best_dv);
+    double best_objective = objective(hohmann_wait_s + hohmann_time_s, hohmann_time_s, best_dv);
     bool best_from_lambert = false;
     math::Vec3d best_r1_pos{}, best_r2_pos{}, best_v1_lambert{};
 
@@ -642,8 +643,8 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu);
     for (const auto& cell : *grid) {
         const double dv_k = cell.dv_departure + cell.dv_arrival;
-        const bool feas_k = loading.feasible(dv_k, (cell.wait_s + cell.transit_s) / 86400.0);
-        const double objective_k = objective(cell.wait_s + cell.transit_s, dv_k);
+        const bool feas_k = loading.feasible(dv_k, cell.transit_s / 86400.0);
+        const double objective_k = objective(cell.wait_s + cell.transit_s, cell.transit_s, dv_k);
         const bool better_feasible = feas_k && (!found_feasible || objective_k < best_objective);
         // Until a feasible transfer turns up, keep the cheapest in Δv.
         if (!better_feasible && (found_feasible || dv_k >= best_dv)) {
@@ -670,7 +671,7 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     plan.wait_time_s = best_dep_time - current_time_s;
     plan.travel_time_s = plan.wait_time_s + plan.coast_time_s;
     plan.arrival_time_s = current_time_s + plan.travel_time_s;
-    const double days = plan.travel_time_s / 86400.0;
+    const double days = plan.coast_time_s / 86400.0;
     const auto ship = loading.loaded(ship_aboard, delta_v, days);
     plan.propellant_load_kg = ship.propellant_kg;
     plan.propellant_required_kg = loading.burn_kg(delta_v, days);

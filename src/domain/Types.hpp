@@ -162,6 +162,35 @@ struct ShipEnvironmentDefinition {
     double mli_flux_exponent {1.0};
     double lh2_latent_j_kg {446000.0};
     double tank_area_factor {1.3};
+
+    // Cold holds (step E): perishables (food, medicine) in a cold hold spoil at the module's
+    // perishable_decay_factor times the ambient rate.
+    bool cold_storage {false};
+
+    // Wear and repairs (step H). Nuclear-thermal cores are rated for ~10 h of full-power burn
+    // (NERVA's flight-engine goal: 10 h over 60 restarts); plasma drives for 50,000 h of thrust
+    // (estimate, like NASA's NEXT ion thruster qualification). Radiator heat pipes are holed by
+    // meteoroids of 1e-5 g and up (a 0.2 mm grain through a 1 mm wall at ~20 km/s): Grun et al.
+    // 1985 give 0.146 per m2 per year at 1 AU, about r^-1.3 with distance; a hit kills one
+    // 0.2 m2 segment, and 30% of a panel is pipe (estimates). A drive is overhauled when 70% of
+    // its life is used, radiators below 85%, at any port that has the spares: the core's fuel
+    // elements (reactor fuel, 40% of the engine mass), plasma drives machinery and electronics
+    // (30%), radiator panels machinery (50% of the lost panels), plus labour at the refit share.
+    bool wear {false};
+    double ntr_core_life_h {10.0};
+    double plasma_drive_life_h {50000.0};
+    double puncture_flux_m2_yr {0.146};
+    double puncture_flux_exponent {1.3};
+    double radiator_vulnerable_fraction {0.3};
+    double radiator_segment_m2 {0.2};
+    double overhaul_wear {0.7};
+    double radiator_repair_condition {0.85};
+    double repair_labour_fraction {0.3};
+    double core_spares_fraction {0.4};
+    double drive_spares_fraction {0.3};
+    double radiator_spares_fraction {0.5};
+    double repair_days {20.0};
+    double initial_wear_max {0.5};   // the starting fleet is of mixed ages
 };
 
 // Where a docked crew lives (data/economy/station_radiation.csv): the share of the open-space
@@ -555,6 +584,11 @@ struct ShipState {
     std::string refit_class_id;
     std::vector<std::string> refit_fit;   // and the modules it leaves the yard with
     double leg_dose_msv {0.0};            // radiation dose of the crew hired for this leg
+    // Wear (tier 2, step H): share of the drive's rated life used, share of radiator heat
+    // pipes intact, and whether the yard visit under way is an overhaul.
+    double engine_wear {0.0};
+    double radiator_condition {1.0};
+    bool overhaul {false};
     double refit_done_s {0.0};
     double next_refit_review_s {0.0};
     double laid_up_since_s {0.0};      // when the ship was last laid up
