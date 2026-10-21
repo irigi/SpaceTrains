@@ -40,7 +40,7 @@ Issues to check:
    is in the rocket equation since part B, so larger holds now cost propellant honestly.
 5. **Crew habitats and life support** are not in the dry mass at all.
 
-## Reference Range for Variable-Isp Ships (user's `~/VariableISPRocketTrajectories/linopt/`)
+## Reference Range for Variable-Isp Ships (user's `~/Projects/VariableISPRocketTrajectories/linopt/`)
 
 The user's design studies (`passenger_ticket_optimizer.py`, `time_optimal_transfer_solver.py`) set the intended
 range for the variable-specific-impulse classes:
@@ -77,7 +77,7 @@ engineering judgement, still needs a source), **game** (a modelling choice, not 
 
 ### Variable-Isp drive (advanced fusion/plasma, magnetic nozzle, radiators)
 
-linopt (`~/VariableISPRocketTrajectories/linopt/`) has two parameter sets. Hardware mass per jet watt is
+linopt (`~/Projects/VariableISPRocketTrajectories/linopt/`) has two parameter sets. Hardware mass per jet watt is
 `1 / ((1 - φ) α_eng) + φ / ((1 - φ) ρ_rad)`.
 
 | Quantity | Set A: solver/spreadsheet | Set B: fare optimizer | Status |
@@ -158,6 +158,81 @@ These describe the parts in `ship_components.csv`. They do not change any mass o
 | Habitat heat load and power | 12.9 kW for 4 crew (3.2 kW per crew), ECLSS 6.4 kW of it | sourced: same, "DSH Thermal Control Heat Rejection" |
 | Cabin and cabin-radiator temperatures | 295 K, 277 K | estimate (ISS-style ammonia loop at 2-6 °C) |
 | Hold volume | 1 m³ per cargo unit | game |
+
+### Crew radiation (added 2026-10-21, ship structures tier 2, step D)
+
+Values in `data/economy/ship_environment.csv` (defaults in `domain::ShipEnvironmentDefinition`) and
+`data/economy/station_radiation.csv`; the model is `src/simulation/CrewEnvironment.cpp`. Doses are effective
+dose, mSv.
+
+| Quantity | Value | Status, source |
+|---|---|---|
+| Cosmic rays (GCR) in deep space behind a habitat hull | 1.84 mSv/day, cycle mean | sourced: Curiosity RAD in cruise, Zeitlin et al. 2013 (*Science* 340) |
+| Solar-cycle modulation | ±30%, highest at solar minimum | estimate (GCR dose varies about 2× minimum to maximum) |
+| Radial gradient | +3%/AU | estimate (Pioneer/Voyager gradients 2-4%/AU) |
+| Extra water against GCR | dose × exp(−x / 46 g/cm²) | estimate: ~35% less behind 20 g/cm²; Monte Carlo studies give 38-50% for 20 g/cm² CFRP ([Naito & Kodaira 2022](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9365775/)) |
+| Storm shelter occupancy | 1/3 of the day (the crew sleeps there) | game choice |
+| August 1972 event, blood-forming organs | ~1300 mSv inside a pressure vessel | sourced: ~1.3 Gy BFO inside an aluminium pressure vessel, 0.5 Gy in an equipment room ([NTRS 20040100724](https://ntrs.nasa.gov/citations/20040100724)) |
+| … behind 20 g/cm² of water | ~200 mSv | sourced: 20 g/cm² of water keeps the 1972 event under the 25 rem 30-day limit ([NTRS 19880016043](https://ntrs.nasa.gov/api/citations/19880016043/downloads/19880016043.pdf)); 200 is an estimate below that bound |
+| Event sizes | power law N(>M) ∝ M^−0.5, 0.01-2 × the 1972 event, 0.5 a year above 0.01 on cycle average (none at minimum, twice at maximum) | estimate: a 1972-class event about once in 20 years (1956, 1972, 1989) |
+| Event dose with distance | 1/r² | estimate (fluence falls about as r⁻², peak intensity faster) |
+| Career limit (per leg: a crew is signed on per leg) | 1000 mSv | sourced: ESA career limit 1 Sv; NASA-STD-3001 (2022) uses 600 mSv |
+| Hazard pay | 0.43 cr/mSv | derived: ICRP 103 nominal risk 5.5%/Sv × ~$10M value of a statistical life = $550/mSv, at 0.00078 cr/$ |
+
+Docked crews live in the station's habitat: dose = GCR × location factor × exp(−station shielding / 46 g/cm²).
+Anchors: ISS crews get ~0.5-0.7 mSv/day (LEO factor 0.3 → 0.55); Chang'e-4 measured 1.37 mSv/day on the lunar
+surface (airless surfaces 0.74); Venus aerostats and Titan sit under atmospheres like or thicker than Earth's
+(~0.001 mSv/day at sea level). Ganymede's mine sits at the equator inside the moon's own magnetic field, where
+the particle flux is like Callisto's (Cooper et al. 2001, *Icarus*); the crossing of Jupiter's radiation belts on
+approach is not modelled.
+
+Not modelled: crew dose histories across legs (each leg signs on a fresh crew), shielding of the whole habitat
+against cosmic rays (about 20 t of water per 10 g/cm² on a Deep Space Habitat: never worth it), and
+radiation-hardened ship parts.
+
+### Boil-off and wear (added 2026-10-21, ship structures tier 2, steps F and H)
+
+| Quantity | Value | Status, source |
+|---|---|---|
+| MLI heat leak into LH2 tanks | 0.2 W/m² at 1 AU, × r⁻¹ | estimate (high-performance MLI in vacuum: 0.1-0.4 W/m²) |
+| Tank area | 1.3 × a sphere of the tank volume | game geometry (several cylinders) |
+| LH2 latent heat | 446 kJ/kg | sourced (handbook value) |
+| 90 K broad-area-cooled shield | intercepts 60% of the leak | sourced bound: up to 70%, theoretical (NASA Glenn, Christie et al. 2011, NTRS 20110016177) |
+| 20 K cryocooler | ~100 W input per W lifted, ~5 kg per W lifted | estimate (Carnot COP 20/280; ~14% of Carnot) |
+| 90 K cryocooler | ~12 W per W lifted, ~1 kg per W lifted | estimate (Carnot COP 90/210; ~20% of Carnot) |
+| Cooler power | engine's bimodal Brayton loop, ~10 kg/kWe | estimate (NASA bimodal NTR studies, Borowski: ~25 kWe per stage) |
+| Nuclear-thermal core life | 100 h of full-power burn (was 10 h, NERVA's 1960s graphite-fuel goal) | sourced: GE-710 W-UO₂ CERMET fuel qualified for 100 h at 2148 °C (NASA NTRS 20140002718); a Mars mission needs ~2 h (INL); liquid cores the same (estimate) |
+| Plasma drive life | 87,600 h = 10 full-power years (was 50,000 h) | estimate: electrodeless (VASIMR-type) thrusters do not erode; the fission reactor limits life: SP-100 aimed at 7-10 years, JIMO at more than 10 (NTRS 19930002210, SpaceNews) |
+| Meteoroids holing a heat pipe | ≥ 10⁻⁵ g: 0.146 per m² per year at 1 AU, × r^−1.3 | sourced flux model: Grün et al. 1985 (Icarus 62); 0.2 mm grain through a 1 mm wall at ~20 km/s (estimate); r-scaling estimate |
+| Radiator pipe share, segment size | 30% of the panel, 0.2 m² | estimates |
+| Wearing parts (`spares.csv`) | NTR fuel elements 40% of the engine (reactor fuel); plasma drive reactor fuel 10% and power/RF electronics 15% (70% electronics, 30% machinery); radiator heat pipes 50% of the panel (machinery) | estimates |
+| Overhaul hours | fit 0.125 h/kg, make electronics or heat pipes from the goods 0.1 h/kg | derived: a CFM56-7B shop visit takes 2,500-3,500 h on a 2.4 t engine (~1.25 h/kg, Safe Fly Aviation), ÷ 10 for automated yards (estimate) |
+| Yard team | 10 people, two 8 h shifts a day, at least 3 days | estimate |
+| Cold hold | 255 K, spoilage × 0.1; MLI + 2 kg/m² liner, ~0.5 W/m² leak | estimates |
+
+### Labour and the price of parts (added 2026-10-21, tier 2 follow-up)
+
+One wage scale for all work (`data/economy/labour.csv`): a reference wage and grades as its multiples, with the
+ratios of US median wages (BLS: all occupations ~$48k; aircraft mechanics ~1.5×, aerospace and nuclear engineers
+~2.6×; ship officers ~1.8×).
+
+| Grade | × reference (0.5 cr/day) | cr/day | Note |
+|---|---|---|---|
+| technician | 1.5 | 0.75 | yard work: electronics, heat pipes |
+| engineer | 2.6 | 1.3 | |
+| nuclear specialist | 2.6 | 1.3 | reactor fuel handling |
+| crew | 4.0 | 2.0 | ship officer 1.8 × deep-space premium ~2.2 (months away; dose risk is paid apart as hazard pay); the old crew wage, unchanged |
+
+Cross-check: residents spend ~0.2 cr per person-day on traded goods, below the reference wage, as they should
+(not everyone works, and not all income buys traded goods).
+
+**A part's price is materials plus work.** The ship class builder splits the engine and radiators into the parts
+that wear out and the parts that last the ship's life. A wearing part is priced from the economy itself: its goods
+at base price plus the hours to make and fit it at the labour scale. The lasting part carries the rest of linopt's
+price: precision work on hardware no generic good stands for (an NTR's pressure vessel, turbopumps and nozzle at
+~12 cr/kg; a plasma drive's magnets and nozzle at ~9 cr/kg). The goods stay generic: "electronics" are the
+economy's chips and boards, not a finished drive. An overhaul replaces the worn share of the wearing parts, so at
+base prices a whole core's overhaul costs exactly its fuel elements' price.
 
 ### Open questions for the user
 

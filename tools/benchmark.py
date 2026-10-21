@@ -48,6 +48,9 @@ def run_one(binary, days, start, threads, extra):
         m = re.search(r"drift ([-\d.]+)\)", line)
         if m:
             result["drift"] = abs(float(m.group(1)))
+        m = re.search(r"Delivered price: ([\d.]+)x", line)
+        if m:
+            result["price"] = float(m.group(1))
         m = re.search(r"Exports: (\d+) cr", line)
         if m:
             result["exports"] = float(m.group(1))
@@ -91,7 +94,7 @@ def main():
     with ThreadPoolExecutor(max_workers=len(starts)) as pool:
         results = list(pool.map(lambda s: run_one(args.binary, args.days, s, threads, args.extra), starts))
 
-    columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("profitable", "profitable"), ("ships", "ships"),
+    columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("price", "price÷ref"), ("profitable", "profitable"), ("ships", "ships"),
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
                ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("ship_cash", "ship cash %"),
                ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"), ("seconds", "run s")]

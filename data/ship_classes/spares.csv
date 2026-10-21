@@ -1,0 +1,5 @@
+kind,wears_with,grade,fabrication_h_per_kg,install_h_per_kg,materials
+fuel_elements,drive,nuclear_specialist,0.0,0.125,reactor_fuel=1.0
+reactor_fuel_load,drive,nuclear_specialist,0.0,0.125,reactor_fuel=1.0
+power_electronics,drive,technician,0.1,0.125,electronics=0.7;machinery=0.3
+heat_pipes,radiators,technician,0.1,0.125,machinery=1.0

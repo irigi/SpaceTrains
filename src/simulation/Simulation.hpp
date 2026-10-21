@@ -85,11 +85,40 @@ public:
     // Static today, so the bridge writes it once as <snapshot>.designs; with refittable
     // modules (tier 2) it changes when a ship's fit does, keyed by bridge_designs_signature().
     [[nodiscard]] std::string build_bridge_designs_json() const;
-    [[nodiscard]] std::string bridge_designs_signature() const { return "classes"; }
+    // Designs are only ever added, so their count tells the bridge when to rewrite the file.
+    [[nodiscard]] std::string bridge_designs_signature() const { return "classes+" + std::to_string(designs_.size()); }
     [[nodiscard]] std::string bridge_paths_signature() const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
     [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return recent_trades_; }
+    // Audit (tier 2, crew radiation): since start or load, not saved.
+    struct RadiationAudit {
+        double crew_dose_msv {0.0};      // person-mSv over the fleet
+        double hazard_pay_cr {0.0};
+        double highest_leg_dose_msv {0.0};
+        int particle_events {0};
+        double largest_event_magnitude {0.0};
+        double hydrogen_boiled_kg {0.0};   // step F
+        // Nuclear-thermal arrivals: short of the arrival burn, or with under half the reserve left.
+        int thermal_arrivals {0};
+        int arrivals_short_of_burn {0};
+        int arrivals_below_half_reserve {0};
+        double lowest_reserve_share {1.0e9};   // fuel left on arrival / planned reserve
+        int overhauls {0};                 // step H
+        double repair_bills_cr {0.0};
+        std::map<std::string, double> spares_units;
+        int repairs_waiting_for_spares {0};
+        int thermal_overhauls {0};
+        int plasma_overhauls {0};
+        double repair_spares_cr {0.0};
+        double repair_labour_cr {0.0};
+        double repair_days {0.0};
+    };
+    [[nodiscard]] const RadiationAudit& radiation_audit() const { return radiation_audit_; }
+    // Audit: deliveries with a reference price since start (or load), paid vs reference.
+    [[nodiscard]] double delivered_price_ratio() const {
+        return delivered_reference_cr_ > 0.0 ? delivered_paid_cr_ / delivered_reference_cr_ : 0.0;
+    }
 
     // When enabled, every accepted mission plan is checked by audit_trajectory()
     // and recorded (headless --trajectory-audit).
@@ -97,13 +126,59 @@ public:
     [[nodiscard]] const std::vector<trajectory::TrajectoryAuditRecord>& trajectory_audit_records() const {
         return trajectory_audit_records_;
     }
+    // What an overhaul replaces and costs (tier 2): the wearing parts' goods, the hours to
+    // make and fit them and their wages, and the days in the yard.
+    struct OverhaulBill {
+        std::map<std::string, double> spares_units;
+        double hours {0.0};
+        double labour_cr {0.0};
+        double days {0.0};
+    };
+    [[nodiscard]] OverhaulBill overhaul_bill(const domain::ShipClassDefinition& design, double drive_share,
+        double radiator_share) const;
+    // Wear priced into planning: a drive life's overhaul (base prices) per hour of thrust, and
+    // that per day in flight (plasma) or per kg of propellant burned (nuclear-thermal); 0 with wear off.
+    [[nodiscard]] double wear_cr_per_drive_hour(const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] double wear_cr_per_flight_day(const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] double wear_cr_per_propellant_kg(const domain::ShipClassDefinition& design) const;
 
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
-    // The design a ship flies with. Today its class; with refittable modules (tier 2 of
-    // docs/plans/ship_internals.md) a design derived from the class and the ship's own fit.
-    // Ship-level code asks this, never get_ship_class(ship.class_id).
+    // The design a ship flies with: its class, or with modules fitted (tier 2,
+    // docs/plans/ship_structures_tier2.md) the design derived from the class and the fit.
+    // Ship-level code asks this, never get_ship_class(ship.class_id). Fitted designs must be
+    // registered first (serial code only: planning passes read the cache in parallel).
     [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
+    // Derives and caches the design class_id + fit (serial code only); throws on a fit the
+    // hull cannot take (unknown module, slots overfilled, a module twice).
+    const domain::ShipClassDefinition& register_design(const std::string& class_id, const std::vector<std::string>& fit,
+        double radiator_bucket = 1.0);
+    // Radiator condition in the 10% steps designs are derived at (1 = intact, or wear off).
+    [[nodiscard]] double radiator_bucket(const domain::ShipState& ship) const;
+    // Wear and repairs (tier 2, step H).
+    // Hours of drive life a plan uses: burn time (nuclear-thermal) or thrust time (plasma).
+    [[nodiscard]] double drive_hours(const domain::ShipClassDefinition& design, const domain::TrajectoryPlan& plan) const;
+    [[nodiscard]] double drive_life_h(const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] bool drive_life_allows(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
+        const domain::TrajectoryPlan& plan) const;
+    void accrue_wear(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
+    // Overhauls a worn drive or holed radiators where the port has the spares; true if the
+    // ship went into the yard.
+    bool consider_repair(domain::ShipState& ship);
+    [[nodiscard]] const domain::ShipModuleDefinition* find_module(const std::string& hull_id, const std::string& module_id) const;
+    // A module is offered at refits and to new ships only if one of its effects is switched on
+    // (data/economy/ship_environment.csv): an inert module only adds mass.
+    [[nodiscard]] bool module_has_active_effect(const domain::ShipModuleDefinition& module) const;
+    // A refit or build option: a class (tank variant) and the modules fitted with it.
+    struct FitOption {
+        const domain::ShipClassDefinition* design {nullptr};
+        std::string class_id;
+        std::vector<std::string> fit;
+    };
+    // The fits one yard visit can reach from class_id + fit: the next tank size either way, and
+    // one module added (into a free slot) or removed. Registers the designs (serial code only).
+    std::vector<FitOption> neighbouring_fits(const std::string& class_id, const std::vector<std::string>& fit,
+        double radiator_bucket = 1.0);
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
@@ -363,6 +438,32 @@ private:
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
     void add_event(std::string text, std::string category = "general");
     void record_trade(domain::TradeEntry trade);
+    // Crew radiation (tier 2, step D; src/simulation/CrewEnvironment.hpp).
+    [[nodiscard]] double station_r_au(const domain::StationDefinition& station, double time_s) const;
+    [[nodiscard]] double docked_dose_msv_per_day(const std::string& station_id, double time_s) const;
+    // Expected dose rate of a crew flying from -> to (departing at time_s).
+    [[nodiscard]] double leg_dose_msv_per_day(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
+    // Hazard pay per day of that leg (0 with radiation off).
+    [[nodiscard]] double hazard_cr_per_day(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
+    // Whether a leg of this length keeps its crew under the career limit.
+    [[nodiscard]] bool leg_dose_allowed(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) const;
+    void accrue_radiation(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
+    // Where a ship is from the Sun now: its station, or interpolated over its leg.
+    [[nodiscard]] double ship_r_au(const domain::ShipState& ship) const;
+    // Spoilage per day of a good in this design's hold (a cold hold slows food and medicine).
+    [[nodiscard]] double cargo_decay_per_day(const domain::ShipClassDefinition& design, const std::string& commodity_id) const;
+    // Liquid hydrogen a design loses per day at r (AU): the tanks' heat leak less what its
+    // cryocooler lifts (tier 2, step F; 0 for water-propellant plasma ships or boil-off off).
+    [[nodiscard]] double boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const;
+    // The mean of that rate over a leg from r1 to r2 (r linear in time, as ship_r_au moves a
+    // ship): what the planners load for, and what the flight then boils.
+    [[nodiscard]] double leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r1_au, double r2_au) const;
+    [[nodiscard]] double leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
+    void step_particle_events(double dt_s);
     void record_trajectory_audit(
         const domain::ShipState& ship,
         const domain::StationDefinition& origin,
@@ -416,6 +517,10 @@ private:
     std::vector<domain::ShipState> ships_;
     std::vector<domain::EventEntry> recent_events_;
     std::vector<domain::TradeEntry> recent_trades_;
+    double delivered_paid_cr_ {0.0};       // audit only, not saved
+    RadiationAudit radiation_audit_;       // audit only, not saved
+    mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache_;  // time, AU
+    double delivered_reference_cr_ {0.0};
     bool trajectory_audit_enabled_ {false};
     std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
     // estimate_leg() cache: departure bucket -> "class|from|to|fuel bucket" -> estimate.
@@ -428,6 +533,13 @@ private:
     std::unique_ptr<util::ThreadPool> thread_pool_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
+    // Fitted designs by design id. A std::map, so references handed out stay valid; derived
+    // from data and fits only, never saved.
+    std::map<std::string, domain::ShipClassDefinition> designs_;
+    std::unordered_map<std::string, const domain::ShipModuleDefinition*> modules_by_key_;  // "hull|module"
+    std::unordered_set<std::string> active_effects_;  // module effect keys switched on
+    // Solar particle events draw from their own stream, so station events stay as they were.
+    std::mt19937_64 environment_rng_;
 };
 
 }  // namespace spacetrains::simulation

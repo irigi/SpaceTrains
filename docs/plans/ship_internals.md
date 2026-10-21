@@ -8,7 +8,9 @@ It should be doable and interesting, not a ship editor.
 
 Three tiers:
 1. **Show the structure.** Done 2026-10-11 and described below.
-2. **Modules as refit choices**, with component condition and damage. Designed below; queued in `docs/roadmap.md`.
+2. **Modules as refit choices**, with component condition and damage. Built 2026-10-21 on
+   `feature/ship_structures_tier2`: plan `ship_structures_tier2.md`, decisions and measurements
+   `tier2_log.md`, mechanisms in `docs/modules/ships_and_fleet.md`. The design below is the 2026-10-11 draft.
 3. **Stations** get the same treatment. Sketch at the end.
 
 The decisions are logged in `ship_structures_log.md`. The graphics are the inspector's ship schematic and the
@@ -84,7 +86,7 @@ Checks:
   - Ship models now follow `hull_id`; tank variants used to fall back to the default model.
   - ShotTour shoots the section for one ship of each drive.
 
-## Tier 2: Modules as Refits (designed, not built)
+## Tier 2: Modules as Refits (2026-10-11 draft; built differently, see `tier2_log.md`)
 
 Constraints: keep the simulation deterministic and headless-testable, keep refits economic decisions (the part C
 rule), and avoid a free-form editor.

@@ -37,6 +37,7 @@ const PART_COLORS := {
     "propellant": Color(0.62, 0.82, 1.0),
     "cargo": Color(0.36, 0.62, 0.3),
     "provisions": Color(0.85, 0.72, 0.45),
+    "module": Color(0.68, 0.55, 0.92),
 }
 # Habitat parts drawn as bands inside the hull; the hull and shielding are its frame.
 const HABITAT_BANDS := ["habitat.crew_quarters", "habitat.common_rooms", "habitat.life_support",
@@ -116,12 +117,19 @@ func _layout() -> void:
                 continue
             _add_shape(key, "band", Rect2(bx, inner.position.y, inner.size.x * share, inner.size.y))
             bx += inner.size.x * share
+        # Storm shelter (tier 2): a water-walled refuge at the front of the habitat.
+        var shelter: Dictionary = _components.get("module.storm_shelter", {})
+        if not shelter.is_empty():
+            var depth := clampf(_f(shelter, "volume_m3") / (HAB_DIAMETER_M * HAB_DIAMETER_M * 0.4), 0.8, length * 0.3)
+            _add_shape("module.storm_shelter", "shelter", Rect2(x + radius * 0.15, -radius * 0.75, depth, HAB_DIAMETER_M * 0.75))
         x += length + GAP_M
     var hold: Dictionary = _components.get("hold", {})
     if not hold.is_empty():
         var volume := maxf(_f(hold, "volume_m3"), 1.0)
         var width := clampf(pow(volume, 1.0 / 3.0) * 1.2, 3.0, 12.0)
         _add_shape("hold", "hold", Rect2(x, -width * 0.5, volume / (width * width), width))
+        if _components.has("module.cold_hold"):
+            _add_shape("module.cold_hold", "liner", Rect2(x, -width * 0.5, volume / (width * width), width).grow(0.35))
         x += volume / (width * width) + GAP_M
     var tank: Dictionary = _components.get("tanks", {})
     var tank_width := 3.0
@@ -130,6 +138,9 @@ func _layout() -> void:
         tank_width = clampf(pow(volume, 1.0 / 3.0) * 0.7, 2.0, 10.0)
         var length := maxf(volume / (PI * tank_width * tank_width * 0.25), tank_width)
         _add_shape("tanks", "tank", Rect2(x, -tank_width * 0.5, length, tank_width))
+        for key in ["module.boiloff_shield", "module.zbo_cryocooler"]:
+            if _components.has(key):
+                _add_shape(key, "tank_cooling", Rect2(x, -tank_width * 0.5, length, tank_width).grow(0.4))
         x += length + GAP_M
     if not _plasma:
         var shield := maxf(3.0, tank_width * 0.6)
@@ -243,6 +254,10 @@ func _shape_tip(shape: Dictionary) -> String:
     match String(shape["kind"]):
         "shield":
             return "Shadow shield: shades the ship from the reactor (counted in the engine's mass)"
+        "shelter", "liner", "tank_cooling":
+            var module_spec := component_spec(comp)
+            return "%s %s%s" % [String(comp.get("name", "")), fmt_mass(_f(comp, "mass_kg")),
+                (" · " + module_spec) if module_spec != "" else ""]
         "habitat":
             var frame: Array[String] = []
             for key in HABITAT_FRAME:
@@ -281,6 +296,10 @@ func _draw_shape(shape: Dictionary) -> void:
         "wing":
             var temperature := float(_ship.get("radiator_temperature_k", _f(comp, "temperature_k")))
             draw_rect(r, Thermal.color(temperature))
+            # Heat-pipe segments lost to meteoroids (tier 2 wear), dark at the panel tips.
+            var lost := clampf(1.0 - float(_ship.get("radiator_condition", 1.0)), 0.0, 1.0)
+            if lost > 0.0:
+                draw_rect(Rect2(r.end.x - r.size.x * lost, r.position.y, r.size.x * lost, r.size.y), Color(0.08, 0.08, 0.1, 0.9))
             # Panel seams, and the strut back to the truss.
             var seams := clampi(int(r.size.x / 14.0), 1, 12)
             for i in range(1, seams):
@@ -322,6 +341,20 @@ func _draw_shape(shape: Dictionary) -> void:
             draw_rect(r, Color(0.33, 0.36, 0.4))
         "engine":
             _draw_engine(r, comp)
+        "shelter":
+            # Water wall around the refuge.
+            draw_rect(r, Color(0.2, 0.42, 0.75, 0.85))
+            draw_rect(r.grow(-maxf(1.0, r.size.x * 0.2)), Color(0.75, 0.82, 0.9))
+            draw_rect(r, PART_COLORS["module"], false, 1.0)
+        "liner":
+            draw_rect(r, Color(0.75, 0.9, 1.0, 0.9), false, 2.0)
+        "tank_cooling":
+            # Cooled shield tubing wound around the tanks.
+            var turns := clampi(int(r.size.x / 6.0), 2, 14)
+            for i in range(turns + 1):
+                var tx := r.position.x + r.size.x * float(i) / float(turns)
+                draw_line(Vector2(tx, r.position.y), Vector2(tx, r.end.y), Color(0.55, 0.85, 1.0, 0.55), 1.0)
+            draw_rect(r, PART_COLORS["module"], false, 1.0)
 
 func _rounded(r: Rect2, fill: Color, border: Color) -> void:
     var style := StyleBoxFlat.new()

@@ -5,6 +5,7 @@
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "math/Vec3d.hpp"
@@ -87,11 +88,54 @@ struct ShipClassDefinition {
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
     std::vector<ShipComponentDefinition> components;  // in file order, parents before their parts
+    // Fitted designs only (tier 2): the class they derive from, the modules and the sum of
+    // their effects by key.
+    std::string base_class_id;
+    std::vector<std::string> fit;
+    std::unordered_map<std::string, double> effects;
+};
+
+// A module a hull can fit at its home yard (data/ship_classes/modules.csv, written by
+// build_ship_classes.py; tier 2, docs/plans/ship_structures_tier2.md). Its part joins the
+// design's components; its effects (key=value) act through the quantities they name.
+struct ShipModuleDefinition {
+    std::string hull_id;
+    std::string id;
+    std::string slot;           // habitat | hold | drive | tank | cabin
+    ShipComponentDefinition part;
+    std::unordered_map<std::string, double> effects;
+};
+
+// One wage scale for all work (data/economy/labour.csv): a reference wage and grades as its
+// multiples, from US BLS median-wage ratios (docs/ship_technology.md, "Labour").
+struct LabourDefinition {
+    double reference_wage_cr_per_day {0.5};
+    double shift_hours {8.0};
+    std::unordered_map<std::string, double> grades;  // grade -> multiple of the reference wage
+    [[nodiscard]] double wage_cr_per_day(const std::string& grade) const {
+        const auto it = grades.find(grade);
+        return it == grades.end() ? 0.0 : reference_wage_cr_per_day * it->second;
+    }
+    [[nodiscard]] double wage_cr_per_hour(const std::string& grade) const {
+        return wage_cr_per_day(grade) / shift_hours;
+    }
+};
+
+// A part that wears out (data/ship_classes/spares.csv, from the ship class builder): the
+// sub-part kind, what wears it (the drive's hours or meteoroids on the radiators), the goods
+// it is made of (shares of its mass), and the hours to make and fit it at a yard.
+struct SparePartDefinition {
+    std::string kind;
+    std::string wears_with;   // drive | radiators
+    std::string grade;
+    double fabrication_h_per_kg {0.0};
+    double install_h_per_kg {0.0};
+    std::vector<std::pair<std::string, double>> materials;  // commodity, share of the mass
 };
 
 // Fleet-wide operating parameters (data/economy/ship_operations.csv).
 struct ShipOperationsDefinition {
-    double wage_cr_per_crew_day {0.0};
+    double wage_cr_per_crew_day {0.0};   // the crew grade of the labour scale
     double interest_rate_per_year {0.0};
     double lifetime_years {30.0};
     // Tank refits at the home base: days in the yard, and the yard's bill as a fraction
@@ -101,6 +145,87 @@ struct ShipOperationsDefinition {
     double refit_cost_fraction {0.3};
     // Life support per crew-day, in commodity units, bought as real goods.
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
+};
+
+// The space environment acting on ships and crews (data/economy/ship_environment.csv, tier 2;
+// sources and derivations in docs/ship_technology.md, "Crew radiation"). Every mechanism is a
+// switch; with all off the economy is the reference.
+struct ShipEnvironmentDefinition {
+    bool radiation {false};
+    // Galactic cosmic rays behind a habitat-class hull (~10 g/cm2): Curiosity's RAD measured
+    // 1.84 mSv/day in cruise (Zeitlin et al. 2013). The solar cycle modulates it by about
+    // +-30%, highest at solar minimum; it grows a few per cent per AU outward.
+    double gcr_msv_per_day {1.84};
+    double gcr_cycle_amplitude {0.3};
+    double solar_cycle_days {4018.0};       // 11 years
+    double solar_minimum_day {-1000.0};     // a solar minimum, in game days from the start
+    double gcr_gradient_per_au {0.03};
+    double gcr_attenuation_g_cm2 {46.0};    // extra water areal density that cuts GCR dose by 1/e
+    double shelter_occupancy {0.33};        // the crew sleeps in its storm shelter
+    // Solar particle events: rate of events above spe_min_magnitude (cycle mean; none at
+    // solar minimum, twice the mean at maximum), magnitudes power-law distributed with index
+    // spe_index up to spe_max_magnitude, in units of the August 1972 event at 1 AU. Dose to
+    // the blood-forming organs of that event: ~1300 mSv inside a pressure hull, ~200 behind
+    // 20 g/cm2 of water (NASA, below the 250 mSv 30-day limit); falls off as 1/r^2.
+    double spe_rate_per_year {0.5};
+    double spe_min_magnitude {0.01};
+    double spe_max_magnitude {2.0};
+    double spe_index {0.5};
+    double spe_hull_msv {1300.0};
+    double spe_shelter_msv {200.0};
+    double spe_shelter_g_cm2 {20.0};
+    // A crew is hired for one leg; no leg may take it past the career limit (ESA, 1 Sv).
+    double career_limit_msv {1000.0};
+    // Hazard pay, a compensating wage differential: ICRP 103 nominal risk 5.5%/Sv times a
+    // ~$10M value of a statistical life, at the game's 0.00078 cr/$: 0.43 cr/mSv.
+    double hazard_cr_per_msv {0.43};
+
+    // Liquid-hydrogen boil-off (step F). Heat leaks through the tanks' multilayer insulation
+    // at mli_flux_w_m2 at 1 AU, scaled by r^-mli_flux_exponent (the outer layers run colder far
+    // from the Sun); it boils hydrogen at its latent heat. Tank area: a sphere of the tank
+    // volume times tank_area_factor (several cylinders). A zero-boil-off cryocooler module
+    // lifts up to its rated heat (effect zbo_lift_w).
+    bool boiloff {false};
+    double mli_flux_w_m2 {0.2};
+    double mli_flux_exponent {1.0};
+    double lh2_latent_j_kg {446000.0};
+    double tank_area_factor {1.3};
+
+    // Cold holds (step E): perishables (food, medicine) in a cold hold spoil at the module's
+    // perishable_decay_factor times the ambient rate.
+    bool cold_storage {false};
+
+    // Wear and repairs (step H, revised). Nuclear-thermal cores are rated for 100 h of
+    // full-power burn (GE-710 CERMET fuel was qualified for 100 h at 2148 C; NERVA's 10 h was
+    // 1960s graphite fuel); plasma drives for 10 full-power years (electrodeless thrusters; the
+    // reactor limits life, as SP-100's 7-10 and JIMO's 10+ year goals). Radiator heat pipes are holed by
+    // meteoroids of 1e-5 g and up (a 0.2 mm grain through a 1 mm wall at ~20 km/s): Grun et al.
+    // 1985 give 0.146 per m2 per year at 1 AU, about r^-1.3 with distance; a hit kills one
+    // 0.2 m2 segment, and 30% of a panel is pipe (estimates). A drive is overhauled when 70% of
+    // its life is used, radiators below 85%, at any port that has the spares: the wearing
+    // parts (spares.csv) in goods at the port's price, plus the hours to make and fit them at
+    // the labour scale; a team of 10 working two shifts, at least 3 days in the yard.
+    bool wear {false};
+    double ntr_core_life_h {100.0};
+    double plasma_drive_life_h {87600.0};
+    double puncture_flux_m2_yr {0.146};
+    double puncture_flux_exponent {1.3};
+    double radiator_vulnerable_fraction {0.3};
+    double radiator_segment_m2 {0.2};
+    double overhaul_wear {0.7};
+    double radiator_repair_condition {0.85};
+    double repair_team_size {10.0};
+    double repair_team_hours_per_day {16.0};
+    double min_repair_days {3.0};
+    double initial_wear_max {0.5};   // the starting fleet is of mixed ages
+};
+
+// Where a docked crew lives (data/economy/station_radiation.csv): the share of the open-space
+// cosmic-ray dose that reaches the station's location (planet shadow, magnetosphere,
+// atmosphere, rock) and the station's own shielding beyond a habitat hull.
+struct StationRadiationDefinition {
+    double location_factor {1.0};
+    double shield_g_cm2 {0.0};
 };
 
 // Propellant supply (data/economy/fuel_supply.csv, fuel_factories.csv). Every station has a
@@ -300,6 +425,13 @@ struct UniverseDefinition {
     std::vector<FactionDefinition> factions;
     std::vector<CommodityDefinition> commodities;
     std::vector<ShipClassDefinition> ship_classes;
+    std::vector<ShipModuleDefinition> ship_modules;
+    ShipEnvironmentDefinition ship_environment;
+    LabourDefinition labour;
+    std::unordered_map<std::string, SparePartDefinition> spare_parts;  // by sub-part kind
+    std::unordered_map<std::string, StationRadiationDefinition> station_radiation;
+    // Module slots by hull id and slot (data/ship_classes/hull_slots.csv).
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> hull_slots;
     std::vector<StationDefinition> stations;
     std::vector<RecipeDefinition> recipes;
     std::vector<ExportMarketDefinition> export_markets;
@@ -420,6 +552,7 @@ struct MissionAssignment {
     std::string trajectory_type;
     // Return fuel carried for a port that cannot refuel the ship; the samples do not include it.
     double carried_propellant_kg {0.0};
+    double boiled_propellant_kg {0.0};   // hydrogen boiled off since loading (tier 2, step F)
     // The follow-up load the ship planned to pick up at its destination (none if empty):
     // other ships' forecasts leave it to this ship.
     std::string pickup_commodity_id;
@@ -462,6 +595,9 @@ struct ShipState {
     std::string name;
     std::string faction_id;
     std::string class_id;
+    // Modules fitted at the home yard (tier 2, docs/plans/ship_structures_tier2.md). The
+    // ship flies the design class_id + fit (Simulation::ship_design).
+    std::vector<std::string> fit;
     std::string home_station_id;
     std::string current_station_id;
     ShipMissionPhase phase {ShipMissionPhase::Idle};
@@ -475,6 +611,13 @@ struct ShipState {
     double idle_since_s {0.0};         // when the ship last became idle (crewed, docked)
     // Tank refits (part C): the class the ship becomes when the yard is done.
     std::string refit_class_id;
+    std::vector<std::string> refit_fit;   // and the modules it leaves the yard with
+    double leg_dose_msv {0.0};            // radiation dose of the crew hired for this leg
+    // Wear (tier 2, step H): share of the drive's rated life used, share of radiator heat
+    // pipes intact, and whether the yard visit under way is an overhaul.
+    double engine_wear {0.0};
+    double radiator_condition {1.0};
+    bool overhaul {false};
     double refit_done_s {0.0};
     double next_refit_review_s {0.0};
     double laid_up_since_s {0.0};      // when the ship was last laid up
@@ -647,6 +790,7 @@ struct TrajectoryPlan {
     double travel_time_s {0.0};
     double propellant_required_kg {0.0};  // burned on the transfer
     double propellant_load_kg {0.0};      // aboard at departure (what was aboard plus any purchase)
+    double propellant_boiled_kg {0.0};    // hydrogen expected to boil off in flight (in the load, not burned)
     std::vector<math::Vec3d> sampled_path;
     std::vector<double> sampled_times_s;
     std::vector<double> sampled_propellant_kg;

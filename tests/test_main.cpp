@@ -10,11 +10,14 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "celestial/CelestialMechanics.hpp"
 #include "data_loader/DataLoader.hpp"
+#include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "simulation/CrewEnvironment.hpp"
 #include "simulation/Simulation.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -146,6 +149,79 @@ int main() {
         require((radiators == 1) == (ship_class.propulsion_type == "variable_isp"),
             "plasma ships should have drive radiators, nuclear-thermal ships none");
     }
+    // Tier 2 designs: the C++ port of the builder's totals reproduces every class row,
+    // tank variants included, from its parts alone (CSV rounding: Δv to 1 m/s, acceleration
+    // to 0.001 m/s², α to 1 W/kg, value to 100 cr).
+    for (const auto& ship_class : universe.ship_classes) {
+        const auto totals = spacetrains::domain::totals_from_parts(ship_class);
+        require_near(totals.dry_mass_kg, ship_class.dry_mass_kg, 1.0, "design dry mass from parts");
+        require_near(totals.ship_value_cr, ship_class.ship_value_cr, 50.5, "design value from parts");
+        require_near(totals.max_delta_v_mps, ship_class.max_delta_v_mps, 1.0, "design delta-v from parts");
+        require_near(totals.cruise_accel_mps2, ship_class.cruise_accel_mps2, 0.0006, "design acceleration from parts");
+        require_near(totals.specific_engine_power_w_per_kg, ship_class.specific_engine_power_w_per_kg, 0.6,
+            "design alpha from parts");
+        require_near(totals.crew_capacity, ship_class.crew_size, 1e-9, "design berths from parts");
+        require_near(totals.cargo_capacity_units, ship_class.cargo_capacity_units, 1e-6, "design hold from parts");
+        // No added parts: the design is the class.
+        const auto same = spacetrains::domain::derive_design(ship_class, {}, ship_class.id);
+        require(same.dry_mass_kg == ship_class.dry_mass_kg && same.max_delta_v_mps == ship_class.max_delta_v_mps
+                && same.specific_engine_power_w_per_kg == ship_class.specific_engine_power_w_per_kg,
+            "an unfitted design should equal its class exactly");
+        // An added part: the derivation matches the parts recomputed from scratch.
+        spacetrains::domain::ShipComponentDefinition extra;
+        extra.id = "test_module";
+        extra.kind = "module";
+        extra.mass_kg = 5000.0;
+        extra.price_cr = 1000.0;
+        const auto fitted = spacetrains::domain::derive_design(ship_class, {extra}, ship_class.id + "+test_module");
+        const auto fitted_totals = spacetrains::domain::totals_from_parts(fitted);
+        require_near(fitted.dry_mass_kg, ship_class.dry_mass_kg + 5000.0, 1e-6, "fitted dry mass");
+        require_near(fitted.ship_value_cr, ship_class.ship_value_cr + 1000.0, 1e-6, "fitted value");
+        require_near(fitted.max_delta_v_mps, fitted_totals.max_delta_v_mps, 1.5, "fitted delta-v");
+        require_near(fitted.specific_engine_power_w_per_kg, fitted_totals.specific_engine_power_w_per_kg, 0.6,
+            "fitted alpha");
+    }
+    require(spacetrains::domain::design_id("x", {"b", "a"}) == "x+a+b", "design ids sort their modules");
+
+    // Crew radiation (tier 2, step D): the sourced anchors and the power-law bookkeeping.
+    {
+        namespace ce = spacetrains::simulation::crew_environment;
+        spacetrains::domain::ShipEnvironmentDefinition env;
+        env.radiation = true;
+        // Cosmic rays: the cycle mean at 1 AU is Curiosity's 1.84 mSv/day; +-30% over the cycle.
+        double mean = 0.0;
+        for (int day = 0; day < 4018; ++day) {
+            mean += ce::gcr_msv_per_day(env, 1.0, day) / 4018.0;
+        }
+        require_near(mean, 1.84, 1e-3, "GCR averages Curiosity's cruise dose over a solar cycle");
+        require_near(ce::gcr_msv_per_day(env, 1.0, env.solar_minimum_day), 1.84 * 1.3, 1e-9, "GCR peaks at solar minimum");
+        // The particle-event reference doses: hull and the 20 g/cm2 shelter.
+        require_near(ce::spe_reference_msv(env, 0.0), 1300.0, 1e-9, "1972 event inside a hull");
+        require_near(ce::spe_reference_msv(env, 20.0), 200.0, 1e-9, "1972 event in a 20 g/cm2 shelter");
+        // The mean magnitude matches sampling the inverse distribution.
+        double sampled = 0.0;
+        constexpr int samples = 200000;
+        for (int i = 0; i < samples; ++i) {
+            sampled += ce::draw_spe_magnitude(env, (i + 0.5) / samples);
+        }
+        sampled /= samples;
+        // At maximum activity events come at twice the mean rate.
+        const double day_max = env.solar_minimum_day + env.solar_cycle_days / 2.0;
+        require_near(ce::spe_magnitude_per_day(env, day_max), 2.0 * env.spe_rate_per_year / 365.25 * sampled, 1e-6,
+            "the expected event magnitude per day matches the sampled distribution");
+        require(ce::spe_magnitude_per_day(env, env.solar_minimum_day) == 0.0, "no particle events at solar minimum");
+        // A shelter cuts the sleeping third of the cosmic-ray dose by exp(-20/46).
+        require_near(ce::gcr_factor(env, 20.0), 1.0 - 0.33 * (1.0 - std::exp(-20.0 / 46.0)), 1e-12, "shelter GCR factor");
+        // A 300-day leg at 1 AU at solar minimum: 300 x 2.392 mSv, the shelter saving its share.
+        spacetrains::domain::ShipClassDefinition bare;
+        auto sheltered = bare;
+        sheltered.effects["spe_shield_g_cm2"] = 20.0;
+        const double bare_dose = 300.0 * ce::expected_transit_msv_per_day(env, bare, 1.0, 1.0, env.solar_minimum_day);
+        require_near(bare_dose, 300.0 * 1.84 * 1.3, 1e-6, "a leg's dose at solar minimum is cosmic rays only");
+        require(ce::expected_transit_msv_per_day(env, sheltered, 1.0, 1.0, day_max)
+                < ce::expected_transit_msv_per_day(env, bare, 1.0, 1.0, day_max),
+            "a storm shelter lowers the expected dose");
+    }
     {
         // The loader rejects parts that do not add up to their class.
         const auto broken = std::filesystem::temp_directory_path() / "spacetrains_components_test";
@@ -186,6 +262,54 @@ int main() {
         .propellant_kg = ship_class.propellant_capacity_kg,
         .active_mission = {},
     };
+
+    {
+        // Hydrogen boil-off (tier 2, step F): the load covers the burn, the 10% reserve and
+        // what boils from loading to arrival; lossless planning is unchanged by a zero rate.
+        auto empty = ship;
+        empty.propellant_kg = 0.0;
+        spacetrains::trajectory::PlanningOptions lossless {
+            .propellant_cr_per_kg = 0.08, .time_cr_per_day = 20.0, .purchasable_propellant_kg = ship_class.propellant_capacity_kg,
+            .reserve_fraction = 0.1, .include_path = false};
+        auto boiling = lossless;
+        boiling.boiloff_kg_per_day = 25.0;
+        auto zero = lossless;
+        zero.boiloff_kg_per_day = 0.0;
+        const auto dry_plan = planner.plan_transfer(origin, mars_destination, empty, ship_class, 0.0, lossless);
+        const auto zero_plan = planner.plan_transfer(origin, mars_destination, empty, ship_class, 0.0, zero);
+        const auto boil_plan = planner.plan_transfer(origin, mars_destination, empty, ship_class, 0.0, boiling);
+        require(dry_plan.feasible && boil_plan.feasible, "a Mars transfer should be feasible with and without boil-off");
+        require(zero_plan.propellant_load_kg == dry_plan.propellant_load_kg && zero_plan.travel_time_s == dry_plan.travel_time_s,
+            "a zero boil-off rate should plan exactly as before");
+        require(boil_plan.propellant_load_kg + 1.0
+                >= 1.1 * boil_plan.propellant_required_kg + 25.0 * boil_plan.coast_time_s / 86400.0,
+            "the load should cover burn, reserve and the hydrogen that boils off in flight");
+        require(zero_plan.propellant_boiled_kg == 0.0 && dry_plan.propellant_boiled_kg == 0.0
+                && zero_plan.propellant_required_kg == dry_plan.propellant_required_kg,
+            "without boil-off a plan should expect none");
+        require(std::abs(boil_plan.propellant_boiled_kg - 25.0 * boil_plan.coast_time_s / 86400.0) < 1e-6,
+            "a plan should carry the hydrogen it expects to boil off");
+        // What is left on arrival, after the burns and the boil-off, is still the reserve.
+        require(boil_plan.propellant_load_kg - boil_plan.propellant_required_kg - boil_plan.propellant_boiled_kg + 1.0
+                >= 0.1 * boil_plan.propellant_required_kg,
+            "a boiling ship should arrive with its reserve");
+
+        // The leg's mean rate: r^-n averaged with r linear in time, against a numerical integral,
+        // for an inbound (Ceres -> Earth) and an outbound leg; equal ends give r^-n itself.
+        for (const auto& [r1, r2, n] : {std::tuple {2.77, 1.0, 1.0}, std::tuple {1.0, 1.52, 1.0}, std::tuple {1.0, 5.2, 1.3}}) {
+            constexpr int kSteps = 100000;
+            double sum = 0.0;
+            for (int i = 0; i < kSteps; ++i) {
+                sum += std::pow(r1 + (i + 0.5) / kSteps * (r2 - r1), -n) / kSteps;
+            }
+            const double mean = spacetrains::simulation::crew_environment::mean_inverse_power(r1, r2, n);
+            require(std::abs(mean - sum) < 1e-6 * sum, "the leg's mean of r^-n should match its integral");
+        }
+        require(spacetrains::simulation::crew_environment::mean_inverse_power(1.7, 1.7, 1.0) == std::pow(1.7, -1.0),
+            "a leg at one distance should give that distance's rate exactly");
+        require(spacetrains::simulation::crew_environment::mean_inverse_power(2.77, 1.0, 1.0) > 1.5 / 2.77,
+            "an inbound leg should boil well above the rate at its origin");
+    }
 
     const auto local_plan = planner.plan_transfer(origin, destination, ship, ship_class, 0.0);
     require(local_plan.feasible, "fully fueled test ship should be feasible for local transfer");
@@ -913,6 +1037,93 @@ int main() {
         require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
         std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
             saved.size() / 1024, kHalfDays, kHalfDays);
+
+        // Tier 2 with every environment switch on (radiation, boil-off, cold holds, wear): the
+        // new state (doses, wear, boiled hydrogen, the environment RNG) continues exactly.
+        {
+            const auto root = std::filesystem::temp_directory_path() / "spacetrains_tier2_save";
+            std::filesystem::remove_all(root);
+            std::filesystem::create_directories(root);
+            std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
+            std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+            std::ofstream(root / "data" / "economy" / "ship_environment.csv")
+                << "key,value\nradiation,1\nboiloff,1\ncold_storage,1\nwear,1\n";
+            const auto env_root = (root / "data").string();
+            auto env_straight = spacetrains::simulation::Simulation::from_data_root(env_root);
+            env_straight.set_timewarp(86400.0);
+            auto env_first = spacetrains::simulation::Simulation::from_data_root(env_root);
+            env_first.set_timewarp(86400.0);
+            for (int day = 0; day < kHalfDays; ++day) {
+                env_straight.step(1.0);
+                env_first.step(1.0);
+            }
+            const auto env_saved = env_first.save_state_json();
+            auto env_resumed = spacetrains::simulation::Simulation::from_data_root(env_root);
+            env_resumed.load_state_json(env_saved);
+            require(env_resumed.save_state_json() == env_saved, "a tier 2 game should save back to the same JSON");
+            for (int day = 0; day < kHalfDays; ++day) {
+                env_straight.step(1.0);
+                env_resumed.step(1.0);
+            }
+            require(env_resumed.save_state_json() == env_straight.save_state_json(),
+                "a tier 2 game saved, loaded and continued should equal one that never stopped");
+            require(env_saved.find("\"engine_wear\":0,") == std::string::npos || env_saved.find("\"engine_wear\":0.") != std::string::npos,
+                "the starting fleet should be of mixed ages");
+            // Overhauls (tier 2 follow-up): a worn-out core costs its fuel elements' goods plus the
+            // hours to fit them at the nuclear grade, which together are the elements' list price;
+            // the yard team needs at least the minimum days.
+            const auto& universe_on = env_straight.universe();
+            const auto& ntr = *std::find_if(universe_on.ship_classes.begin(), universe_on.ship_classes.end(),
+                [](const auto& c) { return c.id == "ntr_freighter"; });
+            const auto& elements = *std::find_if(ntr.components.begin(), ntr.components.end(),
+                [](const auto& c) { return c.kind == "fuel_elements"; });
+            const auto bill = env_straight.overhaul_bill(ntr, 1.0, 0.0);
+            require(bill.spares_units.size() == 1 && std::abs(bill.spares_units.at("reactor_fuel") - elements.mass_kg / 500.0) < 1e-9,
+                "a core overhaul should take the fuel elements as reactor fuel");
+            const double base_cost = bill.spares_units.at("reactor_fuel") * 400.0 + bill.labour_cr;
+            require(std::abs(base_cost - elements.price_cr) < 1.0, "the spares and labour at base prices should be the elements' price");
+            require(bill.labour_cr < 0.05 * base_cost, "with automated yards labour should be a small share of an overhaul");
+            require(bill.days >= universe_on.ship_environment.min_repair_days, "an overhaul takes at least the minimum days");
+            require(std::abs(env_straight.wear_cr_per_drive_hour(ntr) * universe_on.ship_environment.ntr_core_life_h - base_cost) < 1e-6,
+                "wear should be priced as a core life's overhaul per hour of burn");
+            require(env_straight.overhaul_bill(ntr, 0.0, 0.0).spares_units.empty(), "nothing worn, nothing replaced");
+            std::filesystem::remove_all(root);
+        }
+        {
+            // With wear off no planner pays for it.
+            auto sim = spacetrains::simulation::Simulation::from_data_root(data_root,
+                [](spacetrains::domain::UniverseDefinition& u) { u.ship_environment.wear = false; });
+            for (const auto& c : sim.universe().ship_classes) {
+                require(sim.wear_cr_per_drive_hour(c) == 0.0 && sim.wear_cr_per_flight_day(c) == 0.0
+                        && sim.wear_cr_per_propellant_kg(c) == 0.0, "wear off should cost nothing");
+            }
+        }
+
+        // Tier 2 fits: a fitted ship loads, flies its derived design and saves back unchanged;
+        // a fit its hull cannot take is rejected.
+        const auto first_fit = saved.find("\"fit\":[]");
+        require(first_fit != std::string::npos, "test fixture: an unfitted ship in the save");
+        auto fitted_save = saved;
+        fitted_save.replace(first_fit, std::string("\"fit\":[]").size(), "\"fit\":[\"storm_shelter\"]");
+        auto fitted = spacetrains::simulation::Simulation::from_data_root(data_root);
+        fitted.load_state_json(fitted_save);
+        require(fitted.save_state_json() == fitted_save, "a fitted ship should save back to the same JSON");
+        const auto snapshot = fitted.build_bridge_snapshot_json(true, 1, 0.0, false);
+        require(snapshot.find("+storm_shelter\"") != std::string::npos, "the snapshot should carry the fitted design id");
+        require(fitted.build_bridge_designs_json().find("Storm shelter") != std::string::npos,
+            "the designs file should list the fitted design and its module");
+        for (const char* bad : {"[\"no_such_module\"]", "[\"storm_shelter\",\"storm_shelter\"]"}) {
+            auto bad_save = saved;
+            bad_save.replace(first_fit, std::string("\"fit\":[]").size(), std::string("\"fit\":") + bad);
+            bool bad_rejected = false;
+            try {
+                auto probe = spacetrains::simulation::Simulation::from_data_root(data_root);
+                probe.load_state_json(bad_save);
+            } catch (const std::exception&) {
+                bad_rejected = true;
+            }
+            require(bad_rejected, "a fit the hull cannot take should be rejected on load");
+        }
     }
 
     // --- Emergency resupply (step 14): a station about to run out of oxygen opens an emergency,

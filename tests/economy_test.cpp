@@ -371,8 +371,9 @@ int main() {
         // Trades must have happened and be internally consistent.
         require(!sim.recent_trades().empty(), "180 days of simulation must produce trades");
         for (const auto& trade : sim.recent_trades()) {
-            require(trade.kind == "buy" || trade.kind == "sell" || trade.kind == "fuel" || trade.kind == "provisions",
-                "trade kind must be buy/sell/fuel/provisions");
+            require(trade.kind == "buy" || trade.kind == "sell" || trade.kind == "fuel" || trade.kind == "provisions"
+                    || trade.kind == "spares",
+                "trade kind must be buy/sell/fuel/provisions/spares");
             require(trade.units > 0.0, "trade units must be positive");
             require_near(trade.total, trade.units * trade.unit_price, 1.0e-6,
                 "trade total must equal units * unit_price");

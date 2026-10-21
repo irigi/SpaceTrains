@@ -157,7 +157,8 @@ public:
         : exhaust_velocity_mps_(effective_exhaust_velocity_mps(bare_class)),
           laden_class_(bare_class),
           onboard_kg_(std::max(0.0, ship.propellant_kg)),
-          reserve_(std::max(0.0, options.reserve_fraction)) {
+          reserve_(std::max(0.0, options.reserve_fraction)),
+          boiloff_kg_per_day_(std::max(0.0, options.boiloff_kg_per_day)) {
         max_load_kg_ = std::max(onboard_kg_,
             std::min(bare_class.propellant_capacity_kg, onboard_kg_ + std::max(0.0, options.purchasable_propellant_kg)));
         laden_class_.dry_mass_kg += std::max(0.0, options.payload_kg);
@@ -169,38 +170,41 @@ public:
 
     [[nodiscard]] const domain::ShipClassDefinition& laden_class() const { return laden_class_; }
 
-    // Smallest load that flies `delta_v` and keeps the reserve (infinite if none can).
-    // With load L and burn B = (m_dry + L)(1 - e^{-Δv/ve}), L = (1 + r) B solves to
-    // L = (1 + r) m_dry f / (1 - (1 + r) f), f = 1 - e^{-Δv/ve}.
-    [[nodiscard]] double load_kg(double delta_v_mps) const {
+    // Smallest load that flies `delta_v` and keeps the reserve after `days` of boil-off
+    // (infinite if none can). With load L, burn B = (m_dry + L)(1 - e^{-Δv/ve}) and boil-off
+    // b·T, L = (1 + r) B + b·T solves to L = ((1 + r) m_dry f + b·T) / (1 - (1 + r) f),
+    // f = 1 - e^{-Δv/ve} (the boil-off carried through the burns, conservatively).
+    [[nodiscard]] double load_kg(double delta_v_mps, double days) const {
         if (exhaust_velocity_mps_ <= 0.0) {
             return std::numeric_limits<double>::infinity();
         }
         const double f = 1.0 - std::exp(-delta_v_mps / exhaust_velocity_mps_);
-        if ((laden_class_.dry_mass_kg + onboard_kg_) * f * (1.0 + reserve_) <= onboard_kg_) {
+        const double boiled = boiled_kg(days);
+        if ((laden_class_.dry_mass_kg + onboard_kg_) * f * (1.0 + reserve_) + boiled <= onboard_kg_) {
             return onboard_kg_;
         }
         const double denominator = 1.0 - (1.0 + reserve_) * f;
         if (denominator <= 0.0) {
             return std::numeric_limits<double>::infinity();
         }
-        return (1.0 + reserve_) * laden_class_.dry_mass_kg * f / denominator;
+        return ((1.0 + reserve_) * laden_class_.dry_mass_kg * f + boiled) / denominator;
     }
-    [[nodiscard]] bool feasible(double delta_v_mps) const {
-        return load_kg(delta_v_mps) <= max_load_kg_ * (1.0 + 1e-12);
+    [[nodiscard]] bool feasible(double delta_v_mps, double days) const {
+        return load_kg(delta_v_mps, days) <= max_load_kg_ * (1.0 + 1e-12);
     }
     // Burned for `delta_v` from the (capped) load.
-    [[nodiscard]] double burn_kg(double delta_v_mps) const {
+    [[nodiscard]] double burn_kg(double delta_v_mps, double days) const {
         if (exhaust_velocity_mps_ <= 0.0) {
             return laden_class_.propellant_capacity_kg + 1.0;
         }
-        const double load = std::min(load_kg(delta_v_mps), max_load_kg_);
+        const double load = std::min(load_kg(delta_v_mps, days), max_load_kg_);
         return (laden_class_.dry_mass_kg + load) * (1.0 - std::exp(-delta_v_mps / exhaust_velocity_mps_));
     }
+    [[nodiscard]] double boiled_kg(double days) const { return boiloff_kg_per_day_ * std::max(0.0, days); }
     // The ship as it departs for `delta_v`: loaded, propellant-wise.
-    [[nodiscard]] domain::ShipState loaded(const domain::ShipState& ship, double delta_v_mps) const {
+    [[nodiscard]] domain::ShipState loaded(const domain::ShipState& ship, double delta_v_mps, double days) const {
         auto loaded_ship = ship;
-        loaded_ship.propellant_kg = std::min(load_kg(delta_v_mps), max_load_kg_);
+        loaded_ship.propellant_kg = std::min(load_kg(delta_v_mps, days), max_load_kg_);
         return loaded_ship;
     }
 
@@ -209,6 +213,7 @@ private:
     domain::ShipClassDefinition laden_class_;
     double onboard_kg_;
     double reserve_;
+    double boiloff_kg_per_day_;
     double max_load_kg_ {0.0};
 };
 
@@ -443,10 +448,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.wait_time_s = 0.0;
         plan.coast_time_s = coast_time_s;
         plan.travel_time_s = coast_time_s;
-        const auto ship = loading.loaded(ship_aboard, delta_v);
+        const double days = plan.coast_time_s / 86400.0;  // docked ships keep their hydrogen cold at the depot
+        const auto ship = loading.loaded(ship_aboard, delta_v, days);
         plan.propellant_load_kg = ship.propellant_kg;
-        plan.propellant_required_kg = loading.burn_kg(delta_v);
-        plan.feasible = loading.feasible(delta_v);
+        plan.propellant_required_kg = loading.burn_kg(delta_v, days);
+        plan.propellant_boiled_kg = loading.boiled_kg(days);
+        plan.feasible = loading.feasible(delta_v, days);
 
         const auto finish = mechanics_.get_station_position(destination, plan.arrival_time_s);
         const auto start_radial = (start - parent_position).normalized();
@@ -539,10 +546,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         plan.coast_time_s = transfer_s;
         plan.arrival_time_s = plan.departure_time_s + transfer_s;
         plan.travel_time_s = best_wait_s + transfer_s;
-        const auto ship = loading.loaded(ship_aboard, dv_departure + dv_arrival);
+        const double days = transfer_s / 86400.0;
+        const auto ship = loading.loaded(ship_aboard, dv_departure + dv_arrival, days);
         plan.propellant_load_kg = ship.propellant_kg;
-        plan.propellant_required_kg = loading.burn_kg(dv_departure + dv_arrival);
-        plan.feasible = loading.feasible(dv_departure + dv_arrival);
+        plan.propellant_required_kg = loading.burn_kg(dv_departure + dv_arrival, days);
+        plan.propellant_boiled_kg = loading.boiled_kg(days);
+        plan.feasible = loading.feasible(dv_departure + dv_arrival, days);
         plan.trajectory_type = "keplerian_planet_system";
 
         auto timed = planet_system_path(
@@ -611,16 +620,17 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     double best_dv_dep = hohmann_dv_dep;
     double best_dv_arr = hohmann_dv_arr;
     double best_dv = hohmann_dv_dep + hohmann_dv_arr;
-    bool found_feasible = loading.feasible(best_dv);
+    bool found_feasible = loading.feasible(best_dv, hohmann_time_s / 86400.0);
     // Cheapest feasible transfer when the owner's costs are known, else the fastest.
     const bool by_cost = costs.propellant_cr_per_kg > 0.0 || costs.time_cr_per_day > 0.0;
-    const auto objective = [&](double total_s, double dv) {
+    // Hydrogen boils only in flight (in port the depot keeps it cold).
+    const auto objective = [&](double total_s, double transit_s, double dv) {
         return by_cost
-            ? loading.burn_kg(dv) * costs.propellant_cr_per_kg
+            ? (loading.burn_kg(dv, transit_s / 86400.0) + loading.boiled_kg(transit_s / 86400.0)) * costs.propellant_cr_per_kg
                 + total_s / 86400.0 * costs.time_cr_per_day
             : total_s;
     };
-    double best_objective = objective(hohmann_wait_s + hohmann_time_s, best_dv);
+    double best_objective = objective(hohmann_wait_s + hohmann_time_s, hohmann_time_s, best_dv);
     bool best_from_lambert = false;
     math::Vec3d best_r1_pos{}, best_r2_pos{}, best_v1_lambert{};
 
@@ -635,8 +645,8 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         origin_body.id, destination_body.id, current_time_s, search_window_s, hohmann_time_s, mu);
     for (const auto& cell : *grid) {
         const double dv_k = cell.dv_departure + cell.dv_arrival;
-        const bool feas_k = loading.feasible(dv_k);
-        const double objective_k = objective(cell.wait_s + cell.transit_s, dv_k);
+        const bool feas_k = loading.feasible(dv_k, cell.transit_s / 86400.0);
+        const double objective_k = objective(cell.wait_s + cell.transit_s, cell.transit_s, dv_k);
         const bool better_feasible = feas_k && (!found_feasible || objective_k < best_objective);
         // Until a feasible transfer turns up, keep the cheapest in Δv.
         if (!better_feasible && (found_feasible || dv_k >= best_dv)) {
@@ -663,10 +673,12 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
     plan.wait_time_s = best_dep_time - current_time_s;
     plan.travel_time_s = plan.wait_time_s + plan.coast_time_s;
     plan.arrival_time_s = current_time_s + plan.travel_time_s;
-    const auto ship = loading.loaded(ship_aboard, delta_v);
+    const double days = plan.coast_time_s / 86400.0;
+    const auto ship = loading.loaded(ship_aboard, delta_v, days);
     plan.propellant_load_kg = ship.propellant_kg;
-    plan.propellant_required_kg = loading.burn_kg(delta_v);
-    plan.feasible = loading.feasible(delta_v);
+    plan.propellant_required_kg = loading.burn_kg(delta_v, days);
+    plan.propellant_boiled_kg = loading.boiled_kg(days);
+    plan.feasible = loading.feasible(delta_v, days);
 
     plan.trajectory_type = best_from_lambert ? "keplerian_lambert" : "keplerian_hohmann";
     if (!options.include_path) {

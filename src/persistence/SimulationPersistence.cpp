@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 13;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers)
+constexpr int kSaveVersion = 14;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules)
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -113,6 +113,7 @@ Json mission_to_json(const domain::MissionAssignment& m) {
     out.set("sampled_propellant_kg", numbers_to_json(m.sampled_propellant_kg));
     out.set("trajectory_type", m.trajectory_type);
     out.set("carried_propellant_kg", m.carried_propellant_kg);
+    out.set("boiled_propellant_kg", m.boiled_propellant_kg);
     out.set("pickup_commodity_id", m.pickup_commodity_id);
     out.set("pickup_units", m.pickup_units);
     return out;
@@ -143,6 +144,7 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     m.sampled_propellant_kg = numbers_from_json(j.get("sampled_propellant_kg"));
     m.trajectory_type = j.get("trajectory_type").string();
     m.carried_propellant_kg = j.get("carried_propellant_kg").number();
+    m.boiled_propellant_kg = j.get("boiled_propellant_kg").number();
     m.pickup_commodity_id = j.get("pickup_commodity_id").string();
     m.pickup_units = j.get("pickup_units").number();
     return m;
@@ -154,6 +156,11 @@ Json ship_to_json(const domain::ShipState& s) {
     out.set("name", s.name);
     out.set("faction_id", s.faction_id);
     out.set("class_id", s.class_id);
+    auto fit = Json::array();
+    for (const auto& module : s.fit) {
+        fit.push(Json(module));
+    }
+    out.set("fit", std::move(fit));
     out.set("home_station_id", s.home_station_id);
     out.set("current_station_id", s.current_station_id);
     out.set("phase", phase_to_int(s.phase));
@@ -176,7 +183,16 @@ Json ship_to_json(const domain::ShipState& s) {
     out.set("next_review_s", s.next_review_s);
     out.set("idle_since_s", s.idle_since_s);
     out.set("refit_class_id", s.refit_class_id);
+    auto refit_fit = Json::array();
+    for (const auto& module : s.refit_fit) {
+        refit_fit.push(Json(module));
+    }
+    out.set("refit_fit", std::move(refit_fit));
     out.set("refit_done_s", s.refit_done_s);
+    out.set("leg_dose_msv", s.leg_dose_msv);
+    out.set("engine_wear", s.engine_wear);
+    out.set("radiator_condition", s.radiator_condition);
+    out.set("overhaul", s.overhaul);
     out.set("next_refit_review_s", s.next_refit_review_s);
     out.set("laid_up_since_s", s.laid_up_since_s);
     out.set("commissioned_s", s.commissioned_s);
@@ -221,6 +237,9 @@ domain::ShipState ship_from_json(const Json& j) {
     s.name = j.get("name").string();
     s.faction_id = j.get("faction_id").string();
     s.class_id = j.get("class_id").string();
+    for (const auto& module : j.get("fit").items()) {
+        s.fit.push_back(module.string());
+    }
     s.home_station_id = j.get("home_station_id").string();
     s.current_station_id = j.get("current_station_id").string();
     s.phase = phase_from_int(static_cast<int>(j.get("phase").number()));
@@ -242,7 +261,14 @@ domain::ShipState ship_from_json(const Json& j) {
     s.next_review_s = j.get("next_review_s").number();
     s.idle_since_s = j.get("idle_since_s").number();
     s.refit_class_id = j.get("refit_class_id").string();
+    for (const auto& module : j.get("refit_fit").items()) {
+        s.refit_fit.push_back(module.string());
+    }
     s.refit_done_s = j.get("refit_done_s").number();
+    s.leg_dose_msv = j.get("leg_dose_msv").number();
+    s.engine_wear = j.get("engine_wear").number();
+    s.radiator_condition = j.get("radiator_condition").number();
+    s.overhaul = j.get("overhaul").boolean();
     s.next_refit_review_s = j.get("next_refit_review_s").number();
     s.laid_up_since_s = j.get("laid_up_since_s").number();
     s.commissioned_s = j.get("commissioned_s").number();
@@ -389,6 +415,43 @@ std::string Simulation::data_fingerprint() const {
     for (const auto& ship_class : universe_.ship_classes) {
         mix(std::format("c{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg, ship_class.cargo_capacity_units));
     }
+    {
+        const auto& env = universe_.ship_environment;
+        mix(std::format("e{}|{}|{}|{}|{}|{}|{}|{};", env.radiation, env.gcr_msv_per_day, env.gcr_cycle_amplitude,
+            env.solar_minimum_day, env.spe_rate_per_year, env.spe_hull_msv, env.career_limit_msv, env.hazard_cr_per_msv));
+        mix(std::format("b{}|{}|{}|{};", env.boiloff, env.mli_flux_w_m2, env.mli_flux_exponent, env.cold_storage));
+        mix(std::format("w{}|{}|{}|{}|{}|{};", env.wear, env.ntr_core_life_h, env.plasma_drive_life_h, env.puncture_flux_m2_yr,
+            env.overhaul_wear, env.initial_wear_max));
+        mix(std::format("r{}|{}|{};", env.repair_team_size, env.repair_team_hours_per_day, env.min_repair_days));
+        std::map<std::string, double> grades(universe_.labour.grades.begin(), universe_.labour.grades.end());
+        mix(std::format("l{}|{};", universe_.labour.reference_wage_cr_per_day, universe_.labour.shift_hours));
+        for (const auto& [grade, multiple] : grades) {
+            mix(std::format("g{}|{};", grade, multiple));
+        }
+        std::map<std::string, domain::SparePartDefinition> spares(universe_.spare_parts.begin(), universe_.spare_parts.end());
+        for (const auto& [kind, part] : spares) {
+            mix(std::format("p{}|{}|{}|{}|{};", kind, part.wears_with, part.grade, part.fabrication_h_per_kg, part.install_h_per_kg));
+            for (const auto& [good, share] : part.materials) {
+                mix(std::format("q{}|{};", good, share));
+            }
+        }
+        std::map<std::string, domain::StationRadiationDefinition> sorted(
+            universe_.station_radiation.begin(), universe_.station_radiation.end());
+        for (const auto& [station_id, radiation] : sorted) {
+            mix(std::format("x{}|{}|{};", station_id, radiation.location_factor, radiation.shield_g_cm2));
+        }
+    }
+    for (const auto& module : universe_.ship_modules) {
+        mix(std::format("m{}|{}|{}|{}|{};", module.hull_id, module.id, module.slot, module.part.mass_kg, module.part.price_cr));
+    }
+    for (const auto& ship_class : universe_.ship_classes) {
+        if (const auto slots = universe_.hull_slots.find(ship_class.id); slots != universe_.hull_slots.end()) {
+            std::map<std::string, int> sorted(slots->second.begin(), slots->second.end());
+            for (const auto& [slot, count] : sorted) {
+                mix(std::format("h{}|{}|{};", ship_class.id, slot, count));
+            }
+        }
+    }
     for (const auto& commodity : universe_.commodities) {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
@@ -470,6 +533,9 @@ std::string Simulation::save_state_json() const {
         std::ostringstream rng;
         rng << event_rng_;
         root.set("event_rng", rng.str());
+        std::ostringstream environment_rng;
+        environment_rng << environment_rng_;
+        root.set("environment_rng", environment_rng.str());
         auto started = Json::object();
         for (const auto& [event_id, count] : events_started_) {
             started.set(event_id, count);
@@ -543,11 +609,15 @@ void Simulation::load_state_json(const std::string& text) {
     std::vector<domain::ShipState> ships;
     for (const auto& item : root.get("ships").items()) {
         ships.push_back(ship_from_json(item));
-        (void)get_ship_class(ships.back().class_id);  // throws on an unknown class
+        (void)register_design(ships.back().class_id, ships.back().fit, radiator_bucket(ships.back()));  // throws on a bad class or fit
+        if (!ships.back().refit_class_id.empty()) {
+            (void)register_design(ships.back().refit_class_id, ships.back().refit_fit);
+        }
     }
     std::vector<domain::ShipState> sold;
     for (const auto& item : root.get("sold_ships").items()) {
         sold.push_back(ship_from_json(item));
+        (void)register_design(sold.back().class_id, sold.back().fit, radiator_bucket(sold.back()));
     }
     std::map<std::string, double> treasuries;
     for (const auto& [faction_id, balance] : root.get("faction_treasuries").fields()) {
@@ -596,6 +666,14 @@ void Simulation::load_state_json(const std::string& text) {
             throw std::runtime_error("save: bad event_rng");
         }
     }
+    std::mt19937_64 environment_rng;
+    {
+        std::istringstream rng(root.get("environment_rng").string());
+        rng >> environment_rng;
+        if (rng.fail()) {
+            throw std::runtime_error("save: bad environment_rng");
+        }
+    }
     std::map<std::string, int> events_started;
     for (const auto& [event_id, count] : root.get("events_started").fields()) {
         events_started[event_id] = static_cast<int>(count.number());
@@ -631,6 +709,7 @@ void Simulation::load_state_json(const std::string& text) {
     emergencies_ = std::move(emergencies);
     emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());
     event_rng_ = event_rng;
+    environment_rng_ = environment_rng;
     events_started_ = std::move(events_started);
     emergency_paid_ = root.get("emergency_paid").number();
     investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());

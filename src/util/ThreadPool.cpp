@@ -39,14 +39,16 @@ ThreadPool::~ThreadPool() {
     }
 }
 
-void ThreadPool::run_indices() {
-    for (std::size_t i = next_index_.fetch_add(1); i < job_count_; i = next_index_.fetch_add(1)) {
-        (*job_)(i);
+void ThreadPool::run_indices(const std::function<void(std::size_t)>& job, std::size_t count) {
+    for (std::size_t i = next_index_.fetch_add(1); i < count; i = next_index_.fetch_add(1)) {
+        job(i);
     }
 }
 
 void ThreadPool::worker_loop() {
     std::uint64_t seen_generation = 0;
+    const std::function<void(std::size_t)>* job = nullptr;
+    std::size_t count = 0;
     for (;;) {
         {
             std::unique_lock lock(mutex_);
@@ -55,9 +57,18 @@ void ThreadPool::worker_loop() {
                 return;
             }
             seen_generation = generation_;
+            // A worker that wakes after the batch's indices are all taken stays out: the caller
+            // may already have returned, and the next batch would overwrite the job under it
+            // (a data race ThreadSanitizer found, 2026-10-21). Joining only while work is left,
+            // under the lock, keeps the caller waiting for this worker.
+            if (next_index_.load() >= job_count_) {
+                continue;
+            }
+            job = job_;
+            count = job_count_;
             ++busy_workers_;
         }
-        run_indices();
+        run_indices(*job, count);
         {
             const std::lock_guard lock(mutex_);
             --busy_workers_;
@@ -84,7 +95,7 @@ void ThreadPool::parallel_for(std::size_t count, const std::function<void(std::s
         ++generation_;
     }
     work_ready_.notify_all();
-    run_indices();
+    run_indices(fn, count);
     std::unique_lock lock(mutex_);
     // Workers that woke late find no index left and leave at once; wait for the busy ones.
     work_done_.wait(lock, [&] { return busy_workers_ == 0 && next_index_.load() >= job_count_; });

@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "domain/ShipDesign.hpp"
 #include "celestial/CelestialMechanics.hpp"
 #include "economy/EconomySystem.hpp"
 #include "simulation/Simulation.hpp"
@@ -207,7 +208,9 @@ void print_station_inventories(
 void print_economy_audit(
     const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe,
-    const spacetrains::economy::EconomySystem& economy) {
+    const spacetrains::economy::EconomySystem& economy,
+    double delivered_price_ratio,
+    const spacetrains::simulation::Simulation::RadiationAudit& radiation) {
 
     // Collect all commodity IDs
     std::vector<std::string> commodity_ids;
@@ -316,6 +319,30 @@ void print_economy_audit(
             }
         }
         std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
+        std::cout << std::format("    Delivered price: {:.2f}x the reference\n", delivered_price_ratio);
+        if (radiation.crew_dose_msv > 0.0) {
+            std::cout << std::format("    Radiation: {:.0f} person-mSv, hazard pay {:.0f} cr, highest leg {:.0f} mSv,"
+                " {} particle events (largest {:.2f}x 1972)\n", radiation.crew_dose_msv, radiation.hazard_pay_cr,
+                radiation.highest_leg_dose_msv, radiation.particle_events, radiation.largest_event_magnitude);
+        }
+        if (radiation.hydrogen_boiled_kg > 0.0) {
+            std::cout << std::format("    Boil-off: {:.0f} t of hydrogen; {} nuclear-thermal arrivals, {} short of the arrival burn, "
+                "{} under half the reserve, lowest {:.2f}x the reserve\n", radiation.hydrogen_boiled_kg / 1000.0,
+                radiation.thermal_arrivals, radiation.arrivals_short_of_burn, radiation.arrivals_below_half_reserve,
+                radiation.thermal_arrivals > 0 ? radiation.lowest_reserve_share : 0.0);
+        }
+        if (radiation.overhauls > 0 || radiation.repairs_waiting_for_spares > 0) {
+            std::string spares;
+            for (const auto& [commodity_id, units] : radiation.spares_units) {
+                spares += std::format("{}{} {:.0f}u", spares.empty() ? "" : ", ", commodity_id, units);
+            }
+            std::cout << std::format("    Overhauls: {} ({} nuclear-thermal, {} plasma; {:.0f} cr = spares {:.0f} + labour {:.0f}; "
+                "{:.1f} yard days each; spares {}), {} reviews found no spares\n",
+                radiation.overhauls, radiation.thermal_overhauls, radiation.plasma_overhauls, radiation.repair_bills_cr,
+                radiation.repair_spares_cr, radiation.repair_labour_cr,
+                radiation.overhauls > 0 ? radiation.repair_days / radiation.overhauls : 0.0,
+                spares.empty() ? "none" : spares, radiation.repairs_waiting_for_spares);
+        }
     }
 
     // Purchase orders (step 29, step 1: observed only, nothing uses them yet).
@@ -470,6 +497,13 @@ void print_economy_audit(
         stations_total.subsidies, stations_total.taxes);
     spacetrains::domain::ShipLedger fleet;
     int profitable = 0;
+    struct DriveTally {
+        int ships {0};
+        int profitable {0};
+        double profit {0.0};
+        double refits {0.0};
+    };
+    std::map<std::string, DriveTally> by_drive;
     std::cout << std::format("    {:30s}  {:>12s}     {:>8s} {:>8s} {:>7s} {:>7s} {:>7s} {:>6s} {:>6s} {:>7s}  {}\n",
         "", "", "profit", "margin", "fuel", "wages", "capital", "prov", "refit", "divid", "class");
     // Sold ships keep their lifetime ledger; their cash went to the home station.
@@ -486,7 +520,8 @@ void print_economy_audit(
         const auto& l = ship.ledger;
         std::cout << std::format("    {:30s}  {:>12.0f} cr  {:+8.0f} {:8.0f} {:7.0f} {:7.0f} {:7.0f} {:6.0f} {:6.0f} {:7.0f}  {}{}{}\n",
             ship.name, ship.credits, ship.lifetime_profit, l.cargo_revenue - l.cargo_purchases,
-            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends, ship.class_id,
+            l.fuel, l.wages, l.capital, l.provisions, l.refits, l.dividends,
+            ship.fit.empty() ? ship.class_id : spacetrains::domain::design_id(ship.class_id, ship.fit),
             ship.commissioned_s > 0.0
                 ? std::format("  (new day {:.0f}, {} -> {} until day {:.0f})", ship.commissioned_s / 86400.0,
                       ship.route_commodity_id, ship.route_destination_id, ship.route_until_s / 86400.0)
@@ -501,12 +536,44 @@ void print_economy_audit(
         fleet.refits += l.refits;
         fleet.dividends += l.dividends;
         profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
+        if (!sold) {
+            std::string propulsion = "?";
+            for (const auto& sc : universe.ship_classes) {
+                if (sc.id == ship.class_id) {
+                    propulsion = sc.propulsion_type == "variable_isp" ? "plasma" : "nuclear-thermal";
+                    break;
+                }
+            }
+            auto& tally = by_drive[propulsion];
+            tally.ships += 1;
+            tally.profitable += ship.lifetime_profit > 0.0 ? 1 : 0;
+            tally.profit += ship.lifetime_profit;
+            tally.refits += l.refits;
+        }
+    }
+    for (const auto& [propulsion, tally] : by_drive) {
+        std::cout << std::format("    In service, {}: {}/{} profitable, profit {:.0f} cr, refits and overhauls {:.0f} cr\n",
+            propulsion, tally.profitable, tally.ships, tally.profit, tally.refits);
     }
     std::cout << std::format(
         "    Fleet: cargo margin {:.0f} (sold {:.0f}, bought {:.0f})  fuel {:.0f}  wages {:.0f}  capital {:.0f}"
         "  provisions {:.0f}  refits {:.0f}  dividends {:.0f}  -> {}/{} ships profitable\n",
         fleet.cargo_revenue - fleet.cargo_purchases, fleet.cargo_revenue, fleet.cargo_purchases, fleet.fuel,
         fleet.wages, fleet.capital, fleet.provisions, fleet.refits, fleet.dividends, profitable, all_ships.size());
+    // Tier 2: how many ships in service fly each module (printed once any ship is fitted).
+    std::map<std::string, int> module_census;
+    for (const auto& ship : snap.ships) {
+        for (const auto& module : ship.fit) {
+            ++module_census[module];
+        }
+    }
+    if (!module_census.empty()) {
+        std::string line;
+        for (const auto& [module, count] : module_census) {
+            line += std::format("{}{} {}", line.empty() ? "" : ", ", module, count);
+        }
+        std::cout << std::format("    Fits: {}\n", line);
+    }
     // Scheduled liners (step 22): their loop, where they are, what they earned and the top-ups.
     for (const auto& ship : snap.ships) {
         const auto loop = universe.liners.find(ship.id);
@@ -1125,7 +1192,7 @@ int main(int argc, char** argv) {
             print_station_inventories(snap, sim.universe());
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
-                print_economy_audit(snap, sim.universe(), sim.economy_system());
+                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {

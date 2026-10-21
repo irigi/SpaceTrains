@@ -127,9 +127,119 @@ CABIN_TEMPERATURE_K = 295.0
 CABIN_RADIATOR_TEMPERATURE_K = 277.0  # estimate: ISS-style external ammonia loop, 2-6 C
 HOLD_M3_PER_CARGO_UNIT = 1.0      # game: one unit of cargo is about a cubic metre
 
+# Wearing and lasting parts (tier 2 follow-up, docs/plans/tier2_log.md). A part's price is
+# materials (commodities at base price) plus work. The parts that wear out are priced that way
+# from the economy's own goods and wages, so an overhaul that replaces them costs what they
+# cost; the parts that last the ship's life (pressure vessel, magnets, frames) carry the rest
+# of linopt's price: precision work, not goods.
+#   NTR fuel elements: 40% of the engine (estimate; NERVA-class cores were mostly fuel
+#   elements by mass); the game's reactor fuel is the finished element.
+#   Plasma drive: the fission reactor's fuel (10%) and its power conversion and RF electronics
+#   (15%, degraded by radiation) wear (estimates); magnets, nozzle and structure last.
+#   Radiators: the heat-pipe segments (50% of a panel, as before) wear; frames and manifolds last.
+# Hours per kg: a jet-engine shop visit takes ~1.25 h/kg (CFM56-7B: 2,500-3,500 h on a 2.4 t
+# engine, Safe Fly Aviation) and the game's yards are automated ten-fold (estimate):
+# 0.125 h/kg to fit a part; fabricating electronics or heat pipes from the goods 0.1 h/kg.
+ENGINE_WEAR_PARTS = {
+    "nuclear_thermal": [
+        {"kind": "fuel_elements", "name": "Reactor fuel elements", "mass_share": 0.40,
+         "materials": {"reactor_fuel": 1.0}, "fabrication_h_per_kg": 0.0, "install_h_per_kg": 0.125,
+         "grade": "nuclear_specialist"},
+    ],
+    "plasma": [
+        {"kind": "reactor_fuel_load", "name": "Reactor fuel load", "mass_share": 0.10,
+         "materials": {"reactor_fuel": 1.0}, "fabrication_h_per_kg": 0.0, "install_h_per_kg": 0.125,
+         "grade": "nuclear_specialist"},
+        {"kind": "power_electronics", "name": "Power conversion and RF electronics", "mass_share": 0.15,
+         "materials": {"electronics": 0.7, "machinery": 0.3}, "fabrication_h_per_kg": 0.1, "install_h_per_kg": 0.125,
+         "grade": "technician"},
+    ],
+}
+ENGINE_LASTING = {"nuclear_thermal": ("reactor_vessel", "Pressure vessel, turbopumps and nozzle"),
+                  "plasma": ("magnets_structure", "Magnets, nozzle and structure")}
+RADIATOR_WEAR_PARTS = [
+    {"kind": "heat_pipes", "name": "Heat-pipe segments", "mass_share": 0.50,
+     "materials": {"machinery": 1.0}, "fabrication_h_per_kg": 0.1, "install_h_per_kg": 0.125, "grade": "technician"},
+]
+RADIATOR_LASTING = ("panel_frame", "Panel frames and manifolds")
+SPARES_HEADER = ["kind", "wears_with", "grade", "fabrication_h_per_kg", "install_h_per_kg", "materials"]
+
+
+def _read_key_values(path: Path) -> dict[str, str]:
+    with path.open() as handle:
+        return {row["key"]: row["value"] for row in csv.DictReader(handle)}
+
+
+DATA_DIR = Path(__file__).resolve().parent.parent
+COMMODITY_CR_PER_KG = {}
+with (DATA_DIR / "commodities" / "commodities.csv").open() as _handle:
+    for _row in csv.DictReader(_handle):
+        COMMODITY_CR_PER_KG[_row["id"]] = float(_row["base_price"]) / float(_row["mass_per_unit_kg"])
+_LABOUR = _read_key_values(DATA_DIR / "economy" / "labour.csv")
+
+
+def wage_cr_per_hour(grade: str) -> float:
+    return float(_LABOUR["reference_wage_cr_per_day"]) * float(_LABOUR["grade." + grade]) / float(_LABOUR["shift_hours"])
+
+
+def wear_part_cr_per_kg(part: dict) -> float:
+    """Materials at base price plus fabricating and fitting them."""
+    materials = sum(share * COMMODITY_CR_PER_KG[good] for good, share in part["materials"].items())
+    return materials + (part["fabrication_h_per_kg"] + part["install_h_per_kg"]) * wage_cr_per_hour(part["grade"])
+
+
 COMPONENT_HEADER = ["class_id", "component_id", "parent_id", "kind", "name", "mass_kg", "price_cr",
                     "power_w", "heat_w", "temperature_k", "volume_m3", "area_m2", "capacity_kg",
                     "crew_capacity", "isp_s", "thrust_n"]
+
+# --- Modules (tier 2, docs/plans/ship_structures_tier2.md) ----------------------------
+# Optional parts fitted at the home yard, sized per hull. Each module's mass includes its share
+# of truss (STRUCTURE_FRACTION), so a fitted design is the class plus the module rows.
+MODULE_HEADER = ["hull_id", "module_id", "slot", "name", "mass_kg", "price_cr", "power_w", "heat_w",
+                 "temperature_k", "volume_m3", "area_m2", "capacity_kg", "crew_capacity", "effects"]
+SLOT_HEADER = ["hull_id", "slot", "count"]
+# Storm shelter: a refuge lined with water where the crew sits out a solar particle event.
+# 20 g/cm2 of water (200 kg/m2) keeps even an August-1972-class event under the 30-day limits
+# (estimate from NASA shielding studies, to be sourced in step D); 2 m3 of refuge per crew
+# member, a cylinder as tall as it is wide (game geometry). The water doubles as a reserve.
+SHELTER_AREAL_KG_PER_M2 = 200.0
+SHELTER_M3_PER_CREW = 2.0
+SHELTER_TANK_FRACTION = 0.10      # tank walls per kg of water (estimate, like the plasma tanks' 5-10%)
+
+# Zero-boil-off cryocooler for liquid-hydrogen tanks (nuclear-thermal hulls). Heat leaks through
+# high-performance MLI at ~0.2 W/m2 near 1 AU (estimate within NASA cryogenic-storage studies'
+# 0.1-0.4); tank area = sphere of the tank volume x 1.3 (several cylinders). The same numbers
+# drive the simulation (data/economy/ship_environment.csv). The cooler lifts 1.5x the nominal
+# tank's leak at 1 AU (covers the 200% tanks there, the nominal tanks down to ~0.67 AU).
+# A 20 K cooler rejecting at 300 K has Carnot COP 20/280; practical turbo-Brayton machines
+# reach ~14% of Carnot: ~100 W input per W lifted (estimate); ~5 kg per W lifted (estimate).
+# Power from the engine's bimodal Brayton loop (NASA bimodal NTR studies, Borowski: ~25 kWe
+# per stage), ~10 kg/kWe (estimate), and 300 K two-sided panels for the input power plus lift.
+MLI_FLUX_W_M2 = 0.2
+TANK_AREA_FACTOR = 1.3
+ZBO_LIFT_MARGIN = 1.5
+ZBO_W_INPUT_PER_W_LIFT = 100.0
+ZBO_KG_PER_W_LIFT = 5.0
+BRAYTON_KG_PER_KWE = 10.0
+ZBO_RADIATOR_K = 300.0
+USD_PER_KG_CRYOCOOLER = 10_000.0   # estimate, like the plasma drive's precision hardware
+# Reduced boil-off: a 90 K broad-area-cooled shield in the MLI (NASA Glenn, Christie et al. 2011,
+# NTRS 20110016177: up to 70% of the heat load, theoretical) intercepts 60% of the leak (estimate).
+# A 90 K cooler (Carnot COP 90/210) at ~20% of Carnot: ~12 W per W lifted; ~1 kg per W lifted;
+# shield tubing ~0.3 kg/m2 of tank (estimates). Lift sized like the 20 K cooler (1.5x at 1 AU).
+BAC_INTERCEPT = 0.6
+BAC_W_INPUT_PER_W_LIFT = 12.0
+BAC_KG_PER_W_LIFT = 1.0
+BAC_TUBING_KG_PER_M2 = 0.3
+
+# Cold hold: the whole hold lined and kept at 255 K (-18 C), where frozen food keeps a year or
+# more and medicines their shelf life; perishables then spoil at a tenth of the game's ambient
+# rate (estimate). Liner: MLI blanket (~0.5 kg/m2) on a 2 kg/m2 insulated panel over the hold's
+# surface (a cube of the hold volume); heat leak ~0.5 W/m2 in vacuum (estimate); a 255 K cooler at
+# ~1 W input per W lifted, ~1 kg per W lifted, on 300 K panels (estimates).
+COLD_HOLD_LINER_KG_PER_M2 = 2.5
+COLD_HOLD_LEAK_W_PER_M2 = 0.5
+COLD_HOLD_DECAY_FACTOR = 0.1
 
 # Tank refit options, as multiples of the class's nominal propellant capacity. The engine
 # keeps the nominal size (thrust, jet power); tanks and structure follow the propellant.
@@ -381,7 +491,135 @@ def components(b: Build) -> list[dict]:
                 child["heat_w"] = r["heat_w"]
                 child["temperature_k"] = CABIN_RADIATOR_TEMPERATURE_K
             out.append(child)
+    for key, wear_parts, lasting in (
+            ("engine", ENGINE_WEAR_PARTS["plasma" if plasma else "nuclear_thermal"],
+             ENGINE_LASTING["plasma" if plasma else "nuclear_thermal"]),
+            ("radiators", RADIATOR_WEAR_PARTS, RADIATOR_LASTING)):
+        if key not in rows:
+            continue
+        shares = {p["kind"]: p["mass_share"] for p in wear_parts}
+        shares[lasting[0]] = 1.0 - sum(shares.values())
+        child_mass = split_rounded(masses[key], shares)
+        for p in wear_parts:
+            out.append({"kind": p["kind"], "name": p["name"], "component_id": f"{key}.{p['kind']}", "parent_id": key,
+                        "mass_kg": child_mass[p["kind"]], "price_cr": round(child_mass[p["kind"]] * wear_part_cr_per_kg(p))})
+        worn_price = sum(c["price_cr"] for c in out if c["parent_id"] == key)
+        out.append({"kind": lasting[0], "name": lasting[1], "component_id": f"{key}.{lasting[0]}", "parent_id": key,
+                    "mass_kg": child_mass[lasting[0]], "price_cr": prices[key] - worn_price})
     return out
+
+
+def write_spares_csv(path: Path) -> None:
+    """What an overhaul replaces: the wearing parts, their goods, hours and grade."""
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(SPARES_HEADER)
+        for wears_with, parts in (("drive", ENGINE_WEAR_PARTS["nuclear_thermal"] + ENGINE_WEAR_PARTS["plasma"]),
+                                  ("radiators", RADIATOR_WEAR_PARTS)):
+            for p in parts:
+                writer.writerow([p["kind"], wears_with, p["grade"], p["fabrication_h_per_kg"], p["install_h_per_kg"],
+                                 ";".join(f"{good}={share}" for good, share in p["materials"].items())])
+
+
+def hull_slots(spec: ClassSpec) -> dict[str, int]:
+    """Module slots by hull (game): couriers have room for less."""
+    small = spec.cargo_units < 100
+    slots = {"habitat": 2 if small else 3, "hold": 0 if small else 1}
+    slots["drive" if spec.drive == "plasma" else "tank"] = 1
+    return slots
+
+
+def modules(b: Build) -> list[dict]:
+    """The modules a nominal hull can fit, sized for it."""
+    rate = lambda key: USD_PER_KG[key] * CR_PER_USD
+    out = []
+    # Storm shelter: water wall around the refuge (cylinder, height = diameter).
+    volume = SHELTER_M3_PER_CREW * b.spec.crew
+    radius = (volume / (2.0 * math.pi)) ** (1.0 / 3.0)
+    area = 6.0 * math.pi * radius ** 2
+    water = SHELTER_AREAL_KG_PER_M2 * area
+    walls = SHELTER_TANK_FRACTION * water
+    truss = STRUCTURE_FRACTION * (water + walls)
+    out.append({"module_id": "storm_shelter", "slot": "habitat", "name": "Storm shelter (water wall)",
+                "mass_kg": round(water + walls + truss),
+                "price_cr": round((walls * USD_PER_KG["plasma_tank"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                "volume_m3": volume, "area_m2": area, "capacity_kg": water,
+                "effects": f"spe_shield_g_cm2={SHELTER_AREAL_KG_PER_M2 / 10.0:g}"})
+    if hull_slots(b.spec).get("hold", 0) > 0:
+        hold_volume = b.spec.cargo_units * HOLD_M3_PER_CARGO_UNIT
+        area = 6.0 * hold_volume ** (2.0 / 3.0)
+        liner = COLD_HOLD_LINER_KG_PER_M2 * area
+        lift = COLD_HOLD_LEAK_W_PER_M2 * area
+        cooler = 1.0 * lift
+        heat = 2.0 * lift
+        panel_w_per_m2 = 2.0 * RADIATOR_EMISSIVITY * STEFAN_BOLTZMANN * ZBO_RADIATOR_K ** 4
+        radiator = heat / panel_w_per_m2 * RADIATOR_AREAL_KG_PER_M2
+        truss = STRUCTURE_FRACTION * (liner + cooler + radiator)
+        out.append({"module_id": "cold_hold", "slot": "hold", "name": "Cold hold (255 K)",
+                    "mass_kg": round(liner + cooler + radiator + truss),
+                    "price_cr": round((liner * USD_PER_KG["hold"] + cooler * USD_PER_KG_CRYOCOOLER
+                                       + radiator * USD_PER_KG["radiator"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": lift, "heat_w": heat, "temperature_k": 255.0, "volume_m3": hold_volume,
+                    "area_m2": area, "effects": f"perishable_decay_factor={COLD_HOLD_DECAY_FACTOR:g}"})
+    if spec_is_thermal(b):
+        volume = b.propellant_kg / PROPELLANT["lh2"]["density_kg_m3"]
+        area = TANK_AREA_FACTOR * 4.0 * math.pi * (3.0 * volume / (4.0 * math.pi)) ** (2.0 / 3.0)
+        lift = ZBO_LIFT_MARGIN * MLI_FLUX_W_M2 * area
+        power = ZBO_W_INPUT_PER_W_LIFT * lift
+        heat = power + lift
+        panel_w_per_m2 = 2.0 * RADIATOR_EMISSIVITY * STEFAN_BOLTZMANN * ZBO_RADIATOR_K ** 4
+        radiator = heat / panel_w_per_m2 * RADIATOR_AREAL_KG_PER_M2
+        cooler = ZBO_KG_PER_W_LIFT * lift
+        brayton = BRAYTON_KG_PER_KWE * power / 1000.0
+        truss = STRUCTURE_FRACTION * (cooler + brayton + radiator)
+        out.append({"module_id": "zbo_cryocooler", "slot": "tank", "name": "Zero-boil-off cryocooler (20 K)",
+                    "mass_kg": round(cooler + brayton + radiator + truss),
+                    "price_cr": round((cooler * USD_PER_KG_CRYOCOOLER + brayton * USD_PER_KG["liquid_core"]
+                                       + radiator * USD_PER_KG["radiator"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": power, "heat_w": heat, "temperature_k": 20.0,
+                    "area_m2": heat / panel_w_per_m2, "effects": f"zbo_lift_w={lift:.6g}"})
+        bac_lift = BAC_INTERCEPT * lift
+        bac_power = BAC_W_INPUT_PER_W_LIFT * bac_lift
+        bac_heat = bac_power + bac_lift
+        bac_radiator = bac_heat / panel_w_per_m2 * RADIATOR_AREAL_KG_PER_M2
+        bac_cooler = BAC_KG_PER_W_LIFT * bac_lift
+        tubing = BAC_TUBING_KG_PER_M2 * area
+        bac_brayton = BRAYTON_KG_PER_KWE * bac_power / 1000.0
+        bac_truss = STRUCTURE_FRACTION * (bac_cooler + tubing + bac_brayton + bac_radiator)
+        out.append({"module_id": "boiloff_shield", "slot": "tank", "name": "90 K cooled tank shield (reduced boil-off)",
+                    "mass_kg": round(bac_cooler + tubing + bac_brayton + bac_radiator + bac_truss),
+                    "price_cr": round((bac_cooler * USD_PER_KG_CRYOCOOLER + tubing * USD_PER_KG["lh2_tank"]
+                                       + bac_brayton * USD_PER_KG["liquid_core"] + bac_radiator * USD_PER_KG["radiator"]
+                                       + bac_truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": bac_power, "heat_w": bac_heat, "temperature_k": 90.0,
+                    "area_m2": area, "effects": f"boiloff_intercept={BAC_INTERCEPT:g}"})
+    return out
+
+
+def spec_is_thermal(b: Build) -> bool:
+    return b.spec.drive != "plasma"
+
+
+def write_modules_csv(nominal: list[Build], modules_path: Path, slots_path: Path) -> None:
+    def cell(value) -> str:
+        if value is None or value == "":
+            return ""
+        if isinstance(value, float):
+            return f"{value:.6g}"
+        return str(value)
+    with modules_path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(MODULE_HEADER)
+        for b in nominal:
+            for m in modules(b):
+                writer.writerow([b.spec.id] + [cell(m.get(k)) for k in MODULE_HEADER[1:]])
+    with slots_path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(SLOT_HEADER)
+        for b in nominal:
+            for slot, count in hull_slots(b.spec).items():
+                if count > 0:
+                    writer.writerow([b.spec.id, slot, count])
 
 
 def write_components_csv(builds: list[Build], path: Path) -> None:
@@ -409,9 +647,16 @@ def check(builds: list[Build]) -> None:
         assert sum(c["mass_kg"] for c in top) == round(b.dry_kg), b.id
         assert sum(c["price_cr"] for c in top) == int(round(b.value_cr, -2)), b.id
         habitat = next(c for c in top if c["kind"] == "habitat")
-        children = [c for c in parts if c["parent_id"] == "habitat"]
-        assert sum(c["mass_kg"] for c in children) == habitat["mass_kg"], b.id
-        assert sum(c["price_cr"] for c in children) == habitat["price_cr"], b.id
+        for parent in top:
+            children = [c for c in parts if c["parent_id"] == parent["component_id"]]
+            if parent["kind"] in ("habitat", "engine", "radiator"):
+                assert children, (b.id, parent["component_id"])
+            if children:
+                assert sum(c["mass_kg"] for c in children) == parent["mass_kg"], (b.id, parent["component_id"])
+                assert sum(c["price_cr"] for c in children) == parent["price_cr"], (b.id, parent["component_id"])
+                # The lasting part carries the precision work: it must cost more per kg than the goods.
+                assert all(c["price_cr"] > 0 for c in children), (b.id, parent["component_id"])
+        del habitat
     print(f"check: components of {len(builds)} classes add up")
 
 
@@ -457,6 +702,8 @@ def main() -> None:
     if not args.dry_run:
         write_csv(variants, Path(__file__).with_name("ship_classes.csv"))
         write_components_csv(variants, Path(__file__).with_name("ship_components.csv"))
+        write_modules_csv(nominal, Path(__file__).with_name("modules.csv"), Path(__file__).with_name("hull_slots.csv"))
+        write_spares_csv(Path(__file__).with_name("spares.csv"))
     summary(variants)
     if args.markdown:
         markdown(nominal)

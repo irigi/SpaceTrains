@@ -13,7 +13,8 @@ Time costs money, so feasible but uneconomic trips (multi-revolution spirals, ye
 lose on their own instead of being cut off by rules. Each ship accrues, prorated per tick:
 - **Capital:** `ship_value_cr × (interest_rate_per_year + 1 / lifetime_years) / 365` a day, in every phase,
   laid up included.
-- **Wages:** `crew_size × wage_cr_per_crew_day`, not while laid up.
+- **Wages:** `crew_size × wage_cr_per_crew_day`, not while laid up. The wage is the crew grade of the labour
+  scale (`data/economy/labour.csv`, which also prices yard work).
 - **Life support:** food, water and oxygen per crew-day, bought as real goods. Ships start with 730 days aboard
   (`PROVISION_ENDURANCE_DAYS`) and top up where a port can spare it. A departing crew must hold the mission
   × 1.1 plus a 120-day return reserve; a docked crew doesn't eat into that reserve, it lays up instead.
@@ -56,6 +57,35 @@ and provisioning.
   - Cost: `refit_days` in the yard, crew discharged, and a bill of `refit_cost_fraction` of the hardware value
     added or removed, paid to the home station. Propellant that no longer fits is sold to the depot.
   - Afterwards the ship is locked out of further refits for the yard time plus 180 days.
+
+## Modules, crew radiation, boil-off and wear (tier 2, 2026-10-21)
+
+Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/plans/tier2_log.md`; sources
+`docs/ship_technology.md` ("Crew radiation", "Boil-off and wear"). Every mechanism is a switch in
+`data/economy/ship_environment.csv` (all on by default); with all off the economy is the pre-tier-2 one.
+- **Designs.** A ship flies `ship_design(ship)`: its class (tank variant) plus its fit (`ShipState::fit`, modules
+  from `data/ship_classes/modules.csv`, sized per hull by the builder) plus its radiator damage in 10% steps.
+  Fitted designs are derived from the parts (`src/domain/ShipDesign.cpp`) and cached by design id
+  (`class+module…#r9`); the cache is pure and never saved. Slots per hull: `hull_slots.csv`.
+- **Refits** offer the next tank size either way or one module in or out, by the part C rule; only modules
+  whose effect is switched on are offered. Fleet investment also tries the winning hull with each module.
+- **Crew radiation** (`src/simulation/CrewEnvironment.cpp`): cosmic rays and solar particle events dose each
+  crew; docked crews get their station's dose (`station_radiation.csv`). A crew signs on per leg, and no leg may
+  take it past the 1 Sv career limit; hazard pay (0.43 cr/mSv) is a wage, and the planners' time costs include
+  it. Module: storm shelter.
+- **Boil-off:** nuclear-thermal ships lose liquid hydrogen in flight; the Kepler planner loads and pays for it.
+  Modules: 90 K cooled tank shield, 20 K zero-boil-off cryocooler.
+- **Cold hold:** perishables spoil at a tenth of the ambient rate.
+- **Boil-off in the planners:** a plan carries the hydrogen it expects to boil (`propellant_boiled_kg`, at the
+  leg's mean rate, `leg_boiloff_kg_per_day`); fuel on arrival, the return-fuel check and the mission's fuel cost
+  all count it. The audit's `Boil-off:` line counts nuclear-thermal arrivals short of the arrival burn or under
+  half the reserve.
+- **Wear:** drives use their rated life (nuclear-thermal cores 100 burn hours, plasma drives 10 full-power
+  years; a leg must fit in what is left) and meteoroids hole plasma radiators, cutting jet power.
+  `consider_repair` overhauls at any port with the spares: the wearing parts (`spares.csv`: fuel elements,
+  reactor fuel, power electronics, heat pipes) in goods at the port's price plus hours at the labour scale
+  (`overhaul_bill`), a few days in the yard. The planners price wear in (`wear_cr_per_propellant_kg` for
+  nuclear-thermal burns, `wear_cr_per_flight_day` for plasma thrust), so asks and contracts cover it.
 
 ## Fleet investment (`step_fleet_investment`)
 

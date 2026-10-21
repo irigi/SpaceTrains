@@ -687,7 +687,7 @@ func _update_nodes(delta: float) -> void:
                 node.position += _docked_ship_offset(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
             EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0),
-                _jet_power_w(String(detail.get("class_id", ""))))
+                _jet_power_w(String(detail.get("design_id", detail.get("class_id", "")))))
     _update_camera_obstacles()
     _update_history_trails(delta)
     if space_env != null:

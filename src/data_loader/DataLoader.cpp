@@ -200,12 +200,16 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     const auto commodities_path = root / "commodities" / "commodities.csv";
     const auto ship_classes_path = root / "ship_classes" / "ship_classes.csv";
     const auto ship_components_path = root / "ship_classes" / "ship_components.csv";
+    const auto ship_modules_path = root / "ship_classes" / "modules.csv";
+    const auto hull_slots_path = root / "ship_classes" / "hull_slots.csv";
     const auto stations_path = root / "stations" / "stations.csv";
     const auto recipes_path = root / "recipes" / "recipes.csv";
     const auto station_recipes_path = root / "recipes" / "station_recipes.csv";
     const auto export_markets_path = root / "economy" / "export_markets.csv";
     const auto ships_path = root / "ships" / "ships.csv";
     const auto ship_operations_path = root / "economy" / "ship_operations.csv";
+    const auto labour_path = root / "economy" / "labour.csv";
+    const auto spares_path = root / "ship_classes" / "spares.csv";
     const auto fuel_supply_path = root / "economy" / "fuel_supply.csv";
     const auto fuel_factories_path = root / "economy" / "fuel_factories.csv";
     const auto open_economy_path = root / "economy" / "open_economy.csv";
@@ -311,6 +315,12 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         static const std::unordered_set<std::string> top_kinds {"engine", "radiator", "tank", "habitat", "hold", "structure"};
         static const std::unordered_set<std::string> habitat_kinds {"pressure_hull", "shielding", "life_support",
             "thermal_control", "power_avionics", "crew_quarters", "common_rooms", "airlock_eva"};
+        // Wearing and lasting parts (tier 2: spares.csv lists the wearing ones).
+        static const std::unordered_map<std::string, std::unordered_set<std::string>> child_kinds {
+            {"habitat", habitat_kinds},
+            {"engine", {"fuel_elements", "reactor_vessel", "reactor_fuel_load", "power_electronics", "magnets_structure"}},
+            {"radiators", {"heat_pipes", "panel_frame"}},
+        };
         std::unordered_map<std::string, domain::ShipClassDefinition*> classes;
         for (auto& ship_class : universe.ship_classes) {
             classes[ship_class.id] = &ship_class;
@@ -330,13 +340,14 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             }
             auto& ship_class = *found->second;
             const bool top = row[2].empty();
-            if (top ? !top_kinds.contains(row[3]) : (row[2] != "habitat" || !habitat_kinds.contains(row[3]))) {
+            const auto allowed = child_kinds.find(row[2]);
+            if (top ? !top_kinds.contains(row[3]) : (allowed == child_kinds.end() || !allowed->second.contains(row[3]))) {
                 throw std::runtime_error(where + ": component kind '" + row[3] + "' does not fit parent '" + row[2] + "'");
             }
             if (!top) {
                 const auto parent = std::find_if(ship_class.components.begin(), ship_class.components.end(),
                     [&](const auto& c) { return c.id == row[2]; });
-                if (parent == ship_class.components.end() || parent->kind != "habitat") {
+                if (parent == ship_class.components.end() || !parent->parent_id.empty()) {
                     throw std::runtime_error(where + ": parent '" + row[2] + "' must be listed before its parts");
                 }
             }
@@ -392,6 +403,93 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                         ship_components_path.string(), parent_id, ship_class.id));
                 }
             }
+        }
+    }
+
+    // Modules and hull slots (tier 2): what each hull can fit at its home yard.
+    {
+        static const std::unordered_set<std::string> slots {"habitat", "hold", "drive", "tank", "cabin"};
+        std::unordered_set<std::string> hulls;
+        for (const auto& ship_class : universe.ship_classes) {
+            hulls.insert(ship_class.hull_id);
+        }
+        const auto slot_rows = read_csv_rows(hull_slots_path);
+        require_header(slot_rows.front(), {"hull_id", "slot", "count"}, hull_slots_path);
+        for (std::size_t i = 1; i < slot_rows.size(); ++i) {
+            const auto& row = slot_rows[i];
+            require_field_count(row, 3, hull_slots_path, i + 1);
+            const auto where = std::format("{}:{}", hull_slots_path.string(), i + 1);
+            if (!hulls.contains(row[0]) || !slots.contains(row[1])) {
+                throw std::runtime_error(where + ": unknown hull or slot");
+            }
+            const double count = parse_double(row[2], hull_slots_path, i + 1, "count");
+            if (count < 0.0 || count != std::floor(count)) {
+                throw std::runtime_error(where + ": count must be a whole number");
+            }
+            universe.hull_slots[row[0]][row[1]] = static_cast<int>(count);
+        }
+        const auto rows = read_csv_rows(ship_modules_path);
+        require_header(rows.front(),
+            {"hull_id", "module_id", "slot", "name", "mass_kg", "price_cr", "power_w", "heat_w", "temperature_k",
+             "volume_m3", "area_m2", "capacity_kg", "crew_capacity", "effects"},
+            ship_modules_path);
+        std::unordered_set<std::string> seen;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            const auto line = i + 1;
+            require_field_count(row, 14, ship_modules_path, line);
+            const auto where = std::format("{}:{}", ship_modules_path.string(), line);
+            if (!hulls.contains(row[0])) {
+                throw std::runtime_error(where + ": unknown hull '" + row[0] + "'");
+            }
+            if (!slots.contains(row[2])) {
+                throw std::runtime_error(where + ": unknown slot '" + row[2] + "'");
+            }
+            if (!seen.insert(row[0] + "|" + row[1]).second) {
+                throw std::runtime_error(where + ": duplicate module '" + row[1] + "' for " + row[0]);
+            }
+            const auto number = [&](std::size_t column, const char* field) {
+                const double value = row[column].empty() ? 0.0 : parse_double(row[column], ship_modules_path, line, field);
+                if (value < 0.0) {
+                    throw std::runtime_error(where + ": " + field + " must not be negative");
+                }
+                return value;
+            };
+            domain::ShipModuleDefinition module {
+                .hull_id = row[0],
+                .id = row[1],
+                .slot = row[2],
+                .part = {
+                    .id = "module." + row[1],
+                    .parent_id = "",
+                    .kind = "module",
+                    .name = row[3],
+                    .mass_kg = number(4, "mass_kg"),
+                    .price_cr = number(5, "price_cr"),
+                    .power_w = number(6, "power_w"),
+                    .heat_w = number(7, "heat_w"),
+                    .temperature_k = number(8, "temperature_k"),
+                    .volume_m3 = number(9, "volume_m3"),
+                    .area_m2 = number(10, "area_m2"),
+                    .capacity_kg = number(11, "capacity_kg"),
+                    .crew_capacity = number(12, "crew_capacity"),
+                },
+                .effects = {},
+            };
+            // effects: key=value;key=value
+            std::size_t at = 0;
+            const auto& text = row[13];
+            while (at < text.size()) {
+                const auto end = std::min(text.find(';', at), text.size());
+                const auto item = text.substr(at, end - at);
+                const auto eq = item.find('=');
+                if (eq == std::string::npos || eq == 0) {
+                    throw std::runtime_error(where + ": effect '" + item + "' is not key=value");
+                }
+                module.effects[item.substr(0, eq)] = parse_double(item.substr(eq + 1), ship_modules_path, line, "effect");
+                at = end + 1;
+            }
+            universe.ship_modules.push_back(std::move(module));
         }
     }
 
@@ -494,6 +592,85 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
 
     {
+        // The wage scale: key,value rows, grades as "grade.<name>" multiples of the reference.
+        const auto rows = read_csv_rows(labour_path);
+        require_header(rows.front(), {"key", "value"}, labour_path);
+        std::unordered_set<std::string> seen_keys;
+        auto& labour = universe.labour;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, labour_path, i + 1);
+            require_unique_id(row[0], seen_keys, labour_path, i + 1);
+            const double value = parse_double(row[1], labour_path, i + 1, row[0].c_str());
+            if (value <= 0.0) {
+                throw std::runtime_error("'" + row[0] + "' must be positive in " + labour_path.string());
+            }
+            if (row[0] == "reference_wage_cr_per_day") {
+                labour.reference_wage_cr_per_day = value;
+            } else if (row[0] == "shift_hours") {
+                labour.shift_hours = value;
+            } else if (row[0].starts_with("grade.")) {
+                labour.grades[row[0].substr(6)] = value;
+            } else {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + labour_path.string());
+            }
+        }
+        if (!labour.grades.contains("crew")) {
+            throw std::runtime_error("Missing key 'grade.crew' in " + labour_path.string());
+        }
+        // Crews are paid at the crew grade.
+        universe.ship_operations.wage_cr_per_crew_day = labour.wage_cr_per_day("crew");
+    }
+    if (std::filesystem::exists(spares_path)) {
+        const auto rows = read_csv_rows(spares_path);
+        require_header(rows.front(),
+            {"kind", "wears_with", "grade", "fabrication_h_per_kg", "install_h_per_kg", "materials"}, spares_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 6, spares_path, i + 1);
+            const auto where = std::format("{}:{}", spares_path.string(), i + 1);
+            if (row[1] != "drive" && row[1] != "radiators") {
+                throw std::runtime_error(where + ": wears_with must be drive or radiators");
+            }
+            if (!universe.labour.grades.contains(row[2])) {
+                throw std::runtime_error(where + ": unknown labour grade '" + row[2] + "'");
+            }
+            domain::SparePartDefinition part {
+                .kind = row[0],
+                .wears_with = row[1],
+                .grade = row[2],
+                .fabrication_h_per_kg = parse_double(row[3], spares_path, i + 1, "fabrication_h_per_kg"),
+                .install_h_per_kg = parse_double(row[4], spares_path, i + 1, "install_h_per_kg"),
+                .materials = {},
+            };
+            double shares = 0.0;
+            std::size_t at = 0;
+            const auto& text = row[5];
+            while (at < text.size()) {
+                const auto end = std::min(text.find(';', at), text.size());
+                const auto item = text.substr(at, end - at);
+                const auto equals = item.find('=');
+                if (equals == std::string::npos) {
+                    throw std::runtime_error(where + ": materials must be commodity=share;...");
+                }
+                const auto good = item.substr(0, equals);
+                if (!contains_id(universe.commodities, good)) {
+                    throw std::runtime_error(where + ": unknown commodity '" + good + "'");
+                }
+                const double share = parse_double(item.substr(equals + 1), spares_path, i + 1, "materials");
+                part.materials.emplace_back(good, share);
+                shares += share;
+                at = end + 1;
+            }
+            if (part.fabrication_h_per_kg < 0.0 || part.install_h_per_kg < 0.0 || std::abs(shares - 1.0) > 1e-6) {
+                throw std::runtime_error(where + ": hours must not be negative and material shares must add up to 1");
+            }
+            if (!universe.spare_parts.emplace(part.kind, part).second) {
+                throw std::runtime_error(where + ": duplicate spare part '" + part.kind + "'");
+            }
+        }
+    }
+    {
         // key,value rows; life support entries are "life_support.<commodity_id>".
         const auto rows = read_csv_rows(ship_operations_path);
         require_header(rows.front(), {"key", "value"}, ship_operations_path);
@@ -505,9 +682,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             require_unique_id(row[0], seen_keys, ship_operations_path, i + 1);
             const double value = parse_double(row[1], ship_operations_path, i + 1, row[0].c_str());
             constexpr std::string_view life_support_prefix = "life_support.";
-            if (row[0] == "wage_cr_per_crew_day") {
-                operations.wage_cr_per_crew_day = value;
-            } else if (row[0] == "interest_rate_per_year") {
+            if (row[0] == "interest_rate_per_year") {
                 operations.interest_rate_per_year = value;
             } else if (row[0] == "lifetime_years") {
                 operations.lifetime_years = value;
@@ -521,7 +696,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 throw std::runtime_error("Unknown key '" + row[0] + "' in " + ship_operations_path.string());
             }
         }
-        for (const char* required : {"wage_cr_per_crew_day", "interest_rate_per_year", "lifetime_years"}) {
+        for (const char* required : {"interest_rate_per_year", "lifetime_years"}) {
             if (!seen_keys.contains(required)) {
                 throw std::runtime_error(std::string("Missing key '") + required + "' in " + ship_operations_path.string());
             }
@@ -949,6 +1124,102 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                     throw std::runtime_error("Unknown key '" + row[0] + "' in " + market_path.string());
                 }
                 *field->second = parse_double(row[1], market_path, i + 1, row[0].c_str());
+            }
+        }
+    }
+
+    // Ship environment (tier 2): crew radiation and the other effects modules answer. Optional
+    // file and keys; the defaults in domain::ShipEnvironmentDefinition are the sourced values,
+    // with every mechanism switched off.
+    {
+        const auto env_path = root / "economy" / "ship_environment.csv";
+        if (std::filesystem::exists(env_path)) {
+            const auto rows = read_csv_rows(env_path);
+            require_header(rows.front(), {"key", "value"}, env_path);
+            std::unordered_set<std::string> seen_keys;
+            auto& env = universe.ship_environment;
+            double radiation = env.radiation ? 1.0 : 0.0;
+            double boiloff = env.boiloff ? 1.0 : 0.0;
+            double cold_storage = env.cold_storage ? 1.0 : 0.0;
+            double wear = env.wear ? 1.0 : 0.0;
+            const std::unordered_map<std::string, double*> fields {
+                {"radiation", &radiation},
+                {"gcr_msv_per_day", &env.gcr_msv_per_day},
+                {"gcr_cycle_amplitude", &env.gcr_cycle_amplitude},
+                {"solar_cycle_days", &env.solar_cycle_days},
+                {"solar_minimum_day", &env.solar_minimum_day},
+                {"gcr_gradient_per_au", &env.gcr_gradient_per_au},
+                {"gcr_attenuation_g_cm2", &env.gcr_attenuation_g_cm2},
+                {"shelter_occupancy", &env.shelter_occupancy},
+                {"spe_rate_per_year", &env.spe_rate_per_year},
+                {"spe_min_magnitude", &env.spe_min_magnitude},
+                {"spe_max_magnitude", &env.spe_max_magnitude},
+                {"spe_index", &env.spe_index},
+                {"spe_hull_msv", &env.spe_hull_msv},
+                {"spe_shelter_msv", &env.spe_shelter_msv},
+                {"spe_shelter_g_cm2", &env.spe_shelter_g_cm2},
+                {"career_limit_msv", &env.career_limit_msv},
+                {"hazard_cr_per_msv", &env.hazard_cr_per_msv},
+                {"boiloff", &boiloff},
+                {"mli_flux_w_m2", &env.mli_flux_w_m2},
+                {"mli_flux_exponent", &env.mli_flux_exponent},
+                {"lh2_latent_j_kg", &env.lh2_latent_j_kg},
+                {"tank_area_factor", &env.tank_area_factor},
+                {"cold_storage", &cold_storage},
+                {"wear", &wear},
+                {"ntr_core_life_h", &env.ntr_core_life_h},
+                {"plasma_drive_life_h", &env.plasma_drive_life_h},
+                {"puncture_flux_m2_yr", &env.puncture_flux_m2_yr},
+                {"puncture_flux_exponent", &env.puncture_flux_exponent},
+                {"radiator_vulnerable_fraction", &env.radiator_vulnerable_fraction},
+                {"radiator_segment_m2", &env.radiator_segment_m2},
+                {"overhaul_wear", &env.overhaul_wear},
+                {"radiator_repair_condition", &env.radiator_repair_condition},
+                {"repair_team_size", &env.repair_team_size},
+                {"repair_team_hours_per_day", &env.repair_team_hours_per_day},
+                {"min_repair_days", &env.min_repair_days},
+                {"initial_wear_max", &env.initial_wear_max},
+            };
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 2, env_path, i + 1);
+                require_unique_id(row[0], seen_keys, env_path, i + 1);
+                const auto field = fields.find(row[0]);
+                if (field == fields.end()) {
+                    throw std::runtime_error("Unknown key '" + row[0] + "' in " + env_path.string());
+                }
+                *field->second = parse_double(row[1], env_path, i + 1, row[0].c_str());
+            }
+            env.radiation = radiation != 0.0;
+            env.boiloff = boiloff != 0.0;
+            env.cold_storage = cold_storage != 0.0;
+            env.wear = wear != 0.0;
+            if (env.ntr_core_life_h <= 0.0 || env.plasma_drive_life_h <= 0.0 || env.overhaul_wear <= 0.0
+                || env.overhaul_wear > 1.0 || env.min_repair_days < 0.0 || env.repair_team_size <= 0.0
+                || env.repair_team_hours_per_day <= 0.0) {
+                throw std::runtime_error(env_path.string() + ": drive lives, overhaul share or repair days out of range");
+            }
+            if (env.lh2_latent_j_kg <= 0.0 || env.tank_area_factor <= 0.0 || env.mli_flux_w_m2 < 0.0) {
+                throw std::runtime_error(env_path.string() + ": boil-off latent heat, tank area factor or flux out of range");
+            }
+            if (env.solar_cycle_days <= 0.0 || env.gcr_attenuation_g_cm2 <= 0.0 || env.spe_index <= 0.0
+                || env.spe_min_magnitude <= 0.0 || env.spe_max_magnitude <= env.spe_min_magnitude
+                || env.spe_hull_msv <= 0.0 || env.spe_shelter_msv <= 0.0 || env.spe_shelter_g_cm2 <= 0.0
+                || env.career_limit_msv <= 0.0) {
+                throw std::runtime_error(env_path.string() + ": a cycle, attenuation, magnitude range, dose or limit is not positive");
+            }
+        }
+        const auto stations_radiation_path = root / "economy" / "station_radiation.csv";
+        if (std::filesystem::exists(stations_radiation_path)) {
+            const auto rows = read_csv_rows(stations_radiation_path);
+            require_header(rows.front(), {"station_id", "location_factor", "shield_g_cm2", "note"}, stations_radiation_path);
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 4, stations_radiation_path, i + 1);
+                universe.station_radiation[row[0]] = {
+                    .location_factor = parse_double(row[1], stations_radiation_path, i + 1, "location_factor"),
+                    .shield_g_cm2 = parse_double(row[2], stations_radiation_path, i + 1, "shield_g_cm2"),
+                };
             }
         }
     }
