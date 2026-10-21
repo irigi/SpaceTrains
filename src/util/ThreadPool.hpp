@@ -29,7 +29,7 @@ public:
 
 private:
     void worker_loop();
-    void run_indices();
+    void run_indices(const std::function<void(std::size_t)>& job, std::size_t count);
 
     std::vector<std::thread> workers_;
     std::mutex mutex_;
