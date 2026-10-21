@@ -1,4 +1,5 @@
 #include "simulation/Simulation.hpp"
+#include "domain/ShipDesign.hpp"
 
 #include "util/Profiling.hpp"
 
@@ -323,7 +324,15 @@ const economy::EconomySystem& Simulation::economy_system() const {
 }
 
 const domain::ShipClassDefinition& Simulation::ship_design(const domain::ShipState& ship) const {
-    return get_ship_class(ship.class_id);
+    if (ship.fit.empty()) {
+        return get_ship_class(ship.class_id);
+    }
+    const auto key = domain::design_id(ship.class_id, ship.fit);
+    const auto it = designs_.find(key);
+    if (it == designs_.end()) {
+        throw std::runtime_error("Unregistered ship design: " + key);
+    }
+    return it->second;
 }
 
 const domain::ShipClassDefinition& Simulation::get_ship_class(const std::string& class_id) const {
@@ -3193,6 +3202,14 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             if (arrived > 0.0) {
                 observe_delivery(destination, lot.commodity_id,
                     ship.active_mission.departure_time_s - ship.active_mission.wait_time_s);
+                // Audit only: what stations pay against the landed reference price.
+                const auto& refs = universe_.pricing.reference_prices;
+                if (const auto at = refs.find(destination.station_id); at != refs.end()) {
+                    if (const auto ref = at->second.find(lot.commodity_id); ref != at->second.end()) {
+                        delivered_paid_cr_ += revenue;
+                        delivered_reference_cr_ += arrived * ref->second;
+                    }
+                }
             }
             destination.credits -= revenue - faction_share;
             ship.credits += revenue;

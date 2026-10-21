@@ -90,6 +90,10 @@ public:
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
     [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return recent_trades_; }
+    // Audit: deliveries with a reference price since start (or load), paid vs reference.
+    [[nodiscard]] double delivered_price_ratio() const {
+        return delivered_reference_cr_ > 0.0 ? delivered_paid_cr_ / delivered_reference_cr_ : 0.0;
+    }
 
     // When enabled, every accepted mission plan is checked by audit_trajectory()
     // and recorded (headless --trajectory-audit).
@@ -100,9 +104,10 @@ public:
 
 private:
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
-    // The design a ship flies with. Today its class; with refittable modules (tier 2 of
-    // docs/plans/ship_internals.md) a design derived from the class and the ship's own fit.
-    // Ship-level code asks this, never get_ship_class(ship.class_id).
+    // The design a ship flies with: its class, or with modules fitted (tier 2,
+    // docs/plans/ship_structures_tier2.md) the design derived from the class and the fit.
+    // Ship-level code asks this, never get_ship_class(ship.class_id). Fitted designs must be
+    // registered first (serial code only: planning passes read the cache in parallel).
     [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
@@ -416,6 +421,8 @@ private:
     std::vector<domain::ShipState> ships_;
     std::vector<domain::EventEntry> recent_events_;
     std::vector<domain::TradeEntry> recent_trades_;
+    double delivered_paid_cr_ {0.0};       // audit only, not saved
+    double delivered_reference_cr_ {0.0};
     bool trajectory_audit_enabled_ {false};
     std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
     // estimate_leg() cache: departure bucket -> "class|from|to|fuel bucket" -> estimate.
@@ -428,6 +435,9 @@ private:
     std::unique_ptr<util::ThreadPool> thread_pool_;
     std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
     std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
+    // Fitted designs by design id. A std::map, so references handed out stay valid; derived
+    // from data and fits only, never saved.
+    std::map<std::string, domain::ShipClassDefinition> designs_;
 };
 
 }  // namespace spacetrains::simulation

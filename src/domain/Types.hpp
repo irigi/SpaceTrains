@@ -462,6 +462,9 @@ struct ShipState {
     std::string name;
     std::string faction_id;
     std::string class_id;
+    // Modules fitted at the home yard (tier 2, docs/plans/ship_structures_tier2.md). The
+    // ship flies the design class_id + fit (Simulation::ship_design).
+    std::vector<std::string> fit;
     std::string home_station_id;
     std::string current_station_id;
     ShipMissionPhase phase {ShipMissionPhase::Idle};

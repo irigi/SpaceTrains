@@ -207,7 +207,8 @@ void print_station_inventories(
 void print_economy_audit(
     const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe,
-    const spacetrains::economy::EconomySystem& economy) {
+    const spacetrains::economy::EconomySystem& economy,
+    double delivered_price_ratio) {
 
     // Collect all commodity IDs
     std::vector<std::string> commodity_ids;
@@ -316,6 +317,7 @@ void print_economy_audit(
             }
         }
         std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
+        std::cout << std::format("    Delivered price: {:.2f}x the reference\n", delivered_price_ratio);
     }
 
     // Purchase orders (step 29, step 1: observed only, nothing uses them yet).
@@ -1125,7 +1127,7 @@ int main(int argc, char** argv) {
             print_station_inventories(snap, sim.universe());
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
-                print_economy_audit(snap, sim.universe(), sim.economy_system());
+                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {

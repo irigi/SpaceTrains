@@ -14,6 +14,7 @@
 
 #include "celestial/CelestialMechanics.hpp"
 #include "data_loader/DataLoader.hpp"
+#include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
 #include "simulation/Simulation.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
@@ -146,6 +147,39 @@ int main() {
         require((radiators == 1) == (ship_class.propulsion_type == "variable_isp"),
             "plasma ships should have drive radiators, nuclear-thermal ships none");
     }
+    // Tier 2 designs: the C++ port of the builder's totals reproduces every class row,
+    // tank variants included, from its parts alone (CSV rounding: Δv to 1 m/s, acceleration
+    // to 0.001 m/s², α to 1 W/kg, value to 100 cr).
+    for (const auto& ship_class : universe.ship_classes) {
+        const auto totals = spacetrains::domain::totals_from_parts(ship_class);
+        require_near(totals.dry_mass_kg, ship_class.dry_mass_kg, 1.0, "design dry mass from parts");
+        require_near(totals.ship_value_cr, ship_class.ship_value_cr, 50.5, "design value from parts");
+        require_near(totals.max_delta_v_mps, ship_class.max_delta_v_mps, 1.0, "design delta-v from parts");
+        require_near(totals.cruise_accel_mps2, ship_class.cruise_accel_mps2, 0.0006, "design acceleration from parts");
+        require_near(totals.specific_engine_power_w_per_kg, ship_class.specific_engine_power_w_per_kg, 0.6,
+            "design alpha from parts");
+        require_near(totals.crew_capacity, ship_class.crew_size, 1e-9, "design berths from parts");
+        require_near(totals.cargo_capacity_units, ship_class.cargo_capacity_units, 1e-6, "design hold from parts");
+        // No added parts: the design is the class.
+        const auto same = spacetrains::domain::derive_design(ship_class, {}, ship_class.id);
+        require(same.dry_mass_kg == ship_class.dry_mass_kg && same.max_delta_v_mps == ship_class.max_delta_v_mps
+                && same.specific_engine_power_w_per_kg == ship_class.specific_engine_power_w_per_kg,
+            "an unfitted design should equal its class exactly");
+        // An added part: the derivation matches the parts recomputed from scratch.
+        spacetrains::domain::ShipComponentDefinition extra;
+        extra.id = "test_module";
+        extra.kind = "module";
+        extra.mass_kg = 5000.0;
+        extra.price_cr = 1000.0;
+        const auto fitted = spacetrains::domain::derive_design(ship_class, {extra}, ship_class.id + "+test_module");
+        const auto fitted_totals = spacetrains::domain::totals_from_parts(fitted);
+        require_near(fitted.dry_mass_kg, ship_class.dry_mass_kg + 5000.0, 1e-6, "fitted dry mass");
+        require_near(fitted.ship_value_cr, ship_class.ship_value_cr + 1000.0, 1e-6, "fitted value");
+        require_near(fitted.max_delta_v_mps, fitted_totals.max_delta_v_mps, 1.5, "fitted delta-v");
+        require_near(fitted.specific_engine_power_w_per_kg, fitted_totals.specific_engine_power_w_per_kg, 0.6,
+            "fitted alpha");
+    }
+    require(spacetrains::domain::design_id("x", {"b", "a"}) == "x+a+b", "design ids sort their modules");
     {
         // The loader rejects parts that do not add up to their class.
         const auto broken = std::filesystem::temp_directory_path() / "spacetrains_components_test";
