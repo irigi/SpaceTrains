@@ -174,12 +174,14 @@ Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in 
   Habitat, hold, structure) with mass, price, power, heat, temperature, volume and area in
   `ship_components.csv`; they add up exactly to the class, so the simulation is unchanged. Inspector "Ship
   systems" section, `<snapshot>.designs` bridge file, `Simulation::ship_design()` seam.
-- **Tier 2, in progress (branch `feature/ship_structures_tier2`, plan `docs/plans/ship_structures_tier2.md`,
-  user's choices of 2026-10-21):** designs derived in C++, a module catalogue fitted as refits, crew radiation dose
-  (leg limit + hazard pay, storm shelter), habitability and hydroponics, cryo bay, liquid-hydrogen boil-off and a
-  cryocooler, Set B radiators, part condition and damage felt through physics, repairs that consume the yard's
-  machinery and electronics. Each effect is a switch and is benchmarked over 1460 days; passengers get their own
-  plan afterwards.
+- **Tier 2, built 2026-10-21, awaiting the user's review** (branch `feature/ship_structures_tier2`, plan
+  `docs/plans/ship_structures_tier2.md`, decisions to review in `docs/plans/tier2_log.md`): designs derived in
+  C++, modules fitted as refits (storm shelter, cold hold, 90 K tank shield, 20 K cryocooler), crew radiation
+  (leg limit at the 1 Sv career limit, hazard pay 0.43 cr/mSv), hydrogen boil-off in flight, drive life and
+  meteoroid damage with overhauls that buy reactor fuel, machinery and electronics, and the inspector/schematic
+  for all of it. Hydroponics, habitability premiums and Set B radiators were assessed and not built (reasons in
+  the log). All switches on: 1460 days, unmet 0.9 ± 0.3% (baseline 0.6), price 1.6× the reference (1.6),
+  101/141 profitable, drift 0. Next: passengers (own plan; spin gravity and common rooms belong there).
 - **Visuals, done 2026-10-11:** a to-scale ship schematic in the inspector (false-colour temperatures, live
   tank, hold, crew and plume, mass bar, hover) and map hints (burn-length glow sized by jet power, radiator
   wings in false colour). A shipyard panel and 3D close-ups are archived (`docs/archive/`), not planned.

@@ -190,6 +190,24 @@ Not modelled: crew dose histories across legs (each leg signs on a fresh crew), 
 against cosmic rays (about 20 t of water per 10 g/cm² on a Deep Space Habitat: never worth it), and
 radiation-hardened ship parts.
 
+### Boil-off and wear (added 2026-10-21, ship structures tier 2, steps F and H)
+
+| Quantity | Value | Status, source |
+|---|---|---|
+| MLI heat leak into LH2 tanks | 0.2 W/m² at 1 AU, × r⁻¹ | estimate (high-performance MLI in vacuum: 0.1-0.4 W/m²) |
+| Tank area | 1.3 × a sphere of the tank volume | game geometry (several cylinders) |
+| LH2 latent heat | 446 kJ/kg | sourced (handbook value) |
+| 90 K broad-area-cooled shield | intercepts 60% of the leak | sourced bound: up to 70%, theoretical (NASA Glenn, Christie et al. 2011, NTRS 20110016177) |
+| 20 K cryocooler | ~100 W input per W lifted, ~5 kg per W lifted | estimate (Carnot COP 20/280; ~14% of Carnot) |
+| 90 K cryocooler | ~12 W per W lifted, ~1 kg per W lifted | estimate (Carnot COP 90/210; ~20% of Carnot) |
+| Cooler power | engine's bimodal Brayton loop, ~10 kg/kWe | estimate (NASA bimodal NTR studies, Borowski: ~25 kWe per stage) |
+| Nuclear-thermal core life | 10 h of full-power burn | sourced: NERVA flight-engine goal, 10 h over 60 restarts |
+| Plasma drive life | 50,000 h of thrust | estimate (NASA NEXT ion thruster class) |
+| Meteoroids holing a heat pipe | ≥ 10⁻⁵ g: 0.146 per m² per year at 1 AU, × r^−1.3 | sourced flux model: Grün et al. 1985 (Icarus 62); 0.2 mm grain through a 1 mm wall at ~20 km/s (estimate); r-scaling estimate |
+| Radiator pipe share, segment size | 30% of the panel, 0.2 m² | estimates |
+| Overhaul spares | core fuel elements 40% of the engine mass (reactor fuel); plasma drive 30% (machinery, electronics); radiators 50% of the lost panels (machinery) | estimates |
+| Cold hold | 255 K, spoilage × 0.1; MLI + 2 kg/m² liner, ~0.5 W/m² leak | estimates |
+
 ### Open questions for the user
 
 1. Variable-Isp hardware: Set A (recommended) or Set B?
