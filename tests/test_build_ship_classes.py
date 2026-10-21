@@ -59,10 +59,24 @@ for b in variants:
         assert cabins[0]["crew_capacity"] == b.spec.berths
         assert abs(cabins[0]["mass_kg"] - b.spec.berths * per_berth_kg) <= 1.0, b.id
 for b in nominal:
-    cabin_modules = [m for m in builder.modules(b) if m["slot"] == "cabin"]
-    assert len(cabin_modules) == builder.hull_slots(b.spec)["cabin"], b.id
-    for m in cabin_modules:
-        berths = builder.cabin_module_berths(b.spec)
-        assert m["effects"] == f"berths={berths}" and m["crew_capacity"] == berths
-        assert abs(m["mass_kg"] - berths * per_berth_kg * (1.0 + builder.STRUCTURE_FRACTION)) <= 1.0
+    cabin_modules = {m["module_id"]: m for m in builder.modules(b) if m["slot"] == "cabin"}
+    assert len(cabin_modules) == 2 * builder.hull_slots(b.spec)["cabin"], b.id
+    if not cabin_modules:
+        continue
+    berths = builder.cabin_module_berths(b.spec)
+    plain, shielded = cabin_modules["cabin"], cabin_modules["shielded_cabin"]
+    assert plain["effects"] == f"berths={berths}" and plain["crew_capacity"] == berths
+    assert abs(plain["mass_kg"] - berths * per_berth_kg * (1.0 + builder.STRUCTURE_FRACTION)) <= 1.0
+    # The shielded cabin adds a 20 g/cm2 water wall (200 kg/m2) over the cabin's wall area.
+    assert shielded["effects"] == f"berths={berths};cabin_shield_g_cm2=20" and shielded["crew_capacity"] == berths
+    water = 200.0 * builder.cabin_area_m2(berths)
+    assert abs(shielded["capacity_kg"] - water) <= 1.0
+    assert shielded["mass_kg"] > plain["mass_kg"] + water
+# Liners: a water wall round their cabins; plasma liners may wrap the cabins in their water tanks.
+for b in nominal:
+    if not b.spec.berths:
+        continue
+    ids = {m["module_id"] for m in builder.modules(b)}
+    assert "cabin_water_wall" in ids, b.id
+    assert ("tank_wrap" in ids) == (b.spec.drive == "plasma"), b.id
 print("ship class builder: ok")

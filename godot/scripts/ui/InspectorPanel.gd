@@ -140,6 +140,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         var trend := "well supplied" if supply >= 0.95 else ("short, people leaving" if supply < 0.7 else "steady")
         _add_label("Population %+.0f%% since founding · supply %.0f%% · %s" % [100.0 * change, 100.0 * supply, trend],
             UiTheme.GOOD if supply >= 0.95 else (UiTheme.WARN if supply < 0.7 else UiTheme.TEXT_DIM), 12)
+    _add_station_passenger_lines(detail, context)
     # Events running here (step 28).
     for event in detail.get("events", []):
         _add_label("⚑ %s (%.0f more days)" % [String(event.get("headline", "")), float(event.get("days_left", 0.0))],
@@ -505,6 +506,7 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
     var cargo_capacity := float(detail.get("cargo_capacity_units", 0.0))
     if cargo_capacity > 0.0:
         _add_gauge("Cargo", cargo, cargo_capacity, "%.0f / %.0f u" % [cargo, cargo_capacity], UiTheme.GOOD)
+    _add_passenger_lines(detail, context)
 
     var provision_days := float(detail.get("provision_days", 0.0))
     _add_gauge("Provisions", provision_days, maxf(730.0, provision_days), "%.0f days" % provision_days,
@@ -631,6 +633,53 @@ func _add_tier2_lines(detail: Dictionary, design: Dictionary) -> void:
         if String(detail.get("propulsion_type", design.get("propulsion_type", ""))) == "variable_isp":
             text += " · radiators %.1f%%" % (100.0 * radiators)
         _add_label(text, UiTheme.WARN if wear > 0.7 else UiTheme.TEXT_DIM, 11)
+
+# Passengers (sent only when switched on): berths, who is aboard and where to, cabin shielding.
+func _add_passenger_lines(detail: Dictionary, context: Dictionary) -> void:
+    var berths := float(detail.get("berths", 0.0))
+    if berths <= 0.0:
+        return
+    var aboard := float(detail.get("passengers_aboard", 0.0))
+    _add_gauge("Passengers", aboard, berths, "%.0f / %.0f berths" % [aboard, berths], UiTheme.ACCENT)
+    var lots: Dictionary = {}
+    for lot in detail.get("passenger_lots", []):
+        var key := "%s to %s" % [String(lot.get("kind", "")), _resolve_name(context, String(lot.get("to", "")))]
+        var entry: Array = lots.get(key, [0.0, 0.0])
+        entry[0] += float(lot.get("count", 0.0))
+        entry[1] += float(lot.get("count", 0.0)) * float(lot.get("fare_cr", 0.0))
+        lots[key] = entry
+    for key in lots.keys():
+        var entry: Array = lots[key]
+        _add_label("  %.0f %s · %.0f cr each" % [entry[0], key, entry[1] / maxf(entry[0], 1.0)], UiTheme.TEXT_DIM, 11)
+    var shield := float(detail.get("cabin_shield_g_cm2", 0.0))
+    var text := "Fares earned %s" % UiTheme.format_credits(float(detail.get("fares_cr", 0.0)))
+    if shield > 0.0:
+        text += " · cabins shielded by %.0f g/cm² of water" % shield
+    _add_label(text, UiTheme.TEXT_DIM, 11)
+
+# Passengers waiting at a station, visitors staying, and passages it pays for (rotation,
+# sponsored settlers) and recovers through its prices.
+func _add_station_passenger_lines(detail: Dictionary, context: Dictionary) -> void:
+    if not detail.has("passengers_waiting"):
+        return
+    var waiting: Array = detail.get("passengers_waiting", [])
+    var total := 0.0
+    for group in waiting:
+        total += float(group.get("count", 0.0))
+    var visitors := float(detail.get("visitors_here", 0.0))
+    if total >= 1.0 or visitors >= 1.0:
+        _add_label("Passengers waiting %.0f · visitors staying %.0f" % [total, visitors], UiTheme.ACCENT, 12)
+    for group in waiting:
+        _add_label("  %.0f %s for %s" % [float(group.get("count", 0.0)), String(group.get("kind", "")),
+            _resolve_name(context, String(group.get("to", "")))], UiTheme.TEXT_DIM, 11)
+    var tour := float(detail.get("rotation_tour_days", 0.0))
+    var paid := float(detail.get("passages_paid", 0.0))
+    if tour > 0.0 or paid > 0.0:
+        var line := "Passages paid %s, %s still to recover through prices" % [UiTheme.format_credits(paid),
+            UiTheme.format_credits(float(detail.get("passage_debt_cr", 0.0)))]
+        if tour > 0.0:
+            line = "Staff tours %.0f days · " % tour + line
+        _add_label(line, UiTheme.TEXT_DIM, 11)
 
 func _hours(h: float) -> String:
     return "%.0f" % h if h >= 100.0 else "%.1f" % h

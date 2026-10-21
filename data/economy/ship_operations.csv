@@ -6,3 +6,4 @@ life_support.water,0.001
 life_support.oxygen,0.001
 refit_days,20
 refit_cost_fraction,0.3
+planner_fuel_check,0

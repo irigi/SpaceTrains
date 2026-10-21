@@ -17,3 +17,9 @@ demand_bands,4
 band_ratio,2
 visit_days,90
 earth_gateways,earth_orbit|earth_l1
+tank_wrap_mean_fill,0.5
+settlers_sponsored,1
+settler_payback_half_years,5
+settler_payback_exponent,2
+passage_recovery_days,365
+passage_max_markup,1

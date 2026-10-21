@@ -43,3 +43,7 @@ ntr_shuttle_tank050,Passenger Shuttle (50% tanks),nuclear_thermal,199551,125000,
 ntr_shuttle,Passenger Shuttle,nuclear_thermal,224301,250000,20,10281,0.3,0,268600,3,ntr_shuttle,40
 ntr_shuttle_tank150,Passenger Shuttle (150% tanks),nuclear_thermal,249051,375000,20,12611,0.228,0,279600,3,ntr_shuttle,40
 ntr_shuttle_tank200,Passenger Shuttle (200% tanks),nuclear_thermal,273801,500000,20,14264,0.184,0,290700,3,ntr_shuttle,40
+large_plasma_liner_tank050,Large Plasma Liner (50% tanks),variable_isp,877250,150000,50,0,0,570,1222400,8,large_plasma_liner,200
+large_plasma_liner,Large Plasma Liner,variable_isp,885500,300000,50,0,0,565,1224300,8,large_plasma_liner,200
+large_plasma_liner_tank150,Large Plasma Liner (150% tanks),variable_isp,893750,450000,50,0,0,559,1226200,8,large_plasma_liner,200
+large_plasma_liner_tank200,Large Plasma Liner (200% tanks),variable_isp,902000,600000,50,0,0,554,1228100,8,large_plasma_liner,200

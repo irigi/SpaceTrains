@@ -49,6 +49,10 @@ private:
     std::unordered_map<std::string, const domain::CelestialBodyDefinition*> bodies_by_id_;
     mutable std::mutex refinements_mutex_;
     mutable std::unordered_map<std::string, std::shared_ptr<const Refinement>> refinements_;
+    // A ship's fuel fit of a refinement, by its key, departure option, rho, kappa and perihelion
+    // limit: a pure function of them. The chosen mission is planned again with its path from the
+    // same inputs and finds its fit here (guarded by refinements_mutex_).
+    mutable std::unordered_map<std::string, variable_isp::ShootingResult> fits_;
 };
 
 }  // namespace spacetrains::trajectory

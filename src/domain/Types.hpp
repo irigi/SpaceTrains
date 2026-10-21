@@ -146,6 +146,9 @@ struct ShipOperationsDefinition {
     // through the capital charge on the new ship value).
     double refit_days {20.0};
     double refit_cost_fraction {0.3};
+    // 1: a VariableISP plan scored without its path is checked for fuel at its end state, as the
+    // replan with the path checks it (0: the marker bug before 2026-10-21; see the planner).
+    double planner_fuel_check {0.0};
     // Life support per crew-day, in commodity units, bought as real goods.
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
@@ -357,6 +360,22 @@ struct PassengerDefinition {
     double demand_bands {4.0};
     double band_ratio {2.0};                    // each band's maximum cost x this the next one's
     double visit_days {90.0};
+    // Cabins inside the propellant tanks: the tanks' mean fill over a leg, as a share of their
+    // capacity, when a leg is planned (estimate: full at departure, near empty on arrival).
+    double tank_wrap_mean_fill {0.5};
+    // Settlers come for work: the station that wants them pays their passage (1), and fewer come
+    // the longer the passage takes to pay back. Of the settlers a thriving station would take, the
+    // share whose job repays a passage costing T years of the wage is 1 / (1 + (T / T50)^k):
+    // T50 = 5 years, the middle of the 4-7 year indentures that repaid a colonial passage of
+    // about a year's wages (estimate from that history); k = 2 (estimate).
+    double settlers_sponsored {1.0};
+    double settler_payback_half_years {5.0};
+    double settler_payback_exponent {2.0};
+    // A station recovers the passages it pays (settlers, rotation) from its residents through
+    // its prices: the outstanding amount at 1/recovery_days per day, at most max_markup of what
+    // they spend on goods (0 days: not recovered).
+    double passage_recovery_days {365.0};
+    double passage_max_markup {1.0};
     std::vector<std::string> earth_gateways {"earth_orbit", "earth_l1"};
     // data/economy/reference_fares.csv (spacetrains_headless --write-reference-fares): the
     // cheapest cabin carrier's fare per berth and its days, origin -> destination.
@@ -716,6 +735,8 @@ struct StationLedger {
     double dividends {0.0};             // paid in by the ships it owns
     double subsidies {0.0};             // from the faction treasury (core-crew top-up and money-supply controller)
     double taxes {0.0};                 // to the faction treasury (band ceiling and money-supply controller)
+    double passages_paid {0.0};         // passengers' fares it paid (rotation, sponsored settlers)
+    double passages_recovered {0.0};    // recovered from its residents through its prices
 };
 
 // The treasuries' trade in ships with the outside economy (fleet investment), all amounts
@@ -815,6 +836,8 @@ struct StationState {
     std::vector<ActiveEvent> events {};
     // People waiting here for a ship (passengers), in the order their groups formed.
     std::vector<PassengerGroup> waiting {};
+    // Passages paid and not yet recovered from the residents.
+    double passage_debt_cr {0.0};
     // Visitors staying here until they go home (since_s: when they leave for the ship).
     std::vector<PassengerGroup> visiting {};
 };

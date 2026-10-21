@@ -207,3 +207,151 @@ Start 0 at day 1460, all passengers:
    - Titan legs are over the per-leg dose limit; Mercury has an atlas gap.
 4. **Estimates:** rotation share 3%, hardship η 0.2, visit rate 0.05 per person-year, Earth weight 100,000.
 5. **Not built yet:** the UI (berths gauge, station queues, cabins in the schematic); TSan run.
+
+## Follow-up (2026-10-21): the user's decisions on the open points
+
+The user's decisions:
+- long rotations are fine;
+- Titan needs more shielding; Mercury waits for the atlas update;
+- no objection to the estimates;
+- the fleet cap stays unless the game reliably holds 5 days/s;
+- big liners and heavy shielded cabins;
+- stations pay for settlers and recover it through their prices;
+- settler demand falls with the ticket's payback time.
+
+### Built
+- **Large Plasma Liner** (`large_plasma_liner`): 200 berths, crew 8, 300 t water, 500 MW jet, ≈1.22M cr (α ≈ 565 W/kg).
+  - linopt `fare --passengers 200`: $147k a seat, 746 MW, 1,258 t, 135 days.
+  - Its defaults are idealised (25-year life, no interest, full both ways, no mark-up, a 20 kW/kg engine), which
+    explains the ≈13× gap to the game's fare.
+  - The large liner is only about 9% cheaper per berth than the 40-berth liner: our cost model scales the shared core
+    per berth, so there is no economy of scale.
+- **Shielded cabins.** Cabin shield (g/cm²) = cabin_shield_g_cm2 + propellant_kg ÷ tank_wrap_m2 ÷ 10.
+  - Cosmic rays are multiplied by exp(−shield ÷ 46 g/cm²) (water's attenuation length, the same as the storm
+    shelter).
+  - Particle events see the shelter plus the cabin shield.
+  - The crew lives behind the same shield.
+  - The modules:
+    - `shielded_cabin`, one per hull with a cabin slot: its berths plus a 20 g/cm² water wall;
+    - `cabin_water_wall` on liners: a 20 g/cm² wall over the cabin area (a cylinder whose height equals its
+      diameter);
+    - `tank_wrap` on plasma liners: the cabin sits inside the propellant tank, so the water it carries is the shield.
+      Planning assumes the tank is half full (`tank_wrap_mean_fill` 0.5); in flight the water actually aboard counts.
+      This is the user's question "do cabins surrounded by fuel tanks make sense?": yes, water is the best shield per
+      kg, and the shield shrinks as the tank empties.
+  - Liners have 3 habitat slots, so both shields can be fitted together.
+- **Reference fares.** The carriers are now each hull with each cabin module, and every liner tank variant bare, with
+  each shield and with both. 70 of 72 pairs have a fare:
+
+  | Trip | Before | Now |
+  |---|---|---|
+  | Earth orbit → Mars | 1,325 cr | 1,096 cr |
+  | Earth orbit → Ganymede | 2,500 cr | 1,985 cr |
+  | Earth → Titan | none | 3,307 cr, 658 days (large liner, 200% tanks, tank jacket) |
+
+  Still missing: Mercury → Mars and Mercury → Titan (the atlas gap).
+- **Stations pay for settlers** (`settlers_sponsored` 1).
+  - The destination station pays the fare and is the settlers' employer. The offer is limited to its credits above
+    its floor.
+  - The debt (`passage_debt_cr`) is recovered at 1/`passage_recovery_days` (365) per day from outside money. The
+    recovery is capped at `passage_max_markup` (1.0) × what the residents spend on goods, so prices rise to cover it.
+  - The ledger gets `passages_paid` and `passages_recovered`; the identity paid = debt + recovered is tested.
+- **Settler demand falls with payback.** T = reference generalized cost ÷ (365 × wage), in years.
+  - share = 1 / (1 + (T / `settler_payback_half_years`)^`settler_payback_exponent`), with 5 years and exponent 2.
+  - Today's settler rate is the maximum, reached when the ticket pays back quickly.
+- **Investment** now values passenger berths with the same demand bands and clearing as boarding
+  (`expected_passenger_revenue`). The old estimate (the elasticity −1 closed form) overrated the large liners.
+
+### Results
+- Passengers off: the 365-day audit is byte-identical to the baseline.
+- Start 0 at day 1460: the settler fare is 866 cr (was 3,862). Stations paid 2.2M cr of passages and recovered 1.35M
+  (+4.7% on residents' goods). Unmet demand 0.9%; 9 large liners bought.
+- Benchmark (4 × 1460 days, passengers on):
+
+  | Run | Unmet | Last fifth | Price ÷ ref | Profitable | Money | Run time |
+  |---|---|---|---|---|---|---|
+  | earlier, all passengers | 1.1% | 2.4% | 1.7× | 112.5 / 140.5 | −6% | 199 s |
+  | follow-up | 1.0 ± 0.4% | 2.6 ± 1.0% | 1.8× | 105 / 144 | −12 ± 10% | 225 s |
+
+- **Fleet cap and speed** (single run, start 0, 1460 days, all threads):
+
+  | Run | ms per day | Slowest 20-day stretch |
+  |---|---|---|
+  | passengers off, cap 130 | 57.8 | 5.9 days/s |
+  | passengers on, cap 130 | 99.7 | 3.3 days/s |
+  | passengers on, cap 160 | 112.4 | 2.4 days/s |
+  | passengers on, cap 190 | 104.8 | 3.3 days/s |
+
+  Passengers already break 5 days/s at today's cap, so the cap stays at 130 until the passenger code is made faster.
+
+### Speed (2026-10-21, follow-up)
+
+**Where the time went** (gdb stack samples of the main thread, plus the `--profile` phase table, start 0):
+- **Fleet investment:** 172 samples with passengers against 109 without. Most of it was valuing candidates,
+  not planning:
+  - every hull was a candidate three times (bare, cabin, shielded cabin);
+  - the passenger bound took the top band's fare (4× the reference cost) for every berth and was added to the
+    cargo bound, so cabin designs ranked high;
+  - every tick of a review re-valued all the candidates probed so far. Valuations were 266k against 25k
+    without passengers.
+- **Ship reviews:** ships flew about twice as many missions (6,000 against 3,300), mostly plasma bulk tankers
+  with cabins on short hops. That is work, not waste.
+- **Departure replans:** during the slowest stretch, the replan of the chosen mission with its path took 40% of
+  the main thread (the planner fuel-check bug, below).
+
+**Changes that keep the game identical** (passengers off: the 365-day audit is byte-identical; passengers on:
+a 730-day run's events are identical):
+- each station's production rates are kept and rebuilt when its population is set, and read by reference
+  (`EconomySystem::get_station_net_rates`, 9% of all time);
+- investment looks up idle hulls once per review, not per candidate (the design lookup builds a string key);
+- passenger flows and berth revenue per station pair are computed once per review;
+- valuation labels are formatted only for the leading run;
+- the planner caches each ship's fuel fit (a pure function of its key; save/load stays exact).
+
+**Changes to investment with passengers on:**
+- a hull fitted with a cabin module is a candidate for its berths only: passenger bound, passenger runs, a
+  probe without cargo plans;
+- the passenger bound fills the berths by band (as boarding does) for a ship twice as fast as the reference
+  carrier, and is the larger of the cargo and passenger bounds.
+
+Result: valuations 266k → 115k.
+
+| Run (start 0, 1,460 days, cap 130) | ms per day | Slowest 20-day stretch |
+|---|---|---|
+| passengers off | 57.8 | 3.4 s (5.9 days/s) |
+| passengers on, before | 99.7 | 6.1 s (3.3 days/s) |
+| passengers on, now | 78.1 | 9.1 s (2.2 days/s), from day 1289 |
+| passengers on, now, fuel check on | 74.3 | 5.2 s (3.8 days/s), from day 895 |
+
+In today's run, failed departure replans fill the stretch from day 1289. With the fuel check on, that stretch
+is gone and fleet investment's probes set the slowest one.
+
+TSan: 800 days with passengers on, no warnings. Save at day 60, load and run 60 more: the save JSON is
+identical to a straight 120-day run.
+
+**Benchmark** (4 starts × 1,460 days):
+
+| Run | Unmet | Last fifth | Price ÷ ref | Profitable | Ships | Money | Run s |
+|---|---|---|---|---|---|---|---|
+| passengers off | 0.5 ± 0.2 | 1.0 ± 0.3 | 1.5 | 101 / 138 | 138 | −20 ± 10 | 161 |
+| passengers on, before | 1.0 ± 0.4 | 2.6 ± 1.0 | 1.8 | 105 / 144 | 144 | −12 ± 10 | 225 |
+| passengers on, now | 1.0 ± 0.4 | 2.0 ± 1.1 | 1.8 | 109 / 142 | 142 | −16 ± 20 | 195 |
+| passengers on, fuel check on | 1.1 ± 0.7 | 1.6 ± 1.2 | 1.8 | 113 / 141 | 141 | −12 ± 26 | 232 |
+| passengers off, fuel check on | 1.2 ± 1.0 | 2.2 ± 1.0 | 1.5 | 105 / 138 | 138 | −22 ± 9 | 204 |
+
+**Planner fuel-check bug** (found here, not caused by passengers):
+- A VariableISP plan scored without its path checked its end mass on the closest-approach marker, which
+  carries the start mass. A window short of fuel thus scored as feasible.
+- The replan with the path then rejected it, and the ship chose the same trip the next day. Over 1,460 days:
+  - passengers on: 2,821 of 3,300 replans failed;
+  - passengers off: 1,876 of 2,374 failed;
+  - mostly Earth or Venus → Mercury and back; one freighter tried Earth orbit → Mercury 265 times.
+- `ship_operations.csv` `planner_fuel_check,1` checks the shooting's end state, and then no replan fails.
+  - It costs speed: every candidate plan searches on past its windows that are short of fuel.
+  - With passengers off the economy got worse: unmet 0.5 → 1.2%, last fifth 1.0 → 2.2% (3 of 4 starts).
+  - In the start-270 run the extra shortage is Mars electronics, Titan machinery, Earth L1 water and LEO
+    food, not Mercury: a cascade rather than one starved route.
+- **Decision:** the switch stays 0 (the old behaviour). It is open for the user. A test
+  (`fuel check without a path`) shows the old check disagreeing with the path and the new one agreeing.
+
+**The fleet cap stays at 130:** passengers on does not hold 5 days/s.

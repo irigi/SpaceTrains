@@ -529,6 +529,12 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 {"demand_bands", &passengers.demand_bands},
                 {"band_ratio", &passengers.band_ratio},
                 {"visit_days", &passengers.visit_days},
+                {"tank_wrap_mean_fill", &passengers.tank_wrap_mean_fill},
+                {"settlers_sponsored", &passengers.settlers_sponsored},
+                {"settler_payback_half_years", &passengers.settler_payback_half_years},
+                {"settler_payback_exponent", &passengers.settler_payback_exponent},
+                {"passage_recovery_days", &passengers.passage_recovery_days},
+                {"passage_max_markup", &passengers.passage_max_markup},
             };
             for (std::size_t i = 1; i < rows.size(); ++i) {
                 const auto& row = rows[i];
@@ -782,6 +788,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 operations.refit_days = value;
             } else if (row[0] == "refit_cost_fraction") {
                 operations.refit_cost_fraction = value;
+            } else if (row[0] == "planner_fuel_check") {
+                operations.planner_fuel_check = value;
             } else if (row[0].starts_with(life_support_prefix)) {
                 operations.life_support_units_per_crew_day[row[0].substr(life_support_prefix.size())] = value;
             } else {

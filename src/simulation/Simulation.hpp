@@ -178,6 +178,29 @@ public:
     // The fare a carrier can expect per passenger on that pair on a leg of `days`, filling
     // `berths` from `demand_per_trip` people: the reference fare adjusted for its days, or the
     // fare that clears the berths when demand exceeds them.
+    // Who pays a passenger's fare: the work station (rotation, sponsored settlers) or the traveller.
+    [[nodiscard]] bool employer_pays(domain::PassengerKind kind) const;
+    // Share of a station's would-be settlers whose job repays a passage of this many years' wages.
+    [[nodiscard]] double settler_share(double payback_years) const;
+    // The reference trip's cost to a settler in years of the resident wage.
+    [[nodiscard]] double payback_years(const std::string& origin_id, const std::string& destination_id) const;
+    // Travellers by willingness band (what post_travellers would post over window_days of the
+    // steady flows, plus those waiting spread over a route commitment), and the fares that
+    // berths filled from them would take.
+    struct PassengerBand {
+        int band {0};
+        double people {0.0};
+        double max_cost_cr {0.0};
+        double value_of_time_cr_per_day {0.0};
+    };
+    struct PassengerRevenue {
+        double people {0.0};
+        double fares_cr {0.0};
+    };
+    [[nodiscard]] std::vector<PassengerBand> expected_travellers(const std::string& origin_id,
+        const std::string& destination_id, double window_days) const;
+    [[nodiscard]] PassengerRevenue expected_passenger_revenue(const std::string& origin_id,
+        const std::string& destination_id, double days, double window_days, double berths, double open_share) const;
     [[nodiscard]] double expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
         double demand_per_trip, double berths) const;
     // Rotation (step 4): each off-Earth station's tour, which minimises its cost per day on site,
@@ -362,7 +385,7 @@ private:
     // Open economy: residents pay their station for the goods the economy step used up, at what
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.
-    void settle_local_economy(const std::vector<domain::Inventory>& stocks_before);
+    void settle_local_economy(const std::vector<domain::Inventory>& stocks_before, double dt_s);
     // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
     void step_population(double dt_s);
@@ -469,6 +492,8 @@ private:
     // Adds `count` people who want to travel at reference cost, spread over the demand bands
     // (fare elasticity): more come if trips are cheaper, fewer if dearer. `fixed`: exactly
     // `count` people travel (a relief, a worker going home), their budgets spread the same way.
+    [[nodiscard]] std::vector<PassengerBand> passenger_bands(domain::PassengerKind kind, const std::string& origin_id,
+        const std::string& destination_id, double count, bool fixed) const;
     void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
         const std::string& work_station_id, double count, bool fixed = false);
     void compute_rotation_tours();
@@ -479,6 +504,8 @@ private:
     // People already waiting for, or flying to, a station of this kind.
     [[nodiscard]] double travellers_pending(const std::string& station_id, domain::PassengerKind kind) const;
     // Passengers' daily step: demand (migration instead of formula growth), waiting groups give up.
+    [[nodiscard]] std::string ship_passengers_json(const domain::ShipState& ship, const domain::ShipClassDefinition& design) const;
+    [[nodiscard]] std::string station_passengers_json(const domain::StationState& station) const;
     void step_passengers(double dt_s);
     // Who boards a ship leaving `origin` for `destination` on a leg of `days`: groups in order of
     // what they pay over their marginal cost (provisions and the propellant their mass burns),
@@ -553,6 +580,8 @@ private:
     [[nodiscard]] double station_r_au(const domain::StationDefinition& station, double time_s) const;
     [[nodiscard]] double docked_dose_msv_per_day(const std::string& station_id, double time_s) const;
     // Expected dose rate of a crew flying from -> to (departing at time_s).
+    // Water round the cabins (passengers with radiation; 0 otherwise), at this propellant aboard.
+    [[nodiscard]] double cabin_shield_g_cm2(const domain::ShipClassDefinition& design, double propellant_kg) const;
     [[nodiscard]] double leg_dose_msv_per_day(const domain::ShipClassDefinition& design,
         const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
     // Hazard pay per day of that leg (0 with radiation off).

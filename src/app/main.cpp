@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -177,7 +178,7 @@ void print_economy_summary(
     const spacetrains::economy::EconomySystem& economy) {
     std::cout << "\n=== Station Economy (net rates, units/day) ===\n";
     for (const auto& station : universe.stations) {
-        const auto rates = economy.get_station_net_rates(station);
+        const auto& rates = economy.get_station_net_rates(station);
         std::cout << std::format("  {:30s}  profile={}\n", station.name, station.economy_profile_id);
         for (const auto& [commodity, rate] : rates) {
             if (std::abs(rate) > 0.001) {
@@ -254,6 +255,51 @@ void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
             boarded > 0.0 ? audit.wait_days[k] / boarded : 0.0, boarded > 0.0 ? audit.fares_cr[k] / boarded : 0.0,
             audit.landed[k], audit.gave_up[k], waiting[k], aboard[k]);
     }
+    // Passages stations paid (rotation, sponsored settlers) and recovered through their prices.
+    double paid = 0.0;
+    double recovered = 0.0;
+    double owed = 0.0;
+    double household = 0.0;
+    for (const auto& station : snap.stations) {
+        paid += station.ledger.passages_paid;
+        recovered += station.ledger.passages_recovered;
+        owed += station.passage_debt_cr;
+        household += station.ledger.household_sales;
+    }
+    if (paid > 0.0) {
+        std::cout << std::format("    Passages paid by stations: {:.0f} cr, recovered {:.0f} cr through prices "
+                                 "(+{:.1f}% on residents' goods), {:.0f} cr still to recover\n",
+            paid, recovered, household > 0.0 ? 100.0 * recovered / household : 0.0, owed);
+    }
+    // Ships with berths, by hull and fit.
+    std::map<std::string, int> carriers;
+    for (const auto& ship : snap.ships) {
+        const spacetrains::domain::ShipClassDefinition* ship_class = nullptr;
+        for (const auto& candidate : universe.ship_classes) {
+            if (candidate.id == ship.class_id) {
+                ship_class = &candidate;
+            }
+        }
+        const bool liner = ship_class != nullptr && ship_class->berths > 0.0;
+        bool cabin = false;
+        std::string fit;
+        for (const auto& module : ship.fit) {
+            cabin = cabin || module == "cabin" || module == "shielded_cabin";
+            if (module == "cabin" || module == "shielded_cabin" || module == "cabin_water_wall" || module == "tank_wrap") {
+                fit += "+" + module;
+            }
+        }
+        if (liner || cabin) {
+            ++carriers[(ship_class != nullptr ? ship_class->hull_id : ship.class_id) + fit];
+        }
+    }
+    if (!carriers.empty()) {
+        std::string line;
+        for (const auto& [name, count] : carriers) {
+            line += std::format("{}{} {}", line.empty() ? "" : ", ", name, count);
+        }
+        std::cout << "    Passenger carriers: " << line << "\n";
+    }
 }
 
 void print_economy_audit(
@@ -285,7 +331,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_station_net_rates(sd);
+            const auto& rates = economy.get_station_net_rates(sd);
             for (const auto& [c, amount] : ss.inventory) {
                 sys_stock[c] += amount;
             }
@@ -317,7 +363,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_station_net_rates(sd);
+            const auto& rates = economy.get_station_net_rates(sd);
             for (const auto& [c, rate] : rates) {
                 if (rate >= 0.0 || economy.is_export_market(sd, c)) continue;
                 const double stock = ss.inventory.count(c) ? ss.inventory.at(c) : 0.0;
@@ -1028,7 +1074,7 @@ void print_capacity_balance(const spacetrains::domain::UniverseDefinition& unive
     std::cout << "\n  [DEMAND AUDIT] Transport capacity for steady supply (nearest producer, Hohmann-like times):\n";
     std::cout << std::format("    {:<26}{:<14}{:>8}{:>26}{:>9}{:>11}\n", "consumer", "good", "u/day", "nearest producer", "days", "hold u");
     for (const auto& consumer : universe.stations) {
-        const auto rates = economy.get_station_net_rates(consumer);
+        const auto& rates = economy.get_station_net_rates(consumer);
         for (const auto& commodity : universe.commodities) {
             const auto it = rates.find(commodity.id);
             if (it == rates.end() || it->second >= 0.0) continue;
@@ -1036,7 +1082,7 @@ void print_capacity_balance(const spacetrains::domain::UniverseDefinition& unive
             const domain::StationDefinition* best = nullptr;
             double best_days = 1e18;
             for (const auto& producer : universe.stations) {
-                const auto prates = economy.get_station_net_rates(producer);
+                const auto& prates = economy.get_station_net_rates(producer);
                 const auto pit = prates.find(commodity.id);
                 if (pit == prates.end() || pit->second <= 0.0) continue;
                 const double days = one_way_days(producer, consumer);
@@ -1215,6 +1261,10 @@ int main(int argc, char** argv) {
     int total_events = 0;
     // Per-step wall time (profiling): the bridge shows a hitch whenever one step is slow.
     std::vector<double> step_wall_s;
+    // and the running totals of its main phases (SPACETRAINS_PROFILE_STEPS).
+    const std::array step_phases {spacetrains::profiling::Phase::FleetInvestment, spacetrains::profiling::Phase::ShipReview,
+        spacetrains::profiling::Phase::ChooseMission, spacetrains::profiling::Phase::ConsiderRefit};
+    std::array<std::vector<double>, 4> step_phase_s;
     const auto run_start = std::chrono::steady_clock::now();
     const int steps_per_day = std::max(1, static_cast<int>(std::lround(1.0 / step_days)));
 
@@ -1224,6 +1274,10 @@ int main(int argc, char** argv) {
             sim.step(1.0 / steps_per_day);  // advance 1 simulated day in steps_per_day steps
             if (profile) {
                 step_wall_s.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - step_start).count());
+                using spacetrains::profiling::Phase;
+                for (std::size_t p = 0; p < step_phases.size(); ++p) {
+                    step_phase_s[p].push_back(spacetrains::profiling::total_seconds(step_phases[p]));
+                }
             }
         }
 
@@ -1295,14 +1349,32 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 double sum = 0.0, worst = 0.0;
+                std::size_t worst_end = 0;
                 for (std::size_t i = 1; i < step_wall_s.size(); ++i) {
                     sum += step_wall_s[i] - (i > window ? step_wall_s[i - window] : 0.0);
-                    worst = i >= window ? std::max(worst, sum) : worst;
+                    if (i >= window && sum > worst) {
+                        worst = sum;
+                        worst_end = i;
+                    }
                 }
-                std::cout << std::format("slowest {}-day stretch: {:.2f} s ({:.1f} days/s)\n", days, worst, days / worst);
+                std::cout << std::format("slowest {}-day stretch: {:.2f} s ({:.1f} days/s), from day {:.0f}\n", days, worst,
+                    days / worst, static_cast<double>(worst_end + 1 - window) / steps_per_day);
             }
         }
         std::cout << spacetrains::profiling::report();
+        // Debug aid: SPACETRAINS_PROFILE_STEPS=<file> writes each step's wall time and the time of
+        // its fleet investment, ship reviews, mission choices and refit checks (ms), one step per line.
+        if (const char* steps_path = std::getenv("SPACETRAINS_PROFILE_STEPS"); steps_path != nullptr) {
+            std::ofstream steps_file(steps_path, std::ios::trunc);
+            steps_file << "day wall invest review choose refit\n";
+            for (std::size_t i = 0; i < step_wall_s.size(); ++i) {
+                steps_file << std::format("{:.2f} {:.2f}", static_cast<double>(i) / steps_per_day, 1000.0 * step_wall_s[i]);
+                for (const auto& totals : step_phase_s) {
+                    steps_file << std::format(" {:.2f}", 1000.0 * (totals[i] - (i > 0 ? totals[i - 1] : 0.0)));
+                }
+                steps_file << "\n";
+            }
+        }
     }
 
     if (!snapshot_json_path.empty()) {

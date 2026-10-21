@@ -139,6 +139,16 @@ USD_PER_KG_BERTH_SHARED = 1_500.0
 # habitat, and a crew member's heat load.
 BERTH_M3 = DSH_PRESSURIZED_M3 / DSH_CREW * (BERTH_KG + BERTH_SHARED_KG) / 8_000.0
 BERTH_HEAT_W = DSH_HEAT_W / DSH_CREW
+# Shielded cabins (cosmic rays). Water cuts the galactic-cosmic-ray dose by 1/e per ~46 g/cm2
+# (data/economy/ship_environment.csv); NASA studies find little more gain beyond a few tens of
+# g/cm2. A water wall of 20 g/cm2 (the storm shelter's 200 kg/m2) round the whole cabin, full
+# time, cuts it by ~35%. The cabin is a cylinder as tall as it is wide (the storm shelter's game
+# geometry). The water costs nothing (it is the ship's reserve), its tank walls and truss do.
+CABIN_WALL_KG_PER_M2 = 200.0
+# Plasma ships burn water: a liner can wrap its cabins in the propellant tanks instead. The
+# jacket tanks have ~50% more wall than compact tanks (estimate); the shield thins as the
+# propellant burns (the simulation counts the tanks' mean fill over a leg).
+TANK_WRAP_EXTRA_WALL = 0.5
 
 # Wearing and lasting parts (tier 2 follow-up, docs/plans/tier2_log.md). A part's price is
 # materials (commodities at base price) plus work. The parts that wear out are priced that way
@@ -304,6 +314,11 @@ CLASSES = [
               cargo_units=20, propellant_kg=60_000, jet_power_w=100.0e6, berths=40),
     ClassSpec("ntr_shuttle", "Passenger Shuttle", "liquid_core", crew=3, habitat="long",
               cargo_units=20, propellant_kg=250_000, accel_full_mps2=0.3, berths=40),
+    # A large liner (linopt `fare --passengers 200`: $147k a seat against $295k at 60): the drive
+    # and hull are shared by five times the berths. Same power to mass and propellant per berth
+    # as the 40-berth liner; crew of 8 (estimate: two watches of four).
+    ClassSpec("large_plasma_liner", "Large Plasma Liner", "plasma", crew=8, habitat="long",
+              cargo_units=50, propellant_kg=300_000, jet_power_w=500.0e6, berths=200),
 ]
 
 
@@ -375,6 +390,19 @@ class Build:
 
 def cabin_kg(berths: int) -> float:
     return berths * (BERTH_KG + BERTH_SHARED_KG)
+
+
+def cabin_area_m2(berths: int) -> float:
+    """Wall area of a cabin block of this many berths (cylinder, height = diameter)."""
+    radius = (BERTH_M3 * berths / (2.0 * math.pi)) ** (1.0 / 3.0)
+    return 6.0 * math.pi * radius ** 2
+
+
+def water_wall(area_m2: float) -> tuple[float, float, float]:
+    """Water, tank walls and truss of a 20 g/cm2 wall over this area."""
+    water = CABIN_WALL_KG_PER_M2 * area_m2
+    walls = SHELTER_TANK_FRACTION * water
+    return water, walls, STRUCTURE_FRACTION * (water + walls)
 
 
 def cabin_usd(berths: int) -> float:
@@ -505,7 +533,8 @@ def components(b: Build) -> list[dict]:
         rows["cabins"] = {"kind": "cabin", "name": "Passenger cabins", "mass": b.cabin_kg,
                           "price": cabin_usd(b.spec.berths) * CR_PER_USD, "crew_capacity": b.spec.berths,
                           "power_w": BERTH_HEAT_W * b.spec.berths, "heat_w": BERTH_HEAT_W * b.spec.berths,
-                          "temperature_k": CABIN_TEMPERATURE_K, "volume_m3": BERTH_M3 * b.spec.berths}
+                          "temperature_k": CABIN_TEMPERATURE_K, "volume_m3": BERTH_M3 * b.spec.berths,
+                          "area_m2": cabin_area_m2(b.spec.berths)}
     rows["hold"] = {"kind": "hold", "name": "Cargo hold", "mass": b.hold_kg, "price": b.hold_kg * rate("hold"),
                     "capacity_kg": b.cargo_kg, "volume_m3": b.spec.cargo_units * HOLD_M3_PER_CARGO_UNIT}
     rows["structure"] = {"kind": "structure", "name": "Truss and structure", "mass": b.structure_kg,
@@ -565,7 +594,8 @@ def write_spares_csv(path: Path) -> None:
 def hull_slots(spec: ClassSpec) -> dict[str, int]:
     """Module slots by hull (game): couriers have room for less."""
     small = spec.cargo_units < 100
-    slots = {"habitat": 2 if small else 3, "hold": 0 if small else 1}
+    # Liners have room for a storm shelter and both cabin shields (water wall, tank jacket).
+    slots = {"habitat": 2 if small and spec.berths == 0 else 3, "hold": 0 if small else 1}
     slots["drive" if spec.drive == "plasma" else "tank"] = 1
     slots["cabin"] = 0 if spec.berths > 0 else 1
     return slots
@@ -603,7 +633,33 @@ def modules(b: Build) -> list[dict]:
                     "price_cr": round((cabin_usd(berths) + truss * USD_PER_KG["structure"]) * CR_PER_USD),
                     "power_w": BERTH_HEAT_W * berths, "heat_w": BERTH_HEAT_W * berths,
                     "temperature_k": CABIN_TEMPERATURE_K, "volume_m3": BERTH_M3 * berths,
-                    "crew_capacity": berths, "effects": f"berths={berths}"})
+                    "area_m2": cabin_area_m2(berths), "crew_capacity": berths, "effects": f"berths={berths}"})
+        water, walls, wall_truss = water_wall(cabin_area_m2(berths))
+        out.append({"module_id": "shielded_cabin", "slot": "cabin",
+                    "name": f"Shielded passenger cabins ({berths} berths, water wall)",
+                    "mass_kg": round(cabins + truss + water + walls + wall_truss),
+                    "price_cr": round((cabin_usd(berths) + walls * USD_PER_KG["plasma_tank"]
+                                       + (truss + wall_truss) * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": BERTH_HEAT_W * berths, "heat_w": BERTH_HEAT_W * berths,
+                    "temperature_k": CABIN_TEMPERATURE_K, "volume_m3": BERTH_M3 * berths,
+                    "area_m2": cabin_area_m2(berths), "capacity_kg": water, "crew_capacity": berths,
+                    "effects": f"berths={berths};cabin_shield_g_cm2={CABIN_WALL_KG_PER_M2 / 10.0:g}"})
+    if b.spec.berths > 0:
+        # Liners: a water wall round the built-in cabins, or (plasma) the cabins inside the tanks.
+        area = cabin_area_m2(b.spec.berths)
+        water, walls, truss = water_wall(area)
+        out.append({"module_id": "cabin_water_wall", "slot": "habitat", "name": "Cabin water wall",
+                    "mass_kg": round(water + walls + truss),
+                    "price_cr": round((walls * USD_PER_KG["plasma_tank"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "area_m2": area, "capacity_kg": water,
+                    "effects": f"cabin_shield_g_cm2={CABIN_WALL_KG_PER_M2 / 10.0:g}"})
+        if b.spec.drive == "plasma":
+            jacket = TANK_WRAP_EXTRA_WALL * b.tank_kg
+            truss = STRUCTURE_FRACTION * jacket
+            out.append({"module_id": "tank_wrap", "slot": "habitat", "name": "Cabins inside the propellant tanks",
+                        "mass_kg": round(jacket + truss),
+                        "price_cr": round((jacket * USD_PER_KG["plasma_tank"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                        "area_m2": area, "effects": f"tank_wrap_m2={area:.6g}"})
     if hull_slots(b.spec).get("hold", 0) > 0:
         hold_volume = b.spec.cargo_units * HOLD_M3_PER_CARGO_UNIT
         area = 6.0 * hold_volume ** (2.0 / 3.0)

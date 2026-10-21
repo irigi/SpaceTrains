@@ -1,42 +1,57 @@
 hull_id,module_id,slot,name,mass_kg,price_cr,power_w,heat_w,temperature_k,volume_m3,area_m2,capacity_kg,crew_capacity,effects
 light_freighter,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
-light_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,,,24,berths=24
+light_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,317.449,,24,berths=24
+light_freighter,shielded_cabin,cabin,"Shielded passenger cabins (24 berths, water wall)",156023,65645,77550,77550,295,434.25,317.449,63489.9,24,berths=24;cabin_shield_g_cm2=20
 light_freighter,cold_hold,hold,Cold hold (255 K),678,936,102.599,205.197,255,200,205.197,,,perishable_decay_factor=0.1
 light_freighter,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),1552,10472,22090.5,22311.4,20,,28.5746,,,zbo_lift_w=220.905
 light_freighter,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),414,1278,1590.51,1723.06,90,,736.349,,,boiloff_intercept=0.6
 tanker,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
-tanker,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,,,24,berths=24
+tanker,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,317.449,,24,berths=24
+tanker,shielded_cabin,cabin,"Shielded passenger cabins (24 berths, water wall)",156023,65645,77550,77550,295,434.25,317.449,63489.9,24,berths=24;cabin_shield_g_cm2=20
 tanker,cold_hold,hold,Cold hold (255 K),888,1226,134.442,268.884,255,300,268.884,,,perishable_decay_factor=0.1
 tanker,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),1552,10472,22090.5,22311.4,20,,28.5746,,,zbo_lift_w=220.905
 tanker,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),414,1278,1590.51,1723.06,90,,736.349,,,boiloff_intercept=0.6
 fast_courier,storm_shelter,habitat,Storm shelter (water wall),3376,137,,,,4,13.9494,2789.87,,spe_shield_g_cm2=20
-fast_courier,cabin,cabin,Passenger cabins (12 berths),39600,31262,38775,38775,295,217.125,,,12,berths=12
+fast_courier,cabin,cabin,Passenger cabins (12 berths),39600,31262,38775,38775,295,217.125,199.981,,12,berths=12
+fast_courier,shielded_cabin,cabin,"Shielded passenger cabins (12 berths, water wall)",87995,33228,38775,38775,295,217.125,199.981,39996.1,12,berths=12;cabin_shield_g_cm2=20
 fast_courier,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),1552,10472,22090.5,22311.4,20,,28.5746,,,zbo_lift_w=220.905
 fast_courier,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),414,1278,1590.51,1723.06,90,,736.349,,,boiloff_intercept=0.6
 plasma_freighter,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
-plasma_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,,,24,berths=24
+plasma_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,317.449,,24,berths=24
+plasma_freighter,shielded_cabin,cabin,"Shielded passenger cabins (24 berths, water wall)",156023,65645,77550,77550,295,434.25,317.449,63489.9,24,berths=24;cabin_shield_g_cm2=20
 plasma_freighter,cold_hold,hold,Cold hold (255 K),560,772,84.6932,169.386,255,150,169.386,,,perishable_decay_factor=0.1
 plasma_courier,storm_shelter,habitat,Storm shelter (water wall),3376,137,,,,4,13.9494,2789.87,,spe_shield_g_cm2=20
-plasma_courier,cabin,cabin,Passenger cabins (12 berths),39600,31262,38775,38775,295,217.125,,,12,berths=12
+plasma_courier,cabin,cabin,Passenger cabins (12 berths),39600,31262,38775,38775,295,217.125,199.981,,12,berths=12
+plasma_courier,shielded_cabin,cabin,"Shielded passenger cabins (12 berths, water wall)",87995,33228,38775,38775,295,217.125,199.981,39996.1,12,berths=12;cabin_shield_g_cm2=20
 deep_space_freighter,storm_shelter,habitat,Storm shelter (water wall),5359,218,,,,8,22.1432,4428.65,,spe_shield_g_cm2=20
-deep_space_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,,,24,berths=24
+deep_space_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,317.449,,24,berths=24
+deep_space_freighter,shielded_cabin,cabin,"Shielded passenger cabins (24 berths, water wall)",156023,65645,77550,77550,295,434.25,317.449,63489.9,24,berths=24;cabin_shield_g_cm2=20
 deep_space_freighter,cold_hold,hold,Cold hold (255 K),888,1226,134.442,268.884,255,300,268.884,,,perishable_decay_factor=0.1
 deep_space_freighter,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),2464,16623,35066.4,35417.1,20,,45.3594,,,zbo_lift_w=350.664
 deep_space_freighter,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),657,2028,2524.78,2735.18,90,,1168.88,,,boiloff_intercept=0.6
 ntr_freighter,storm_shelter,habitat,Storm shelter (water wall),5359,218,,,,8,22.1432,4428.65,,spe_shield_g_cm2=20
-ntr_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,,,24,berths=24
+ntr_freighter,cabin,cabin,Passenger cabins (24 berths),79200,62525,77550,77550,295,434.25,317.449,,24,berths=24
+ntr_freighter,shielded_cabin,cabin,"Shielded passenger cabins (24 berths, water wall)",156023,65645,77550,77550,295,434.25,317.449,63489.9,24,berths=24;cabin_shield_g_cm2=20
 ntr_freighter,cold_hold,hold,Cold hold (255 K),1076,1485,162.865,325.73,255,400,325.73,,,perishable_decay_factor=0.1
 ntr_freighter,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),3067,20693,43651.9,44088.4,20,,56.4649,,,zbo_lift_w=436.519
 ntr_freighter,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),817,2525,3142.94,3404.85,90,,1455.06,,,boiloff_intercept=0.6
 bulk_tanker,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
-bulk_tanker,cabin,cabin,Passenger cabins (60 berths),198000,156312,193875,193875,295,1085.62,,,60,berths=60
+bulk_tanker,cabin,cabin,Passenger cabins (60 berths),198000,156312,193875,193875,295,1085.62,584.747,,60,berths=60
+bulk_tanker,shielded_cabin,cabin,"Shielded passenger cabins (60 berths, water wall)",339509,162059,193875,193875,295,1085.62,584.747,116949,60,berths=60;cabin_shield_g_cm2=20
 bulk_tanker,cold_hold,hold,Cold hold (255 K),3147,4343,476.22,952.441,255,2000,952.441,,,perishable_decay_factor=0.1
 bulk_tanker,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),3464,23367,49293.6,49786.6,20,,63.7627,,,zbo_lift_w=492.936
 bulk_tanker,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),923,2851,3549.14,3844.9,90,,1643.12,,,boiloff_intercept=0.6
 plasma_bulk_tanker,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
-plasma_bulk_tanker,cabin,cabin,Passenger cabins (60 berths),198000,156312,193875,193875,295,1085.62,,,60,berths=60
+plasma_bulk_tanker,cabin,cabin,Passenger cabins (60 berths),198000,156312,193875,193875,295,1085.62,584.747,,60,berths=60
+plasma_bulk_tanker,shielded_cabin,cabin,"Shielded passenger cabins (60 berths, water wall)",339509,162059,193875,193875,295,1085.62,584.747,116949,60,berths=60;cabin_shield_g_cm2=20
 plasma_bulk_tanker,cold_hold,hold,Cold hold (255 K),3147,4343,476.22,952.441,255,2000,952.441,,,perishable_decay_factor=0.1
 plasma_liner,storm_shelter,habitat,Storm shelter (water wall),5359,218,,,,8,22.1432,4428.65,,spe_shield_g_cm2=20
+plasma_liner,cabin_water_wall,habitat,Cabin water wall,107991,4386,,,,,446.245,89249,,cabin_shield_g_cm2=20
+plasma_liner,tank_wrap,habitat,Cabins inside the propellant tanks,1650,386,,,,,446.245,,,tank_wrap_m2=446.245
 ntr_shuttle,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
+ntr_shuttle,cabin_water_wall,habitat,Cabin water wall,107991,4386,,,,,446.245,89249,,cabin_shield_g_cm2=20
 ntr_shuttle,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),3067,20693,43651.9,44088.4,20,,56.4649,,,zbo_lift_w=436.519
 ntr_shuttle,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),817,2525,3142.94,3404.85,90,,1455.06,,,boiloff_intercept=0.6
+large_plasma_liner,storm_shelter,habitat,Storm shelter (water wall),8506,345,,,,16,35.1502,7030.04,,spe_shield_g_cm2=20
+large_plasma_liner,cabin_water_wall,habitat,Cabin water wall,315769,12824,,,,,1304.83,260966,,cabin_shield_g_cm2=20
+large_plasma_liner,tank_wrap,habitat,Cabins inside the propellant tanks,8250,1930,,,,,1304.83,,,tank_wrap_m2=1304.83

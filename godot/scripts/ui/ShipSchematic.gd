@@ -38,7 +38,9 @@ const PART_COLORS := {
     "cargo": Color(0.36, 0.62, 0.3),
     "provisions": Color(0.85, 0.72, 0.45),
     "module": Color(0.68, 0.55, 0.92),
+    "cabin": Color(0.93, 0.8, 0.62),
 }
+const CABIN_KEYS := ["cabins", "module.cabin", "module.shielded_cabin"]
 # Habitat parts drawn as bands inside the hull; the hull and shielding are its frame.
 const HABITAT_BANDS := ["habitat.crew_quarters", "habitat.common_rooms", "habitat.life_support",
     "habitat.thermal_control", "habitat.power_avionics", "habitat.airlock_eva"]
@@ -123,6 +125,23 @@ func _layout() -> void:
             var depth := clampf(_f(shelter, "volume_m3") / (HAB_DIAMETER_M * HAB_DIAMETER_M * 0.4), 0.8, length * 0.3)
             _add_shape("module.storm_shelter", "shelter", Rect2(x + radius * 0.15, -radius * 0.75, depth, HAB_DIAMETER_M * 0.75))
         x += length + GAP_M
+    # Passenger cabins (a liner's own, or a cabin module): a block sized by volume, the water
+    # round it (a wall, or the propellant tanks wrapped round it) drawn as its jacket.
+    for key in CABIN_KEYS:
+        var cabin: Dictionary = _components.get(key, {})
+        if cabin.is_empty():
+            continue
+        var cabin_volume := maxf(_f(cabin, "volume_m3"), 1.0)
+        var cabin_width := clampf(pow(cabin_volume, 1.0 / 3.0) * 0.9, HAB_DIAMETER_M, 14.0)
+        var cabin_length := maxf(cabin_volume / (PI * cabin_width * cabin_width * 0.25), cabin_width)
+        var cabin_rect := Rect2(x, -cabin_width * 0.5, cabin_length, cabin_width)
+        if _components.has("module.tank_wrap"):
+            _add_shape("module.tank_wrap", "tank_jacket", cabin_rect.grow(1.2))
+        if _components.has("module.cabin_water_wall"):
+            _add_shape("module.cabin_water_wall", "cabin_wall", cabin_rect.grow(0.6))
+        _add_shape(key, "cabin", cabin_rect)
+        x += cabin_length + GAP_M
+        break
     var hold: Dictionary = _components.get("hold", {})
     if not hold.is_empty():
         var volume := maxf(_f(hold, "volume_m3"), 1.0)
@@ -254,7 +273,13 @@ func _shape_tip(shape: Dictionary) -> String:
     match String(shape["kind"]):
         "shield":
             return "Shadow shield: shades the ship from the reactor (counted in the engine's mass)"
-        "shelter", "liner", "tank_cooling":
+        "cabin":
+            var berths := float(_ship.get("berths", _f(comp, "crew_capacity")))
+            return "%s %s · %.0f berths · %.0f m³ · %.0f aboard%s" % [String(comp.get("name", "")), fmt_mass(_f(comp, "mass_kg")),
+                berths, _f(comp, "volume_m3"), float(_ship.get("passengers_aboard", 0.0)),
+                (" · water %.0f g/cm²" % float(_ship.get("cabin_shield_g_cm2", 0.0)))
+                    if float(_ship.get("cabin_shield_g_cm2", 0.0)) > 0.0 else ""]
+        "shelter", "liner", "tank_cooling", "tank_jacket", "cabin_wall":
             var module_spec := component_spec(comp)
             return "%s %s%s" % [String(comp.get("name", "")), fmt_mass(_f(comp, "mass_kg")),
                 (" · " + module_spec) if module_spec != "" else ""]
@@ -311,6 +336,23 @@ func _draw_shape(shape: Dictionary) -> void:
             draw_line(Vector2(r.get_center().x, axis_y), Vector2(r.get_center().x, edge_y), PART_COLORS["structure"], 1.0)
         "habitat":
             _rounded(r, PART_COLORS["habitat"].darkened(0.25), outline)
+        "cabin":
+            _rounded(r, Color(0.16, 0.14, 0.12), outline)
+            var berths := maxf(float(_ship.get("berths", _f(comp, "crew_capacity"))), 1.0)
+            var share := clampf(float(_ship.get("passengers_aboard", 0.0)) / berths, 0.0, 1.0)
+            if share > 0.0:
+                var inner := r.grow(-1.5)
+                inner.size.x *= share
+                draw_rect(inner, PART_COLORS["cabin"])
+            var walled := String(shape["key"]) == "module.shielded_cabin"
+            _rounded(r, Color(0, 0, 0, 0), PART_COLORS["tank"] if walled else PART_COLORS["cabin"].darkened(0.2))
+            if walled:
+                draw_rect(r.grow(1.0), PART_COLORS["tank"], false, 2.0)
+        "tank_jacket":
+            var fill := clampf(float(_ship.get("propellant_kg", 0.0)) / maxf(float(_design.get("propellant_capacity_kg", 1.0)), 1.0), 0.0, 1.0)
+            _rounded(r, Color(0.29, 0.55, 0.85, 0.25 + 0.6 * fill), PART_COLORS["tank"].lightened(0.2))
+        "cabin_wall":
+            _rounded(r, Color(0.29, 0.55, 0.85, 0.7), outline)
         "band":
             var index := HABITAT_BANDS.find(String(shape["key"]))
             draw_rect(r, BAND_SHADES[maxi(index, 0) % BAND_SHADES.size()])
@@ -485,6 +527,8 @@ static func component_spec(c: Dictionary) -> String:
                 float(c.get("volume_m3", 0.0)), fmt_power(power)])
         "crew_quarters":
             parts.append("%.0f m³ habitable" % float(c.get("volume_m3", 0.0)))
+        "cabin":
+            parts.append("%d berths · %.0f m³ pressurized" % [int(c.get("crew_capacity", 0.0)), float(c.get("volume_m3", 0.0))])
         "hold":
             parts.append("rated %s · %.0f m³" % [fmt_mass(float(c.get("capacity_kg", 0.0))), float(c.get("volume_m3", 0.0))])
     return " · ".join(parts)

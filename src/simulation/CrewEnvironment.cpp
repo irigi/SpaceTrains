@@ -23,6 +23,17 @@ double shelter_g_cm2(const domain::ShipClassDefinition& design) {
     return it == design.effects.end() ? 0.0 : it->second;
 }
 
+double cabin_shield_g_cm2(const domain::ShipClassDefinition& design, double propellant_kg) {
+    double shield = 0.0;
+    if (const auto it = design.effects.find("cabin_shield_g_cm2"); it != design.effects.end()) {
+        shield += it->second;
+    }
+    if (const auto it = design.effects.find("tank_wrap_m2"); it != design.effects.end() && it->second > 0.0) {
+        shield += std::max(0.0, propellant_kg) / it->second / 10.0;  // kg/m2 -> g/cm2
+    }
+    return shield;
+}
+
 double gcr_factor(const domain::ShipEnvironmentDefinition& env, double shelter) {
     if (shelter <= 0.0) {
         return 1.0;
@@ -50,11 +61,17 @@ double spe_magnitude_per_day(const domain::ShipEnvironmentDefinition& env, doubl
     return env.spe_rate_per_year / 365.25 * 2.0 * solar_activity(env, day) * mean;
 }
 
+double transit_gcr_factor(const domain::ShipEnvironmentDefinition& env,
+    const domain::ShipClassDefinition& design, double cabin_g_cm2) {
+    const double factor = gcr_factor(env, shelter_g_cm2(design));
+    return cabin_g_cm2 > 0.0 ? factor * std::exp(-cabin_g_cm2 / env.gcr_attenuation_g_cm2) : factor;
+}
+
 double expected_transit_msv_per_day(const domain::ShipEnvironmentDefinition& env,
-    const domain::ShipClassDefinition& design, double r1_au, double r2_au, double day) {
+    const domain::ShipClassDefinition& design, double r1_au, double r2_au, double day, double cabin_g_cm2) {
     const double shelter = shelter_g_cm2(design);
-    const double gcr = gcr_msv_per_day(env, 0.5 * (r1_au + r2_au), day) * gcr_factor(env, shelter);
-    const double spe = spe_magnitude_per_day(env, day) * spe_reference_msv(env, shelter)
+    const double gcr = gcr_msv_per_day(env, 0.5 * (r1_au + r2_au), day) * transit_gcr_factor(env, design, cabin_g_cm2);
+    const double spe = spe_magnitude_per_day(env, day) * spe_reference_msv(env, shelter + std::max(0.0, cabin_g_cm2))
         / std::max(0.01, r1_au * r2_au);
     return gcr + spe;
 }

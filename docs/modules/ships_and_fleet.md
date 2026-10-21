@@ -112,18 +112,32 @@ do not load and cabins are never offered.
 - **What a group pays:** the reference fare adjusted for the trip's time and dose. When more wait than fit,
   everyone pays the fare that clears the berths (up to 4× the reference cost, the top demand band).
 - **Giving up:** groups give up as waiting uses up their budget.
-- **Who pays:** fares go from the outside account (settlers, emigrants, visitors) or the work station
-  (rotation) to the ship.
+- **Who pays:** fares go to the ship from the outside account (emigrants, visitors) or from the work station
+  (rotation, and settlers with `settlers_sponsored`). A station recovers what it paid for passages
+  (`passage_debt_cr`) at 1/`passage_recovery_days` a day from outside money, at most `passage_max_markup` × its
+  residents' spending on goods. Its prices thus carry the passages.
+- **Settler demand** falls with the ticket's payback time T (reference generalized cost over a year's wage):
+  1 / (1 + (T / `settler_payback_half_years`)^`settler_payback_exponent`) of the growth rate.
 
 **Ships.**
-- **Carriers:** a cabin module in the new `cabin` slot (12/24/60 berths) and two 40-berth liners. Berths are
-  apart from the hold; passengers' mass and their 2 kg/day are payload.
+- **Carriers:**
+  - two cabin modules for the new `cabin` slot (12/24/60 berths), plain or shielded (a 20 g/cm² water wall);
+  - two 40-berth liners and the 200-berth Large Plasma Liner;
+  - the liners' habitat slots take a cabin water wall and, on the plasma liners, a tank wrap: the cabin sits
+    inside the water tank. Its shield is the water aboard ÷ the cabin's wall area, so it thins as the tank
+    empties.
+  - Cosmic rays are cut by exp(−shield ÷ 46 g/cm²); particle events see the storm shelter plus the shield.
+  - Berths are apart from the hold; passengers' mass and their 2 kg/day are payload.
 - **Dispatch** fills berths alongside the hold:
   - each destination's manifest adds the boarding passengers' fares less their provisions;
   - follow-ups count passengers waiting at the next port;
   - the planner adds their time to the ship's.
-- **Fleet investment** values cabin designs and liners at the sustained passenger flow and its clearing fare,
-  and commits them to their route like cargo ships.
+- **Fleet investment** values cabin designs and liners at the sustained passenger flow, filled by band at
+  each group's fare or the clearing fare, and commits them to their route like cargo ships.
+  - A hull fitted with a cabin module is a candidate for its berths only (the bare hull is the cargo
+    candidate): its bound is the passenger bound, its probe plans no cargo, and only its passenger runs count.
+  - The passenger bound assumes a ship twice as fast as the reference carrier, filled the same way, and is
+    taken as the larger of the cargo and passenger bounds (a passenger run is valued on its own).
 
 ## Fleet investment (`step_fleet_investment`)
 

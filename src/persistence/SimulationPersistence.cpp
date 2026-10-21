@@ -379,6 +379,8 @@ Json station_to_json(const domain::StationState& s) {
     ledger.set("dividends", s.ledger.dividends);
     ledger.set("subsidies", s.ledger.subsidies);
     ledger.set("taxes", s.ledger.taxes);
+    ledger.set("passages_paid", s.ledger.passages_paid);
+    ledger.set("passages_recovered", s.ledger.passages_recovered);
     out.set("ledger", std::move(ledger));
     out.set("ship_fuel_units_per_day", s.ship_fuel_units_per_day);
     out.set("import_units_per_day", goods_to_json(s.import_units_per_day));
@@ -425,6 +427,7 @@ Json station_to_json(const domain::StationState& s) {
         visiting.push(passenger_group_to_json(group));
     }
     out.set("visiting", std::move(visiting));
+    out.set("passage_debt_cr", s.passage_debt_cr);
     return out;
 }
 
@@ -439,6 +442,8 @@ domain::StationState station_from_json(const Json& j) {
     s.ledger.dividends = ledger.get("dividends").number();
     s.ledger.subsidies = ledger.get("subsidies").number();
     s.ledger.taxes = ledger.get("taxes").number();
+    s.ledger.passages_paid = ledger.get("passages_paid").number();
+    s.ledger.passages_recovered = ledger.get("passages_recovered").number();
     s.ship_fuel_units_per_day = j.get("ship_fuel_units_per_day").number();
     s.import_units_per_day = goods_from_json(j.get("import_units_per_day"));
     s.export_units_per_day = goods_from_json(j.get("export_units_per_day"));
@@ -478,6 +483,7 @@ domain::StationState station_from_json(const Json& j) {
     for (const auto& group : j.get("visiting").items()) {
         s.visiting.push_back(passenger_group_from_json(group));
     }
+    s.passage_debt_cr = j.get("passage_debt_cr").number();
     return s;
 }
 
@@ -506,6 +512,9 @@ std::string Simulation::data_fingerprint() const {
             pax.rotation_grade, pax.hardship_per_year, pax.resident_wage_multiple));
         mix(std::format("V{}|{}|{}|{}|{}|{};", pax.visit_trips_per_person_year, pax.earth_population_weight,
             pax.fare_elasticity, pax.demand_bands, pax.band_ratio, pax.visit_days));
+        mix(std::format("S{}|{}|{}|{}|{}|{}|{};", pax.tank_wrap_mean_fill, pax.settlers_sponsored,
+            pax.settler_payback_half_years, pax.settler_payback_exponent, pax.passage_recovery_days,
+            pax.passage_max_markup, 0));
         for (const auto& gateway : pax.earth_gateways) {
             mix("G" + gateway + ";");
         }

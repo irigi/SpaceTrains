@@ -24,7 +24,8 @@ public:
 
     void step(std::vector<domain::StationState>& stations, double dt_s) const;
     // Net units per day of the station's recipes, scaled by its population, and its fuel factory.
-    [[nodiscard]] std::unordered_map<std::string, double> get_station_net_rates(const domain::StationDefinition& station) const;
+    // Kept per station and rebuilt when its population is set (the only input that changes).
+    [[nodiscard]] const std::unordered_map<std::string, double>& get_station_net_rates(const domain::StationDefinition& station) const;
     // Rates scale with the station's residents: its current population (set_population, step
     // 27) over RATE_REFERENCE_POPULATION, the seeded one until set.
     [[nodiscard]] double population_factor(const domain::StationDefinition& station) const;
@@ -97,6 +98,7 @@ private:
     // A price that does not move with the stock: the base price at an export market, the
     // floor price for an export good anywhere that neither makes nor exports it (0 otherwise).
     [[nodiscard]] double flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    [[nodiscard]] std::unordered_map<std::string, double> compute_net_rates(const domain::StationDefinition& station) const;
 
     const domain::UniverseDefinition& universe_;
     // The profile's recipes and the station's own, by station id.
@@ -110,6 +112,8 @@ private:
     std::unordered_map<std::string, const domain::EventDefinition*> events_by_id_;
     // Current populations by station id (step 27).
     std::unordered_map<std::string, double> populations_;
+    // get_station_net_rates by station id, rebuilt by set_population.
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> net_rates_;
 };
 
 }  // namespace spacetrains::economy

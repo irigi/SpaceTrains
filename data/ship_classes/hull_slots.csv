@@ -33,7 +33,9 @@ plasma_bulk_tanker,habitat,3
 plasma_bulk_tanker,hold,1
 plasma_bulk_tanker,drive,1
 plasma_bulk_tanker,cabin,1
-plasma_liner,habitat,2
+plasma_liner,habitat,3
 plasma_liner,drive,1
-ntr_shuttle,habitat,2
+ntr_shuttle,habitat,3
 ntr_shuttle,tank,1
+large_plasma_liner,habitat,3
+large_plasma_liner,drive,1

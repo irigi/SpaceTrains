@@ -222,6 +222,23 @@ int main() {
         require(ce::expected_transit_msv_per_day(env, sheltered, 1.0, 1.0, day_max)
                 < ce::expected_transit_msv_per_day(env, bare, 1.0, 1.0, day_max),
             "a storm shelter lowers the expected dose");
+        // Passengers: water round the cabins, full time. A 20 g/cm2 wall cuts cosmic rays by
+        // exp(-20/46) on top of the shelter; cabins inside the tanks count the water in them
+        // spread over the wrapped wall (100 t over 500 m2 = 20 g/cm2).
+        auto walled = sheltered;
+        walled.effects["cabin_shield_g_cm2"] = 20.0;
+        require_near(ce::cabin_shield_g_cm2(walled, 0.0), 20.0, 1e-12, "a cabin water wall's areal density");
+        require_near(ce::transit_gcr_factor(env, walled, 20.0), ce::gcr_factor(env, 20.0) * std::exp(-20.0 / 46.0), 1e-12,
+            "a cabin wall cuts the sheltered cosmic-ray dose by exp(-20/46)");
+        auto wrapped = bare;
+        wrapped.effects["tank_wrap_m2"] = 500.0;
+        require_near(ce::cabin_shield_g_cm2(wrapped, 100000.0), 20.0, 1e-12, "cabins inside the tanks: the water per wall area");
+        require_near(ce::cabin_shield_g_cm2(wrapped, 0.0), 0.0, 1e-12, "empty tanks shield nothing");
+        require(ce::expected_transit_msv_per_day(env, walled, 5.0, 5.0, day_max, 20.0)
+                < ce::expected_transit_msv_per_day(env, sheltered, 5.0, 5.0, day_max),
+            "a shielded cabin lowers the expected dose");
+        require_near(ce::expected_transit_msv_per_day(env, sheltered, 5.0, 5.0, day_max, 0.0),
+            ce::expected_transit_msv_per_day(env, sheltered, 5.0, 5.0, day_max), 1e-15, "no cabin water, no change");
     }
     {
         // The loader rejects parts that do not add up to their class.
@@ -835,6 +852,60 @@ int main() {
             "an ion ship must arrive with its reserve");
     }
 
+    // --- VariableISP fuel check without a path (bug until 2026-10-21) ---
+    // Scoring plans (no path) checked the end mass on the closest-approach marker, which carries
+    // the start mass, so a transfer short of fuel scored as feasible; the replan with its path
+    // then failed, and the ship chose the same trip again every day (80% of departures on the
+    // inner routes). With ship_operations planner_fuel_check both must agree.
+    {
+        const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
+        spacetrains::variable_isp::VariableIspAtlas visp_atlas;
+        visp_atlas.load_binary(atlas_path);
+        auto checked_universe = universe;
+        checked_universe.ship_operations.planner_fuel_check = 1.0;
+        auto old_universe = universe;
+        old_universe.ship_operations.planner_fuel_check = 0.0;
+        const spacetrains::trajectory::VariableIspTrajectoryPlanner checked(checked_universe, mechanics, visp_atlas);
+        const spacetrains::trajectory::VariableIspTrajectoryPlanner old_check(old_universe, mechanics, visp_atlas);
+        const auto& ship_class = ship_class_by_id(universe, "plasma_bulk_tanker");
+        spacetrains::domain::ShipState ship;
+        ship.class_id = ship_class.id;
+        int checked_disagree = 0;
+        int old_disagree = 0;
+        int feasible = 0;
+        for (const auto& [from, to] : std::vector<std::pair<const char*, const char*>> {
+                 {"earth_l1", "mercury_yard"}, {"venus_cloud", "mercury_yard"}, {"mercury_yard", "venus_cloud"}}) {
+            for (int day = 0; day < 720; day += 90) {
+                for (const double fuel_share : {0.15, 0.3}) {
+                    spacetrains::trajectory::PlanningOptions options {
+                        .propellant_cr_per_kg = 0.1,
+                        .time_cr_per_day = 400.0,
+                        .payload_kg = 100000.0,
+                        .purchasable_propellant_kg = fuel_share * ship_class.propellant_capacity_kg,
+                        .reserve_fraction = 0.1,
+                    };
+                    const auto& origin = station_by_id(universe, from);
+                    const auto& destination = station_by_id(universe, to);
+                    for (const auto* planner : {&checked, &old_check}) {
+                        options.include_path = false;
+                        const auto scored = planner->plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
+                        options.include_path = true;
+                        const auto drawn = planner->plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
+                        const bool agree = scored.feasible == drawn.feasible
+                            && (!drawn.feasible || scored.arrival_time_s == drawn.arrival_time_s);
+                        (planner == &checked ? checked_disagree : old_disagree) += agree ? 0 : 1;
+                        feasible += planner == &checked && drawn.feasible ? 1 : 0;
+                    }
+                }
+            }
+        }
+        const auto message = std::format("fuel check without a path: {} disagree (old check {}), {} feasible",
+            checked_disagree, old_disagree, feasible);
+        require(checked_disagree == 0, message.c_str());
+        require(old_disagree > 0, message.c_str());
+        require(feasible > 0, message.c_str());
+    }
+
     // --- VariableISP kappa at the origin's radius (bug: no way home from the outer system) ---
     // The atlas is solved at 1 AU and scaled to the origin's orbit, but kappa was taken at
     // 1 AU for every origin: a plasma freighter leaving Ganymede was planned 60x too weak
@@ -1130,6 +1201,16 @@ int main() {
             require(std::any_of(pax_universe.ship_classes.begin(), pax_universe.ship_classes.end(),
                         [](const auto& c) { return c.id == "plasma_liner" && c.berths == 40.0; }),
                 "with passengers the Plasma Liner should load with its 40 berths");
+            require(std::any_of(pax_universe.ship_classes.begin(), pax_universe.ship_classes.end(),
+                        [](const auto& c) { return c.id == "large_plasma_liner" && c.berths == 200.0; }),
+                "with passengers the Large Plasma Liner should load with its 200 berths");
+            // Sponsored settlers: half of those a station would take come when the passage pays
+            // back in T50 = 5 years of wages, all of them when it is free; the station pays.
+            require(straight.employer_pays(spacetrains::domain::PassengerKind::Migrant), "stations pay settlers' passage");
+            require(!straight.employer_pays(spacetrains::domain::PassengerKind::Visitor), "visitors pay their own way");
+            require_near(straight.settler_share(5.0), 0.5, 1e-12, "half the settlers at a 5-year payback");
+            require_near(straight.settler_share(0.0), 1.0, 1e-12, "every settler at no cost");
+            require(straight.settler_share(14.0) < 0.15, "few settlers where the passage takes 14 years to repay");
             // Reference fares: dearer the farther; the clearing fare rises with the queue.
             const auto& fares = pax_universe.passengers.reference_fares;
             require(fares.at("earth_orbit").at("mars_transfer").fare_cr > fares.at("earth_orbit").at("luna_base").fare_cr,
@@ -1176,6 +1257,14 @@ int main() {
             const auto emigrant = static_cast<std::size_t>(spacetrains::domain::PassengerKind::Emigrant);
             require(audit.boarded[migrant] >= 1.0 && audit.landed[migrant] >= 1.0, "the liner should carry settlers out of Earth");
             require(audit.fares_cr[migrant] > 0.0, "settlers should pay fares");
+            // What stations paid for passages is recovered through their prices or still owed.
+            double passages = 0.0;
+            for (const auto& station : after.stations) {
+                passages += station.ledger.passages_paid;
+                require_near(station.ledger.passages_paid, station.passage_debt_cr + station.ledger.passages_recovered, 1e-6,
+                    "a station's passages are recovered or still owed");
+            }
+            require(passages > 0.0, "stations should pay for settlers and rotation");
             require_near(money(after), money_before, 1e-6, "fares should move money, not make it");
             // Off Earth, people come and go only by ship.
             double change = 0.0;

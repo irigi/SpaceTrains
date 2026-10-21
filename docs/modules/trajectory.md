@@ -96,11 +96,20 @@ to atlas costates, so the rest of the planner is unchanged. The finite-differenc
   also reports the exact closest approach, end state and effort.
 - **Scoring plans** (`include_path` off) take mass (from the effort) and perihelion from the shooting; only
   plans with a path integrate the trajectory (4000 samples).
+  - **Known bug, kept behind a switch:** the scoring plan's fuel check reads the closest-approach marker, which
+    carries the start mass, so a window short of fuel scores as feasible. The chosen mission's replan with its
+    path then fails, and the ship picks the same trip the next day. 2026-10-21, 1460 days: 2,821 of 3,300
+    departure replans failed with passengers on (1,876 of 2,374 off), mostly Mercury and Venus routes.
+  - `ship_operations.csv` `planner_fuel_check,1` checks the shooting's end state instead: no replan fails.
+    It stays 0 because, with passengers off, the benchmark got slower (161 → 204 s) and unmet demand rose
+    (0.5 → 1.2%, last fifth 1.0 → 2.2%). Decision open; see `docs/plans/passengers_log.md`.
 - **Fuel fit.** When the corrected path needs at most 10% more effort than the fuel allows,
   `fit_effort_by_time` changes T until it fits (56% of candidates used to be rejected as fuel-limited).
 - **Shared refinements.** The geometric refinement of an atlas cell is cached per (route, plan time, cell):
   the path does not depend on the ship, so plans differing only in payload or fuel reuse it and apply their
   own fuel check.
+- **Fuel fits** are cached too, by refinement, departure option, rho, kappa and perihelion limit: a pure
+  function of these. The chosen mission's replan with its path then finds the fit its scoring plan made.
 - Optional, off: `PlanningOptions::direct_fallback` (solve a departure now directly when no window converges)
   and `ShootingSettings::spend_fuel_budget` (shorten T to use all the fuel); both measured without economy gain.
 

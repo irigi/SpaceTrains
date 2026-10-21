@@ -42,6 +42,24 @@ const char* Simulation::passenger_kind_name(domain::PassengerKind kind) {
     return "passengers";
 }
 
+bool Simulation::employer_pays(domain::PassengerKind kind) const {
+    return pays_from_employer(kind)
+        || (kind == domain::PassengerKind::Migrant && universe_.passengers.settlers_sponsored != 0.0);
+}
+
+double Simulation::settler_share(double payback_years) const {
+    const auto& pax = universe_.passengers;
+    if (payback_years <= 0.0 || pax.settler_payback_half_years <= 0.0) {
+        return 1.0;
+    }
+    return 1.0 / (1.0 + std::pow(payback_years / pax.settler_payback_half_years, pax.settler_payback_exponent));
+}
+
+double Simulation::payback_years(const std::string& origin_id, const std::string& destination_id) const {
+    const double vot = value_of_time_cr_per_day(domain::PassengerKind::Migrant);
+    return vot > 0.0 ? reference_cost_cr(origin_id, destination_id, vot) / (365.0 * vot) : 0.0;
+}
+
 bool Simulation::is_earth_gateway(const std::string& station_id) const {
     const auto& gateways = universe_.passengers.earth_gateways;
     return std::find(gateways.begin(), gateways.end(), station_id) != gateways.end();
@@ -87,32 +105,47 @@ double Simulation::reference_cost_cr(const std::string& origin_id, const std::st
     return reference->fare_cr + passenger_nonfare_cr(value_of_time, reference->days, env.radiation ? env.gcr_msv_per_day : 0.0);
 }
 
-void Simulation::post_travellers(domain::StationState& origin, domain::PassengerKind kind,
-    const std::string& destination_id, const std::string& work_station_id, double count, bool fixed) {
-    const double dose_msv = 0.0;
+std::vector<Simulation::PassengerBand> Simulation::passenger_bands(domain::PassengerKind kind,
+    const std::string& origin_id, const std::string& destination_id, double count, bool fixed) const {
+    std::vector<PassengerBand> out;
     if (count <= 0.0) {
-        return;
+        return out;
     }
     const auto& pax = universe_.passengers;
     const double value_of_time = value_of_time_cr_per_day(kind);
-    const double reference = reference_cost_cr(origin.station_id, destination_id, value_of_time);
+    const double reference = reference_cost_cr(origin_id, destination_id, value_of_time);
     if (!std::isfinite(reference)) {
-        return;  // no carrier can fly the trip
+        return out;  // no carrier can fly the trip
     }
     // Willingness to pay falls off as cost^elasticity: `count` people would travel at the
     // reference cost; band k holds those whose highest acceptable cost lies between its
     // maximum m_k = reference x ratio^(k-1) and the next band's.
+    // Sponsored settlers: `count` is every settler the station would take; the share whose job
+    // repays a passage costing m x the reference follows the payback curve.
     const int bands = std::max(1, static_cast<int>(pax.demand_bands));
-    const auto share_above = [&](double multiple) { return std::pow(multiple, pax.fare_elasticity); };
+    const bool sponsored = kind == domain::PassengerKind::Migrant && employer_pays(kind);
+    const double payback = sponsored ? reference / (365.0 * value_of_time) : 0.0;
+    const auto share_above = [&](double multiple) {
+        return sponsored ? settler_share(multiple * payback) : std::pow(multiple, pax.fare_elasticity);
+    };
     // A fixed number of travellers is spread over the bands in the same proportions.
     const double scale = fixed ? 1.0 / share_above(std::pow(pax.band_ratio, -1.0)) : 1.0;
     for (int band = 0; band < bands; ++band) {
         const double multiple = std::pow(pax.band_ratio, band - 1);
         const double share = share_above(multiple) - (band + 1 < bands ? share_above(multiple * pax.band_ratio) : 0.0);
         const double people = count * share * scale;
-        if (people <= 0.0) {
-            continue;
+        if (people > 0.0) {
+            out.push_back({.band = band, .people = people, .max_cost_cr = reference * multiple,
+                .value_of_time_cr_per_day = value_of_time});
         }
+    }
+    return out;
+}
+
+void Simulation::post_travellers(domain::StationState& origin, domain::PassengerKind kind,
+    const std::string& destination_id, const std::string& work_station_id, double count, bool fixed) {
+    const double dose_msv = 0.0;
+    for (const auto& [band, people, max_cost, value_of_time] : passenger_bands(kind, origin.station_id, destination_id, count, fixed)) {
         passenger_audit_.posted[static_cast<std::size_t>(kind)] += people;
         auto group = std::find_if(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& g) {
             return g.kind == kind && g.band == band && g.destination_id == destination_id
@@ -125,7 +158,7 @@ void Simulation::post_travellers(domain::StationState& origin, domain::Passenger
                 .work_station_id = work_station_id,
                 .count = people,
                 .since_s = game_time_s_,
-                .max_cost_cr = reference * multiple,
+                .max_cost_cr = max_cost,
                 .value_of_time_cr_per_day = value_of_time,
                 .dose_msv = dose_msv,
                 .band = band,
@@ -134,7 +167,7 @@ void Simulation::post_travellers(domain::StationState& origin, domain::Passenger
             // The group's waiting time is the mean of its people's.
             group->since_s = (group->since_s * group->count + game_time_s_ * people) / (group->count + people);
             group->count += people;
-            group->max_cost_cr = reference * multiple;
+            group->max_cost_cr = max_cost;
         }
     }
 }
@@ -260,7 +293,9 @@ double Simulation::passenger_flow_per_day(const std::string& origin_id, const st
             const double ceiling = growth.max_population_factor
                 * static_cast<double>(get_station_definition(destination_id).population);
             if (station.supply_index >= growth.grow_above && station.credits >= floor_credits && station.population < ceiling) {
-                flow += growth.growth_per_year * station.population / 365.25;
+                // Those who would come at the reference cost.
+                flow += growth.growth_per_year * station.population / 365.25
+                    * (employer_pays(domain::PassengerKind::Migrant) ? settler_share(payback_years(origin_id, destination_id)) : 1.0);
             }
         }
         if (!is_earth_gateway(origin_id) && is_earth_gateway(destination_id) && gateway_for(origin_id, false) == destination_id) {
@@ -277,6 +312,110 @@ double Simulation::passenger_flow_per_day(const std::string& origin_id, const st
         }
     }
     return flow;
+}
+
+std::vector<Simulation::PassengerBand> Simulation::expected_travellers(const std::string& origin_id,
+    const std::string& destination_id, double window_days) const {
+    // What post_travellers would post over `window_days` (the steady flows), by band.
+    std::vector<PassengerBand> out;
+    const auto add = [&](domain::PassengerKind kind, double per_day, bool fixed) {
+        if (per_day > 0.0) {
+            auto bands = passenger_bands(kind, origin_id, destination_id, per_day * window_days, fixed);
+            out.insert(out.end(), bands.begin(), bands.end());
+        }
+    };
+    using K = domain::PassengerKind;
+    add(K::Visitor, visitor_trips_per_day(origin_id, destination_id), false);
+    add(K::VisitorHome, visitor_trips_per_day(destination_id, origin_id), true);
+    if (const auto* tour = rotation_tour(destination_id); tour != nullptr && tour->out_gateway == origin_id) {
+        add(K::RotationOut, rotation_positions(get_station_state(destination_id)) / tour->tour_days, true);
+    }
+    if (const auto* tour = rotation_tour(origin_id); tour != nullptr && tour->home_gateway == destination_id) {
+        add(K::RotationHome, rotation_positions(get_station_state(origin_id)) / tour->tour_days, true);
+    }
+    if (migration_by_ship()) {
+        const auto& growth = universe_.growth;
+        if (is_earth_gateway(origin_id) && !is_earth_gateway(destination_id) && gateway_for(destination_id, true) == origin_id) {
+            const auto& station = get_station_state(destination_id);
+            const double ceiling = growth.max_population_factor
+                * static_cast<double>(get_station_definition(destination_id).population);
+            if (station.supply_index >= growth.grow_above
+                && station.credits >= universe_.open_economy.station_credit_floor && station.population < ceiling) {
+                add(K::Migrant, growth.growth_per_year * station.population / 365.25, false);
+            }
+        }
+        if (!is_earth_gateway(origin_id) && is_earth_gateway(destination_id) && gateway_for(origin_id, false) == destination_id) {
+            const auto& station = get_station_state(origin_id);
+            if (station.supply_index < growth.decline_below) {
+                add(K::Emigrant, growth.decline_per_year * station.population / 365.25, false);
+            }
+        }
+    }
+    // Those already waiting, spread over a new ship's route commitment.
+    const double spread = window_days / std::max(1.0, universe_.fleet_investment.route_commitment_days);
+    for (const auto& group : get_station_state(origin_id).waiting) {
+        if (group.destination_id == destination_id && group.count > 0.0) {
+            out.push_back({.band = group.band, .people = group.count * spread, .max_cost_cr = group.max_cost_cr,
+                .value_of_time_cr_per_day = group.value_of_time_cr_per_day});
+        }
+    }
+    return out;
+}
+
+Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::string& origin_id,
+    const std::string& destination_id, double days, double window_days, double berths, double open_share) const {
+    // The berths filled from the travellers expected over a trip's window, as passenger_offer
+    // fills them: the most willing first, each paying its hedonic fare or the clearing fare,
+    // never more than it is willing to pay.
+    PassengerRevenue revenue;
+    const auto* reference = reference_fare(origin_id, destination_id);
+    if (reference == nullptr || berths < 1.0 || open_share <= 0.0) {
+        return revenue;
+    }
+    const auto& env = universe_.ship_environment;
+    const double dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
+    struct Candidate {
+        double people;
+        double willing;
+        double hedonic;
+    };
+    std::vector<Candidate> candidates;
+    for (const auto& band : expected_travellers(origin_id, destination_id, window_days)) {
+        const double nonfare = passenger_nonfare_cr(band.value_of_time_cr_per_day, days, dose_rate);
+        const double willing = band.max_cost_cr - nonfare;
+        if (willing <= 0.0) {
+            continue;
+        }
+        candidates.push_back({band.people * open_share, willing,
+            reference->fare_cr + passenger_nonfare_cr(band.value_of_time_cr_per_day, reference->days, dose_rate) - nonfare});
+    }
+    std::stable_sort(candidates.begin(), candidates.end(),
+        [](const Candidate& a, const Candidate& b) { return a.willing > b.willing; });
+    double left = berths;
+    double clearing = 0.0;
+    std::size_t boarding = 0;
+    for (const auto& candidate : candidates) {
+        if (left <= 0.0) {
+            clearing = candidate.willing;
+            break;
+        }
+        const double take = std::min(candidate.people, left);
+        left -= take;
+        ++boarding;
+        if (take < candidate.people) {
+            clearing = candidate.willing;
+            break;
+        }
+    }
+    left = berths;
+    for (std::size_t c = 0; c < boarding; ++c) {
+        const auto& candidate = candidates[c];
+        const double count = std::min(candidate.people, left);
+        left -= count;
+        revenue.people += count;
+        revenue.fares_cr += count * std::min(candidate.willing, std::max(candidate.hedonic, clearing));
+    }
+    return revenue;
 }
 
 double Simulation::expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
@@ -421,13 +560,28 @@ Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& 
         }
     }
     left = std::floor(berths + 1e-9);
+    // An employer pays only what it has above its credit floor.
+    std::map<std::string, double> budgets;
     for (std::size_t c = 0; c < boarding; ++c) {
         const auto& candidate = candidates[c];
         const double fare = std::min(candidate.willing, std::max({candidate.hedonic, clearing, marginal}));
         if (fare <= marginal) {
             continue;
         }
-        const double count = std::min(candidate.whole, left);
+        double count = std::min(candidate.whole, left);
+        const auto& group = origin.waiting[candidate.group];
+        if (employer_pays(group.kind) && !group.work_station_id.empty()) {
+            auto budget = budgets.find(group.work_station_id);
+            if (budget == budgets.end()) {
+                budget = budgets.emplace(group.work_station_id, get_station_state(group.work_station_id).credits
+                    - universe_.open_economy.station_credit_floor).first;
+            }
+            count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
+            if (count < 1.0) {
+                continue;
+            }
+            budget->second -= count * fare;
+        }
         left -= count;
         offer.picks.push_back({.group = candidate.group, .count = count, .fare_cr = fare});
         offer.people += count;
@@ -453,9 +607,15 @@ void Simulation::board_passengers(domain::ShipState& ship, domain::StationState&
         group.count -= count;
         const auto kind = static_cast<std::size_t>(group.kind);
         const double fares = count * pick.fare_cr;
-        // Rotation is paid by the employer, everyone else pays out of their own (outside) income.
-        if (pays_from_employer(group.kind)) {
-            get_station_state(group.work_station_id).credits -= fares;
+        // Rotation (and sponsored settlers) are paid by the employer, the others out of their own
+        // (outside) income. The employer recovers it through its prices.
+        if (employer_pays(group.kind) && !group.work_station_id.empty()) {
+            auto& employer = get_station_state(group.work_station_id);
+            employer.credits -= fares;
+            employer.ledger.passages_paid += fares;
+            if (universe_.passengers.passage_recovery_days > 0.0) {
+                employer.passage_debt_cr += fares;
+            }
         } else {
             outside_economy_credits_ -= fares;
         }
@@ -533,31 +693,118 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
     ship.passengers.clear();
 }
 
+namespace {
+std::string json_text(const std::string& text) {
+    std::string out;
+    for (const char c : text) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+        }
+        out += c;
+    }
+    return out;
+}
+}  // namespace
+
+std::string Simulation::ship_passengers_json(const domain::ShipState& ship, const domain::ShipClassDefinition& design) const {
+    // Bridge fields, sent only with passengers on: berths, who is aboard, the cabin shielding.
+    if (!passengers_on()) {
+        return {};
+    }
+    double aboard = 0.0;
+    std::string lots = "[";
+    for (const auto& lot : ship.passengers) {
+        aboard += lot.count;
+        lots += std::format("{}{{\"kind\":\"{}\",\"to\":\"{}\",\"count\":{:.0f},\"fare_cr\":{:.1f}}}", lots.size() > 1 ? "," : "",
+            passenger_kind_name(lot.kind), json_text(lot.destination_id), lot.count, lot.fare_cr);
+    }
+    lots += "]";
+    return std::format("\"berths\":{},\"passengers_aboard\":{:.0f},\"passenger_lots\":{},\"fares_cr\":{:.1f},"
+                       "\"cabin_shield_g_cm2\":{:.1f},",
+        design.berths, aboard, lots, ship.ledger.fares, cabin_shield_g_cm2(design, ship.propellant_kg));
+}
+
+std::string Simulation::station_passengers_json(const domain::StationState& station) const {
+    // Bridge fields, sent only with passengers on: who waits here for which station, visitors,
+    // what the station paid for passages and has still to recover through its prices.
+    if (!passengers_on()) {
+        return {};
+    }
+    std::map<std::pair<std::string, std::string>, double> waiting;
+    for (const auto& group : station.waiting) {
+        waiting[{passenger_kind_name(group.kind), group.destination_id}] += group.count;
+    }
+    std::string list = "[";
+    for (const auto& [key, count] : waiting) {
+        if (count >= 0.5) {
+            list += std::format("{}{{\"kind\":\"{}\",\"to\":\"{}\",\"count\":{:.0f}}}", list.size() > 1 ? "," : "",
+                key.first, json_text(key.second), count);
+        }
+    }
+    list += "]";
+    double visiting = 0.0;
+    for (const auto& stay : station.visiting) {
+        visiting += stay.count;
+    }
+    const auto* tour = rotation_tour(station.station_id);
+    return std::format("\"passengers_waiting\":{},\"visitors_here\":{:.0f},\"passages_paid\":{:.1f},"
+                       "\"passages_recovered\":{:.1f},\"passage_debt_cr\":{:.1f},\"rotation_tour_days\":{:.0f},",
+        list, visiting, station.ledger.passages_paid, station.ledger.passages_recovered, station.passage_debt_cr,
+        tour == nullptr ? 0.0 : tour->tour_days);
+}
+
 std::vector<Simulation::ReferenceFareRow> Simulation::compute_reference_fares() const {
     const auto& pricing = universe_.pricing;
     const auto& market = universe_.market;
     const auto departures = static_cast<int>(pricing.reference_departures);
-    // Cabin carriers: every hull with its cabin module, and the liners.
+    // Cabin carriers: every hull with each of its cabin modules (plain, shielded), and the
+    // liners bare and with their cabin shields (a water wall, the cabins inside the tanks, both).
     std::vector<domain::ShipClassDefinition> carriers;
+    const auto add_carrier = [&](const domain::ShipClassDefinition& hull, const std::vector<const domain::ShipModuleDefinition*>& fit) {
+        std::vector<domain::ShipComponentDefinition> parts;
+        std::vector<std::string> ids;
+        for (const auto* module : fit) {
+            parts.push_back(module->part);
+            ids.push_back(module->id);
+        }
+        auto design = domain::derive_design(hull, parts, domain::design_id(hull.id, ids));
+        design.base_class_id = hull.id;
+        design.fit = ids;
+        for (const auto* module : fit) {
+            for (const auto& [effect, value] : module->effects) {
+                design.effects[effect] += value;
+            }
+            if (const auto berths = module->effects.find("berths"); module->slot == "cabin" && berths != module->effects.end()) {
+                design.berths += berths->second;
+            }
+        }
+        carriers.push_back(std::move(design));
+    };
     for (const auto& ship_class : universe_.ship_classes) {
-        if (ship_class.id != ship_class.hull_id) {
+        // Liners in every tank size (more water round cabins inside the tanks), other hulls nominal.
+        if (ship_class.id != ship_class.hull_id && ship_class.berths <= 0.0) {
             continue;
+        }
+        std::vector<const domain::ShipModuleDefinition*> shields;
+        for (const auto& module : universe_.ship_modules) {
+            if (module.hull_id != ship_class.hull_id) {
+                continue;
+            }
+            if (module.slot == "cabin" && module.effects.contains("berths") && ship_class.id == ship_class.hull_id) {
+                add_carrier(ship_class, {&module});
+            } else if (ship_class.berths > 0.0
+                && (module.effects.contains("cabin_shield_g_cm2") || module.effects.contains("tank_wrap_m2"))) {
+                shields.push_back(&module);
+            }
         }
         if (ship_class.berths > 0.0) {
             carriers.push_back(ship_class);
-            continue;
-        }
-        for (const auto& module : universe_.ship_modules) {
-            const auto berths = module.effects.find("berths");
-            if (module.hull_id != ship_class.id || module.slot != "cabin" || berths == module.effects.end()) {
-                continue;
+            for (const auto* shield : shields) {
+                add_carrier(ship_class, {shield});
             }
-            auto design = domain::derive_design(ship_class, {module.part}, domain::design_id(ship_class.id, {module.id}));
-            design.berths += berths->second;
-            design.base_class_id = ship_class.id;
-            design.fit = {module.id};
-            design.effects = module.effects;
-            carriers.push_back(std::move(design));
+            if (shields.size() > 1) {
+                add_carrier(ship_class, shields);
+            }
         }
     }
     const double fuel_cr_per_kg = get_commodity(economy::FUEL_ID).base_price / FUEL_UNITS_TO_KG;
