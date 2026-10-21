@@ -145,6 +145,24 @@ SHELTER_AREAL_KG_PER_M2 = 200.0
 SHELTER_M3_PER_CREW = 2.0
 SHELTER_TANK_FRACTION = 0.10      # tank walls per kg of water (estimate, like the plasma tanks' 5-10%)
 
+# Zero-boil-off cryocooler for liquid-hydrogen tanks (nuclear-thermal hulls). Heat leaks through
+# high-performance MLI at ~0.2 W/m2 near 1 AU (estimate within NASA cryogenic-storage studies'
+# 0.1-0.4); tank area = sphere of the tank volume x 1.3 (several cylinders). The same numbers
+# drive the simulation (data/economy/ship_environment.csv). The cooler lifts 1.5x the nominal
+# tank's leak at 1 AU (covers the 200% tanks there, the nominal tanks down to ~0.67 AU).
+# A 20 K cooler rejecting at 300 K has Carnot COP 20/280; practical turbo-Brayton machines
+# reach ~14% of Carnot: ~100 W input per W lifted (estimate); ~5 kg per W lifted (estimate).
+# Power from the engine's bimodal Brayton loop (NASA bimodal NTR studies, Borowski: ~25 kWe
+# per stage), ~10 kg/kWe (estimate), and 300 K two-sided panels for the input power plus lift.
+MLI_FLUX_W_M2 = 0.2
+TANK_AREA_FACTOR = 1.3
+ZBO_LIFT_MARGIN = 1.5
+ZBO_W_INPUT_PER_W_LIFT = 100.0
+ZBO_KG_PER_W_LIFT = 5.0
+BRAYTON_KG_PER_KWE = 10.0
+ZBO_RADIATOR_K = 300.0
+USD_PER_KG_CRYOCOOLER = 10_000.0   # estimate, like the plasma drive's precision hardware
+
 # Tank refit options, as multiples of the class's nominal propellant capacity. The engine
 # keeps the nominal size (thrust, jet power); tanks and structure follow the propellant.
 TANK_OPTIONS = (0.5, 1.0, 1.5, 2.0)
@@ -422,7 +440,28 @@ def modules(b: Build) -> list[dict]:
                 "price_cr": round((walls * USD_PER_KG["plasma_tank"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
                 "volume_m3": volume, "area_m2": area, "capacity_kg": water,
                 "effects": f"spe_shield_g_cm2={SHELTER_AREAL_KG_PER_M2 / 10.0:g}"})
+    if spec_is_thermal(b):
+        volume = b.propellant_kg / PROPELLANT["lh2"]["density_kg_m3"]
+        area = TANK_AREA_FACTOR * 4.0 * math.pi * (3.0 * volume / (4.0 * math.pi)) ** (2.0 / 3.0)
+        lift = ZBO_LIFT_MARGIN * MLI_FLUX_W_M2 * area
+        power = ZBO_W_INPUT_PER_W_LIFT * lift
+        heat = power + lift
+        panel_w_per_m2 = 2.0 * RADIATOR_EMISSIVITY * STEFAN_BOLTZMANN * ZBO_RADIATOR_K ** 4
+        radiator = heat / panel_w_per_m2 * RADIATOR_AREAL_KG_PER_M2
+        cooler = ZBO_KG_PER_W_LIFT * lift
+        brayton = BRAYTON_KG_PER_KWE * power / 1000.0
+        truss = STRUCTURE_FRACTION * (cooler + brayton + radiator)
+        out.append({"module_id": "zbo_cryocooler", "slot": "tank", "name": "Zero-boil-off cryocooler (20 K)",
+                    "mass_kg": round(cooler + brayton + radiator + truss),
+                    "price_cr": round((cooler * USD_PER_KG_CRYOCOOLER + brayton * USD_PER_KG["liquid_core"]
+                                       + radiator * USD_PER_KG["radiator"] + truss * USD_PER_KG["structure"]) * CR_PER_USD),
+                    "power_w": power, "heat_w": heat, "temperature_k": 20.0,
+                    "area_m2": heat / panel_w_per_m2, "effects": f"zbo_lift_w={lift:.6g}"})
     return out
+
+
+def spec_is_thermal(b: Build) -> bool:
+    return b.spec.drive != "plasma"
 
 
 def write_modules_csv(nominal: list[Build], modules_path: Path, slots_path: Path) -> None:

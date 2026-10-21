@@ -1,0 +1,10 @@
+station_id,location_factor,shield_g_cm2,note
+earth_l1,1.0,20,deep space 1.5 Mkm sunward (outside the magnetosphere); station walls and stores ~20 g/cm2 (estimate)
+earth_orbit,0.3,0,low orbit: Earth's shadow and magnetosphere; ISS crews get ~0.5-0.7 mSv/day (NASA) -> 0.55
+venus_cloud,0.0006,0,aerostat at ~50 km: ~1 kg/cm2 of air above like Earth's sea level (~0.001 mSv/day)
+mercury_yard,0.74,50,airless surface (half the sky plus albedo neutrons: Chang'e-4 1.37 vs 1.84 mSv/day); regolith-bermed habitat (estimate)
+mars_transfer,0.8,20,Mars orbit: the planet blocks part of the sky (estimate)
+ceres_depot,0.74,50,airless surface as Mercury
+luna_base,0.74,50,lunar surface: Chang'e-4 LND measured 1.37 mSv/day (Zhang et al. 2020); regolith-bermed habitat (estimate)
+ganymede_depot,0.1,50,underground mine at the equator in Ganymede's own magnetosphere (equatorial flux like Callisto's; Cooper et al. 2001); Jupiter's belts on approach not modelled
+titan_works,0.0001,0,Titan surface under ~11 kg/cm2 of atmosphere

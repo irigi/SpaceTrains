@@ -54,6 +54,10 @@ struct PlanningOptions {
     double purchasable_propellant_kg {0.0};
     // Propellant kept unburned on arrival, as a fraction of the burn.
     double reserve_fraction {0.0};
+    // Nuclear-thermal: liquid hydrogen that boils off per day from loading to arrival (tier 2,
+    // step F). The load covers it on top of the burn and reserve, and the cost objective pays
+    // for it. 0 = lossless tanks.
+    double boiloff_kg_per_day {0.0};
     // Off when only the numbers matter (scoring candidates): no rendering path is built. The
     // chosen mission is planned again with its path.
     bool include_path {true};

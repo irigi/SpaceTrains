@@ -209,7 +209,8 @@ void print_economy_audit(
     const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::economy::EconomySystem& economy,
-    double delivered_price_ratio) {
+    double delivered_price_ratio,
+    const spacetrains::simulation::Simulation::RadiationAudit& radiation) {
 
     // Collect all commodity IDs
     std::vector<std::string> commodity_ids;
@@ -319,6 +320,14 @@ void print_economy_audit(
         }
         std::cout << std::format("    Exports: {:.0f} cr\n", market_value);
         std::cout << std::format("    Delivered price: {:.2f}x the reference\n", delivered_price_ratio);
+        if (radiation.crew_dose_msv > 0.0) {
+            std::cout << std::format("    Radiation: {:.0f} person-mSv, hazard pay {:.0f} cr, highest leg {:.0f} mSv,"
+                " {} particle events (largest {:.2f}x 1972)\n", radiation.crew_dose_msv, radiation.hazard_pay_cr,
+                radiation.highest_leg_dose_msv, radiation.particle_events, radiation.largest_event_magnitude);
+        }
+        if (radiation.hydrogen_boiled_kg > 0.0) {
+            std::cout << std::format("    Boil-off: {:.0f} t of hydrogen\n", radiation.hydrogen_boiled_kg / 1000.0);
+        }
     }
 
     // Purchase orders (step 29, step 1: observed only, nothing uses them yet).
@@ -1143,7 +1152,7 @@ int main(int argc, char** argv) {
             print_station_inventories(snap, sim.universe());
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
-                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio());
+                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {

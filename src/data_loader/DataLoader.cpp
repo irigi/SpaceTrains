@@ -1042,6 +1042,79 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
     }
 
+    // Ship environment (tier 2): crew radiation and the other effects modules answer. Optional
+    // file and keys; the defaults in domain::ShipEnvironmentDefinition are the sourced values,
+    // with every mechanism switched off.
+    {
+        const auto env_path = root / "economy" / "ship_environment.csv";
+        if (std::filesystem::exists(env_path)) {
+            const auto rows = read_csv_rows(env_path);
+            require_header(rows.front(), {"key", "value"}, env_path);
+            std::unordered_set<std::string> seen_keys;
+            auto& env = universe.ship_environment;
+            double radiation = env.radiation ? 1.0 : 0.0;
+            double boiloff = env.boiloff ? 1.0 : 0.0;
+            const std::unordered_map<std::string, double*> fields {
+                {"radiation", &radiation},
+                {"gcr_msv_per_day", &env.gcr_msv_per_day},
+                {"gcr_cycle_amplitude", &env.gcr_cycle_amplitude},
+                {"solar_cycle_days", &env.solar_cycle_days},
+                {"solar_minimum_day", &env.solar_minimum_day},
+                {"gcr_gradient_per_au", &env.gcr_gradient_per_au},
+                {"gcr_attenuation_g_cm2", &env.gcr_attenuation_g_cm2},
+                {"shelter_occupancy", &env.shelter_occupancy},
+                {"spe_rate_per_year", &env.spe_rate_per_year},
+                {"spe_min_magnitude", &env.spe_min_magnitude},
+                {"spe_max_magnitude", &env.spe_max_magnitude},
+                {"spe_index", &env.spe_index},
+                {"spe_hull_msv", &env.spe_hull_msv},
+                {"spe_shelter_msv", &env.spe_shelter_msv},
+                {"spe_shelter_g_cm2", &env.spe_shelter_g_cm2},
+                {"career_limit_msv", &env.career_limit_msv},
+                {"hazard_cr_per_msv", &env.hazard_cr_per_msv},
+                {"boiloff", &boiloff},
+                {"mli_flux_w_m2", &env.mli_flux_w_m2},
+                {"mli_flux_exponent", &env.mli_flux_exponent},
+                {"lh2_latent_j_kg", &env.lh2_latent_j_kg},
+                {"tank_area_factor", &env.tank_area_factor},
+            };
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 2, env_path, i + 1);
+                require_unique_id(row[0], seen_keys, env_path, i + 1);
+                const auto field = fields.find(row[0]);
+                if (field == fields.end()) {
+                    throw std::runtime_error("Unknown key '" + row[0] + "' in " + env_path.string());
+                }
+                *field->second = parse_double(row[1], env_path, i + 1, row[0].c_str());
+            }
+            env.radiation = radiation != 0.0;
+            env.boiloff = boiloff != 0.0;
+            if (env.lh2_latent_j_kg <= 0.0 || env.tank_area_factor <= 0.0 || env.mli_flux_w_m2 < 0.0) {
+                throw std::runtime_error(env_path.string() + ": boil-off latent heat, tank area factor or flux out of range");
+            }
+            if (env.solar_cycle_days <= 0.0 || env.gcr_attenuation_g_cm2 <= 0.0 || env.spe_index <= 0.0
+                || env.spe_min_magnitude <= 0.0 || env.spe_max_magnitude <= env.spe_min_magnitude
+                || env.spe_hull_msv <= 0.0 || env.spe_shelter_msv <= 0.0 || env.spe_shelter_g_cm2 <= 0.0
+                || env.career_limit_msv <= 0.0) {
+                throw std::runtime_error(env_path.string() + ": a cycle, attenuation, magnitude range, dose or limit is not positive");
+            }
+        }
+        const auto stations_radiation_path = root / "economy" / "station_radiation.csv";
+        if (std::filesystem::exists(stations_radiation_path)) {
+            const auto rows = read_csv_rows(stations_radiation_path);
+            require_header(rows.front(), {"station_id", "location_factor", "shield_g_cm2", "note"}, stations_radiation_path);
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 4, stations_radiation_path, i + 1);
+                universe.station_radiation[row[0]] = {
+                    .location_factor = parse_double(row[1], stations_radiation_path, i + 1, "location_factor"),
+                    .shield_g_cm2 = parse_double(row[2], stations_radiation_path, i + 1, "shield_g_cm2"),
+                };
+            }
+        }
+    }
+
     {
         // Written by `spacetrains_headless --write-reference-prices` (step 15); the price and the
         // round-trip days are read, the rest documents where each price comes from.

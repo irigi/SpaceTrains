@@ -1,10 +1,16 @@
 hull_id,module_id,slot,name,mass_kg,price_cr,power_w,heat_w,temperature_k,volume_m3,area_m2,capacity_kg,crew_capacity,effects
 light_freighter,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
+light_freighter,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),1552,10472,22090.5,22311.4,20,,28.5746,,,zbo_lift_w=220.905
 tanker,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
+tanker,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),1552,10472,22090.5,22311.4,20,,28.5746,,,zbo_lift_w=220.905
 fast_courier,storm_shelter,habitat,Storm shelter (water wall),3376,137,,,,4,13.9494,2789.87,,spe_shield_g_cm2=20
+fast_courier,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),1552,10472,22090.5,22311.4,20,,28.5746,,,zbo_lift_w=220.905
 plasma_freighter,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
 plasma_courier,storm_shelter,habitat,Storm shelter (water wall),3376,137,,,,4,13.9494,2789.87,,spe_shield_g_cm2=20
 deep_space_freighter,storm_shelter,habitat,Storm shelter (water wall),5359,218,,,,8,22.1432,4428.65,,spe_shield_g_cm2=20
+deep_space_freighter,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),2464,16623,35066.4,35417.1,20,,45.3594,,,zbo_lift_w=350.664
 ntr_freighter,storm_shelter,habitat,Storm shelter (water wall),5359,218,,,,8,22.1432,4428.65,,spe_shield_g_cm2=20
+ntr_freighter,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),3067,20693,43651.9,44088.4,20,,56.4649,,,zbo_lift_w=436.519
 bulk_tanker,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20
+bulk_tanker,zbo_cryocooler,tank,Zero-boil-off cryocooler (20 K),3464,23367,49293.6,49786.6,20,,63.7627,,,zbo_lift_w=492.936
 plasma_bulk_tanker,storm_shelter,habitat,Storm shelter (water wall),4423,180,,,,6,18.2788,3655.77,,spe_shield_g_cm2=20

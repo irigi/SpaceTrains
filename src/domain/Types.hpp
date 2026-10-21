@@ -119,6 +119,59 @@ struct ShipOperationsDefinition {
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
 
+// The space environment acting on ships and crews (data/economy/ship_environment.csv, tier 2;
+// sources and derivations in docs/ship_technology.md, "Crew radiation"). Every mechanism is a
+// switch; with all off the economy is the reference.
+struct ShipEnvironmentDefinition {
+    bool radiation {false};
+    // Galactic cosmic rays behind a habitat-class hull (~10 g/cm2): Curiosity's RAD measured
+    // 1.84 mSv/day in cruise (Zeitlin et al. 2013). The solar cycle modulates it by about
+    // +-30%, highest at solar minimum; it grows a few per cent per AU outward.
+    double gcr_msv_per_day {1.84};
+    double gcr_cycle_amplitude {0.3};
+    double solar_cycle_days {4018.0};       // 11 years
+    double solar_minimum_day {-1000.0};     // a solar minimum, in game days from the start
+    double gcr_gradient_per_au {0.03};
+    double gcr_attenuation_g_cm2 {46.0};    // extra water areal density that cuts GCR dose by 1/e
+    double shelter_occupancy {0.33};        // the crew sleeps in its storm shelter
+    // Solar particle events: rate of events above spe_min_magnitude (cycle mean; none at
+    // solar minimum, twice the mean at maximum), magnitudes power-law distributed with index
+    // spe_index up to spe_max_magnitude, in units of the August 1972 event at 1 AU. Dose to
+    // the blood-forming organs of that event: ~1300 mSv inside a pressure hull, ~200 behind
+    // 20 g/cm2 of water (NASA, below the 250 mSv 30-day limit); falls off as 1/r^2.
+    double spe_rate_per_year {0.5};
+    double spe_min_magnitude {0.01};
+    double spe_max_magnitude {2.0};
+    double spe_index {0.5};
+    double spe_hull_msv {1300.0};
+    double spe_shelter_msv {200.0};
+    double spe_shelter_g_cm2 {20.0};
+    // A crew is hired for one leg; no leg may take it past the career limit (ESA, 1 Sv).
+    double career_limit_msv {1000.0};
+    // Hazard pay, a compensating wage differential: ICRP 103 nominal risk 5.5%/Sv times a
+    // ~$10M value of a statistical life, at the game's 0.00078 cr/$: 0.43 cr/mSv.
+    double hazard_cr_per_msv {0.43};
+
+    // Liquid-hydrogen boil-off (step F). Heat leaks through the tanks' multilayer insulation
+    // at mli_flux_w_m2 at 1 AU, scaled by r^-mli_flux_exponent (the outer layers run colder far
+    // from the Sun); it boils hydrogen at its latent heat. Tank area: a sphere of the tank
+    // volume times tank_area_factor (several cylinders). A zero-boil-off cryocooler module
+    // lifts up to its rated heat (effect zbo_lift_w).
+    bool boiloff {false};
+    double mli_flux_w_m2 {0.2};
+    double mli_flux_exponent {1.0};
+    double lh2_latent_j_kg {446000.0};
+    double tank_area_factor {1.3};
+};
+
+// Where a docked crew lives (data/economy/station_radiation.csv): the share of the open-space
+// cosmic-ray dose that reaches the station's location (planet shadow, magnetosphere,
+// atmosphere, rock) and the station's own shielding beyond a habitat hull.
+struct StationRadiationDefinition {
+    double location_factor {1.0};
+    double shield_g_cm2 {0.0};
+};
+
 // Propellant supply (data/economy/fuel_supply.csv, fuel_factories.csv). Every station has a
 // depot outside its cargo storage; only fuel factories fill theirs, at their output rate, and
 // price it on their buffer. Other depots hold what ships deliver, bought under orders (step 29).
@@ -317,6 +370,8 @@ struct UniverseDefinition {
     std::vector<CommodityDefinition> commodities;
     std::vector<ShipClassDefinition> ship_classes;
     std::vector<ShipModuleDefinition> ship_modules;
+    ShipEnvironmentDefinition ship_environment;
+    std::unordered_map<std::string, StationRadiationDefinition> station_radiation;
     // Module slots by hull id and slot (data/ship_classes/hull_slots.csv).
     std::unordered_map<std::string, std::unordered_map<std::string, int>> hull_slots;
     std::vector<StationDefinition> stations;
@@ -439,6 +494,7 @@ struct MissionAssignment {
     std::string trajectory_type;
     // Return fuel carried for a port that cannot refuel the ship; the samples do not include it.
     double carried_propellant_kg {0.0};
+    double boiled_propellant_kg {0.0};   // hydrogen boiled off since loading (tier 2, step F)
     // The follow-up load the ship planned to pick up at its destination (none if empty):
     // other ships' forecasts leave it to this ship.
     std::string pickup_commodity_id;
@@ -498,6 +554,7 @@ struct ShipState {
     // Tank refits (part C): the class the ship becomes when the yard is done.
     std::string refit_class_id;
     std::vector<std::string> refit_fit;   // and the modules it leaves the yard with
+    double leg_dose_msv {0.0};            // radiation dose of the crew hired for this leg
     double refit_done_s {0.0};
     double next_refit_review_s {0.0};
     double laid_up_since_s {0.0};      // when the ship was last laid up

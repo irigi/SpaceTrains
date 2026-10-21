@@ -91,6 +91,16 @@ public:
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
     [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return recent_trades_; }
+    // Audit (tier 2, crew radiation): since start or load, not saved.
+    struct RadiationAudit {
+        double crew_dose_msv {0.0};      // person-mSv over the fleet
+        double hazard_pay_cr {0.0};
+        double highest_leg_dose_msv {0.0};
+        int particle_events {0};
+        double largest_event_magnitude {0.0};
+        double hydrogen_boiled_kg {0.0};   // step F
+    };
+    [[nodiscard]] const RadiationAudit& radiation_audit() const { return radiation_audit_; }
     // Audit: deliveries with a reference price since start (or load), paid vs reference.
     [[nodiscard]] double delivered_price_ratio() const {
         return delivered_reference_cr_ > 0.0 ? delivered_paid_cr_ / delivered_reference_cr_ : 0.0;
@@ -385,6 +395,25 @@ private:
     void step_in_transit_ship(domain::ShipState& ship, double dt_s);
     void add_event(std::string text, std::string category = "general");
     void record_trade(domain::TradeEntry trade);
+    // Crew radiation (tier 2, step D; src/simulation/CrewEnvironment.hpp).
+    [[nodiscard]] double station_r_au(const domain::StationDefinition& station, double time_s) const;
+    [[nodiscard]] double docked_dose_msv_per_day(const std::string& station_id, double time_s) const;
+    // Expected dose rate of a crew flying from -> to (departing at time_s).
+    [[nodiscard]] double leg_dose_msv_per_day(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
+    // Hazard pay per day of that leg (0 with radiation off).
+    [[nodiscard]] double hazard_cr_per_day(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
+    // Whether a leg of this length keeps its crew under the career limit.
+    [[nodiscard]] bool leg_dose_allowed(const domain::ShipClassDefinition& design,
+        const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) const;
+    void accrue_radiation(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
+    // Where a ship is from the Sun now: its station, or interpolated over its leg.
+    [[nodiscard]] double ship_r_au(const domain::ShipState& ship) const;
+    // Liquid hydrogen a design loses per day at r (AU): the tanks' heat leak less what its
+    // cryocooler lifts (tier 2, step F; 0 for water-propellant plasma ships or boil-off off).
+    [[nodiscard]] double boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const;
+    void step_particle_events(double dt_s);
     void record_trajectory_audit(
         const domain::ShipState& ship,
         const domain::StationDefinition& origin,
@@ -439,6 +468,8 @@ private:
     std::vector<domain::EventEntry> recent_events_;
     std::vector<domain::TradeEntry> recent_trades_;
     double delivered_paid_cr_ {0.0};       // audit only, not saved
+    RadiationAudit radiation_audit_;       // audit only, not saved
+    mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache_;  // time, AU
     double delivered_reference_cr_ {0.0};
     bool trajectory_audit_enabled_ {false};
     std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
@@ -457,6 +488,8 @@ private:
     std::map<std::string, domain::ShipClassDefinition> designs_;
     std::unordered_map<std::string, const domain::ShipModuleDefinition*> modules_by_key_;  // "hull|module"
     std::unordered_set<std::string> active_effects_;  // module effect keys switched on
+    // Solar particle events draw from their own stream, so station events stay as they were.
+    std::mt19937_64 environment_rng_;
 };
 
 }  // namespace spacetrains::simulation

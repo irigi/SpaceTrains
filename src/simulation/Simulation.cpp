@@ -1,5 +1,6 @@
 #include "simulation/Simulation.hpp"
 #include "domain/ShipDesign.hpp"
+#include "simulation/CrewEnvironment.hpp"
 
 #include "util/Profiling.hpp"
 
@@ -8,6 +9,7 @@
 #include <array>
 #include <tuple>
 #include <cmath>
+#include <numbers>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -187,6 +189,13 @@ Simulation::Simulation(domain::UniverseDefinition universe)
         modules_by_key_[module.hull_id + "|" + module.id] = &module;
     }
     event_rng_.seed(universe_.event_seed);
+    environment_rng_.seed(universe_.event_seed + 1);
+    if (universe_.ship_environment.radiation) {
+        active_effects_.insert("spe_shield_g_cm2");
+    }
+    if (universe_.ship_environment.boiloff) {
+        active_effects_.insert("zbo_lift_w");
+    }
     for (const auto& faction : universe_.factions) {
         faction_treasuries_[faction.id] = 0.0;
     }
@@ -303,6 +312,7 @@ Simulation Simulation::from_data_root(const std::string& data_root,
 void Simulation::start_at(double time_s) {
     game_time_s_ = time_s;
     event_rng_.seed(universe_.event_seed ^ static_cast<std::uint64_t>(time_s));
+    environment_rng_.seed((universe_.event_seed + 1) ^ static_cast<std::uint64_t>(time_s));
     next_investment_review_s_ = time_s;
     for (auto& ship : ships_) {
         ship.next_review_s = time_s;
@@ -1515,7 +1525,8 @@ void Simulation::update_market_prices() {
                         crew += ship_class.crew_size * units_per_crew_day * get_commodity(good).base_price;
                     }
                     const double fuel_price = std::max(fuel_base, station_price(get_station_state(f.at->id), economy::FUEL_ID));
-                    const double trip = leg.travel_days * (daily_capital_cost(ship_class) + crew)
+                    const double trip = leg.travel_days * (daily_capital_cost(ship_class) + crew
+                            + hazard_cr_per_day(ship_class, *f.at, destination, f.from_s))
                         + leg.propellant_kg / FUEL_UNITS_TO_KG * fuel_price;
                     double units = std::max(1.0, market.fill_ref * ship_class.cargo_capacity_units);
                     if (market.ask_open_units > 0.0) {
@@ -1680,6 +1691,166 @@ void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& m
     }
 }
 
+double Simulation::station_r_au(const domain::StationDefinition& station, double time_s) const {
+    // Asked many times per tick at the same few times (now, a bucket start): remember the
+    // last answer per station. Simulation thread only; a pure cache.
+    auto& slot = station_radius_cache_[station.id];
+    if (slot.first != time_s || slot.second <= 0.0) {
+        slot = {time_s, mechanics_.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11};
+    }
+    return slot.second;
+}
+
+double Simulation::docked_dose_msv_per_day(const std::string& station_id, double time_s) const {
+    const auto& env = universe_.ship_environment;
+    const auto it = universe_.station_radiation.find(station_id);
+    const domain::StationRadiationDefinition open_space;
+    return crew_environment::expected_docked_msv_per_day(env, it == universe_.station_radiation.end() ? open_space : it->second,
+        station_r_au(get_station_definition(station_id), time_s), time_s / 86400.0);
+}
+
+double Simulation::leg_dose_msv_per_day(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const {
+    return crew_environment::expected_transit_msv_per_day(universe_.ship_environment, design,
+        station_r_au(from, time_s), station_r_au(to, time_s), time_s / 86400.0);
+}
+
+double Simulation::hazard_cr_per_day(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const {
+    const auto& env = universe_.ship_environment;
+    if (!env.radiation || env.hazard_cr_per_msv <= 0.0) {
+        return 0.0;
+    }
+    return design.crew_size * leg_dose_msv_per_day(design, from, to, time_s) * env.hazard_cr_per_msv;
+}
+
+bool Simulation::leg_dose_allowed(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) const {
+    const auto& env = universe_.ship_environment;
+    return !env.radiation || leg_dose_msv_per_day(design, from, to, time_s) * days <= env.career_limit_msv;
+}
+
+void Simulation::accrue_radiation(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days) {
+    const auto& env = universe_.ship_environment;
+    if (!env.radiation || days <= 0.0) {
+        return;
+    }
+    double rate = 0.0;
+    if (ship.phase == domain::ShipMissionPhase::InTransit) {
+        // Cosmic rays where the ship is now (the distance from the Sun interpolated over the
+        // leg); particle events strike separately (step_particle_events).
+        rate = crew_environment::gcr_msv_per_day(env, ship_r_au(ship), game_time_s_ / 86400.0)
+            * crew_environment::gcr_factor(env, crew_environment::shelter_g_cm2(design));
+    } else {
+        // In port the crew lives in the station's habitat.
+        const auto it = universe_.station_radiation.find(ship.current_station_id);
+        const double factor = it == universe_.station_radiation.end() ? 1.0 : it->second.location_factor;
+        const double shield = it == universe_.station_radiation.end() ? 0.0 : it->second.shield_g_cm2;
+        rate = factor * std::exp(-shield / env.gcr_attenuation_g_cm2)
+            * crew_environment::gcr_msv_per_day(env, station_r_au(get_station_definition(ship.current_station_id), game_time_s_),
+                game_time_s_ / 86400.0);
+    }
+    const double dose = rate * days;
+    ship.leg_dose_msv += dose;
+    const double pay = design.crew_size * dose * env.hazard_cr_per_msv;
+    if (pay > 0.0) {
+        pay_home_station(ship, pay);
+        ship.ledger.wages += pay;
+    }
+    radiation_audit_.crew_dose_msv += design.crew_size * dose;
+    radiation_audit_.hazard_pay_cr += pay;
+    radiation_audit_.highest_leg_dose_msv = std::max(radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
+}
+
+double Simulation::ship_r_au(const domain::ShipState& ship) const {
+    if (ship.phase != domain::ShipMissionPhase::InTransit) {
+        return station_r_au(get_station_definition(ship.current_station_id), game_time_s_);
+    }
+    const auto& mission = ship.active_mission;
+    const double r1 = station_r_au(get_station_definition(mission.origin_station_id), mission.departure_time_s);
+    const double r2 = station_r_au(get_station_definition(mission.destination_station_id), mission.arrival_time_s);
+    const double span = std::max(1.0, mission.arrival_time_s - mission.departure_time_s);
+    const double f = std::clamp((game_time_s_ - mission.departure_time_s) / span, 0.0, 1.0);
+    return r1 + f * (r2 - r1);
+}
+
+double Simulation::boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const {
+    const auto& env = universe_.ship_environment;
+    if (!env.boiloff || design.propulsion_type == "variable_isp") {
+        return 0.0;
+    }
+    double volume_m3 = 0.0;
+    for (const auto& part : design.components) {
+        if (part.kind == "tank") {
+            volume_m3 += part.volume_m3;
+        }
+    }
+    const double area_m2 = env.tank_area_factor * 4.0 * std::numbers::pi
+        * std::pow(3.0 * volume_m3 / (4.0 * std::numbers::pi), 2.0 / 3.0);
+    const double leak_w = env.mli_flux_w_m2 * std::pow(std::max(0.05, r_au), -env.mli_flux_exponent) * area_m2;
+    const auto lift = design.effects.find("zbo_lift_w");
+    const double net_w = std::max(0.0, leak_w - (lift == design.effects.end() ? 0.0 : lift->second));
+    return net_w / env.lh2_latent_j_kg * 86400.0;
+}
+
+void Simulation::step_particle_events(double dt_s) {
+    const auto& env = universe_.ship_environment;
+    if (!env.radiation || !events_enabled_) {
+        return;
+    }
+    std::uniform_real_distribution<double> uniform(0.0, 1.0);
+    const double roll = uniform(environment_rng_);
+    const double size = uniform(environment_rng_);
+    const double day = game_time_s_ / 86400.0;
+    const double rate_per_day = env.spe_rate_per_year / 365.25 * 2.0 * crew_environment::solar_activity(env, day);
+    if (roll >= rate_per_day * dt_s / 86400.0) {
+        return;
+    }
+    const double magnitude = crew_environment::draw_spe_magnitude(env, size);
+    ++radiation_audit_.particle_events;
+    radiation_audit_.largest_event_magnitude = std::max(radiation_audit_.largest_event_magnitude, magnitude);
+    int hit = 0;
+    double worst = 0.0;
+    std::string worst_ship;
+    for (auto& ship : ships_) {
+        if (ship.phase == domain::ShipMissionPhase::LaidUp || ship.phase == domain::ShipMissionPhase::Refitting) {
+            continue;  // no crew aboard
+        }
+        const auto& design = ship_design(ship);
+        double dose = 0.0;
+        if (ship.phase == domain::ShipMissionPhase::InTransit) {
+            const double r = std::max(0.1, ship_r_au(ship));
+            dose = magnitude * crew_environment::spe_reference_msv(env, crew_environment::shelter_g_cm2(design)) / (r * r);
+            ++hit;
+        } else {
+            // Stations have shelters.
+            const auto it = universe_.station_radiation.find(ship.current_station_id);
+            const double factor = it == universe_.station_radiation.end() ? 1.0 : it->second.location_factor;
+            const double r = std::max(0.1, station_r_au(get_station_definition(ship.current_station_id), game_time_s_));
+            dose = factor * magnitude * env.spe_shelter_msv / (r * r);
+        }
+        ship.leg_dose_msv += dose;
+        const double pay = design.crew_size * dose * env.hazard_cr_per_msv;
+        if (pay > 0.0) {
+            pay_home_station(ship, pay);
+            ship.ledger.wages += pay;
+        }
+        radiation_audit_.crew_dose_msv += design.crew_size * dose;
+        radiation_audit_.hazard_pay_cr += pay;
+        radiation_audit_.highest_leg_dose_msv = std::max(radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
+        if (dose > worst) {
+            worst = dose;
+            worst_ship = ship.name;
+        }
+        if (ship.leg_dose_msv > env.career_limit_msv && ship.leg_dose_msv - dose <= env.career_limit_msv) {
+            add_event(std::format("{}'s crew passed the {:.0f} mSv career limit ({:.0f} mSv this leg)",
+                ship.name, env.career_limit_msv, ship.leg_dose_msv), "alert");
+        }
+    }
+    add_event(std::format("Solar particle event ({:.2f}x August 1972): {} ships in flight exposed{}", magnitude, hit,
+        worst > 0.0 ? std::format(", worst {} with {:.0f} mSv", worst_ship, worst) : std::string()), "news");
+}
+
 void Simulation::pay_home_station(domain::ShipState& ship, double amount) {
     ship.credits -= amount;
     ship.lifetime_profit -= amount;
@@ -1690,6 +1861,16 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     const auto& ship_class = ship_design(ship);
     const double days = dt_s / 86400.0;
 
+    // Liquid hydrogen boils off whatever the ship does (tier 2, step F).
+    if (const double boil = boiloff_kg_per_day(ship_class, ship_r_au(ship)) * days; boil > 0.0 && ship.propellant_kg > 0.0) {
+        const double lost = std::min(ship.propellant_kg, boil);
+        ship.propellant_kg -= lost;
+        radiation_audit_.hydrogen_boiled_kg += lost;
+        // Under way the tank level follows the plan's mass samples less what has boiled.
+        if (ship.phase == domain::ShipMissionPhase::AwaitingDeparture || ship.phase == domain::ShipMissionPhase::InTransit) {
+            ship.active_mission.boiled_propellant_kg += lost;
+        }
+    }
     // Capital (interest + amortisation) is owed whatever the ship does.
     const double capital = daily_capital_cost(ship_class) * days;
     pay_home_station(ship, capital);
@@ -1701,6 +1882,7 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     const double wages = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day * days;
     pay_home_station(ship, wages);
     ship.ledger.wages += wages;
+    accrue_radiation(ship, ship_class, days);
 
     const bool docked = ship.phase == domain::ShipMissionPhase::Idle
         || ship.phase == domain::ShipMissionPhase::Stranded
@@ -1822,10 +2004,15 @@ Simulation::LegEstimate Simulation::estimate_leg(
     const auto payload_bucket = static_cast<std::int64_t>(std::ceil(std::max(0.0, payload_kg) / PAYLOAD_STEP_KG));
     const trajectory::PlanningOptions options {
         .propellant_cr_per_kg = get_commodity("fuel").base_price / FUEL_UNITS_TO_KG,
-        .time_cr_per_day = daily_capital_cost(ship_class) + typical_crew_cost,
+        .time_cr_per_day = daily_capital_cost(ship_class) + typical_crew_cost
+            + hazard_cr_per_day(ship_class, origin, destination, static_cast<double>(bucket) * BUCKET_S),
         .payload_kg = static_cast<double>(payload_bucket) * PAYLOAD_STEP_KG,
         .purchasable_propellant_kg = static_cast<double>(fuel_bucket) * fuel_step_kg,
         .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
+        // Boil-off at the mean distance of the leg (the leak falls about as 1/r).
+        .boiloff_kg_per_day = boiloff_kg_per_day(ship_class,
+            std::sqrt(station_r_au(origin, static_cast<double>(bucket) * BUCKET_S)
+                * station_r_au(destination, static_cast<double>(bucket) * BUCKET_S))),
         .include_path = false,
     };
     leg_estimates_.erase(leg_estimates_.begin(),
@@ -1833,8 +2020,12 @@ Simulation::LegEstimate Simulation::estimate_leg(
     auto& slot = leg_estimates_[bucket];
     const auto key = std::format("{}|{}|{}|{}|{}", ship_class.id, origin.id, destination.id, fuel_bucket, payload_bucket);
     // Measured from this caller's departure, not the bucket edge.
-    const auto for_caller = [departure_time_s](LegEstimate estimate) {
+    // A leg that would take its crew past the career limit is not flown (tier 2 radiation).
+    const auto for_caller = [&, departure_time_s](LegEstimate estimate) {
         estimate.travel_days = std::max(0.0, estimate.arrival_time_s - departure_time_s) / 86400.0;
+        if (!leg_dose_allowed(ship_class, origin, destination, departure_time_s, estimate.travel_days)) {
+            estimate.feasible = false;
+        }
         return estimate;
     };
     if (const auto it = slot.find(key); it != slot.end()) {
@@ -1994,10 +2185,15 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
 
     // Every day of a mission (waiting for the window included) costs capital,
     // wages and provisions; missions are compared on profit after that cost.
-    const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state);
+    const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state)
+        + hazard_cr_per_day(ship_class, origin_def, origin_def, game_time_s_);
     // The crew must be provisionable from here for the whole mission.
     // (The return-leg reserve is bought too, but only if the station has it.)
     const double max_mission_days = provisionable_days(ship, origin_state) / PROVISION_MARGIN;
+    // And no leg may take the crew signed on for it past its career dose limit (tier 2).
+    const auto dose_allows = [&](const domain::StationDefinition& to, double days) {
+        return leg_dose_allowed(ship_class, origin_def, to, game_time_s_, days);
+    };
     // Cargo may be financed down to the credit line.
     const double spendable_credits = std::max(0.0, ship.credits + credit_line(ship_class));
 
@@ -2043,6 +2239,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     };
     // Planners trade travel time against propellant at the owner's prices, and load
     // propellant for the transfer plus the reserve.
+    // Hydrogen boil-off, at the origin's distance (tier 2, step F).
+    const double origin_boiloff_kg_per_day = boiloff_kg_per_day(ship_class, station_r_au(origin_def, game_time_s_));
     const auto planning_options = [&](double cargo_kg) {
         return trajectory::PlanningOptions {
             .propellant_cr_per_kg = planning_fuel_price / FUEL_UNITS_TO_KG,
@@ -2050,6 +2248,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             .payload_kg = provisions_kg + cargo_kg,
             .purchasable_propellant_kg = origin_fuel_for_sale_kg,
             .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
+            .boiloff_kg_per_day = origin_boiloff_kg_per_day,
             .include_path = false,  // the chosen mission is planned again with its path
         };
     };
@@ -2556,6 +2755,10 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 trace_line(std::format("{}: {:.0f} days exceeds provisionable {:.0f}", cargo_label, travel_days, max_mission_days));
                 continue;
             }
+            if (!dose_allows(destination, travel_days)) {
+                trace_line(std::format("{}: {:.0f} days exceeds the crew's dose limit", cargo_label, travel_days));
+                continue;
+            }
             const double fuel_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
                 + fuel_premium(plan, fuel_plan.carried_kg);
             if (cargo_only) {
@@ -2616,7 +2819,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         }
         const auto& plan = *fuel_plan.plan;
         const double leg_days = plan.travel_time_s / 86400.0;
-        if (leg_days > max_mission_days) {
+        if (leg_days > max_mission_days || !dose_allows(destination, leg_days)) {
             continue;
         }
         const double leg_cost = (plan.propellant_required_kg / FUEL_UNITS_TO_KG) * origin_fuel_price
@@ -2645,7 +2848,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     if (best_destination == nullptr && liner) {
         const auto& next = get_station_definition(next_scheduled_stop(ship, origin_def.id));
         const auto fuel_plan = plan_with_return_fuel(next, 0.0);
-        if (fuel_plan.plan->feasible && fuel_plan.feasible && fuel_plan.plan->travel_time_s / 86400.0 <= max_mission_days) {
+        if (fuel_plan.plan->feasible && fuel_plan.feasible && fuel_plan.plan->travel_time_s / 86400.0 <= max_mission_days
+            && dose_allows(next, fuel_plan.plan->travel_time_s / 86400.0)) {
             trace_line("liner: next stop empty to " + next.id);
             best_pickup_commodity.clear();
             best_pickup_units = 0.0;
@@ -2660,7 +2864,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     if (best_destination == nullptr && on_route && !liner && origin_def.id != ship.home_station_id) {
         const auto& home = get_station_definition(ship.home_station_id);
         const auto& plan = plan_to(home, 0.0);
-        if (plan.feasible && plan.travel_time_s / 86400.0 <= max_mission_days) {
+        if (plan.feasible && plan.travel_time_s / 86400.0 <= max_mission_days
+            && dose_allows(home, plan.travel_time_s / 86400.0)) {
             trace_line("on route: back home empty to " + home.id);
             best_pickup_commodity.clear();
             best_pickup_units = 0.0;
@@ -2753,7 +2958,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 continue;
             }
             const double reposition_days = plan.travel_time_s / 86400.0;
-            if (reposition_days > max_mission_days) {
+            if (reposition_days > max_mission_days || !dose_allows(destination, reposition_days)) {
                 trace_line(std::format("reposition -> {}: {:.0f} days exceeds provisionable {:.0f}",
                     destination.id, reposition_days, max_mission_days));
                 continue;
@@ -2938,7 +3143,8 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     if (!plan.feasible) {
         return;
     }
-    const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state);
+    const double time_cost_per_day = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, origin_state)
+        + hazard_cr_per_day(ship_class, origin_def, origin_def, game_time_s_);
     if (trajectory_audit_enabled_) {
         record_trajectory_audit(ship, origin_def, *best_destination, plan, plan.propellant_load_kg);
     }
@@ -2948,6 +3154,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     if (laid_up) {
         add_event(std::format("{} rehired its crew at {}", ship.name, origin_def.name), "mission");
     }
+    ship.leg_dose_msv = 0.0;  // a crew is signed on for each leg
     const double mission_days = plan.travel_time_s / 86400.0;
     // What the mission needs may come out of the whole stock; the rest of the endurance
     // only out of what the station can spare.
@@ -3232,7 +3439,8 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         ship.propellant_kg = interpolate_timed_scalar(
             ship.active_mission.sampled_propellant_kg,
             ship.active_mission.sampled_times_s,
-            game_time_s_) + ship.active_mission.carried_propellant_kg;
+            game_time_s_) + ship.active_mission.carried_propellant_kg - ship.active_mission.boiled_propellant_kg;
+        ship.propellant_kg = std::max(0.0, ship.propellant_kg);
     }
 
     if (ship.active_mission.remaining_travel_time_s > 0.0) {
@@ -3383,6 +3591,7 @@ void Simulation::tick() {
     settle_local_economy(stocks_before);
     step_population(dt_s);
     step_events(dt_s);
+    step_particle_events(dt_s);
     step_treasuries(dt_s);
     step_emergencies();
     update_market_prices();
@@ -3662,7 +3871,7 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     for (const auto& [good, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
         crew += ship_class.crew_size * units_per_crew_day * get_commodity(good).base_price;
     }
-    const double time_cost = daily_capital_cost(ship_class) + crew;
+    const double time_cost = daily_capital_cost(ship_class) + crew + hazard_cr_per_day(ship_class, origin, origin, game_time_s_);
     const double fuel_base = get_commodity(economy::FUEL_ID).base_price;
     const auto n = universe_.stations.size();
     // Every leg once, from today's bucket (later legs' windows are not dated: an estimate).
@@ -4244,7 +4453,8 @@ Simulation::CommissionStep Simulation::commission_step() {
             for (const auto& outlet : outlets) {
                 margin_bound = std::max(margin_bound, outlet.unit_margin * std::min(outlet.rate, ship_class.cargo_capacity_units));
             }
-            const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, yard_state);
+            const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, yard_state)
+                + hazard_cr_per_day(ship_class, yard, yard, game_time_s_);
             const double return_bound = (margin_bound - running_cost) * 365.0 / ship_class.ship_value_cr;
             if (return_bound >= investment.hurdle_return_per_year) {
                 candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound,
@@ -4372,7 +4582,8 @@ Simulation::CommissionStep Simulation::commission_step() {
     };
     const auto value_candidate = [&](const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
                                      double return_bound, const MissionChoice& choice) {
-        const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id));
+        const double running_cost = daily_capital_cost(ship_class) + daily_crew_cost(ship_class, get_station_state(yard.id))
+            + hazard_cr_per_day(ship_class, yard, yard, game_time_s_);
         Valuation valuation;
         valuation.label = "no cargo run";
         // A single-good run is valued alone; the lots of a mixed hold together (each along its

@@ -113,6 +113,7 @@ Json mission_to_json(const domain::MissionAssignment& m) {
     out.set("sampled_propellant_kg", numbers_to_json(m.sampled_propellant_kg));
     out.set("trajectory_type", m.trajectory_type);
     out.set("carried_propellant_kg", m.carried_propellant_kg);
+    out.set("boiled_propellant_kg", m.boiled_propellant_kg);
     out.set("pickup_commodity_id", m.pickup_commodity_id);
     out.set("pickup_units", m.pickup_units);
     return out;
@@ -143,6 +144,7 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     m.sampled_propellant_kg = numbers_from_json(j.get("sampled_propellant_kg"));
     m.trajectory_type = j.get("trajectory_type").string();
     m.carried_propellant_kg = j.get("carried_propellant_kg").number();
+    m.boiled_propellant_kg = j.get("boiled_propellant_kg").number();
     m.pickup_commodity_id = j.get("pickup_commodity_id").string();
     m.pickup_units = j.get("pickup_units").number();
     return m;
@@ -187,6 +189,7 @@ Json ship_to_json(const domain::ShipState& s) {
     }
     out.set("refit_fit", std::move(refit_fit));
     out.set("refit_done_s", s.refit_done_s);
+    out.set("leg_dose_msv", s.leg_dose_msv);
     out.set("next_refit_review_s", s.next_refit_review_s);
     out.set("laid_up_since_s", s.laid_up_since_s);
     out.set("commissioned_s", s.commissioned_s);
@@ -259,6 +262,7 @@ domain::ShipState ship_from_json(const Json& j) {
         s.refit_fit.push_back(module.string());
     }
     s.refit_done_s = j.get("refit_done_s").number();
+    s.leg_dose_msv = j.get("leg_dose_msv").number();
     s.next_refit_review_s = j.get("next_refit_review_s").number();
     s.laid_up_since_s = j.get("laid_up_since_s").number();
     s.commissioned_s = j.get("commissioned_s").number();
@@ -405,6 +409,16 @@ std::string Simulation::data_fingerprint() const {
     for (const auto& ship_class : universe_.ship_classes) {
         mix(std::format("c{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg, ship_class.cargo_capacity_units));
     }
+    {
+        const auto& env = universe_.ship_environment;
+        mix(std::format("e{}|{}|{}|{}|{}|{}|{}|{};", env.radiation, env.gcr_msv_per_day, env.gcr_cycle_amplitude,
+            env.solar_minimum_day, env.spe_rate_per_year, env.spe_hull_msv, env.career_limit_msv, env.hazard_cr_per_msv));
+        std::map<std::string, domain::StationRadiationDefinition> sorted(
+            universe_.station_radiation.begin(), universe_.station_radiation.end());
+        for (const auto& [station_id, radiation] : sorted) {
+            mix(std::format("x{}|{}|{};", station_id, radiation.location_factor, radiation.shield_g_cm2));
+        }
+    }
     for (const auto& module : universe_.ship_modules) {
         mix(std::format("m{}|{}|{}|{}|{};", module.hull_id, module.id, module.slot, module.part.mass_kg, module.part.price_cr));
     }
@@ -497,6 +511,9 @@ std::string Simulation::save_state_json() const {
         std::ostringstream rng;
         rng << event_rng_;
         root.set("event_rng", rng.str());
+        std::ostringstream environment_rng;
+        environment_rng << environment_rng_;
+        root.set("environment_rng", environment_rng.str());
         auto started = Json::object();
         for (const auto& [event_id, count] : events_started_) {
             started.set(event_id, count);
@@ -627,6 +644,14 @@ void Simulation::load_state_json(const std::string& text) {
             throw std::runtime_error("save: bad event_rng");
         }
     }
+    std::mt19937_64 environment_rng;
+    {
+        std::istringstream rng(root.get("environment_rng").string());
+        rng >> environment_rng;
+        if (rng.fail()) {
+            throw std::runtime_error("save: bad environment_rng");
+        }
+    }
     std::map<std::string, int> events_started;
     for (const auto& [event_id, count] : root.get("events_started").fields()) {
         events_started[event_id] = static_cast<int>(count.number());
@@ -662,6 +687,7 @@ void Simulation::load_state_json(const std::string& text) {
     emergencies_ = std::move(emergencies);
     emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());
     event_rng_ = event_rng;
+    environment_rng_ = environment_rng;
     events_started_ = std::move(events_started);
     emergency_paid_ = root.get("emergency_paid").number();
     investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());

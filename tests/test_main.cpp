@@ -16,6 +16,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "simulation/CrewEnvironment.hpp"
 #include "simulation/Simulation.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -180,6 +181,46 @@ int main() {
             "fitted alpha");
     }
     require(spacetrains::domain::design_id("x", {"b", "a"}) == "x+a+b", "design ids sort their modules");
+
+    // Crew radiation (tier 2, step D): the sourced anchors and the power-law bookkeeping.
+    {
+        namespace ce = spacetrains::simulation::crew_environment;
+        spacetrains::domain::ShipEnvironmentDefinition env;
+        env.radiation = true;
+        // Cosmic rays: the cycle mean at 1 AU is Curiosity's 1.84 mSv/day; +-30% over the cycle.
+        double mean = 0.0;
+        for (int day = 0; day < 4018; ++day) {
+            mean += ce::gcr_msv_per_day(env, 1.0, day) / 4018.0;
+        }
+        require_near(mean, 1.84, 1e-3, "GCR averages Curiosity's cruise dose over a solar cycle");
+        require_near(ce::gcr_msv_per_day(env, 1.0, env.solar_minimum_day), 1.84 * 1.3, 1e-9, "GCR peaks at solar minimum");
+        // The particle-event reference doses: hull and the 20 g/cm2 shelter.
+        require_near(ce::spe_reference_msv(env, 0.0), 1300.0, 1e-9, "1972 event inside a hull");
+        require_near(ce::spe_reference_msv(env, 20.0), 200.0, 1e-9, "1972 event in a 20 g/cm2 shelter");
+        // The mean magnitude matches sampling the inverse distribution.
+        double sampled = 0.0;
+        constexpr int samples = 200000;
+        for (int i = 0; i < samples; ++i) {
+            sampled += ce::draw_spe_magnitude(env, (i + 0.5) / samples);
+        }
+        sampled /= samples;
+        // At maximum activity events come at twice the mean rate.
+        const double day_max = env.solar_minimum_day + env.solar_cycle_days / 2.0;
+        require_near(ce::spe_magnitude_per_day(env, day_max), 2.0 * env.spe_rate_per_year / 365.25 * sampled, 1e-6,
+            "the expected event magnitude per day matches the sampled distribution");
+        require(ce::spe_magnitude_per_day(env, env.solar_minimum_day) == 0.0, "no particle events at solar minimum");
+        // A shelter cuts the sleeping third of the cosmic-ray dose by exp(-20/46).
+        require_near(ce::gcr_factor(env, 20.0), 1.0 - 0.33 * (1.0 - std::exp(-20.0 / 46.0)), 1e-12, "shelter GCR factor");
+        // A 300-day leg at 1 AU at solar minimum: 300 x 2.392 mSv, the shelter saving its share.
+        spacetrains::domain::ShipClassDefinition bare;
+        auto sheltered = bare;
+        sheltered.effects["spe_shield_g_cm2"] = 20.0;
+        const double bare_dose = 300.0 * ce::expected_transit_msv_per_day(env, bare, 1.0, 1.0, env.solar_minimum_day);
+        require_near(bare_dose, 300.0 * 1.84 * 1.3, 1e-6, "a leg's dose at solar minimum is cosmic rays only");
+        require(ce::expected_transit_msv_per_day(env, sheltered, 1.0, 1.0, day_max)
+                < ce::expected_transit_msv_per_day(env, bare, 1.0, 1.0, day_max),
+            "a storm shelter lowers the expected dose");
+    }
     {
         // The loader rejects parts that do not add up to their class.
         const auto broken = std::filesystem::temp_directory_path() / "spacetrains_components_test";
