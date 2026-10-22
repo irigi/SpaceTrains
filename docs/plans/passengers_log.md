@@ -541,7 +541,7 @@ passengers-off audit with `purchase_spacing_days,0` is byte-identical to the one
 | 220 | 0.9 ± 0.4% | 1.2 ± 1.0% | 208 | 65% | −43 ± 20% | 6.9 days/s | 8,066 | 11,369 | 9,038 | 253 d |
 
 - 5 days/s holds at every cap (the slowest stretch is set by fleet investment and chaotic, not by the ship count).
-- More ships carry no more passengers: the extra purchases are mostly bulk tankers with cabins, the berths' load
+- More ships carry no more passengers (explanation corrected in "Cap findings checked" below): the extra purchases are mostly bulk tankers with cabins, the berths' load
   factor falls (50% → 39%), and as many people give up. The queues are not short of berths; they wait for a
   trip that suits them (budget, minimum leg of 20, the carrier's other cargo).
 - Unmet demand is the same within the spread; profitability and money fall as capital goes into hulls.
@@ -571,4 +571,32 @@ the data (`visitor_batch_days`, `min_leg_passengers`, `rider_time_min_share`, `r
 **Switched on:** `passengers,1` in `data/economy/passengers.csv`. Tests of the economy before passengers (the
 off check, station growth by step 27) run on a copy of the data with passengers off; the money identity test
 now counts fares travellers pay and passages stations recover. ctest 5/5. Godot started headless with no script
-errors; the passenger UI still needs a look in the game. Mercury still has no passengers (atlas gap).
+errors; the user then checked the passenger UI in the game (fine). Mercury still has no passengers (atlas gap).
+
+### Cap findings checked (2026-10-22, the user found both suspicious)
+
+**"Faster with more ships" was a measurement artefact.** The table reported the worst of 4 starts. At cap 130
+one start had a 5.1 days/s stretch; the other three had 7.0-7.7, the same as at cap 220 (6.9-7.4). Whole runs
+take longer with more ships: mean wall time 64 s (cap 130), 76 s (160), 81 s (190), 82 s (220) per 1,460 days.
+
+**Why more ships carry no more passengers.** A new audit line (`--econ-audit`: "Routes by people who gave
+up", with legs flown, legs by ships with berths, and those that left empty while people waited) and "Legs
+flown" show, start 0 / 180, cap 130 → 220:
+- Ships +31%, legs flown +6% (1,424 → 1,514; 1,977 → 2,044). The extra ships are not idle (in transit 105 →
+  147-163); they are bought from year 2 onward for interplanetary legs of 150-500 days, so each adds only a
+  few legs within 4 years.
+- Legs by ships with berths on routes where people post trips: 211 → 219 and 248 → 251. Unchanged.
+- Ships with berths almost never leave empty while people wait (0-6 legs per route over 4 years), so boarding
+  works; there are too few legs where the people are.
+- The queue is mostly Earth ↔ Luna: 4 of the top 4 give-up routes, about 7,000 of 11,000 give-ups. Ships with
+  berths fly 10-30 of the 120-190 legs on each of these. The purchase trace (`SPACETRAINS_TRACE_INVESTMENT`)
+  values every Luna passenger design below the hurdle (shuttle −48%/yr, light freighter or tanker with a cabin
+  −14 to −16%/yr, plasma courier −13%/yr), at an 86-93 cr reference fare. The passenger purchases go to Mars
+  and Venus → Earth instead.
+- The −20% in boardings (10,033 → 8,066 over 4 starts) is not fully pinned down: it falls on Luna and long
+  routes alike, with the same berth legs. Lower faction money (sponsored settlers −300) explains part.
+- The earlier wording ("the extra purchases are mostly tankers with cabins, berths fly half empty, people
+  wait for a trip that suits them") was wrong and is replaced by this.
+
+**Recommendation:** keep the cap at 130. The lever for waiting passengers is the Earth ↔ Luna service (fare
+and shuttle economics, the long probe times), not the ship count.

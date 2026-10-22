@@ -93,7 +93,8 @@ Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`,
 sub-switches `rotation`, `migration`, `discretionary`). Plan in `docs/plans/passengers.md`, decisions and
 results in `docs/plans/passengers_log.md`. With `passengers,0` the economy is the one before passengers: the
 liner classes do not load and cabins are never offered. `--econ-audit` reports passengers by kind, by station
-and on every route to or from Titan.
+on every route to or from Titan, the routes where most people gave up (with legs flown, legs by ships with
+berths, and those that left empty while people waited), and the legs flown in all.
 
 **Who travels.** People wait at stations in groups (kind, destination, employer, demand band):
 - **Settlers:**

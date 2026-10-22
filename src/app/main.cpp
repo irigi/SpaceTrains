@@ -323,6 +323,33 @@ void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
         std::cout << std::format("      {:18s} to {:6.0f} {:6.0f} {:6.0f} {:6.0f}   from {:6.0f} {:6.0f} {:6.0f}\n", station_id,
             t.posted, t.boarded, t.landed, t.gave_up, f.posted, f.boarded, f.landed);
     }
+    // The routes where most people gave up, with what flew them.
+    std::vector<std::pair<std::pair<std::string, std::string>, const spacetrains::simulation::Simulation::PassengerAudit::Route*>> worst;
+    for (const auto& [key, route] : audit.routes) {
+        worst.emplace_back(key, &route);
+    }
+    std::ranges::sort(worst, [](const auto& a, const auto& b) { return a.second->gave_up > b.second->gave_up; });
+    std::cout << "    Routes by people who gave up (posted/boarded/gave up | legs flown, by ships with berths, "
+                 "of those left empty while people waited):\n";
+    {
+        int legs = 0, berth_legs = 0, berth_legs_queue = 0;
+        double berth_boarded = 0.0;
+        for (const auto& [key, route] : audit.routes) {
+            legs += route.departures;
+            berth_legs += route.berth_departures;
+            if (route.posted > 0.0) {
+                berth_legs_queue += route.berth_departures;
+            }
+            berth_boarded += route.boarded;
+        }
+        std::cout << std::format("    Legs flown: {}, by ships with berths {} ({} on routes where people post trips), {:.0f} boarded\n",
+            legs, berth_legs, berth_legs_queue, berth_boarded);
+    }
+    for (std::size_t i = 0; i < std::min<std::size_t>(10, worst.size()); ++i) {
+        const auto& [key, route] = worst[i];
+        std::cout << std::format("      {:>15s} -> {:15s} {:6.0f} {:6.0f} {:6.0f} | {:5d} {:5d} {:5d}\n", key.first, key.second,
+            route->posted, route->boarded, route->gave_up, route->departures, route->berth_departures, route->empty_with_waiting);
+    }
     for (const auto& [key, route] : audit.routes) {
         if (key.first != "titan_works" && key.second != "titan_works") {
             continue;

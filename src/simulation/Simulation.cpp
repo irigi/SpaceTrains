@@ -3617,6 +3617,19 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     }
     ship.leg_dose_msv = 0.0;  // a crew is signed on for each leg
     const double mission_days = plan.travel_time_s / 86400.0;
+    {
+        auto& route = passenger_audit_.routes[{origin_state.station_id, best_destination->id}];
+        ++route.departures;
+        if (ship_class.berths >= 1.0) {
+            ++route.berth_departures;
+            if (choice.passengers.empty()
+                && std::any_of(origin_state.waiting.begin(), origin_state.waiting.end(), [&](const auto& group) {
+                       return group.destination_id == best_destination->id && group.count >= 1.0;
+                   })) {
+                ++route.empty_with_waiting;
+            }
+        }
+    }
     // Passengers board (and pay) before the stores are bought: they eat from them too.
     if (!choice.passengers.empty()) {
         board_passengers(ship, origin_state, best_destination->id, choice.passengers, mission_days);

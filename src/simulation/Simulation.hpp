@@ -148,6 +148,9 @@ public:
             double flight_days {0.0};      // person-days aboard of those who landed
             double max_leg_dose_msv {0.0}; // highest planned leg dose of a boarding
             std::map<std::string, int> carriers;  // boardings by ship design
+            int departures {0};             // every leg flown on this route
+            int berth_departures {0};       // legs by ships with berths
+            int empty_with_waiting {0};     // ...that left with nobody aboard while people waited
         };
         std::map<std::pair<std::string, std::string>, Route> routes;
     };

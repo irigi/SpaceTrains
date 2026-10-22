@@ -30,12 +30,17 @@ Benchmark, passengers on, cap 130, 4 starts × 1,460 days (2026-10-22): unmet de
 slowest 20-day stretch 5.1 days/s or better (16-thread machine).
 
 **Open for the user:**
-- The passenger UI (berths, station queues, cabins in the schematic) has only been parse-checked and smoke-run
-  headless; look at it in the game before merging.
 - **Mercury has no passengers:** the VariableISP atlas has a gap at Mercury (no reference fares Mercury → Mars
   and Mercury → Titan). Waits for the atlas update (user, 2026-10-21).
-- Fleet cap: 5 days/s holds up to cap 220, but more ships carried no more passengers and lowered profitability
-  (passengers_log, "Activation"). It stays at 130 unless wanted for other reasons.
+- **Earth ↔ Luna passengers:** about 60% of the people who give up wait for this 5-day hop. Its reference fare
+  is 86-93 cr (a 200-berth plasma liner's cost), and every design's probe values a Luna passenger run below
+  the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
+  Earth → Luna times (14-22 days for plasma ships, 16 for the shuttle, some over 150) also look long for the
+  hop. Look at the fare and the shuttle's economics before more fleet.
+- Fleet cap stays 130 (passengers_log, "Cap findings checked"): a higher cap costs run time and profitability,
+  and carries no more passengers.
+
+The passenger UI was checked in the game by the user (2026-10-22).
 
 ### Decisions so far
 
@@ -66,7 +71,7 @@ slowest 20-day stretch 5.1 days/s or better (16-thread machine).
 
 ### Next steps, in order
 
-1. **Merge passengers** after the user has seen the UI in the game.
+1. **Merge passengers** (UI checked 2026-10-22).
 2. **Mercury passengers:** the atlas update (above).
 3. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
 4. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
