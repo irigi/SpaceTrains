@@ -1300,15 +1300,17 @@ int main() {
             require_near(money(after), money_before, 1e-3, "fares should move money, not make it");
             // Off Earth, people come and go only by ship.
             double change = 0.0;
+            double local = 0.0;   // hired up from a colony's surface, less those gone down to it
             for (const auto& station : after.stations) {
                 if (station.station_id != "earth_orbit" && station.station_id != "earth_l1") {
                     change += station.population - population_before[station.station_id];
+                    local += station.ledger.hired_from_surface - station.ledger.moved_to_surface;
                 }
             }
             const auto relief = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationOut);
             const auto relieved = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationHome);
-            require_near(change, audit.landed[migrant] + audit.landed[relief] - audit.boarded[emigrant] - audit.boarded[relieved],
-                1e-6, "populations off Earth should change by the people landed less those who left");
+            require_near(change, audit.landed[migrant] + audit.landed[relief] - audit.boarded[emigrant] - audit.boarded[relieved] + local,
+                1e-6, "populations off Earth should change by the people landed less those who left (and local hires)");
 
             // Speed settings in the data (2026-10-22, passengers_log): purchases a day apart,
             // visitors posted a week at a time. Purchases never fall on the same day, visitors are
