@@ -225,6 +225,47 @@ gave up 1,304 / 851 without it, 1,433 / 1,181 with it (starts 0 / 90). Within no
 interplanetary routes, where few berths against long queues clear near the top band's budget), and Mars fuel
 is the largest shortage (25-47% unmet at Mars). Under the 130-ship cap, passengers and cargo compete for hulls.
 
+### Check: are passenger purchases overvalued? Yes (2026-10-22)
+
+Every purchase in two runs (starts 0 and 90, 1,460 days, option A + Luna Ferry): the return the review
+expected (`ordered at ... %/yr expected`) against what the ship earned (lifetime profit per year of service
+over its price; ships in service ≥ 180 days):
+
+| Ships | n | Sold | Expected (median) | Earned (median) | Capital |
+|---|---|---|---|---|---|
+| cargo | 150 | 3 | 240% | 100% | 12.6 M cr |
+| Large Plasma Liner | 32 | 4 | 68% | 6% | 39.2 M cr |
+| Plasma Liner | 17 | 1 | 94% | 45% | 4.6 M cr |
+| Luna Ferry | 13 | 1 | 165% | 29% | 2.3 M cr |
+| hulls with cabins (courier, freighter, bulk tanker) | 33 | 11 | 174-273% | 39-81% | 4.0 M cr |
+
+Cargo valuations are optimistic too (about 2.4×), but passenger ones are 3-10× too high, and the Large
+Liners took three times the capital of all cargo purchases for ~6%/yr.
+
+**One case:** SF Large Plasma Liner 49, ordered day 424 at LEO for Ceres, "53%/yr expected". The valuation
+counted 200 people out at 1,357,441 cr (6,787 each) and 200 back at 341,476 cr, on a 752-day cycle. In the
+game it boarded 200 people at 1,958 cr each (391,666 cr), waited 51 days for its window, flew 516 days,
+found 6 people at Ceres for the way back, and was laid up in debt.
+
+**Why:**
+1. **The whole cycle's flow is treated as this ship's.** `expected_travellers` posts flow × cycle (1.39 a
+   day × 752 days ≈ 1,040 people) and `open_share` only removes ships committed to the route
+   (`committed_flow`). In the game other ships (cabins on cargo hulls, liners after their commitment) take
+   travellers as they go: at boarding only ~219 people were waiting, 19 left after it.
+2. **The clearing fare comes from that inflated queue.** With 1,040 candidates for 200 berths, the 201st
+   person's budget sets the fare (near the top band's: 3-4× the reference). In the game the queue was
+   smaller than the berths, so each paid the hedonic fare (720-2,950 cr). Travellers give up slowly
+   (value of time / budget: years for the top band), so the rich are gone because earlier ships took them,
+   not because they left.
+3. **The way back** is valued the same way (200 back from Ceres; 6 in the game).
+4. Smaller: the real trip was longer (567 days with the window wait against 380 planned).
+
+**Proposed fix (for the user):** value a passenger run as cargo runs are valued: from what is open on the
+route, not the whole flow. Count the route's observed boardings by other ships as taken (as cargo counts
+observed imports), so the new ship's travellers are the flow nobody carries (≈ the observed give-ups plus
+growth); and price them at the hedonic fare, with a clearing premium only on the queue the ship would find at
+departure. Then rerun this check; the cap question (decision 1) follows from it.
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band
