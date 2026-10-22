@@ -65,6 +65,8 @@ constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
 // at 8x; doubling to 96x paid 2M cr in two years).
 // A station's import cost (what its residents pay) averages deliveries over this many days of its use.
 constexpr double IMPORT_COST_DAYS = 30.0;
+// A faction covers a station in the red within about this many days (economy overhaul).
+constexpr double INSOLVENCY_COVER_DAYS = 2.0;
 constexpr double EMERGENCY_HORIZON_DAYS = 21.0;
 constexpr double EMERGENCY_CLOSE_DAYS = 14.0;
 constexpr double EMERGENCY_COVER_DAYS = 30.0;
@@ -4846,9 +4848,17 @@ void Simulation::step_treasuries(double dt_s) {
                 const double rotation = tour == nullptr ? 0.0 : tour->fares_per_day * rotation_positions(station);
                 // With households (economy overhaul), the core crew's wages are upkeep too.
                 const double core_wages = households_on() ? resident_wages_per_day(station) : 0.0;
-                transfer = std::min(transfer,
-                    std::max((open.core_crew_fraction * (consumption_value_per_day(definition, true) + core_wages) + rotation) * dt_days,
-                        savings));
+                // A station in the red (economy overhaul: wages make the gaps large) gets the whole gap
+                // while its faction can still borrow it; it never lets its own station go insolvent.
+                const bool insolvent = households_on() && station.credits < 0.0
+                    && faction_spendable(definition.faction_id) > open.station_credit_floor - station.credits;
+                if (insolvent) {
+                    transfer = (open.station_credit_floor - station.credits) * std::min(1.0, dt_days / INSOLVENCY_COVER_DAYS);
+                } else {
+                    transfer = std::min(transfer,
+                        std::max((open.core_crew_fraction * (consumption_value_per_day(definition, true) + core_wages) + rotation) * dt_days,
+                            savings));
+                }
             }
         } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
             transfer = -(station.credits - open.station_credit_ceiling) * band_share;

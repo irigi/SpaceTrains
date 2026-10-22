@@ -510,6 +510,9 @@ struct StationIncomeDefinition {
     std::string kind;
     std::string payer_id;   // background economy
     double cr_per_day {0.0};
+    // A grant paid to need (science, settlement): full while the station holds less than half the
+    // credit ceiling, falling to nothing at the ceiling. Otherwise a paid service (relay, tourism).
+    bool need_based {false};
 };
 
 // Residents as an account of their own (docs/plans/economy_overhaul.md): the station pays

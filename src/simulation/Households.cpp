@@ -150,10 +150,17 @@ void Simulation::step_households(double dt_s) {
         }
     }
     // Incomes from the background economies: science budgets, services, subsidies.
+    const double ceiling = universe_.open_economy.station_credit_ceiling;
     for (const auto& income : universe_.station_incomes) {
-        const double amount = income.cr_per_day * dt_days;
-        economy_account(income.payer_id) -= amount;
         auto& station = get_station_state(income.station_id);
+        // A grant tapers off as the station's cash nears the credit ceiling (agencies fund need).
+        const double taper = income.need_based && ceiling > 0.0
+            ? std::clamp(2.0 * (1.0 - station.credits / ceiling), 0.0, 1.0) : 1.0;
+        const double amount = income.cr_per_day * taper * dt_days;
+        if (amount <= 0.0) {
+            continue;
+        }
+        economy_account(income.payer_id) -= amount;
         station.credits += amount;
         station.ledger.incomes += amount;
     }

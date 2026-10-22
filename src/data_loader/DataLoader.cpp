@@ -1121,10 +1121,10 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     }
     if (const auto incomes_path = root / "economy" / "station_incomes.csv"; std::filesystem::exists(incomes_path)) {
         const auto rows = read_csv_rows(incomes_path);
-        require_header(rows.front(), {"station_id", "kind", "payer_id", "cr_per_year"}, incomes_path);
+        require_header(rows.front(), {"station_id", "kind", "payer_id", "cr_per_year", "need_based"}, incomes_path);
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 4, incomes_path, i + 1);
+            require_field_count(row, 5, incomes_path, i + 1);
             require_station(row[0], incomes_path);
             const bool payer_known = std::any_of(universe.background_economies.begin(), universe.background_economies.end(),
                 [&](const domain::BackgroundEconomyDefinition& e) { return e.id == row[2]; });
@@ -1136,6 +1136,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .kind = row[1],
                 .payer_id = row[2],
                 .cr_per_day = parse_double(row[3], incomes_path, i + 1, "cr_per_year") / 365.25,
+                .need_based = row[4] == "1",
             });
         }
     }

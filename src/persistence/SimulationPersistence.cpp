@@ -626,7 +626,7 @@ std::string Simulation::data_fingerprint() const {
                 market.bid_cr, market.sell_units_per_day, market.buy_units_per_day, market.bid_share));
         }
         for (const auto& income : universe_.station_incomes) {
-            mix(std::format("I{}|{}|{}|{};", income.station_id, income.kind, income.payer_id, income.cr_per_day));
+            mix(std::format("I{}|{}|{}|{}|{};", income.station_id, income.kind, income.payer_id, income.cr_per_day, income.need_based));
         }
     }
     const auto& orders = universe_.orders;
