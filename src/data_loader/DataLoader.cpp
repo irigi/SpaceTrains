@@ -1354,10 +1354,14 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const auto fares_path = root / "economy" / "reference_fares.csv";
         if (std::filesystem::exists(fares_path)) {
             const auto rows = read_csv_rows(fares_path);
-            require_header(rows.front(), {"origin_id", "destination_id", "fare_cr", "days", "class_id"}, fares_path);
+            // The fuel columns (propellant per seat, 2026-10-22) are optional.
+            const bool fuel_columns = rows.front().size() == 7;
+            require_header(rows.front(), fuel_columns
+                ? std::vector<std::string> {"origin_id", "destination_id", "fare_cr", "days", "class_id", "fuel_out_kg", "fuel_back_kg"}
+                : std::vector<std::string> {"origin_id", "destination_id", "fare_cr", "days", "class_id"}, fares_path);
             for (std::size_t i = 1; i < rows.size(); ++i) {
                 const auto& row = rows[i];
-                require_field_count(row, 5, fares_path, i + 1);
+                require_field_count(row, fuel_columns ? 7 : 5, fares_path, i + 1);
                 require_station(row[0], fares_path);
                 require_station(row[1], fares_path);
                 const double fare = parse_double(row[2], fares_path, i + 1, "fare_cr");
@@ -1365,7 +1369,9 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 if (fare <= 0.0 || days <= 0.0) {
                     throw std::runtime_error("fare_cr and days must be positive in " + fares_path.string());
                 }
-                universe.passengers.reference_fares[row[0]][row[1]] = {.fare_cr = fare, .days = days, .class_id = row[4]};
+                universe.passengers.reference_fares[row[0]][row[1]] = {.fare_cr = fare, .days = days, .class_id = row[4],
+                    .fuel_out_kg = fuel_columns ? parse_double(row[5], fares_path, i + 1, "fuel_out_kg") : 0.0,
+                    .fuel_back_kg = fuel_columns ? parse_double(row[6], fares_path, i + 1, "fuel_back_kg") : 0.0};
             }
         }
         for (const auto& gateway : universe.passengers.earth_gateways) {

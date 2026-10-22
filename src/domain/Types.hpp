@@ -386,9 +386,14 @@ struct PassengerDefinition {
     // data/economy/reference_fares.csv (spacetrains_headless --write-reference-fares): the
     // cheapest cabin carrier's fare per berth and its days, origin -> destination.
     struct ReferenceFare {
-        double fare_cr {0.0};
+        double fare_cr {0.0};       // at the base fuel price
         double days {0.0};
         std::string class_id;
+        // The fare's propellant per seat (kg, with the carrier's margin): burned leaving the origin,
+        // and the return share burned leaving the destination. The fare follows the ports' fuel
+        // prices through them (Simulation::live_fare_cr); 0 in older data.
+        double fuel_out_kg {0.0};
+        double fuel_back_kg {0.0};
     };
     std::map<std::string, std::map<std::string, ReferenceFare>> reference_fares;
 };

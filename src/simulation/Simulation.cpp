@@ -3238,7 +3238,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 .cargo_units = ship_class.berths, .travel_days = travel_days, .wait_days = plan.wait_time_s / 86400.0,
                 .fuel_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
                     + fuel_premium(plan, fuel_plan.carried_kg),
-                .run = -1});
+                .run = -1,
+                .return_fuel_kg = fuel_plan.carried_kg > 0.0 ? -1.0 : consumed_propellant_kg(plan)});
         }
     }
     // A bare hull's probe also values the hull with each of its cabin modules (fleet investment
@@ -3276,7 +3277,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                     .cargo_units = design.berths, .travel_days = travel_days, .wait_days = plan.wait_time_s / 86400.0,
                     .fuel_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
                         + fuel_premium(plan, fuel_plan.carried_kg),
-                    .run = -1, .module_id = module.id});
+                    .run = -1, .module_id = module.id,
+                    .return_fuel_kg = fuel_plan.carried_kg > 0.0 ? -1.0 : consumed_propellant_kg(plan)});
             }
         }
     }
@@ -5258,7 +5260,8 @@ Simulation::CommissionStep Simulation::commission_step() {
     // Passengers (docs/plans/passengers.md): a shuttle between the yard and a station, full berths
     // at most each way, carrying the open part of the travellers' flow (what ships committed to
     // the route already carry is taken), at the reference fare adjusted for this ship's days.
-    const auto sustained_passenger_profit_per_day = [&](const domain::StationDefinition& yard,
+    const auto sustained_passenger_profit_per_day = [&](const domain::ShipClassDefinition& ship_class,
+                                                        const domain::StationDefinition& yard,
                                                         const MissionChoice::CargoOption& option, double& units_per_day) {
         const auto& destination = *option.destination;
         const auto* back_fare = reference_fare(destination.id, yard.id);
@@ -5279,9 +5282,14 @@ Simulation::CommissionStep Simulation::commission_step() {
         const auto inbound = back_fare == nullptr ? PassengerRevenue {}
             : expected_passenger_revenue(destination.id, yard.id, transfer_days, cycle_days, option.cargo_units,
                 open_share(destination.id, yard.id));
+        // The way back is fuelled at the destination at its price (Luna makes fuel, Earth buys it
+        // dear), unless the ship carries that fuel from the yard.
+        const double return_fuel_cost = option.return_fuel_kg < 0.0 ? option.fuel_cost
+            : option.return_fuel_kg / FUEL_UNITS_TO_KG
+                * (port_fuel_price(destination.id) + wear_cr_per_propellant_kg(ship_class) * FUEL_UNITS_TO_KG);
         const double margin = outbound.fares_cr - outbound.people * provisions_per_day * option.travel_days
             + inbound.fares_cr - inbound.people * provisions_per_day * transfer_days
-            - 2.0 * option.fuel_cost;
+            - option.fuel_cost - return_fuel_cost;
         const double out = outbound.people;
         units_per_day = out / cycle_days;
         return margin / cycle_days;
@@ -5322,7 +5330,7 @@ Simulation::CommissionStep Simulation::commission_step() {
         for (const auto& option : choice.cargo_options) {
             double units_per_day = 0.0;
             if (option.commodity_id == PASSENGER_GOOD) {
-                const double profit_per_day = sustained_passenger_profit_per_day(yard, option, units_per_day);
+                const double profit_per_day = sustained_passenger_profit_per_day(ship_class, yard, option, units_per_day);
                 consider({.profit_per_day = profit_per_day, .label = {}, .main_lot = &option, .main_units_per_day = units_per_day});
                 continue;
             }
@@ -5401,7 +5409,8 @@ Simulation::CommissionStep Simulation::commission_step() {
             }
             choice.cargo_options.push_back({.destination = &get_station_definition(run.destination_id),
                 .commodity_id = run.commodity_id, .cargo_units = run.cargo_units, .travel_days = run.travel_days,
-                .wait_days = run.wait_days, .fuel_cost = run.fuel_cost, .run = run.run});
+                .wait_days = run.wait_days, .fuel_cost = run.fuel_cost, .run = run.run,
+                .return_fuel_kg = run.return_fuel_kg});
         }
         const auto valuation = value_candidate(*candidate.ship_class, *candidate.yard, candidate.return_bound, choice);
         ++probes;
@@ -5434,7 +5443,7 @@ Simulation::CommissionStep Simulation::commission_step() {
                 runs.push_back({.destination_id = option.destination->id, .commodity_id = option.commodity_id,
                     .cargo_units = option.cargo_units, .travel_days = option.travel_days,
                     .wait_days = option.wait_days, .fuel_cost = option.fuel_cost, .run = option.run,
-                    .module_id = option.module_id});
+                    .module_id = option.module_id, .return_fuel_kg = option.return_fuel_kg});
             }
         }
         if (trace) {

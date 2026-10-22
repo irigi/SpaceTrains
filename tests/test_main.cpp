@@ -1234,8 +1234,11 @@ int main() {
                 "Mars should cost more to reach than Luna");
             const double days = fares.at("earth_orbit").at("mars_transfer").days;
             const double at_reference = straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 40.0, 40.0);
-            require_near(at_reference, fares.at("earth_orbit").at("mars_transfer").fare_cr, 1e-6,
-                "berths just filled at the reference trip should pay the reference fare");
+            // The reference fare at today's fuel prices (its propellant bought at the ports' prices).
+            const double live = straight.live_fare_cr("earth_orbit", "mars_transfer", fares.at("earth_orbit").at("mars_transfer"));
+            require(live >= fares.at("earth_orbit").at("mars_transfer").fare_cr - 1e-9,
+                "fuel never below base: the live fare is at least the base-price fare");
+            require_near(at_reference, live, 1e-6, "berths just filled at the reference trip should pay the reference fare");
             require(straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 80.0, 40.0) > 1.9 * at_reference,
                 "twice the demand should clear at about twice the reference cost");
             require_near(straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 1e9, 40.0),

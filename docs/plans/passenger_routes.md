@@ -156,6 +156,33 @@ Options (user to choose):
 - **C. Let passenger carriers compete by return, not profit per day,** under the cap, so the +46% Luna liner
   is bought. Changes fleet composition across the board.
 
+### Option A built: fuel at real prices (2026-10-22, user)
+
+- **Fares follow fuel prices.** `reference_fares.csv` gains `fuel_out_kg` and `fuel_back_kg`, the propellant
+  per seat in the fare (with the carrier margin; the return share burned leaving the destination).
+  `live_fare_cr` adds them at today's port prices above base (`port_fuel_price` = max(base, station price)).
+  Every fare reader uses it (traveller budgets, hedonic fares, rotation tours, the sponsor's credit check),
+  except the choice of Earth gateway, which stays on the static fare. Earth L1 → Luna at Earth fuel ~42 cr/u:
+  86 → ~215 cr; Luna → Earth L1 ~150 cr.
+- **The way back at the destination's fuel price.** Probe passenger runs record `return_fuel_kg` (−1 when the
+  ship carries its return fuel); the valuation charges it at the destination's price instead of
+  `2 × fuel_cost`. Save version 17.
+
+**Benchmark, 8 starts × 1,460 days** (same machine, runs one after another):
+
+| Run | Unmet | Last fifth | Profitable | Ships | Money | Run time |
+|---|---|---|---|---|---|---|
+| fares regenerated (before A) | 0.86 ± 0.34% | 1.98 ± 0.76% | 112.3 | 145.8 | −23 ± 20% | 116 s |
+| option A | 1.47 ± 0.60% | 2.51 ± 0.66% | 118.6 | 146.1 | −6 ± 24% | 118 s |
+| option A, contracts off | 3.06 ± 1.29% | 3.70 ± 1.09% | 119.1 | 147.1 | +4 ± 17% | 110 s |
+
+- **Luna passengers board** (route audit, starts 0 / 90): Earth L1 → Luna gave up 2,942 → 1,304 and
+  2,976 → 851, boarded 1,560 → 1,787 and 1,352 → 1,606. Fewer post (4,874 → 3,252): the fare is higher.
+- **Cargo pays for it under the cap.** Passenger carriers now pay, so the fleet review buys more of them
+  (start 90: legs by ships with berths 268 → 800). The shortages that grow are Mars fuel, food and oxygen and
+  Earth L1 water. Unmet 0.86 → 1.47%.
+- **Contracts stay on** (user's rule): without them unmet doubles (3.06%) for a 7% faster game.
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band

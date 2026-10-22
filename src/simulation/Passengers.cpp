@@ -95,6 +95,23 @@ const domain::PassengerDefinition::ReferenceFare* Simulation::reference_fare(
     return to == from->second.end() ? nullptr : &to->second;
 }
 
+double Simulation::port_fuel_price(const std::string& station_id) const {
+    const double base = get_commodity(economy::FUEL_ID).base_price;
+    return std::max(base, station_price(get_station_state(station_id), economy::FUEL_ID));
+}
+
+// The reference fare at today's fuel prices: its propellant per seat is bought at the origin
+// (and the return share at the destination) at those ports' prices instead of the base price.
+// Earth makes no fuel, so trips from Earth cost several times the base-price fare's fuel.
+double Simulation::live_fare_cr(const std::string& origin_id, const std::string& destination_id,
+    const domain::PassengerDefinition::ReferenceFare& reference) const {
+    const double base = get_commodity(economy::FUEL_ID).base_price;
+    return reference.fare_cr
+        + (reference.fuel_out_kg * (port_fuel_price(origin_id) - base)
+              + reference.fuel_back_kg * (port_fuel_price(destination_id) - base))
+        / FUEL_UNITS_TO_KG;
+}
+
 double Simulation::reference_cost_cr(const std::string& origin_id, const std::string& destination_id,
     double value_of_time) const {
     const auto* reference = reference_fare(origin_id, destination_id);
@@ -102,7 +119,8 @@ double Simulation::reference_cost_cr(const std::string& origin_id, const std::st
         return std::numeric_limits<double>::infinity();
     }
     const auto& env = universe_.ship_environment;
-    return reference->fare_cr + passenger_nonfare_cr(value_of_time, reference->days, env.radiation ? env.gcr_msv_per_day : 0.0);
+    return live_fare_cr(origin_id, destination_id, *reference)
+        + passenger_nonfare_cr(value_of_time, reference->days, env.radiation ? env.gcr_msv_per_day : 0.0);
 }
 
 std::vector<Simulation::PassengerBand> Simulation::passenger_bands(domain::PassengerKind kind,
@@ -228,14 +246,15 @@ void Simulation::compute_rotation_tours() {
         if (out == nullptr || home == nullptr || wage <= 0.0) {
             continue;  // no trip there or back: no rotation (the staff settle)
         }
-        const double round_trip = out->fare_cr + home->fare_cr + passenger_nonfare_cr(wage, out->days, dose_rate)
+        const double fares = live_fare_cr(out_gateway, station.id, *out) + live_fare_cr(station.id, home_gateway, *home);
+        const double round_trip = fares + passenger_nonfare_cr(wage, out->days, dose_rate)
             + passenger_nonfare_cr(wage, home->days, dose_rate);
         const double tour_days = std::sqrt(round_trip * 365.0 / (pax.hardship_per_year * wage));
         rotation_tours_[station.id] = {
             .out_gateway = out_gateway,
             .home_gateway = home_gateway,
             .tour_days = tour_days,
-            .fares_per_day = (out->fare_cr + home->fare_cr) / tour_days,
+            .fares_per_day = fares / tour_days,
         };
     }
 }
@@ -388,7 +407,8 @@ Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::s
             continue;
         }
         candidates.push_back({band.people * open_share, willing,
-            reference->fare_cr + passenger_nonfare_cr(band.value_of_time_cr_per_day, reference->days, dose_rate) - nonfare});
+            live_fare_cr(origin_id, destination_id, *reference)
+                + passenger_nonfare_cr(band.value_of_time_cr_per_day, reference->days, dose_rate) - nonfare});
     }
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.willing > b.willing; });
@@ -446,7 +466,7 @@ void Simulation::step_passengers(double dt_s) {
     for (const auto& [station_id, tour] : rotation_tours_) {
         auto& station = get_station_state(station_id);
         const auto* fare = reference_fare(tour.out_gateway, station_id);
-        if (station.credits < universe_.open_economy.station_credit_floor + fare->fare_cr) {
+        if (station.credits < universe_.open_economy.station_credit_floor + live_fare_cr(tour.out_gateway, station_id, *fare)) {
             continue;
         }
         post_travellers(get_station_state(tour.out_gateway), domain::PassengerKind::RotationOut, station_id, station_id,
@@ -569,7 +589,8 @@ Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& 
             continue;
         }
         candidates.push_back({g, whole, willing,
-            reference->fare_cr + passenger_nonfare_cr(vot, reference->days, reference_dose_rate) - nonfare});
+            live_fare_cr(origin.station_id, destination.id, *reference)
+                + passenger_nonfare_cr(vot, reference->days, reference_dose_rate) - nonfare});
     }
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.willing > b.willing; });
@@ -939,7 +960,8 @@ std::vector<Simulation::ReferenceFareRow> Simulation::compute_reference_fares() 
                 .fare_cr = std::numeric_limits<double>::infinity()};
             double best_cost = std::numeric_limits<double>::infinity();
             for (const auto& carrier : carriers) {
-                std::vector<std::tuple<double, double, double>> trips;  // (cost to the passenger, fare, days out)
+                // (cost to the passenger, fare, days out, propellant per seat out and back)
+                std::vector<std::tuple<double, double, double, double, double>> trips;
                 for (int d = 0; d < departures; ++d, ++i) {
                     const auto& out = outbound[i];
                     const auto& back = inbound[i];
@@ -951,9 +973,10 @@ std::vector<Simulation::ReferenceFareRow> Simulation::compute_reference_fares() 
                     const double back_days = back.travel_time_s / 86400.0;
                     const double cost = daily_cost(carrier) * (out_days + market.return_share * back_days)
                         + (consumed_propellant_kg(out) + market.return_share * consumed_propellant_kg(back)) * fuel_cr_per_kg;
-                    const double fare = pricing.carrier_margin * cost / (carrier.berths * market.fill_ref)
-                        + provisions_per_day * out_days;
-                    trips.emplace_back(fare + person_day_cr * out_days, fare, out_days);
+                    const double per_seat = pricing.carrier_margin / (carrier.berths * market.fill_ref);
+                    const double fare = per_seat * cost + provisions_per_day * out_days;
+                    trips.emplace_back(fare + person_day_cr * out_days, fare, out_days, per_seat * consumed_propellant_kg(out),
+                        per_seat * market.return_share * consumed_propellant_kg(back));
                 }
                 if (trips.size() * 2 <= static_cast<std::size_t>(departures)) {
                     continue;
@@ -965,6 +988,8 @@ std::vector<Simulation::ReferenceFareRow> Simulation::compute_reference_fares() 
                     best.fare_cr = std::get<1>(median);
                     best.days = std::get<2>(median);
                     best.class_id = carrier.id;
+                    best.fuel_out_kg = std::get<3>(median);
+                    best.fuel_back_kg = std::get<4>(median);
                 }
             }
             if (std::isfinite(best.fare_cr)) {
