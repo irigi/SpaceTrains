@@ -152,3 +152,29 @@ Benchmark (4 starts × 1,460 days):
 Trajectory audit: 0.5 ± 1.0 flags per run, all `many_revolutions` on Mercury departures at κ ≈ 0.005
 (5.5 revolutions, 929 days). Those paths exist since the atlas was extended to low κ (main, PR #20), not
 from the overhaul. They are costly, and the economy flies them rarely.
+
+### Colonies' people and Titan (2026-10-23, 01:10-01:40)
+
+- **Decision:** colonies have people with a lognormal wage: Mars surface 50,000 (median 0.3 cr/day,
+  σ 0.4), Luna surface 10,000 (0.25), belt miners 5,000 (0.35, σ 0.6). Each year 5% of them look for a
+  better job.
+  - Those whose surface wage is low enough that the gateway's job, less hardship, repays the ascent over a
+    10-year stay take its vacancies (within ~30 days), without a ship. The ascent is a 100 kg seat at the
+    colony's launch price, about 3 cr at Mars.
+  - The gateway's unemployed go down to the surface.
+  - This is the user's original picture: workers move for better jobs between a surface and its station.
+    Mars no longer carries 2,000+ unemployed.
+- **Decision:** a colony recruits part of its growth on Earth (Mars 30%, Luna and belt 50%). It pays their
+  passage up to the reference fare, out of its savings (not its credit line). They land at its gateway and go
+  down to the surface. Paying up to twice the fare emptied Mars's account; the colonies' trade deficits now
+  keep the recruiting modest.
+- **Decision:** Titan runs its own machinery workshop (1.5 per 10,000 residents). It is 2,000 days from
+  resupply, so its import demand alone never drew ships (machinery 26-60% unmet). A smaller workshop got
+  stuck: a 21-unit start, the upkeep penalty, then output below use.
+
+Benchmark (4 starts × 1,460 days):
+- unmet 0.2 ± 0.0%, last fifth 0.0%;
+- 87.8 of 139 ships profitable (63%);
+- no station in the red or below its floor at the end; worst station 15 days in the red;
+- 5,100 boardings, 2.6M cr fares; about 2,000 people hired up and 1,300 gone down per run;
+- 0.5 trajectory flags per run (the low-κ Mercury spirals).
