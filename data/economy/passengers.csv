@@ -10,7 +10,7 @@ rotation_share,0.03
 rotation_grade,engineer
 hardship_per_year,0.2
 resident_wage_multiple,1
-visit_trips_per_person_year,0.05
+visit_trips_per_person_year,0.5
 earth_population_weight,100000
 fare_elasticity,-1
 demand_bands,4

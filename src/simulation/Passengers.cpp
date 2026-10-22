@@ -43,8 +43,9 @@ const char* Simulation::passenger_kind_name(domain::PassengerKind kind) {
 }
 
 bool Simulation::employer_pays(domain::PassengerKind kind) const {
+    // With the labour market on, settlers pay their own passage out of what the job gains them.
     return pays_from_employer(kind)
-        || (kind == domain::PassengerKind::Migrant && universe_.passengers.settlers_sponsored != 0.0);
+        || (kind == domain::PassengerKind::Migrant && universe_.passengers.settlers_sponsored != 0.0 && !labour_on());
 }
 
 double Simulation::settler_share(double payback_years) const {
@@ -143,9 +144,31 @@ std::vector<Simulation::PassengerBand> Simulation::passenger_bands(domain::Passe
     const int bands = std::max(1, static_cast<int>(pax.demand_bands));
     const bool sponsored = kind == domain::PassengerKind::Migrant && employer_pays(kind);
     const double payback = sponsored ? reference / (365.0 * value_of_time) : 0.0;
+    // Labour market (phase B): what each traveller would pay comes from a distribution, not a
+    // multiple of the reference cost. Settlers: their gain from the job; the unemployed going
+    // home: an Earth wage; visitors: a share of a year's income where they live.
+    using K = domain::PassengerKind;
+    const bool from_income = labour_on() && kind != K::RotationOut && kind != K::RotationHome;
+    const std::string home = kind == K::VisitorHome ? destination_id : origin_id;
+    const double reference_tail = from_income && kind == K::Visitor ? traveller_budget_tail(home, reference) : 1.0;
     const auto share_above = [&](double multiple) {
+        if (from_income) {
+            const double cost = multiple * reference;
+            switch (kind) {
+                case K::Migrant: return settler_gain_tail(get_station_state(destination_id), cost);
+                case K::Emigrant: return returner_gain_tail(cost);
+                case K::VisitorHome: return traveller_budget_tail(home, cost);
+                default: return reference_tail > 0.0 ? traveller_budget_tail(home, cost) / reference_tail : 0.0;
+            }
+        }
         return sponsored ? settler_share(multiple * payback) : std::pow(multiple, pax.fare_elasticity);
     };
+    if (from_income && (kind == K::Migrant || kind == K::Emigrant || kind == K::VisitorHome)) {
+        fixed = true;   // a given number of people, spread over their budgets
+        if (share_above(std::pow(pax.band_ratio, -1.0)) <= 0.0) {
+            return out;   // nobody among them can pay even the cheapest band
+        }
+    }
     // A fixed number of travellers is spread over the bands in the same proportions.
     const double scale = fixed ? 1.0 / share_above(std::pow(pax.band_ratio, -1.0)) : 1.0;
     for (int band = 0; band < bands; ++band) {
@@ -290,7 +313,10 @@ double Simulation::visitor_trips_per_day(const std::string& origin_id, const std
     }
     const double vot = value_of_time_cr_per_day(domain::PassengerKind::Visitor);
     const double year_of_income = 365.0 * vot;
-    const double deterrence = std::pow(reference_cost_cr(origin_id, destination_id, vot) / year_of_income, pax.fare_elasticity);
+    const double reference = reference_cost_cr(origin_id, destination_id, vot);
+    // Labour market: those whose trip budget covers the reference cost (income distributions).
+    const double deterrence = labour_on() ? traveller_budget_tail(origin_id, reference)
+                                          : std::pow(reference / year_of_income, pax.fare_elasticity);
     return pax.visit_trips_per_person_year / 365.0 * people(origin_id) * people(destination_id) / others * deterrence;
 }
 
@@ -305,7 +331,15 @@ double Simulation::passenger_flow_per_day(const std::string& origin_id, const st
     if (const auto* tour = rotation_tour(origin_id); tour != nullptr && tour->home_gateway == destination_id) {
         flow += rotation_positions(get_station_state(origin_id)) / tour->tour_days;
     }
-    if (migration_by_ship()) {
+    if (migration_by_ship() && labour_on()) {
+        // Labour market: vacancies posted to Earth, the unemployed going home.
+        if (is_earth_gateway(origin_id) && !is_earth_gateway(destination_id) && gateway_for(destination_id, true) == origin_id) {
+            flow += labour_migrants_per_day(get_station_state(destination_id));
+        }
+        if (!is_earth_gateway(origin_id) && is_earth_gateway(destination_id) && gateway_for(origin_id, false) == destination_id) {
+            flow += labour_emigrants_per_day(get_station_state(origin_id));
+        }
+    } else if (migration_by_ship()) {
         const auto& growth = universe_.growth;
         const double floor_credits = universe_.open_economy.station_credit_floor;
         if (is_earth_gateway(origin_id) && !is_earth_gateway(destination_id) && gateway_for(destination_id, true) == origin_id) {
@@ -353,7 +387,14 @@ std::vector<Simulation::PassengerBand> Simulation::expected_travellers(const std
     if (const auto* tour = rotation_tour(origin_id); tour != nullptr && tour->home_gateway == destination_id) {
         add(K::RotationHome, rotation_positions(get_station_state(origin_id)) / tour->tour_days, true);
     }
-    if (migration_by_ship()) {
+    if (migration_by_ship() && labour_on()) {
+        if (is_earth_gateway(origin_id) && !is_earth_gateway(destination_id) && gateway_for(destination_id, true) == origin_id) {
+            add(K::Migrant, labour_migrants_per_day(get_station_state(destination_id)), true);
+        }
+        if (!is_earth_gateway(origin_id) && is_earth_gateway(destination_id) && gateway_for(origin_id, false) == destination_id) {
+            add(K::Emigrant, labour_emigrants_per_day(get_station_state(origin_id)), true);
+        }
+    } else if (migration_by_ship()) {
         const auto& growth = universe_.growth;
         if (is_earth_gateway(origin_id) && !is_earth_gateway(destination_id) && gateway_for(destination_id, true) == origin_id) {
             const auto& station = get_station_state(destination_id);
@@ -662,6 +703,24 @@ Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& 
                 continue;
             }
             budget->second -= count * fare;
+        } else if (households_on()) {
+            // Residents travel on their savings: a station's households pay only what they have.
+            const std::string& home = group.kind == domain::PassengerKind::VisitorHome ? group.destination_id : origin.station_id;
+            if (!is_earth_gateway(home)) {
+                const auto key = "households:" + home;
+                auto budget = budgets.find(key);
+                if (budget == budgets.end()) {
+                    // What they have saved beyond half their buffer (the rest pays their living).
+                    const auto& home_state = get_station_state(home);
+                    budget = budgets.emplace(key, home_state.household_credits
+                        - 0.5 * universe_.households.savings_days * resident_wages_per_day(home_state)).first;
+                }
+                count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
+                if (count < 1.0) {
+                    continue;
+                }
+                budget->second -= count * fare;
+            }
         }
         left -= count;
         offer.picks.push_back({.group = candidate.group, .count = count, .fare_cr = fare});
@@ -698,12 +757,18 @@ void Simulation::board_passengers(domain::ShipState& ship, domain::StationState&
                 employer.passage_debt_cr += fares;
             }
         } else {
-            outside_economy_credits_ -= fares;
+            pay_traveller_fare(origin, group, fares);
         }
         ship.credits += fares;
         ship.lifetime_profit += fares;
         ship.ledger.fares += fares;
         if (group.kind == domain::PassengerKind::Emigrant || group.kind == domain::PassengerKind::RotationHome) {
+            // Those who leave take their savings with them, to Earth (households on).
+            if (households_on() && group.kind == domain::PassengerKind::Emigrant) {
+                const double savings = count * per_capita_savings(origin);
+                origin.household_credits -= savings;
+                outside_economy_credits_ += savings;
+            }
             origin.population = std::max(0.0, origin.population - count);
             economy_.set_population(origin.station_id, origin.population);
         }
@@ -763,6 +828,12 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
             auto& route = passenger_audit_.routes[{lot.origin_id, destination.station_id}];
             route.landed += lot.count;
             route.flight_days += lot.count * std::max(0.0, game_time_s_ - lot.boarded_s) / 86400.0;
+        }
+        if (lot.kind == domain::PassengerKind::Migrant && households_on() && is_earth_gateway(lot.origin_id)) {
+            // Settlers from Earth bring their savings.
+            const double savings = lot.count * universe_.households.migrant_savings_cr;
+            outside_economy_credits_ -= savings;
+            destination.household_credits += savings;
         }
         if (lot.kind == domain::PassengerKind::Migrant || lot.kind == domain::PassengerKind::RotationOut) {
             destination.population += lot.count;

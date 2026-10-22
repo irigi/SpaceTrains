@@ -27,7 +27,19 @@ void require_near(double actual, double expected, double tolerance, const char* 
 
 int main() {
     spacetrains::data_loader::DataLoader loader;
-    const auto universe = loader.load_universe("data");
+    // These tests check the station price and production model on its own: without the
+    // background economies (the economy overhaul), with Earth's export markets as they were.
+    auto universe = loader.load_universe("data");
+    universe.surface_markets.clear();
+    universe.background_economies.clear();
+    universe.station_incomes.clear();
+    universe.households = {};
+    universe.labour_market = {};
+    for (const auto* station : {"earth_orbit", "earth_l1"}) {
+        universe.export_markets.push_back({.station_id = station, .commodity_id = "platinum", .units_per_day = 10.0});
+        universe.export_markets.push_back({.station_id = station, .commodity_id = "deuterium", .units_per_day = 10.0});
+        universe.export_markets.push_back({.station_id = station, .commodity_id = "science_samples", .units_per_day = 5.0});
+    }
     const spacetrains::economy::EconomySystem economy(universe);
 
     {
@@ -42,9 +54,18 @@ int main() {
         const double target = economy.get_target_stock(agri, "water");
         require_near(target, std::abs(water_rate) * 21.0, 1.0e-9, "agri_hub water target must be three weeks of use");
 
-        // A consumer's curve is centred on its landed cost (step 15): Earth L1 buys Lunar water.
+        // A consumer's curve is centred on its landed cost (step 15). Earth L1's water comes from
+        // Earth's surface since the economy overhaul (no landed cost in the data), so its curve is
+        // centred on the base price; Mercury's carries the haul from Earth L1.
         const double base = economy.reference_price(agri, "water");
-        require(base > 20.0, "Earth L1's water reference must include carrying it from Lunar Gateway");
+        const auto commodity_base = [&](const char* id) {
+            return std::find_if(universe.commodities.begin(), universe.commodities.end(), [&](const auto& c) { return c.id == id; })
+                ->base_price;
+        };
+        require_near(base, commodity_base("water"), 1.0e-9, "Earth L1's water is centred on the base price");
+        require(economy.reference_price(*std::find_if(universe.stations.begin(), universe.stations.end(),
+                    [](const auto& s) { return s.id == "mercury_yard"; }), "water") > commodity_base("water"),
+            "Mercury's water reference must include carrying it there");
         require_near(economy.get_price(agri, "water", target, base), base, 1.0e-9,
             "price at target stock must equal the reference price");
         require_near(economy.get_price(agri, "water", 0.0, base), base * economy.price_cap(agri, "water"), 1.0e-9,
@@ -56,12 +77,12 @@ int main() {
         require(economy.reference_price(station("titan_works"), "machinery")
                 > economy.reference_price(station("luna_base"), "machinery"),
             "Titan's machinery must cost more to land than Lunar Gateway's");
-        require_near(economy.reference_price(station("earth_orbit"), "electronics"), 200.0, 1.0e-9,
+        require_near(economy.reference_price(station("earth_orbit"), "electronics"), commodity_base("electronics"), 1.0e-9,
             "a producer's reference price is the base price");
         // Depot fuel far from any factory costs its carriage (step 20); a factory's does not.
-        require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * 8.0,
+        require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * commodity_base("fuel"),
             "Mars fuel must cost the haul from the nearest factory");
-        require_near(economy.reference_price(station("venus_cloud"), "fuel"), 8.0, 1.0e-9,
+        require_near(economy.reference_price(station("venus_cloud"), "fuel"), commodity_base("fuel"), 1.0e-9,
             "a fuel factory's fuel keeps the base price");
         require_near(economy.get_price(agri, "water", 1.0e9, base), base * 0.25, 1.0e-9,
             "price at huge stock must clamp at 0.25x base");
@@ -276,12 +297,29 @@ int main() {
         auto sim = spacetrains::simulation::Simulation::from_data_root("data");
         sim.set_timewarp(86400.0);
 
+        // Residents start with savings brought from Earth (economy overhaul): the seeded money
+        // the controller holds counts them, and Earth's account starts that much below zero.
         double initial_supply = 0.0;
-        for (const auto& station : sim.snapshot().stations) {
-            initial_supply += station.credits;
-        }
-        for (const auto& ship : sim.snapshot().ships) {
-            initial_supply += ship.credits;
+        double seeded_internal = 0.0;
+        {
+            const auto start = sim.snapshot();
+            for (const auto& station : start.stations) {
+                initial_supply += station.credits;
+            }
+            for (const auto& ship : start.ships) {
+                initial_supply += ship.credits;
+            }
+            seeded_internal = initial_supply;   // the controller holds stations + ships
+            for (const auto& station : start.stations) {
+                initial_supply += station.household_credits;
+            }
+            initial_supply += start.outside_economy_credits;
+            for (const auto& [economy_id, balance] : start.background_credits) {
+                initial_supply += balance;
+            }
+            for (const auto& [faction_id, balance] : start.faction_treasuries) {
+                initial_supply += balance;
+            }
         }
         require(initial_supply > 0.0, "initial money supply must be seeded from data files");
 
@@ -293,7 +331,7 @@ int main() {
         double final_supply = 0.0;
         spacetrains::domain::StationLedger stations_ledger;
         for (const auto& station : snap.stations) {
-            final_supply += station.credits;
+            final_supply += station.credits + station.household_credits;
             stations_ledger.household_sales += station.ledger.household_sales;
             stations_ledger.producer_purchases += station.ledger.producer_purchases;
             stations_ledger.dividends += station.ledger.dividends;
@@ -315,7 +353,10 @@ int main() {
             fares += ship.ledger.fares;
         }
         const auto& investment = snap.fleet_investment;
-        const double internal_supply = final_supply;
+        double internal_supply = final_supply;
+        for (const auto& station : snap.stations) {
+            internal_supply -= station.household_credits;
+        }
         double liner_subsidies = 0.0;
         for (const auto& ship : snap.ships) {
             liner_subsidies += ship.ledger.subsidies;
@@ -325,13 +366,18 @@ int main() {
             treasuries += balance;
         }
         final_supply += snap.outside_economy_credits + treasuries;
+        for (const auto& [economy_id, balance] : snap.background_credits) {
+            final_supply += balance;
+        }
         require_near(final_supply, initial_supply, 1.0e-3,
             "money must be conserved: stations, ships and the external account only transfer credits");
 
         // The open economy: every external payment is booked on a station ledger.
         require(stations_ledger.household_sales > 0.0 && stations_ledger.producer_purchases == 0.0,
             "residents must pay for consumed goods; local production is free (step 17)");
-        require_near(snap.outside_economy_credits,
+        // With households and background economies on (economy overhaul), Earth's account takes
+        // many more flows (surface trade, incomes, yards); conservation above covers them.
+        if (sim.universe().households.enabled == 0.0) require_near(snap.outside_economy_credits,
             stations_ledger.producer_purchases - stations_ledger.household_sales
                 + investment.hulls_bought - investment.salvage + snap.faction_interest_paid
                 - (fares - stations_ledger.passages_paid) - stations_ledger.passages_recovered, 1.0e-3,
@@ -357,7 +403,7 @@ int main() {
         require(hold_cap <= 0.0 || fleet_hold <= hold_cap, "fleet investment must not take the fleet's holds past the cap");
         const auto& open = sim.universe().open_economy;
         require(open.station_credit_ceiling > open.station_credit_floor, "open_economy.csv must enable a credit band");
-        require_near(snap.money_supply_target, initial_supply + investment.working_capital, 1.0e-3,
+        require_near(snap.money_supply_target, seeded_internal + investment.working_capital, 1.0e-3,
             "the money-supply target must grow by the working capital of new ships");
         // Money enters and leaves through reasons (residents paying what their station paid,
         // Earth's purchases, hulls, interest) and a slow controller (money_supply_days) pulls it

@@ -14,3 +14,8 @@ mercury_yard,science_samples,0.66,
 mercury_yard,electronics,-0.066,input:science_samples
 luna_base,science_samples,-0.1,consume
 mars_transfer,science_samples,-0.1,consume
+luna_base,helium_3,0.2,
+earth_orbit,microgravity_products,2,
+earth_orbit,electronics,-0.2,input:microgravity_products
+earth_l1,microgravity_products,1,
+earth_l1,electronics,-0.1,input:microgravity_products

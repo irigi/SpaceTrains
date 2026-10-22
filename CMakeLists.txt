@@ -30,6 +30,7 @@ add_library(spacetrains_core
     src/simulation/Simulation.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp
+    src/simulation/Households.cpp
     src/util/Profiling.cpp
     src/util/ThreadPool.cpp
     src/persistence/Json.cpp

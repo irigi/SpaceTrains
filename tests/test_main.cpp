@@ -473,12 +473,15 @@ int main() {
     const auto total_credits = [](const spacetrains::domain::SimulationSnapshot& snap) {
         double total = 0.0;
         for (const auto& station : snap.stations) {
-            total += station.credits;
+            total += station.credits + station.household_credits;
         }
         for (const auto& ship : snap.ships) {
             total += ship.credits;
         }
         total += snap.outside_economy_credits;
+        for (const auto& [economy_id, balance] : snap.background_credits) {
+            total += balance;
+        }
         for (const auto& [faction_id, balance] : snap.faction_treasuries) {
             total += balance;
         }
@@ -547,7 +550,8 @@ int main() {
 
     const auto after = sim.snapshot();
     require(after.game_time_s > before.game_time_s, "time should advance");
-    require_near(total_credits(after), total_credits(before), 1.0e-6, "trades, costs, refits and the open economy should conserve money");
+    // Accounts now run to millions (Earth, residents), so round-off allows a milli-credit.
+    require_near(total_credits(after), total_credits(before), 1.0e-3, "trades, costs, refits and the open economy should conserve money");
     require(saw_refit, "the seeded fleet should refit at least one ship's tanks within 90 days");
     require(!after.recent_events.empty(), "simulation should emit events");
     const auto bridge_json = sim.build_bridge_snapshot_json(false, 1, 0.1);
@@ -1033,7 +1037,8 @@ int main() {
     }
 
     // --- Resupply-aware orders: a consumer far from its producers orders more stock than a few
-    // weeks (Mars gets its food from Venus, about 217 days away by Hohmann transfer; step 29). ---
+    // weeks (Mars gets its electronics from Low Earth Logistics, months away; its food comes from
+    // the Mars surface since the economy overhaul; step 29). ---
     {
         const auto snap = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string()).snapshot();
         const auto cover = [&](const char* station_id, const char* good) {
@@ -1042,7 +1047,7 @@ int main() {
             const auto& order = station.orders.at(good);
             return order.order_up_to_units / order.use_per_day;
         };
-        require(cover("mars_transfer", "food") > 200.0, "Mars should order food for its long resupply");
+        require(cover("mars_transfer", "electronics") > 200.0, "Mars should order electronics for its long resupply");
         require(cover("luna_base", "food") < 40.0, "the Moon, days from Earth L1, should order a few weeks of food");
     }
 
@@ -1170,7 +1175,10 @@ int main() {
             const auto bill = env_straight.overhaul_bill(ntr, 1.0, 0.0);
             require(bill.spares_units.size() == 1 && std::abs(bill.spares_units.at("reactor_fuel") - elements.mass_kg / 500.0) < 1e-9,
                 "a core overhaul should take the fuel elements as reactor fuel");
-            const double base_cost = bill.spares_units.at("reactor_fuel") * 400.0 + bill.labour_cr;
+            const double base_cost = bill.spares_units.at("reactor_fuel")
+                * std::find_if(universe_on.commodities.begin(), universe_on.commodities.end(),
+                    [](const auto& c) { return c.id == "reactor_fuel"; })->base_price
+                + bill.labour_cr;
             require(std::abs(base_cost - elements.price_cr) < 1.0, "the spares and labour at base prices should be the elements' price");
             require(bill.labour_cr < 0.05 * base_cost, "with automated yards labour should be a small share of an overhaul");
             require(bill.days >= universe_on.ship_environment.min_repair_days, "an overhaul takes at least the minimum days");
@@ -1221,9 +1229,12 @@ int main() {
             require(std::any_of(pax_universe.ship_classes.begin(), pax_universe.ship_classes.end(),
                         [](const auto& c) { return c.id == "large_plasma_liner" && c.berths == 200.0; }),
                 "with passengers the Large Plasma Liner should load with its 200 berths");
-            // Sponsored settlers: half of those a station would take come when the passage pays
-            // back in T50 = 5 years of wages, all of them when it is free; the station pays.
-            require(straight.employer_pays(spacetrains::domain::PassengerKind::Migrant), "stations pay settlers' passage");
+            // Settlers pay their own passage out of what the job gains them (labour market, economy
+            // overhaul); without it, stations sponsor them: half of those a station would take come
+            // when the passage pays back in T50 = 5 years of wages, all of them when it is free.
+            require(straight.employer_pays(spacetrains::domain::PassengerKind::Migrant)
+                    == (pax_universe.labour_market.enabled == 0.0),
+                "stations pay settlers' passage only without the labour market");
             require(!straight.employer_pays(spacetrains::domain::PassengerKind::Visitor), "visitors pay their own way");
             require_near(straight.settler_share(5.0), 0.5, 1e-12, "half the settlers at a 5-year payback");
             require_near(straight.settler_share(0.0), 1.0, 1e-12, "every settler at no cost");
@@ -1250,9 +1261,10 @@ int main() {
             }
             const auto money = [](const spacetrains::domain::SimulationSnapshot& snap) {
                 double total = snap.outside_economy_credits;
-                for (const auto& station : snap.stations) total += station.credits;
+                for (const auto& station : snap.stations) total += station.credits + station.household_credits;
                 for (const auto& ship : snap.ships) total += ship.credits;
                 for (const auto& [id, balance] : snap.faction_treasuries) total += balance;
+                for (const auto& [id, balance] : snap.background_credits) total += balance;
                 return total;
             };
             const double money_before = money(straight.snapshot());
@@ -1285,7 +1297,7 @@ int main() {
                     "a station's passages are recovered or still owed");
             }
             require(passages > 0.0, "stations should pay for settlers and rotation");
-            require_near(money(after), money_before, 1e-6, "fares should move money, not make it");
+            require_near(money(after), money_before, 1e-3, "fares should move money, not make it");
             // Off Earth, people come and go only by ship.
             double change = 0.0;
             for (const auto& station : after.stations) {

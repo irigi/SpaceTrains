@@ -42,4 +42,4 @@ extractor_hub,fuel,-5,upkeep
 extractor_hub,electronics,-1.25,upkeep
 extractor_hub,machinery,-1.25,upkeep
 extractor_hub,medicine,-0.75,upkeep
-extractor_hub,reactor_fuel,10,
+extractor_hub,reactor_fuel,2,

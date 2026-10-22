@@ -408,6 +408,29 @@ private:
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.
     void settle_local_economy(const std::vector<domain::Inventory>& stocks_before, double dt_s);
+    // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
+    // with the background economies at their gateways.
+    [[nodiscard]] bool households_on() const { return universe_.households.enabled != 0.0; }
+    double& economy_account(const std::string& economy_id);
+    [[nodiscard]] double economy_balance(const std::string& economy_id) const;
+    [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
+    [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double per_capita_savings(const domain::StationState& station) const;
+    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares);
+    void step_households(double dt_s);
+    void step_surface_markets(double dt_s);
+    [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
+    // Labour market (phase B, Households.cpp).
+    [[nodiscard]] bool labour_on() const { return households_on() && universe_.labour_market.enabled != 0.0; }
+    [[nodiscard]] bool in_labour_market(const domain::StationState& station) const;
+    [[nodiscard]] double station_wage_cr_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double station_workers(const domain::StationState& station) const;
+    [[nodiscard]] double labour_migrants_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double labour_emigrants_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double settler_gain_tail(const domain::StationState& destination, double gain_cr) const;
+    [[nodiscard]] double returner_gain_tail(double gain_cr) const;
+    [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
+    void step_labour(double dt_s);
     // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
     void step_population(double dt_s);
@@ -650,7 +673,9 @@ private:
     double game_time_s_ {0.0};
     double untimed_s_ {0.0};   // game time step() was given that no tick has used yet
     void tick();
-    double outside_economy_credits_ {0.0};
+    double outside_economy_credits_ {0.0};   // Earth's economy (the outside account)
+    // The other background economies' accounts (economy overhaul), by id.
+    std::map<std::string, double> background_credits_;
     std::map<std::string, double> faction_treasuries_;
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};

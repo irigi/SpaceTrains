@@ -656,6 +656,33 @@ void print_economy_audit(
         "    Stations: residents paid {:.0f}, producers were paid {:.0f}, dividends {:.0f}, subsidies {:.0f}, taxes {:.0f}\n",
         stations_total.household_sales, stations_total.producer_purchases, stations_total.dividends,
         stations_total.subsidies, stations_total.taxes);
+    // Economy overhaul: residents' accounts, trade with the background economies, incomes.
+    double household_credits = 0.0;
+    if (universe.households.enabled != 0.0 || !universe.surface_markets.empty()) {
+        std::cout << std::format("    {:30s}  {:>10s} {:>9s} {:>9s} {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s} {:>9s} {:>7s} {:>7s} {:>6s}  {}\n", "",
+            "residents", "wages", "spending", "surf.buy", "surf.sell", "incomes", "visitors", "yard", "to ships", "from ship",
+            "people", "jobs", "wage", "below floor");
+        for (const auto& ss : snap.stations) {
+            household_credits += ss.household_credits;
+            const auto& l = ss.ledger;
+            for (const auto& sd : universe.stations) {
+                if (sd.id != ss.station_id) continue;
+                std::cout << std::format("    {:30s}  {:>10.0f} {:9.0f} {:9.0f} {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:9.0f} {:9.0f} {:7.0f} {:7.0f} {:6.2f}  {}\n",
+                    sd.name, ss.household_credits, l.wages_paid, l.household_spending, l.surface_bought, l.surface_sold, l.incomes,
+                    l.visitor_spending, l.yard_sales, l.ship_sales, l.ship_purchases, ss.population,
+                    ss.jobs / std::max(1e-9, universe.households.participation),
+                    ss.wage_cr_per_day > 0.0 ? ss.wage_cr_per_day : universe.labour.reference_wage_cr_per_day,
+                    ss.credits < universe.open_economy.station_credit_floor ? "yes" : "");
+                break;
+            }
+        }
+        std::cout << "    Background economies:";
+        std::cout << std::format("  Earth {:.0f}", snap.outside_economy_credits);
+        for (const auto& [economy_id, balance] : snap.background_credits) {
+            std::cout << std::format("  {} {:.0f}", economy_id, balance);
+        }
+        std::cout << " cr (negative: paid into the simulated economy)\n";
+    }
     spacetrains::domain::ShipLedger fleet;
     int profitable = 0;
     struct DriveTally {
@@ -749,6 +776,7 @@ void print_economy_audit(
             ship.current_station_id, ship.active_mission.destination_station_id.empty() ? "docked"
                 : "to " + ship.active_mission.destination_station_id, ship.lifetime_profit, ship.ledger.subsidies);
     }
+    // The money-supply controller holds stations + ships; residents' savings are their own.
     const double internal_supply = station_credits + ship_credits;
     double treasuries = 0.0;
     std::cout << "    Faction treasuries:";
@@ -775,15 +803,20 @@ void print_economy_audit(
     std::cout << std::format("    Fleet investment: {} ships commissioned (hulls {:.0f}, working capital {:.0f}), {} sold (salvage {:.0f})\n",
         investment.ships_commissioned, investment.hulls_bought, investment.working_capital,
         investment.ships_sold, investment.salvage);
-    const double external = snap.outside_economy_credits + treasuries;
-    const double total_supply = internal_supply + external;
+    double background = 0.0;
+    for (const auto& [economy_id, balance] : snap.background_credits) {
+        background += balance;
+    }
+    const double external = snap.outside_economy_credits + treasuries + background;
+    const double total_supply = internal_supply + household_credits + external;
     // The target is the seeded money plus the working capital the treasuries gave new ships.
     const double target = snap.money_supply_target;
     std::cout << std::format("    Money supply: stations {:.0f} + ships {:.0f} = {:.0f} cr  (target {:.0f}, {:+.1f}%)\n",
         station_credits, ship_credits, internal_supply, target,
         target != 0.0 ? 100.0 * (internal_supply / target - 1.0) : 0.0);
-    std::cout << std::format("    External: residents and producers {:.0f} + treasuries {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
-        snap.outside_economy_credits, treasuries, total_supply, initial_supply, total_supply - initial_supply);
+    std::cout << std::format("    External: Earth {:.0f} + other economies {:.0f} + treasuries {:.0f} cr; residents {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
+        snap.outside_economy_credits, background, treasuries, household_credits, total_supply, initial_supply,
+        total_supply - initial_supply);
 
     // Per-commodity price spread across stations.
     std::cout << "\n  [ECON AUDIT] Prices (min/avg/max across stations):\n";

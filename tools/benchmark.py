@@ -72,6 +72,19 @@ def run_one(binary, days, start, threads, extra):
         m = re.search(r"fleet holds now: (\d+) u", line)
         if m:
             result["holds"] = float(m.group(1))
+        # Economy overhaul: stations below their credit floor in the last residents table,
+        # passengers boarded and fares.
+        if re.search(r"\s+residents\s+wages\s+spending", line):
+            result["below_floor"] = 0
+        elif "below_floor" in result and re.search(r"\s{2}yes\s*$", line):
+            result["below_floor"] += 1
+        m = re.search(r"Passengers: (\d+) cr in fares", line)
+        if m:
+            result["fares_m"] = float(m.group(1)) / 1e6
+            result["boarded"] = 0.0
+        m = re.search(r"^\s+(settlers|emigrants|rotation out|rotation home|visitors|visitors home)\s+posted \d+, boarded (\d+)", line)
+        if m and "boarded" in result:
+            result["boarded"] += float(m.group(2))
         m = re.search(r"flagged=\s*(\d+)", line)
         if m:
             result["flagged"] = result.get("flagged", 0) + int(m.group(1))
@@ -97,7 +110,8 @@ def main():
     columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("price", "price÷ref"), ("profitable", "profitable"), ("ships", "ships"),
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
                ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("ship_cash", "ship cash %"),
-               ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"), ("seconds", "run s")]
+               ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"),
+               ("below_floor", "below floor"), ("boarded", "boarded"), ("fares_m", "fares M"), ("seconds", "run s")]
     print(f"{'start day':>10}" + "".join(f"{title:>12}" for _, title in columns))
     for result in results:
         print(f"{result['start']:>10.0f}" + "".join(

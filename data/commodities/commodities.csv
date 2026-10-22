@@ -1,13 +1,15 @@
 id,name,mass_per_unit_kg,decay_fraction_per_day,base_price
-food,Food,100,0.001,50
-water,Water,100,0.0,20
-oxygen,Oxygen,50,0.0,30
-metals,Metals,200,0.0,75
-fuel,Fuel,100,0.0002,8
-electronics,Electronics,20,0.0,200
-machinery,Machinery,300,0.0,300
-medicine,Medicine,50,0.001,250
-reactor_fuel,Reactor Fuel,500,0.0,400
-platinum,Platinum Metals,10,0.0,3000
-deuterium,Deuterium,20,0.0,1500
-science_samples,Science Samples,10,0.0,2000
+food,Food,100,0.001,8.42
+water,Water,100,0.0,7.84
+oxygen,Oxygen,50,0.0,3.91
+metals,Metals,200,0.0,16.85
+fuel,Fuel,100,0.0002,7.92
+electronics,Electronics,20,0.0,63.96
+machinery,Machinery,300,0.0,70.2
+medicine,Medicine,50,0.001,120.9
+reactor_fuel,Reactor Fuel,500,0.0,429.0
+platinum,Platinum Metals,10,0.0,249.21
+deuterium,Deuterium,20,0.0,77.22
+science_samples,Science Samples,10,0.0,779.61
+helium_3,Helium-3,1,0.0,2339.96
+microgravity_products,Microgravity Products,1,0.0,233.96

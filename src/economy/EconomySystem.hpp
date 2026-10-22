@@ -31,8 +31,22 @@ public:
     [[nodiscard]] double population_factor(const domain::StationDefinition& station) const;
     void set_population(const std::string& station_id, double population);
 
-    // Units that count against a station's storage capacity (depot fuel does not).
+    // Units that count against a station's storage capacity (depot fuel does not, nor what a
+    // background economy keeps stocked at its gateway).
     [[nodiscard]] double storage_used_units(const domain::Inventory& inventory) const;
+    [[nodiscard]] double storage_used_units(const domain::StationDefinition& station, const domain::Inventory& inventory) const;
+
+    // Background economies (docs/plans/economy_overhaul.md): what one sells or buys at this
+    // gateway (nullptr: none). A surface market that sells in any amount keeps the station's
+    // stock at surface_depth_units, priced at its ask.
+    [[nodiscard]] const domain::SurfaceMarketDefinition* surface_market(
+        const domain::StationDefinition& station, const std::string& commodity_id) const;
+    [[nodiscard]] const std::vector<const domain::SurfaceMarketDefinition*>& surface_markets_at(const std::string& station_id) const;
+    // The surface keeps this good stocked here in any amount (Earth).
+    [[nodiscard]] bool surface_supplied(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // What the surface pays for it here (0: it does not buy).
+    [[nodiscard]] double surface_bid(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    [[nodiscard]] double surface_depth_units() const { return surface_depth_units_; }
 
     // Fuel a station's factory makes per day (0 where there is none).
     [[nodiscard]] double fuel_factory_output(const domain::StationDefinition& station) const;
@@ -95,9 +109,12 @@ private:
     [[nodiscard]] double curve_centre(
         const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const;
     [[nodiscard]] double commodity_base_price(const std::string& commodity_id) const;
-    // A price that does not move with the stock: the base price at an export market, the
-    // floor price for an export good anywhere that neither makes nor exports it (0 otherwise).
-    [[nodiscard]] double flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // A price that does not move with the stock: the base price at an export market (a surface
+    // economy's bid where it only buys), the floor price for an export good anywhere that neither
+    // makes nor exports it (0 otherwise).
+    [[nodiscard]] double flat_price(const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const;
+    // The lowest and highest multiple of the curve centre (the surface ask and bid bound it).
+    [[nodiscard]] double price_floor_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const;
     [[nodiscard]] std::unordered_map<std::string, double> compute_net_rates(const domain::StationDefinition& station) const;
 
     const domain::UniverseDefinition& universe_;
@@ -106,6 +123,11 @@ private:
     // Export goods by station id.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> export_markets_;
     std::unordered_set<std::string> export_goods_;
+    // Surface markets by station id (economy overhaul), and the flat bids of those that only buy.
+    std::unordered_map<std::string, std::vector<const domain::SurfaceMarketDefinition*>> surface_by_station_;
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> export_bids_;
+    bool legacy_export_markets_ {false};
+    double surface_depth_units_ {0.0};
     // Landed-cost reference prices by station id and good (empty: base prices).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
     // Events by id (step 28).

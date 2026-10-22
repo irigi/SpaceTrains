@@ -473,6 +473,83 @@ struct ExportMarketDefinition {
     double units_per_day {0.0};
 };
 
+// Background economies (docs/plans/economy_overhaul.md): Earth's surface and a few small
+// colonies the game does not simulate in detail (data/economy/background_economies.csv). Each
+// has an account and trades with its gateway stations at its surface price plus launch (it
+// sells) or minus landing (it buys); Earth is the old outside account.
+struct BackgroundEconomyDefinition {
+    std::string id;
+    std::string name;
+    std::vector<std::string> gateways;
+    double launch_cr_per_kg {0.0};
+    double landing_cr_per_kg {0.0};
+    double initial_credits {0.0};        // how far it may spend below zero (its credit line); Earth has no limit
+    double income_cr_per_day {0.0};      // Earth's investment in it (paid from Earth's account)
+};
+
+// One good a background economy trades at a gateway (data/economy/surface_markets.csv,
+// prices derived at load from surface $/kg, the launch and landing costs and credits_per_usd).
+struct SurfaceMarketDefinition {
+    std::string economy_id;
+    std::string station_id;
+    std::string commodity_id;
+    double ask_cr {0.0};               // it sells to the station at this price per unit (0: does not sell)
+    double bid_cr {0.0};               // it buys from the station at this price per unit (0: does not buy)
+    double sell_units_per_day {0.0};   // most it sells a day; 0 = any amount (keeps the stock topped up)
+    double buy_units_per_day {0.0};    // most it buys a day; 0 = any amount (takes the whole stock)
+    // A bid set from the station's own reference price instead (small colonies' imports; Earth's
+    // propellant for its own traffic): bid = bid_share x reference price (0: bid_cr as given).
+    double bid_share {0.0};
+};
+
+// Money a station receives from a background economy every day for what it does there
+// (data/economy/station_incomes.csv): science budgets, relay and traffic services,
+// settlement subsidies.
+struct StationIncomeDefinition {
+    std::string station_id;
+    std::string kind;
+    std::string payer_id;   // background economy
+    double cr_per_day {0.0};
+};
+
+// Residents as an account of their own (docs/plans/economy_overhaul.md): the station pays
+// them wages; they pay for what they use up and spend the rest at the station, keeping a
+// buffer of savings (data/economy/households.csv).
+struct HouseholdDefinition {
+    double enabled {0.0};
+    double participation {0.6};          // workers per resident
+    double savings_days {90.0};          // the buffer households keep, in days of their wages
+    double spend_days {60.0};            // time to spend savings above the buffer
+    std::unordered_map<std::string, double> wage_multiple;   // station id -> multiple of the reference wage
+    double migrant_savings_cr {0.0};     // a settler from a background economy brings this
+    double visitor_spend_cr_per_day {0.0};   // a visitor spends this at the station per day of the stay
+    double credits_per_usd {0.00078};    // the hardware price scale (ships) used for surface prices
+    double surface_depth_units {0.0};    // stock a surface keeps at its gateway of each good it sells in any amount
+    double yard_share {0.0};             // of a new ship's price paid to its yard station (the rest to Earth)
+    std::vector<std::string> yards;      // stations that build ships
+};
+
+// Labour market (docs/plans/economy_overhaul.md, phase B; data/economy/labour_market.csv).
+// Every station off Earth has jobs and a wage per worker; wages follow vacancies; people move
+// for the gain a job brings them, and pay their passage out of that gain. Wages and incomes are
+// lognormal distributions, so a low-paid worker on Earth may gain from a job a well-paid one
+// would not take.
+struct LabourMarketDefinition {
+    double enabled {0.0};
+    double earth_wage_median_cr_per_day {0.107};   // per worker ($50k a year)
+    double earth_wage_sigma {0.9};                 // log-spread of Earth wages (and incomes)
+    double station_wage_sigma {0.35};              // log-spread of a station's wages around its level
+    double stay_years {5.0};                       // how long a settler expects to work there
+    double hardship_share {0.2};                   // of the station wage, what life there costs a worker in comfort
+    double wage_adjust_per_year {1.0};             // d ln(wage)/dt per unit vacancy rate
+    double min_wage_multiple {0.3};                // of the reference wage
+    double vacancy_fill_days {120.0};              // vacancies are posted to Earth's job seekers over this time
+    double unemployed_leave_days {180.0};          // the unemployed look for a passage home over this time
+    double unemployment_benefit {0.3};             // of the wage, paid by the station to its unemployed
+    double visitor_budget_years {0.5};             // a trip's budget, in years of income
+    double visitor_income_sigma {1.2};             // log-spread of travellers' budgets
+};
+
 struct ShipSeedDefinition {
     std::string id;
     std::string name;
@@ -499,6 +576,11 @@ struct UniverseDefinition {
     std::vector<StationDefinition> stations;
     std::vector<RecipeDefinition> recipes;
     std::vector<ExportMarketDefinition> export_markets;
+    std::vector<BackgroundEconomyDefinition> background_economies;
+    std::vector<SurfaceMarketDefinition> surface_markets;
+    std::vector<StationIncomeDefinition> station_incomes;
+    HouseholdDefinition households;
+    LabourMarketDefinition labour_market;
     std::vector<ShipSeedDefinition> ship_seeds;
     ShipOperationsDefinition ship_operations;
     FuelSupplyDefinition fuel_supply;
@@ -748,6 +830,16 @@ struct StationLedger {
     double taxes {0.0};                 // to the faction treasury (band ceiling and money-supply controller)
     double passages_paid {0.0};         // passengers' fares it paid (rotation, sponsored settlers)
     double passages_recovered {0.0};    // recovered from its residents through its prices
+    // Economy overhaul (households and background economies).
+    double wages_paid {0.0};            // to its residents
+    double household_spending {0.0};    // residents' spending at the station beyond the goods they used up
+    double surface_bought {0.0};        // paid to background economies for goods (Earth at its ask)
+    double surface_sold {0.0};          // paid by background economies for goods (Earth at its bid)
+    double incomes {0.0};               // science budgets, services, subsidies
+    double visitor_spending {0.0};      // visitors' spending during their stay
+    double yard_sales {0.0};            // the yard's share of new ships
+    double ship_sales {0.0};            // ships paid it for cargo, fuel, provisions, refits and repairs
+    double ship_purchases {0.0};        // it paid ships for cargo they delivered
 };
 
 // The treasuries' trade in ships with the outside economy (fleet investment), all amounts
@@ -851,6 +943,11 @@ struct StationState {
     double passage_debt_cr {0.0};
     // Visitors staying here until they go home (since_s: when they leave for the ship).
     std::vector<PassengerGroup> visiting {};
+    // The residents' savings (households on): wages in, spending out.
+    double household_credits {0.0};
+    // Labour market (phase B): jobs at the station and its wage per worker per day.
+    double jobs {0.0};
+    double wage_cr_per_day {0.0};
 };
 
 struct SimulationSnapshot {
@@ -859,6 +956,8 @@ struct SimulationSnapshot {
     // economy is negative) and the faction treasuries. Station + ship + outside + treasury
     // credits always equal the seeded money.
     double outside_economy_credits {0.0};
+    // Background economies other than Earth (Earth is outside_economy_credits).
+    std::map<std::string, double> background_credits;
     std::map<std::string, double> faction_treasuries;
     // What each faction may borrow (negative treasury) and has paid in interest (step 17).
     std::map<std::string, double> faction_credit_limits;

@@ -1,0 +1,5 @@
+id,name,gateways,launch_usd_per_kg,landing_usd_per_kg,initial_credits,income_cr_per_year
+earth,Earth,earth_orbit|earth_l1,100,50,0,0
+mars_surface,Mars surface,mars_transfer,40,20,500000,300000
+luna_surface,Luna surface,luna_base,20,10,150000,40000
+belt,Belt miners,ceres_depot,5,5,100000,40000

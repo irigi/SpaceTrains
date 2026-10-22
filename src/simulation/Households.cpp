@@ -1,0 +1,353 @@
+// Households and background economies (docs/plans/economy_overhaul.md).
+//
+// Residents are an account of their own: their station pays them wages, they pay for the goods
+// they use up (settle_local_economy) and spend the rest of their income at the station, keeping
+// a buffer of savings. Background economies (Earth's surface, the small colonies) trade with
+// their gateway stations at surface price plus launch (they sell) or minus landing (they buy),
+// and pay the stations' incomes (science budgets, services, subsidies). Every flow is a transfer
+// between named accounts, so the money identity stays exact.
+
+#include <algorithm>
+#include <cmath>
+#include <format>
+#include <limits>
+
+#include "simulation/Simulation.hpp"
+
+namespace spacetrains::simulation {
+
+namespace {
+constexpr const char* EARTH_ECONOMY = "earth";
+// A small colony's supply reaches its full rate once the station pays this multiple of its ask.
+constexpr double SURFACE_SUPPLY_FULL_PRICE = 1.25;
+// A colony buying at its gateway leaves the station this many days of its own use.
+constexpr double SURFACE_RESERVE_DAYS = 14.0;
+// What a station paid per unit is averaged over about this many days of its use (as in Simulation.cpp).
+constexpr double IMPORT_COST_DAYS = 30.0;
+}  // namespace
+
+double& Simulation::economy_account(const std::string& economy_id) {
+    return economy_id == EARTH_ECONOMY ? outside_economy_credits_ : background_credits_[economy_id];
+}
+
+double Simulation::economy_balance(const std::string& economy_id) const {
+    if (economy_id == EARTH_ECONOMY) {
+        return outside_economy_credits_;
+    }
+    const auto it = background_credits_.find(economy_id);
+    return it == background_credits_.end() ? 0.0 : it->second;
+}
+
+double Simulation::economy_credit_line(const std::string& economy_id) const {
+    // Earth's economy is too large to run out; a colony spends down to minus its credit line.
+    if (economy_id == EARTH_ECONOMY) {
+        return std::numeric_limits<double>::infinity();
+    }
+    for (const auto& economy : universe_.background_economies) {
+        if (economy.id == economy_id) {
+            return economy.initial_credits;
+        }
+    }
+    return 0.0;
+}
+
+double Simulation::resident_wages_per_day(const domain::StationState& station) const {
+    // Employed workers earn the station's wage; with the labour market on, the unemployed draw
+    // a benefit from the station.
+    const double workers = station_workers(station);
+    const double wage = station_wage_cr_per_day(station);
+    if (!in_labour_market(station)) {
+        return workers * wage;
+    }
+    const double employed = std::min(workers, station.jobs);
+    return wage * (employed + universe_.labour_market.unemployment_benefit * std::max(0.0, workers - employed));
+}
+
+double Simulation::per_capita_savings(const domain::StationState& station) const {
+    return station.population > 0.0 ? std::max(0.0, station.household_credits) / station.population : 0.0;
+}
+
+void Simulation::pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares) {
+    // A visitor going home pays from home; everyone else from where they board. Travellers from
+    // an Earth gateway are Earth's people (Earth's account); a station's residents pay from
+    // their households (the outside account before households existed).
+    if (!households_on()) {
+        outside_economy_credits_ -= fares;
+        return;
+    }
+    const std::string& home = group.kind == domain::PassengerKind::VisitorHome ? group.destination_id : origin.station_id;
+    if (is_earth_gateway(home)) {
+        outside_economy_credits_ -= fares;
+    } else {
+        get_station_state(home).household_credits -= fares;
+    }
+}
+
+void Simulation::step_households(double dt_s) {
+    if (!households_on()) {
+        return;
+    }
+    const auto& households = universe_.households;
+    const double dt_days = dt_s / 86400.0;
+    for (auto& station : stations_) {
+        // Wages: the station employs its residents.
+        const double wages = resident_wages_per_day(station) * dt_days;
+        station.credits -= wages;
+        station.household_credits += wages;
+        station.ledger.wages_paid += wages;
+        // Spending beyond the goods they used up (local services, rent, taxes): savings above
+        // the buffer go back to the station over spend_days.
+        const double buffer = households.savings_days * resident_wages_per_day(station);
+        if (station.household_credits > buffer) {
+            const double spend = (station.household_credits - buffer) * std::min(1.0, dt_days / households.spend_days);
+            station.household_credits -= spend;
+            station.credits += spend;
+            station.ledger.household_spending += spend;
+        }
+        // Visitors spend during their stay, out of their home's account.
+        if (households.visitor_spend_cr_per_day > 0.0) {
+            for (const auto& stay : station.visiting) {
+                const double spend = stay.count * households.visitor_spend_cr_per_day * dt_days;
+                if (is_earth_gateway(stay.destination_id)) {
+                    outside_economy_credits_ -= spend;
+                } else {
+                    get_station_state(stay.destination_id).household_credits -= spend;
+                }
+                station.credits += spend;
+                station.ledger.visitor_spending += spend;
+            }
+        }
+    }
+    // Earth invests in the small colonies.
+    for (const auto& economy : universe_.background_economies) {
+        if (economy.income_cr_per_day > 0.0) {
+            const double amount = economy.income_cr_per_day * dt_days;
+            outside_economy_credits_ -= amount;
+            economy_account(economy.id) += amount;
+        }
+    }
+    // Incomes from the background economies: science budgets, services, subsidies.
+    for (const auto& income : universe_.station_incomes) {
+        const double amount = income.cr_per_day * dt_days;
+        economy_account(income.payer_id) -= amount;
+        auto& station = get_station_state(income.station_id);
+        station.credits += amount;
+        station.ledger.incomes += amount;
+    }
+}
+
+void Simulation::step_surface_markets(double dt_s) {
+    if (universe_.surface_markets.empty()) {
+        return;
+    }
+    const double dt_days = dt_s / 86400.0;
+    const double depth = economy_.surface_depth_units();
+    for (auto& station : stations_) {
+        const auto& definition = get_station_definition(station.station_id);
+        const auto& markets = economy_.surface_markets_at(station.station_id);
+        if (markets.empty()) {
+            continue;
+        }
+        const double capacity = definition.storage_capacity_units;
+        for (const auto* market : markets) {
+            const auto& commodity_id = market->commodity_id;
+            double& account = economy_account(market->economy_id);
+            const bool can_pay = account > -economy_credit_line(market->economy_id);
+            double& stock = station.inventory[commodity_id];
+            // The surface sells.
+            if (market->ask_cr > 0.0) {
+                double units = 0.0;
+                if (market->sell_units_per_day <= 0.0) {
+                    units = std::max(0.0, depth - stock);   // Earth keeps the gateway stocked
+                } else {
+                    // A colony sells while the station pays more than its ask, and the station has room.
+                    const double price = station_price(station, commodity_id);
+                    const double eagerness = std::clamp((price / market->ask_cr - 1.0) / (SURFACE_SUPPLY_FULL_PRICE - 1.0), 0.0, 1.0);
+                    const bool room = capacity <= 0.0 || economy_.storage_used_units(definition, station.inventory) < 0.85 * capacity;
+                    units = room ? market->sell_units_per_day * eagerness * dt_days : 0.0;
+                }
+                if (units > 0.0) {
+                    const double paid = units * market->ask_cr;
+                    station.credits -= paid;
+                    account += paid;
+                    station.ledger.surface_bought += paid;
+                    // Residents pay what the station paid for it (its import cost).
+                    const auto& rates = economy_.get_station_net_rates(definition);
+                    const auto rate = rates.find(commodity_id);
+                    const double history = rate == rates.end() ? 0.0 : std::max(0.0, -rate->second) * IMPORT_COST_DAYS;
+                    const auto known = station.import_unit_cost.find(commodity_id);
+                    const double previous = known == station.import_unit_cost.end() ? market->ask_cr : known->second;
+                    station.import_unit_cost[commodity_id] = (previous * history + paid) / (history + units);
+                    stock += units;
+                }
+            }
+            // The surface buys.
+            const double bid = economy_.surface_bid(definition, commodity_id);
+            if (bid > 0.0 && can_pay && stock > 0.0) {
+                double units = 0.0;
+                if (market->ask_cr <= 0.0 && market->bid_share <= 0.0 && market->buy_units_per_day <= 0.0) {
+                    units = stock;   // an export market takes it all
+                } else {
+                    // Keep the station's own use (and what the surface stocks here) for the station.
+                    const auto& rates = economy_.get_station_net_rates(definition);
+                    const auto rate = rates.find(commodity_id);
+                    double own_use = rate == rates.end() ? 0.0 : std::max(0.0, -rate->second);
+                    if (market->buy_units_per_day > 0.0) {
+                        own_use = std::max(0.0, own_use - market->buy_units_per_day);
+                    }
+                    const double reserve = std::max(own_use * SURFACE_RESERVE_DAYS,
+                        economy_.surface_supplied(definition, commodity_id) ? depth : 0.0);
+                    units = std::clamp(stock - reserve, 0.0,
+                        market->buy_units_per_day > 0.0 ? market->buy_units_per_day * dt_days : stock);
+                }
+                if (units > 0.0) {
+                    const double paid = units * bid;
+                    account -= paid;
+                    station.credits += paid;
+                    station.ledger.surface_sold += paid;
+                    station.market_sold_units[commodity_id] += units;
+                    stock -= units;
+                }
+            }
+        }
+    }
+}
+
+// ---- Labour market (phase B) ----------------------------------------------------------------
+
+namespace {
+double normal_cdf(double z) {
+    return 0.5 * std::erfc(-z / std::sqrt(2.0));
+}
+// P(X >= x) for a lognormal X with this median and log-spread.
+double lognormal_tail(double median, double sigma, double x) {
+    if (x <= 0.0) {
+        return 1.0;
+    }
+    if (median <= 0.0) {
+        return 0.0;
+    }
+    return 1.0 - normal_cdf((std::log(x / median)) / sigma);
+}
+}  // namespace
+
+bool Simulation::in_labour_market(const domain::StationState& station) const {
+    return labour_on() && !is_earth_gateway(station.station_id);
+}
+
+double Simulation::station_wage_cr_per_day(const domain::StationState& station) const {
+    if (in_labour_market(station) && station.wage_cr_per_day > 0.0) {
+        return station.wage_cr_per_day;
+    }
+    const auto& households = universe_.households;
+    const auto multiple = households.wage_multiple.find(station.station_id);
+    return universe_.labour.reference_wage_cr_per_day * (multiple == households.wage_multiple.end() ? 1.0 : multiple->second);
+}
+
+double Simulation::station_workers(const domain::StationState& station) const {
+    return station.population * universe_.households.participation;
+}
+
+double Simulation::labour_migrants_per_day(const domain::StationState& station) const {
+    // Vacancies go to Earth's job seekers over vacancy_fill_days; people already coming fill them.
+    if (!in_labour_market(station) || !migration_by_ship()) {
+        return 0.0;
+    }
+    const double participation = std::max(1e-6, universe_.households.participation);
+    const double people_needed = std::max(0.0, station.jobs - station_workers(station)) / participation
+        - travellers_pending(station.station_id, domain::PassengerKind::Migrant);
+    return std::max(0.0, people_needed) / universe_.labour_market.vacancy_fill_days;
+}
+
+double Simulation::labour_emigrants_per_day(const domain::StationState& station) const {
+    // The unemployed look for a passage home (with their families).
+    if (!in_labour_market(station) || !migration_by_ship()) {
+        return 0.0;
+    }
+    const double participation = std::max(1e-6, universe_.households.participation);
+    const double people_out = std::max(0.0, station_workers(station) - station.jobs) / participation
+        - travellers_pending(station.station_id, domain::PassengerKind::Emigrant);
+    return std::max(0.0, people_out) / universe_.labour_market.unemployed_leave_days;
+}
+
+double Simulation::settler_gain_tail(const domain::StationState& destination, double gain_cr) const {
+    // A job seeker on Earth earning w_E gains (w_S (1 - hardship) - w_E) x the stay; the share of
+    // seekers who gain at least `gain_cr` is P(w_E <= w_S (1 - hardship) - gain / stay).
+    const auto& labour = universe_.labour_market;
+    const double stay_days = 365.25 * labour.stay_years;
+    const double ceiling = station_wage_cr_per_day(destination) * (1.0 - labour.hardship_share) - gain_cr / stay_days;
+    if (ceiling <= 0.0) {
+        return 0.0;
+    }
+    return normal_cdf(std::log(ceiling / labour.earth_wage_median_cr_per_day) / labour.earth_wage_sigma);
+}
+
+double Simulation::returner_gain_tail(double gain_cr) const {
+    // The unemployed going home gain an Earth wage over a stay.
+    const auto& labour = universe_.labour_market;
+    return lognormal_tail(labour.earth_wage_median_cr_per_day * 365.25 * labour.stay_years, labour.earth_wage_sigma, gain_cr);
+}
+
+double Simulation::traveller_budget_tail(const std::string& home_id, double cost_cr) const {
+    // A trip's budget is a share of a year's income: Earth's income spread from an Earth
+    // gateway, the station's wage (with its own spread) elsewhere.
+    const auto& labour = universe_.labour_market;
+    const bool earth = is_earth_gateway(home_id);
+    const double income = earth ? labour.earth_wage_median_cr_per_day : station_wage_cr_per_day(get_station_state(home_id));
+    const double sigma = earth ? labour.visitor_income_sigma : labour.station_wage_sigma;
+    return lognormal_tail(income * 365.25 * labour.visitor_budget_years, sigma, cost_cr);
+}
+
+void Simulation::step_labour(double dt_s) {
+    if (!labour_on()) {
+        return;
+    }
+    const auto& labour = universe_.labour_market;
+    const auto& growth = universe_.growth;
+    const double dt_years = dt_s / 86400.0 / 365.25;
+    const double floor_credits = universe_.open_economy.station_credit_floor;
+    for (auto& station : stations_) {
+        if (!in_labour_market(station)) {
+            continue;
+        }
+        const auto& definition = get_station_definition(station.station_id);
+        const double participation = universe_.households.participation;
+        const double seeded_workers = static_cast<double>(definition.population) * participation;
+        if (station.wage_cr_per_day <= 0.0) {
+            station.wage_cr_per_day = station_wage_cr_per_day(station);   // the data's wage level to start with
+        }
+        if (station.jobs <= 0.0) {
+            station.jobs = station_workers(station);   // full employment to start with
+        }
+        // Jobs grow while the station is supplied and pays its way, and are cut when it is not.
+        double rate = 0.0;
+        if (station.supply_index >= growth.grow_above && station.credits >= floor_credits) {
+            rate = growth.growth_per_year;
+        } else if (station.supply_index < growth.decline_below || station.credits < -floor_credits) {
+            rate = -growth.decline_per_year;
+        }
+        station.jobs = std::clamp(station.jobs * std::exp(rate * dt_years),
+            universe_.open_economy.core_crew_fraction * seeded_workers, growth.max_population_factor * seeded_workers);
+        // Wages follow the vacancy rate (up where jobs go unfilled, down where people are idle).
+        const double workers = std::max(1.0, station_workers(station));
+        const double vacancy_rate = std::clamp((station.jobs - workers) / workers, -1.0, 1.0);
+        station.wage_cr_per_day = std::max(labour.min_wage_multiple * universe_.labour.reference_wage_cr_per_day,
+            station.wage_cr_per_day * std::exp(labour.wage_adjust_per_year * vacancy_rate * dt_years));
+    }
+}
+
+const domain::StationDefinition* Simulation::yard_station_for(const domain::StationDefinition& home) const {
+    const domain::StationDefinition* best = nullptr;
+    double best_days = std::numeric_limits<double>::infinity();
+    for (const auto& yard_id : universe_.households.yards) {
+        const auto& yard = get_station_definition(yard_id);
+        const double days = yard.id == home.id ? 0.0 : economy_.transfer_days(yard, home);
+        if (days < best_days) {
+            best_days = days;
+            best = &yard;
+        }
+    }
+    return best;
+}
+
+}  // namespace spacetrains::simulation

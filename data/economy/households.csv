@@ -1,0 +1,17 @@
+key,value
+enabled,1
+participation,0.6
+savings_days,90
+spend_days,30
+migrant_savings_cr,39
+visitor_spend_cr_per_day,0.39
+credits_per_usd,0.00078
+yard_share,0.5
+yards,mercury_yard|earth_orbit
+surface_depth_units,1500
+wage_multiple.venus_cloud,1.0
+wage_multiple.mercury_yard,1.0
+wage_multiple.mars_transfer,1.2
+wage_multiple.ceres_depot,1.4
+wage_multiple.ganymede_depot,2.0
+wage_multiple.titan_works,3.0
