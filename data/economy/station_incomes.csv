@@ -1,6 +1,6 @@
 station_id,kind,payer_id,cr_per_year
 titan_works,science,earth,800000
-ganymede_depot,science,earth,250000
+ganymede_depot,science,earth,400000
 ganymede_depot,relay,earth,50000
 mercury_yard,science,earth,100000
 mercury_yard,relay,earth,50000

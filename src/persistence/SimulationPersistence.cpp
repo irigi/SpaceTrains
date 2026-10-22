@@ -595,6 +595,8 @@ std::string Simulation::data_fingerprint() const {
         const auto& h = universe_.households;
         mix(std::format("H{}|{}|{}|{}|{}|{}|{}|{}|{};", h.enabled, h.participation, h.savings_days, h.spend_days,
             h.migrant_savings_cr, h.visitor_spend_cr_per_day, h.credits_per_usd, h.yard_share, h.surface_depth_units));
+        mix(std::format("Hc{}|{}|{}|{}|{};", h.supply_price_elasticity, h.min_utilization, h.consume_income_elasticity,
+            h.consume_price_elasticity, h.upkeep_price_elasticity));
         const std::map<std::string, double> wages(h.wage_multiple.begin(), h.wage_multiple.end());
         for (const auto& [station_id, multiple] : wages) {
             mix(std::format("Hw{}|{};", station_id, multiple));

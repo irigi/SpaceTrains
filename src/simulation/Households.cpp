@@ -22,6 +22,8 @@ constexpr const char* EARTH_ECONOMY = "earth";
 constexpr double SURFACE_SUPPLY_FULL_PRICE = 1.25;
 // A colony buying at its gateway leaves the station this many days of its own use.
 constexpr double SURFACE_RESERVE_DAYS = 14.0;
+// A colony keeps its gateway stocked with at least this many days of the station's own use.
+constexpr double SURFACE_COVER_DAYS = 30.0;
 // What a station paid per unit is averaged over about this many days of its use (as in Simulation.cpp).
 constexpr double IMPORT_COST_DAYS = 30.0;
 }  // namespace
@@ -160,9 +162,20 @@ void Simulation::step_surface_markets(double dt_s) {
                 if (market->sell_units_per_day <= 0.0) {
                     units = std::max(0.0, depth - stock);   // Earth keeps the gateway stocked
                 } else {
-                    // A colony sells while the station pays more than its ask, and the station has room.
+                    // A colony sells while the station pays more than its ask, and the station has room;
+                    // and always while the station holds less than SURFACE_COVER_DAYS of its own use (a
+                    // station the colony supplies counts as a producer, whose curve alone would keep
+                    // its stock below what its residents need).
                     const double price = station_price(station, commodity_id);
-                    const double eagerness = std::clamp((price / market->ask_cr - 1.0) / (SURFACE_SUPPLY_FULL_PRICE - 1.0), 0.0, 1.0);
+                    double own_use = 0.0;
+                    for (const auto* recipe : economy_.recipes_of(definition)) {
+                        if (recipe->commodity_id == commodity_id && recipe->units_per_day < 0.0) {
+                            own_use -= recipe->units_per_day * economy_.population_factor(definition);
+                        }
+                    }
+                    const double eagerness = stock < SURFACE_COVER_DAYS * own_use
+                        ? 1.0
+                        : std::clamp((price / market->ask_cr - 1.0) / (SURFACE_SUPPLY_FULL_PRICE - 1.0), 0.0, 1.0);
                     const bool room = capacity <= 0.0 || economy_.storage_used_units(definition, station.inventory) < 0.85 * capacity;
                     units = room ? market->sell_units_per_day * eagerness * dt_days : 0.0;
                 }
@@ -319,11 +332,24 @@ void Simulation::step_labour(double dt_s) {
         if (station.jobs <= 0.0) {
             station.jobs = station_workers(station);   // full employment to start with
         }
-        // Jobs grow while the station is supplied and pays its way, and are cut when it is not.
+        // Jobs grow while the station is supplied, pays its way and its plants run near capacity;
+        // they are cut when it is not supplied, is deep in the red or its plants stand idle (phase C:
+        // output follows price, so idle plants are what a glut leaves).
+        double output_value = 0.0;
+        double running_value = 0.0;
+        for (const auto* recipe : economy_.recipes_of(definition)) {
+            if (recipe->units_per_day > 0.0) {
+                const double value = recipe->units_per_day * economy_.reference_price(definition, recipe->commodity_id);
+                const auto supply = station.supply_factor.find(recipe->commodity_id);
+                output_value += value;
+                running_value += value * (supply == station.supply_factor.end() ? 1.0 : supply->second);
+            }
+        }
+        const double utilization = output_value > 0.0 ? running_value / output_value : 1.0;
         double rate = 0.0;
-        if (station.supply_index >= growth.grow_above && station.credits >= floor_credits) {
+        if (station.supply_index >= growth.grow_above && station.credits >= floor_credits && utilization >= 0.8) {
             rate = growth.growth_per_year;
-        } else if (station.supply_index < growth.decline_below || station.credits < -floor_credits) {
+        } else if (station.supply_index < growth.decline_below || station.credits < -floor_credits || utilization < 0.5) {
             rate = -growth.decline_per_year;
         }
         station.jobs = std::clamp(station.jobs * std::exp(rate * dt_years),
@@ -333,6 +359,45 @@ void Simulation::step_labour(double dt_s) {
         const double vacancy_rate = std::clamp((station.jobs - workers) / workers, -1.0, 1.0);
         station.wage_cr_per_day = std::max(labour.min_wage_multiple * universe_.labour.reference_wage_cr_per_day,
             station.wage_cr_per_day * std::exp(labour.wage_adjust_per_year * vacancy_rate * dt_years));
+    }
+}
+
+void Simulation::update_market_responses() {
+    // Phase C: each tick's supply and demand multipliers from today's prices and wages.
+    const auto& h = universe_.households;
+    const bool supply_on = h.supply_price_elasticity > 0.0;
+    const bool demand_on = h.consume_income_elasticity != 0.0 || h.consume_price_elasticity != 0.0
+        || h.upkeep_price_elasticity != 0.0;
+    if (!households_on() || (!supply_on && !demand_on)) {
+        return;
+    }
+    for (auto& station : stations_) {
+        const auto& definition = get_station_definition(station.station_id);
+        station.supply_factor.clear();
+        station.demand_factor.clear();
+        const double starting_wage = [&] {
+            const auto multiple = h.wage_multiple.find(station.station_id);
+            return universe_.labour.reference_wage_cr_per_day * (multiple == h.wage_multiple.end() ? 1.0 : multiple->second);
+        }();
+        const double income_ratio = starting_wage > 0.0 ? station_wage_cr_per_day(station) / starting_wage : 1.0;
+        for (const auto* recipe : economy_.recipes_of(definition)) {
+            const auto& commodity_id = recipe->commodity_id;
+            const double reference = economy_.reference_price(definition, commodity_id);
+            if (reference <= 0.0) {
+                continue;
+            }
+            // A price the station gets from a surface economy or an export market is what it
+            // is; elsewhere the station's own curve on its stock.
+            const double price_ratio = station_price(station, commodity_id) / reference;
+            if (recipe->units_per_day > 0.0 && supply_on) {
+                station.supply_factor[commodity_id] = std::clamp(std::pow(price_ratio, h.supply_price_elasticity), h.min_utilization, 1.0);
+            } else if (recipe->units_per_day < 0.0 && demand_on && recipe->role != domain::RecipeRole::Input) {
+                const bool upkeep = recipe->role == domain::RecipeRole::Upkeep;
+                const double factor = upkeep ? std::pow(price_ratio, h.upkeep_price_elasticity)
+                                             : std::pow(income_ratio, h.consume_income_elasticity) * std::pow(price_ratio, h.consume_price_elasticity);
+                station.demand_factor[commodity_id] = std::clamp(factor, 0.1, 3.0);
+            }
+        }
     }
 }
 

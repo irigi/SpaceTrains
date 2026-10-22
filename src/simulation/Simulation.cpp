@@ -4146,6 +4146,7 @@ void Simulation::tick() {
     for (const auto& station : stations_) {
         stocks_before.push_back(station.inventory);
     }
+    update_market_responses();
     {
         const profiling::Scope economy_scope(profiling::Phase::EconomyStep);
         economy_.step(stations_, dt_s);

@@ -527,6 +527,12 @@ struct HouseholdDefinition {
     double surface_depth_units {0.0};    // stock a surface keeps at its gateway of each good it sells in any amount
     double yard_share {0.0};             // of a new ship's price paid to its yard station (the rest to Earth)
     std::vector<std::string> yards;      // stations that build ships
+    // Phase C: supply and demand respond to prices and incomes (0 elasticities: off).
+    double supply_price_elasticity {0.0};    // plants run at (price / reference)^e of capacity...
+    double min_utilization {0.1};            // ...but never below this
+    double consume_income_elasticity {0.0};  // residents' use of `consume` goods: (wage / starting wage)^e...
+    double consume_price_elasticity {0.0};   // ...x (price / reference)^e
+    double upkeep_price_elasticity {0.0};    // life support and upkeep goods: (price / reference)^e
 };
 
 // Labour market (docs/plans/economy_overhaul.md, phase B; data/economy/labour_market.csv).
@@ -948,6 +954,11 @@ struct StationState {
     // Labour market (phase B): jobs at the station and its wage per worker per day.
     double jobs {0.0};
     double wage_cr_per_day {0.0};
+    // Phase C (not saved: set from prices and wages at the start of every tick): what each
+    // output's plants run at for its price (supply responds to price), and what residents use
+    // of each good they consume for its price and their income (demand responds to both).
+    Inventory supply_factor {};
+    Inventory demand_factor {};
 };
 
 struct SimulationSnapshot {

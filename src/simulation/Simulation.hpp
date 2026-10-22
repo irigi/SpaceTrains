@@ -431,6 +431,8 @@ private:
     [[nodiscard]] double returner_gain_tail(double gain_cr) const;
     [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
     void step_labour(double dt_s);
+    // Phase C: supply follows price, demand follows price and income (StationState factors).
+    void update_market_responses();
     // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
     void step_population(double dt_s);

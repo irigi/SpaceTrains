@@ -954,6 +954,11 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"credits_per_usd", &households.credits_per_usd},
             {"yard_share", &households.yard_share},
             {"surface_depth_units", &households.surface_depth_units},
+            {"supply_price_elasticity", &households.supply_price_elasticity},
+            {"min_utilization", &households.min_utilization},
+            {"consume_income_elasticity", &households.consume_income_elasticity},
+            {"consume_price_elasticity", &households.consume_price_elasticity},
+            {"upkeep_price_elasticity", &households.upkeep_price_elasticity},
         };
         std::unordered_set<std::string> seen_keys;
         for (std::size_t i = 1; i < rows.size(); ++i) {
@@ -970,7 +975,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 continue;
             }
             const double value = parse_double(row[1], households_path, i + 1, row[0].c_str());
-            if (value < 0.0) {
+            if (value < 0.0 && !row[0].ends_with("price_elasticity")) {
                 throw std::runtime_error("'" + row[0] + "' must not be negative in " + households_path.string());
             }
             if (row[0].starts_with("wage_multiple.")) {

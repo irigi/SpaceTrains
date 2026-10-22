@@ -290,6 +290,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         station.output_limited_by.clear();
         for (auto& [commodity_id, run] : runs) {
             run.run = ceiling * run.limit;
+            // Phase C: plants run at what their price pays for.
+            if (const auto supply = station.supply_factor.find(commodity_id); supply != station.supply_factor.end()) {
+                run.run *= supply->second;
+            }
             station.output_factor[commodity_id] = run.run;
             if (run.limit < 1.0) {
                 station.output_limited_by[commodity_id] = run.limited_by;
@@ -297,7 +301,13 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         }
 
         for (const auto* recipe : recipes) {
-            const double units_per_day = recipe->units_per_day * factor * event_factor(station, *recipe);
+            double units_per_day = recipe->units_per_day * factor * event_factor(station, *recipe);
+            // Phase C: residents use more or less of what they consume with its price and their income.
+            if (recipe->units_per_day < 0.0 && recipe->role != domain::RecipeRole::Input) {
+                if (const auto demand = station.demand_factor.find(recipe->commodity_id); demand != station.demand_factor.end()) {
+                    units_per_day *= demand->second;
+                }
+            }
             double rate = units_per_day;
             // Lost consumption that is a shortage, not a choice: the part of an input's use its own
             // stock-out took from the outputs it limits.

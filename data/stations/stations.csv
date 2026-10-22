@@ -1,7 +1,7 @@
 id,name,faction_id,parent_body_id,altitude_m,theta_rad,population,economy_profile_id,storage_capacity_units,initial_credits,initial_inventory
 earth_l1,Earth L1 Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,35200,100000,food:2640;water:242;oxygen:1760;metals:550;fuel:3000;electronics:132;machinery:44;medicine:880;reactor_fuel:0
 earth_orbit,Low Earth Logistics,sol_fed,earth,500000,1.4,18000,industrial_hub,72000,100000,food:396;water:810;oxygen:810;metals:396;fuel:3000;electronics:540;machinery:900;medicine:540;reactor_fuel:108
-venus_cloud,Venus Aerostat Exchange,independent,venus,900000,2.1,12000,chem_hub,20400,100000,food:3600;water:660;oxygen:840;metals:72;fuel:3000;electronics:36;machinery:36;medicine:360;reactor_fuel:36
+venus_cloud,Venus Orbital Exchange,independent,venus,900000,2.1,12000,chem_hub,20400,100000,food:3600;water:660;oxygen:840;metals:72;fuel:3000;electronics:36;machinery:36;medicine:360;reactor_fuel:36
 mercury_yard,Mercury Sunward Yard,independent,mercury,600000,2.9,8000,smelter_hub,28000,100000,food:176;water:88;oxygen:176;metals:1120;fuel:3000;electronics:48;machinery:480;medicine:24;reactor_fuel:0
 mars_transfer,Mars Transfer Port,mars_corp,mars,1200000,0.7,17000,frontier_hub,71400,100000,food:187;water:5100;oxygen:102;metals:187;fuel:3000;electronics:136;machinery:51;medicine:34;reactor_fuel:850
 ceres_depot,Ceres Deep Depot,independent,ceres,400000,1.8,9000,extractor_hub,36000,100000,food:99;water:315;oxygen:99;metals:1440;fuel:3000;electronics:54;machinery:54;medicine:27;reactor_fuel:0;platinum:200
