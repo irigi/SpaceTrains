@@ -37,8 +37,7 @@ slowest 20-day stretch 5.1 days/s or better (16-thread machine).
   the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
   Earth → Luna times (14-22 days for plasma ships, 16 for the shuttle, some over 150) also look long for the
   hop. Look at the fare and the shuttle's economics before more fleet.
-- Fleet cap stays 130 (passengers_log, "Cap findings checked"): a higher cap costs run time and profitability,
-  and carries no more passengers.
+- Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
 
 The passenger UI was checked in the game by the user (2026-10-22).
 
@@ -72,15 +71,18 @@ The passenger UI was checked in the game by the user (2026-10-22).
 ### Next steps, in order
 
 1. **Merge passengers** (UI checked 2026-10-22).
-2. **Mercury passengers:** the atlas update (above).
-3. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
-4. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
+2. **Passenger routes** (`docs/plans/passenger_routes.md`): route data and a plan covering why fares don't
+   rise with long queues, a tech review of the Luna shuttle, a large liner for Luna, the interplanetary routes
+   with few legs, and the Titan return leg.
+3. **Mercury passengers:** the npz atlas update (above).
+4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
+5. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
    proportions, from `ship_components.csv`), with more detail only when the camera is near (the far view keeps
    today's cheap models, so un-zoomed speed is unchanged). Revives part of the archived 3D close-ups.
-5. **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
+6. **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
    mass/population scale (a ship is now drawn ~48,000 km long, about 4 Earth diameters). Icons already mark
    them when far; check arrival snaps, docking, engine glow and the near plane at metre scale.
-6. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
+7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.
 
