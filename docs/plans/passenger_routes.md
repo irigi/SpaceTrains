@@ -43,6 +43,42 @@ Problems:
 - **E. Unexplained:** boardings fall 20% at cap 220 against cap 130 with the same berth legs. Lower faction
   money explains part of it (sponsored settlers −300). Low priority, because the cap stays 130.
 
+## A2 findings: Earth ↔ Luna probe times (2026-10-22)
+
+Measured with a temporary trace of every purchase probe's Earth ↔ Luna passenger leg (400 days, start 0;
+the trace code was removed again). There are three causes, all outside the fare model:
+
+1. **Nuclear and chemical ships wait for the Moon.** The Kepler planet-system branch
+   (`TrajectoryPlanner.cpp`, `planet_system_primary` block) flies a 5.0-day Hohmann transfer but first waits
+   until the Moon's phase lines up: **15.8 days on average, up to 26** (275 legs). That is because stations
+   sit at a fixed angle around their planet (`CelestialMechanics::get_station_position`, `theta_rad` is
+   constant), so the Earth L1 Terminal at 1,500 km never goes round Earth and the only clock is the Moon's
+   27-day period. A real station in that orbit comes round every ~2 hours, so a departure window is at most
+   one parking orbit away. This also delays the real ships that fly the hop, not only the probes. NTR
+   shuttle: 16.1 days = 5.0 flight + 11.1 wait.
+2. **Plasma probes plan without the riders' time.** The probe's passenger options call
+   `plan_with_return_fuel(destination, load_kg)` with no rider time, so the spiral planner trades time
+   against fuel at the ship's own cost and picks slow spirals (factor up to 10× the shortest). The reference
+   fares are planned with `berths × fill_ref × person-day` added, and dispatch adds the riders' time too.
+   With the same term in the probe (experiment), mean plasma times fell 15-40% (plasma freighter 67 → 46 d,
+   bulk tanker 60 → 36 d, courier 32 → 27 d).
+3. **Plasma probes are limited by the yard's fuel on sale today.** A probe ship starts with empty tanks and
+   can only buy what the yard sells now; the spiral then stretches to fit that budget: 384 kg on sale →
+   231 days, 11-15 t → 146-179 days, the 410-day plasma liner burned 222 kg. Shielded cabins (water wall) are
+   also slow at 30 t on sale, since the hop needs no shielding but carries it.
+
+**What it changes.** In the 400-day experiment, fixing 2 alone changed no purchase. The times are
+not what keeps Luna below the hurdle: at a 5.6-day trip (no wait) the Fast Courier with a cabin was valued at
+−1414%/yr, because one way burns about 27 t of propellant for 12 berths at an 86 cr fare. So points 1-3 are
+needed for correct times, but the fare and the shuttle economics (plan points 1-2) decide Luna.
+
+Proposed fixes (for the user to choose):
+- 1: in the Kepler planet-system branch, when an end is a station in low orbit (period well below a day),
+  drop the Moon-phase wait (or limit it to one parking orbit). Station drawing stays at its fixed angle.
+- 2: pass the riders' time (`berths × fill_ref × person-day`, as the reference fares) in the probe's
+  passenger plans.
+- 3: value a probe's passenger legs on a full tank budget (the sustained route), not today's fuel on sale.
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band
