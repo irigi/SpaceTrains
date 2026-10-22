@@ -90,12 +90,30 @@ The passenger UI was checked in the game by the user (2026-10-22).
 5. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
    proportions, from `ship_components.csv`), with more detail only when the camera is near (the far view keeps
    today's cheap models, so un-zoomed speed is unchanged). Revives part of the archived 3D close-ups.
+   Also fix the colours: ship and station models are over-saturated today, worst near the Sun (user, 2026-10-22).
 6. **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
    mass/population scale (a ship is now drawn ~48,000 km long, about 4 Earth diameters). Icons already mark
    them when far; check arrival snaps, docking, engine glow and the near plane at metre scale.
 7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.
+
+8. **Code review and document cleanup** (user, 2026-10-22), once the steps above are done: review the code
+   (`/code-review`, `/simplify`), delete obsolete plans, and rewrite the module docs and the plans that stay so they
+   describe the current design, not the history of how we got there (decisions with their reasons may stay; the
+   step-by-step narrative goes, git history keeps it).
+
+Later (user, 2026-10-22):
+- **Earth's surface economy as a market:** Earth's surface has a bustling economy, so anything can be bought at
+  the Earth stations for its surface price plus the launch cost per kg from the surface.
+- **Planetary background economies** (`docs/plans/background_economies.md`) and **station economies: producers,
+  budgets, demand and wages** (`docs/plans/economy_points_7_10.md`): plans written 2026-10-22, not started.
+  Earth imports and exports will change every balance, so some stations need new income (to be chosen by the
+  user). After the overhaul, revisit the open passenger points (`docs/plans/passenger_routes.md`: Luna fares, light
+  cabins, scheduled liners, large liners below the hurdle) and check they still make sense.
+- **Population composition in the style of Europa Universalis 2:** stations and ships hold people of different
+  kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from EU2). To be designed
+  in detail together when we get there; the user wants help with the concept.
 
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
@@ -121,7 +139,7 @@ Deferred (user, 2026-10-08):
   `overnight_2026-10-19.md`). Key bindings help (PR #15), close-zoom camera (PR #16).
 - Ship structures: tier 1 parts and schematic (2026-10-11), tier 2 modules, radiation, boil-off and wear (PR #17;
   `docs/plans/ship_structures_log.md`, `tier2_log.md`). Wobbly outer-moon paths fixed (cubic Hermite, 2026-10-11).
-- Passengers (branch `feature/passengers`, above).
+- Passengers (PR #18), passenger routes (PR #19), atlas extension to low κ for Mercury (PR #20).
 
 Checks after each step: the test suites (`ctest`), `tools/benchmark.py` (four starting dates, mean and spread;
 one run is too noisy to judge a change) and `--trajectory-audit`; for speed, `--profile` runs one after another
