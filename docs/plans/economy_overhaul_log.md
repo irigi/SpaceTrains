@@ -5,16 +5,17 @@ their reason.
 
 ## Goal checklist (updated as work goes)
 
-| Goal | State |
+| Goal | State (2026-10-23 01:20) |
 |---|---|
-| Real prices, Earth market | not started |
-| Closed money, wages, households | not started |
-| Station incomes | not started |
-| Venus | not started |
-| Labour, wage distributions, migration | not started |
-| Stations not bankrupt | not checked |
-| Old checks (unmet, drift, save/load, speed) | not checked |
-| Passengers still travel | not checked |
+| Real prices, Earth market | done (phase A) |
+| Closed money, wages, households | done (A); money identity exact; controller off (C) |
+| Station incomes | done: science, relay, settlement, tourism, yards, microgravity, helium-3, LEO propellant, colonies' investment, migrants' savings |
+| Venus | done: Venus Orbital Exchange, cloud science base (samples, budget) |
+| Labour, wage distributions, migration | done (B): jobs, wages from vacancies, lognormal gains and incomes |
+| Demand follows income and price | done (C); supply response built, off |
+| Stations not bankrupt | improving: about 1 station in the red at the end; worst station ~250 of 1,460 days in the red |
+| Old checks (unmet, drift, save/load, speed) | unmet 0.3%, drift 0, tests pass, 6.3 days/s slowest 20-day stretch |
+| Passengers still travel | ~10,000 boardings in 4 years (was ~16,000), mostly cislunar |
 
 ## Baseline (main 50d876c, 2026-10-22)
 
@@ -73,3 +74,29 @@ unmet 0.4 ± 0.1%, last fifth 1.1 ± 0.3%, 95.8 of 140.5 ships profitable, money
 - cargo purchases: expected 36%/yr, earned 75%; passenger purchases: expected 26%, earned 4%;
 - 2 stations below their floor (Mars, Ganymede);
 - 2.2M cr fares.
+
+### Phase C and fixes (2026-10-23, 00:00-01:20)
+
+- **Decision:** supply following price is built (`supply_price_elasticity`) but off. Production is 8-10× use,
+  so plants stood idle, the utilization rule cut jobs everywhere, and Venus throttled food on its own glut
+  while Mercury went 23% short. The production cap (90 days of output) already stops gluts growing.
+- **Decision:** demand follows income and price: `consume` goods (wage/start)^1 × (price/reference)^−1;
+  upkeep goods (price/reference)^−0.1. Consumption by value rose 6.1M → 8.5M cr over 4 years as wages rose.
+- **Decision:** the money-supply controller is off (`money_supply_days` 0). Its per-head taxes, levied
+  when station + ship money ran above target, pushed Mars into job cuts. Money now moves only through named
+  flows. Station money grows from Earth's incomes and settles near 4-5M cr in 4 years; the economy test now
+  only requires it not to run away (below 3× the seed).
+- **Decision:** a colony keeps its gateway stocked with at least 30 days of the station's own use. Mars, made
+  a producer by its colony's food, held stock below its residents' 7-day buffer (upkeep 72%, jobs cut).
+- **Decision:** residents spend savings above their buffer within 2 days (was 30). The float drained new
+  stations: Earth L1 lost 195k in its first weeks and spent 63 days in the red.
+- **Decision:** residents put 3% of their wages aside for long trips; fares and valuations stay within that.
+- **Decision:** passenger valuations count travellers still to come after they give up waiting, over half a
+  cycle at the queue's give-up rate. Passenger buys now expect 24%/yr and earn 11% (was 25 against 8).
+- **Decision:** a yard builds a new hull from goods worth 20% of its price (metals half, machinery 30%,
+  electronics 20%), out of its stock; what it lacks comes from Earth.
+
+Benchmark (4 starts × 1,460 days, before the last two fixes): unmet 0.3 ± 0.1%, last fifth 0.6 ± 0.2%,
+79.5 of 115 ships profitable (69%), 1.0 ± 0.8 stations in the red at the end, worst station 248 ± 106 days
+in the red, 10,300 boardings, 3.2M cr fares, 0 trajectory flags in 3 of 4 runs.
+Speed: 50.8 ms per simulated day, slowest 20-day stretch 6.3 days/s (limit 5).
