@@ -6,6 +6,6 @@ mercury_yard,science,earth,100000
 mercury_yard,relay,earth,50000
 venus_cloud,science,earth,100000
 earth_l1,relay,earth,30000
-mars_transfer,settlement,earth,400000
-ceres_depot,settlement,earth,150000
+mars_transfer,settlement,earth,700000
+ceres_depot,settlement,earth,300000
 luna_base,tourism_and_survey,earth,60000

@@ -5,7 +5,7 @@ their reason.
 
 ## Goal checklist (updated as work goes)
 
-| Goal | State (2026-10-23 01:20) |
+| Goal | State (2026-10-23 00:25) |
 |---|---|
 | Real prices, Earth market | done (phase A) |
 | Closed money, wages, households | done (A); money identity exact; controller off (C) |
@@ -75,7 +75,7 @@ unmet 0.4 ± 0.1%, last fifth 1.1 ± 0.3%, 95.8 of 140.5 ships profitable, money
 - 2 stations below their floor (Mars, Ganymede);
 - 2.2M cr fares.
 
-### Phase C and fixes (2026-10-23, 00:00-01:20)
+### Phase C and fixes (2026-10-22 23:45 to 2026-10-23 00:25)
 
 - **Decision:** supply following price is built (`supply_price_elasticity`) but off. Production is 8-10× use,
   so plants stood idle, the utilization rule cut jobs everywhere, and Venus throttled food on its own glut
