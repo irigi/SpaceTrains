@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 15;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers
+constexpr int kSaveVersion = 16;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -515,6 +515,9 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("S{}|{}|{}|{}|{}|{}|{};", pax.tank_wrap_mean_fill, pax.settlers_sponsored,
             pax.settler_payback_half_years, pax.settler_payback_exponent, pax.passage_recovery_days,
             pax.passage_max_markup, 0));
+        mix(std::format("Q{}|{}|{}|{};", pax.cabin_shared_probe, pax.visitor_batch_days, pax.min_leg_passengers,
+            universe_.fleet_investment.purchase_spacing_days));
+        mix(std::format("R{}|{}|{};", pax.rider_time_min_share, pax.rider_time_relative_step, pax.passenger_leg_from_empty));
         for (const auto& gateway : pax.earth_gateways) {
             mix("G" + gateway + ";");
         }
@@ -599,6 +602,7 @@ std::string Simulation::save_state_json() const {
     root.set("seeded_money_supply", seeded_money_supply_);
     root.set("next_investment_review_s", next_investment_review_s_);
     root.set("investment_purchases_left", investment_purchases_left_);
+    root.set("next_purchase_s", next_purchase_s_);
     auto probes = Json::object();
     for (const auto& [key, runs] : review_probes_) {
         auto list = Json::array();
@@ -611,6 +615,7 @@ std::string Simulation::save_state_json() const {
             entry.set("wait_days", run.wait_days);
             entry.set("fuel_cost", run.fuel_cost);
             entry.set("run", run.run);
+            entry.set("module_id", run.module_id);
             list.push(std::move(entry));
         }
         probes.set(key, std::move(list));
@@ -798,6 +803,7 @@ void Simulation::load_state_json(const std::string& text) {
                 .wait_days = entry.get("wait_days").number(),
                 .fuel_cost = entry.get("fuel_cost").number(),
                 .run = static_cast<int>(entry.get("run").number()),
+                .module_id = entry.get("module_id").string(),
             });
             (void)get_station_definition(runs.back().destination_id);  // throws on an unknown station
         }
@@ -813,6 +819,7 @@ void Simulation::load_state_json(const std::string& text) {
     seeded_money_supply_ = root.get("seeded_money_supply").number();
     next_investment_review_s_ = root.get("next_investment_review_s").number();
     investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());
+    next_purchase_s_ = root.get("next_purchase_s").number();
     review_probes_ = std::move(review_probes);
     emergencies_ = std::move(emergencies);
     emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());

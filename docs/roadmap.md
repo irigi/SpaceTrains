@@ -31,7 +31,9 @@ Branch `feature/passengers` (from `main` at `5442d96`, 2026-10-21; plan `docs/pl
 and results to review in `docs/plans/passengers_log.md`): settlers, rotation and visitors travel by ship
 (`data/economy/passengers.csv`, off in data until reviewed); the UI is parse-checked only. Also on the branch:
 the VariableISP planner's fuel-check fix (`planner_fuel_check,1`; passengers off 57.8 → 30.5 ms per day, on 78 →
-47 ms, 5 days/s holds at cap 130 with passengers on) and proposals to make passengers cheaper (end of the log).
+47 ms, 5 days/s holds at cap 130 with passengers on) and the passenger speed changes of 2026-10-22 (shared
+cabin probes, purchases a day apart, weekly visitor groups, fewer rider plans: 47.2 → 42.9 ms per day, worst
+20-day stretch 5.6 → 6.9 days/s; end of the log).
 `main` holds every earlier
 branch: market redesign (PR #14), key bindings help (PR #15), close-zoom camera (PR #16), tier 2 ship
 structures (PR #17).

@@ -2569,8 +2569,17 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         // Cargo rounded up to whole tonnes keeps the cache small and the estimate safe; the
         // passengers' time to 10 cr/day.
         const double cargo_bucket_kg = std::ceil(std::max(0.0, cargo_kg) / 1000.0) * 1000.0;
-        const double rider_bucket = std::ceil(std::max(0.0, rider_time_cr_per_day) / 10.0) * 10.0;
-        auto key = rider_bucket > 0.0 ? std::format("{}|{:.0f}|t{:.0f}", destination.id, cargo_bucket_kg, rider_bucket)
+        // With rider_time_min_share, riders adding less than that share of the ship's own time
+        // cost fly on the plan without them; with rider_time_relative_step, their time is bucketed
+        // in that share of the ship's time cost (fewer plans than 10 cr/day steps).
+        const auto& pax = universe_.passengers;
+        const double riders = std::max(0.0, rider_time_cr_per_day);
+        const double rider_step = pax.rider_time_relative_step > 0.0
+            ? std::max(1.0, pax.rider_time_relative_step * time_cost_per_day) : 10.0;
+        const double rider_bucket = riders < pax.rider_time_min_share * time_cost_per_day
+            ? 0.0 : std::ceil(riders / rider_step) * rider_step;
+        auto key = rider_bucket > 0.0 ? std::format("{}|{:.0f}|t{:.{}f}", destination.id, cargo_bucket_kg, rider_bucket,
+                                            pax.rider_time_relative_step > 0.0 ? 3 : 0)
                                       : std::format("{}|{:.0f}", destination.id, cargo_bucket_kg);
         if (const auto it = plans.find(key); it != plans.end()) {
             plan_inputs[&it->second] = {planning_options(destination, cargo_bucket_kg, rider_bucket),
@@ -2814,9 +2823,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         if (!cargo_only && ship_class.berths >= 1.0 && !dest_state.waiting.empty()) {
             for (const auto& next : universe_.stations) {
                 if (next.id == destination.id || !route_leg_allowed(destination.id, next.id)
-                    || std::none_of(dest_state.waiting.begin(), dest_state.waiting.end(), [&](const domain::PassengerGroup& group) {
-                           return group.destination_id == next.id && group.count >= 1.0;
-                       })) {
+                    || !passenger_leg_waiting(dest_state, next.id)) {
                     continue;
                 }
                 const auto leg = estimate_leg(ship_class, destination, next, plan.arrival_time_s, departure_kg,
@@ -2956,10 +2963,12 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 .urgency = std::clamp(14.0 / std::max(days_left, 0.5), 1.0, 5.0)});
             heaviest_kg = std::max(heaviest_kg, commodity.mass_per_unit_kg);
         }
-        const bool passengers_here = passengers_waiting
+        // Riders board any leg flown there; a leg for passengers alone needs min_leg_passengers.
+        const bool riders_here = passengers_waiting
             && std::any_of(origin_state.waiting.begin(), origin_state.waiting.end(), [&](const domain::PassengerGroup& group) {
                    return group.destination_id == destination.id && group.count >= 1.0;
                });
+        const bool passengers_here = riders_here && passenger_leg_waiting(origin_state, destination.id);
         if (goods.empty() && !passengers_here) {
             continue;
         }
@@ -2967,25 +2976,31 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         // the heaviest good (or half of one) gives the propellant per kg of cargo. All three are
         // asked for in one pass.
         const auto& probe = plan_to(destination, 0.0);
-        // Without goods, full berths give the propellant per kg.
+        // Without goods, full berths give the propellant per kg (with passenger_leg_from_empty,
+        // the empty plan does: at the same mass ratio, propellant grows with the mass it moves).
+        const bool from_empty = goods.empty() && universe_.passengers.passenger_leg_from_empty != 0.0;
         const double laden_kg = goods.empty() ? berths * passenger_kg(economy_.transfer_days(origin_def, destination))
                                               : ship_class.cargo_capacity_units * heaviest_kg;
-        const auto& laden = plan_to(destination, laden_kg);
-        const auto& half_laden = plan_to(destination, 0.5 * laden_kg);
+        const auto& laden = from_empty ? probe : plan_to(destination, laden_kg);
+        const auto& half_laden = from_empty ? probe : plan_to(destination, 0.5 * laden_kg);
         if (!probe.feasible) {
             continue;
         }
         double propellant_per_kg = 0.0;
-        for (const auto* plan : {&laden, &half_laden}) {
-            if (plan->feasible) {
-                const double kg = plan == &laden ? laden_kg : 0.5 * laden_kg;
-                propellant_per_kg = std::max(0.0, plan->propellant_required_kg - probe.propellant_required_kg) / std::max(1.0, kg);
-                break;
+        if (from_empty) {
+            propellant_per_kg = probe.propellant_required_kg / std::max(1.0, ship_class.dry_mass_kg + provisions_kg);
+        } else {
+            for (const auto* plan : {&laden, &half_laden}) {
+                if (plan->feasible) {
+                    const double kg = plan == &laden ? laden_kg : 0.5 * laden_kg;
+                    propellant_per_kg = std::max(0.0, plan->propellant_required_kg - probe.propellant_required_kg) / std::max(1.0, kg);
+                    break;
+                }
             }
         }
         const double probe_days = probe.travel_time_s / 86400.0;
         const double arrival_s = game_time_s_ + (delay_days + probe_days) * 86400.0;
-        const auto riders = passengers_here
+        const auto riders = riders_here
             ? passenger_offer(ship, ship_class, origin_state, destination, probe_days,
                   propellant_per_kg * marginal_fuel_price_per_kg, berths)
             : PassengerOffer {};
@@ -3209,6 +3224,46 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 .fuel_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
                     + fuel_premium(plan, fuel_plan.carried_kg),
                 .run = -1});
+        }
+    }
+    // With cabin_shared_probe, a bare hull's probe also values the hull with each of its cabin
+    // modules (fleet investment then probes no cabin design of its own): the same transfers with
+    // the module's mass and full berths as payload, in this probe's plans; the limits are the
+    // fitted design's.
+    if (cargo_only && passengers_on() && universe_.passengers.cabin_shared_probe != 0.0 && ship_class.berths <= 0.0
+        && ship_class.fit.empty()) {
+        for (const auto& module : universe_.ship_modules) {
+            if (module.hull_id != ship_class.id || module.slot != "cabin" || !module_has_active_effect(module)) {
+                continue;
+            }
+            const auto& design = register_design(ship_class.id, {module.id});
+            if (design.berths < 1.0) {
+                continue;
+            }
+            const double module_kg = std::max(0.0, design.dry_mass_kg - ship_class.dry_mass_kg);
+            for (const auto& destination : universe_.stations) {
+                if (destination.id == origin_def.id || reference_fare(origin_def.id, destination.id) == nullptr) {
+                    continue;
+                }
+                const double load_kg = module_kg + design.berths * passenger_kg(economy_.transfer_days(origin_def, destination));
+                const auto fuel_plan = plan_with_return_fuel(destination, load_kg);
+                const auto& plan = *fuel_plan.plan;
+                if (!plan.feasible || !fuel_plan.feasible) {
+                    continue;
+                }
+                const double travel_days = plan.travel_time_s / 86400.0;
+                const double crew = std::max(1.0, design.crew_size);
+                if (travel_days > max_mission_days * crew / (crew + design.berths)
+                    || !leg_dose_allowed(design, origin_def, destination, game_time_s_, travel_days)
+                    || !drive_life_allows(ship, design, plan)) {
+                    continue;
+                }
+                cargo_options.push_back({.destination = &destination, .commodity_id = PASSENGER_GOOD,
+                    .cargo_units = design.berths, .travel_days = travel_days, .wait_days = plan.wait_time_s / 86400.0,
+                    .fuel_cost = (consumed_propellant_kg(plan) / FUEL_UNITS_TO_KG) * origin_fuel_price
+                        + fuel_premium(plan, fuel_plan.carried_kg),
+                    .run = -1, .module_id = module.id});
+            }
         }
     }
 
@@ -4765,12 +4820,17 @@ void Simulation::step_fleet_investment() {
     }
     // One batch of probes or one purchase per tick: a review never stalls the simulation for
     // long (probing every candidate at once took up to six seconds with ninety ships).
-    if (investment_purchases_left_ > 0) {
+    // Purchases at least purchase_spacing_days apart: each plans every variant of the winning
+    // hull, and a review's purchases falling within a few days made the slowest days (0.6-1 s).
+    if (investment_purchases_left_ > 0 && game_time_s_ >= next_purchase_s_) {
         switch (commission_step()) {
             case CommissionStep::Probed:
                 break;
             case CommissionStep::Bought:
                 --investment_purchases_left_;
+                if (investment.purchase_spacing_days > 0.0) {
+                    next_purchase_s_ = game_time_s_ + investment.purchase_spacing_days * 86400.0;
+                }
                 break;
             case CommissionStep::NothingToBuy:
                 investment_purchases_left_ = 0;
@@ -5242,8 +5302,18 @@ Simulation::CommissionStep Simulation::commission_step() {
     // as probing one by one. A candidate not probed yet in this review stops the scan: the
     // next batch is probed (this tick) and the purchase waits for a later tick.
     constexpr std::size_t kProbeBatch = 2;
-    const auto probe_key = [](const Candidate& candidate) {
-        return candidate.ship_class->id + "|" + candidate.yard->id;
+    // With cabin_shared_probe a cabin design is valued from its bare hull's probe (its runs are
+    // tagged with the cabin module); otherwise each design is probed on its own.
+    const bool shared_cabin_probe = passengers_on() && universe_.passengers.cabin_shared_probe != 0.0;
+    const auto probe_class = [&](const Candidate& candidate) -> const domain::ShipClassDefinition& {
+        return shared_cabin_probe && cabin_fit(*candidate.ship_class) ? get_ship_class(candidate.ship_class->base_class_id)
+                                                                      : *candidate.ship_class;
+    };
+    const auto probe_key = [&](const Candidate& candidate) {
+        return probe_class(candidate).id + "|" + candidate.yard->id;
+    };
+    const auto run_module = [&](const Candidate& candidate) {
+        return shared_cabin_probe && cabin_fit(*candidate.ship_class) ? candidate.ship_class->fit.front() : std::string();
     };
     std::vector<std::size_t> to_probe;
     for (std::size_t i = 0; i < candidates.size(); ++i) {
@@ -5253,15 +5323,22 @@ Simulation::CommissionStep Simulation::commission_step() {
         }
         const auto probed = review_probes_.find(probe_key(candidate));
         if (probed == review_probes_.end()) {
+            std::vector<std::string> batch_keys;
             for (std::size_t j = i; j < candidates.size() && to_probe.size() < kProbeBatch; ++j) {
-                if (!review_probes_.contains(probe_key(candidates[j]))) {
+                const auto key = probe_key(candidates[j]);
+                if (!review_probes_.contains(key) && std::find(batch_keys.begin(), batch_keys.end(), key) == batch_keys.end()) {
                     to_probe.push_back(j);
+                    batch_keys.push_back(key);
                 }
             }
             break;
         }
+        const auto module_id = run_module(candidate);
         MissionChoice choice;
         for (const auto& run : probed->second) {
+            if (run.module_id != module_id) {
+                continue;
+            }
             choice.cargo_options.push_back({.destination = &get_station_definition(run.destination_id),
                 .commodity_id = run.commodity_id, .cargo_units = run.cargo_units, .travel_days = run.travel_days,
                 .wait_days = run.wait_days, .fuel_cost = run.fuel_cost, .run = run.run});
@@ -5285,8 +5362,9 @@ Simulation::CommissionStep Simulation::commission_step() {
         probe_ships.reserve(to_probe.size());
         std::vector<MissionRequest> requests;
         for (const auto index : to_probe) {
-            probe_ships.push_back(new_ship(*candidates[index].ship_class, *candidates[index].yard));
-            requests.push_back({.ship = &probe_ships.back(), .ship_class = candidates[index].ship_class,
+            const auto& probed_class = probe_class(candidates[index]);
+            probe_ships.push_back(new_ship(probed_class, *candidates[index].yard));
+            requests.push_back({.ship = &probe_ships.back(), .ship_class = &probed_class,
                 .earliest_departure_s = game_time_s_ + investment.build_days * 86400.0, .cargo_only = true});
         }
         const auto choices = choose_missions(requests);
@@ -5295,13 +5373,14 @@ Simulation::CommissionStep Simulation::commission_step() {
             for (const auto& option : choices[k].cargo_options) {
                 runs.push_back({.destination_id = option.destination->id, .commodity_id = option.commodity_id,
                     .cargo_units = option.cargo_units, .travel_days = option.travel_days,
-                    .wait_days = option.wait_days, .fuel_cost = option.fuel_cost, .run = option.run});
+                    .wait_days = option.wait_days, .fuel_cost = option.fuel_cost, .run = option.run,
+                    .module_id = option.module_id});
             }
         }
         if (trace) {
             std::string names;
             for (const auto index : to_probe) {
-                names += std::format(" {}@{}", candidates[index].ship_class->id, candidates[index].yard->id);
+                names += std::format(" {}@{}", probe_class(candidates[index]).id, candidates[index].yard->id);
             }
             std::cerr << std::format("[invest day {:.1f}] probed {} candidates in {:.2f} s:{}\n", game_time_s_ / 86400.0,
                 to_probe.size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count(), names);

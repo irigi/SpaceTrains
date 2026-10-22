@@ -458,3 +458,73 @@ Departure replans in that year: 286 of 342 failed with the old check, 0 of 56 no
 
 Order: 1, 6 and 4 first; measure; then 3 and 5. Every change goes behind a switch, judged by the benchmark,
 and the passengers-off audit stays byte-identical.
+
+### Passenger speed proposals built (2026-10-22, the user's decision: build 1–3, measure, then 4–6)
+
+Numbering as in the report to the user (log numbers in brackets). Switches in `data/economy/passengers.csv`
+unless stated; each code default is the old behaviour, and the passengers-off 365-day audit with them at the
+defaults is byte-identical.
+
+**Built and on in the data:**
+1. **A cabin design shares its bare hull's probe** [1] (`cabin_shared_probe,1`). A bare hull's investment
+   probe also plans its cabin designs' passenger runs: the bare hull with the module's mass and full berths as
+   payload, in the same probe's plans; crew-day, dose and drive-life limits are the fitted design's. The runs are
+   tagged with the module (`ProbedRun::module_id`, saved), and a cabin candidate is valued from them with no
+   probe of its own. Fleet investment 29.4 → 25.5 s over 1,460 days: less than the 4–6 ms per day estimated,
+   because the cabin designs' plans are now made in the bare probe instead (they were not shared with cargo
+   plans before either).
+2. **At most one purchase per day** [6] (`fleet_investment.csv` `purchase_spacing_days,1`; `next_purchase_s`,
+   saved; save version 16). Probes already made in the review are kept. Passengers off: slowest day 0.71 → 0.43 s,
+   economy unchanged (4 starts: unmet 0.7 ± 0.1%, last fifth 1.5 ± 0.2%, 102.8 / 137 profitable, against 0.74%,
+   1.53%, 102 over 8 starts before).
+3. **Visitors in groups** [4] (`visitor_batch_days,7`, `min_leg_passengers,20`). A week of visitor trips is
+   posted at once, and a station becomes a leg for passengers alone (or a passenger follow-up) only once 20
+   people wait for it; smaller groups still ride on legs flown for cargo. A minimum of 5 hardly bound (queues hold
+   thousands, mean waits over 200 days) and gave no speed; 20 did (41.5 against 43.6 ms per day with 1 and 2 on),
+   with as many visitors carried as before (5,985 boarded against 5,866, single runs).
+5. **Fewer plans with riders aboard** [5] (`rider_time_min_share,0.15`, `rider_time_relative_step,0.25`,
+   `passenger_leg_from_empty,1`). Riders adding under 15% of the ship's own time cost fly on the plan without
+   them; above, their time is bucketed in quarters of the ship's time cost (before: 10 cr/day steps); legs for
+   passengers alone take the propellant per kg from the empty plan (same mass ratio) instead of planning laden
+   and half-laden transfers. The largest single gain: 43.6 → 40.0 ms per day (variable-Isp planning −6%, ship reviews −14%).
+
+**Measured and removed** (no gain; the switches would do nothing):
+- 4 [3], cabin refits priced only where at least 10 people wait: the run was identical to the one without it
+  (the refit's mission search already never picks a cabin with no one to fill it), refit checks 8.6 → 8.4 s.
+- 6 [2], one cabin candidate per hull: with 1, the plain and shielded cabins share their plans, so only
+  valuations were saved; within noise (43.7 ms per day either way).
+
+**Results, passengers on, all of the above against the old values** (1,460 days, run one after another, all
+threads, cap 130):
+
+| Start | ms per day, before → now | Slowest 20 days, days/s | Slowest day, s |
+|---|---|---|---|
+| 0 | 45.1 → 43.9 | 6.6 → 7.6 | 0.76 → 0.65 |
+| 90 | 49.3 → 42.0 | 6.0 → 6.9 | 0.71 → 0.38 |
+| 180 | 46.4 → 43.5 | 7.1 → 7.3 | 0.62 → 0.51 |
+| 270 | 48.0 → 42.2 | 5.6 → 7.0 | 0.94 → 0.53 |
+| mean | 47.2 → 42.9 (−9%) | worst 5.6 → 6.9 | worst 0.94 → 0.65 |
+
+Passengers off (only purchase spacing acts): 29.2 → 28.7 ms per day, slowest 20 days 10.2 → 10.8 days/s.
+
+**Benchmark, passengers on, 8 starts × 1,460 days:**
+
+| Run | Unmet | Last fifth | Profitable | Ships |
+|---|---|---|---|---|
+| old values | 1.2% | 2.2% | 112.9 | 145 |
+| 1 + 2 + 3 (minimum 5) | 1.3% | 3.3% | 111.9 | 145 |
+| 1 alone | 0.9 ± 0.3% | 1.9 ± 0.9% | 109.8 | 143 |
+| 2 alone | 1.3 ± 0.7% | 2.1 ± 1.0% | 111.9 | 144 |
+| 3 alone (minimum 5) | 1.1 ± 0.6% | 2.0 ± 0.8% | 110.1 | 144 |
+| **final (1, 2, 3 at 20, 5)** | **1.1 ± 0.5%** | **1.8 ± 0.8%** | **110.2** | **143** |
+
+The 1 + 2 + 3 run's last fifth came from two starts (8.7% and 5.4%); each change alone and the final set are
+within the spread of the old values.
+
+**Why the total gain is small:** most of the time with passengers on is trajectory planning for ordinary ship
+reviews and investment probes of cargo runs (variable-Isp plans ~200 s of CPU over 1,460 days), which these
+changes do not touch. Passengers now cost about 14 ms per day over passengers off (42.9 against 28.7).
+
+Checks: ctest 5/5 (the passenger test now also checks, with the data's switches, at most one purchase a day,
+visitors posted only at week edges, and save at day 65 / load / run to 130 equal to a straight run); the
+passengers-off audit with `purchase_spacing_days,0` is byte-identical to the one before these changes.

@@ -452,10 +452,19 @@ void Simulation::step_passengers(double dt_s) {
             rotation_positions(station) / tour.tour_days * dt_days, true);
     }
     // Discretionary trips: posted at the origin; visitors whose stay is over head home.
+    // With visitor_batch_days, the trips of a whole batch are posted at once when the batch
+    // starts (game time has already advanced by this tick), so groups form a week at a time.
+    const double batch_s = universe_.passengers.visitor_batch_days * 86400.0;
+    const bool post_visitors = batch_s <= 0.0
+        || std::floor(game_time_s_ / batch_s) != std::floor((game_time_s_ - dt_s) / batch_s);
+    const double visitor_days = batch_s > 0.0 ? universe_.passengers.visitor_batch_days : dt_days;
     if (visits_on()) {
         for (auto& origin : stations_) {
             for (const auto& destination : universe_.stations) {
-                const double trips = visitor_trips_per_day(origin.station_id, destination.id) * dt_days;
+                if (!post_visitors) {
+                    break;
+                }
+                const double trips = visitor_trips_per_day(origin.station_id, destination.id) * visitor_days;
                 if (trips > 0.0) {
                     post_travellers(origin, domain::PassengerKind::Visitor, destination.id, origin.station_id, trips);
                 }
@@ -489,6 +498,24 @@ void Simulation::step_passengers(double dt_s) {
             return true;
         });
     }
+}
+
+bool Simulation::passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const {
+    // A station is worth a passenger leg once enough people wait for it (min_leg_passengers;
+    // at 1, any whole person); smaller groups still ride on legs flown for cargo.
+    const double needed = universe_.passengers.min_leg_passengers;
+    if (needed <= 1.0) {
+        return std::any_of(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& group) {
+            return group.destination_id == destination_id && group.count >= 1.0;
+        });
+    }
+    double people = 0.0;
+    for (const auto& group : origin.waiting) {
+        if (group.destination_id == destination_id) {
+            people += std::floor(group.count + 1e-9);
+        }
+    }
+    return people >= needed;
 }
 
 Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& ship,

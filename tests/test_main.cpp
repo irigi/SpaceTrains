@@ -1279,6 +1279,48 @@ int main() {
             const auto relieved = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationHome);
             require_near(change, audit.landed[migrant] + audit.landed[relief] - audit.boarded[emigrant] - audit.boarded[relieved],
                 1e-6, "populations off Earth should change by the people landed less those who left");
+
+            // Speed switches in the data (2026-10-22, passengers_log): cabin designs valued from
+            // their hull's probe, purchases a day apart, visitors posted a week at a time. Purchases
+            // never fall on the same day, visitors are posted only at week edges, and the game
+            // saves and continues exactly.
+            require(pax_universe.passengers.visitor_batch_days == 7.0 && pax_universe.fleet_investment.purchase_spacing_days == 1.0
+                    && pax_universe.passengers.cabin_shared_probe == 1.0,
+                "test fixture: the data should batch visitors weekly, space purchases a day and share cabin probes");
+            auto fast = spacetrains::simulation::Simulation::from_data_root(pax_root);
+            fast.set_timewarp(86400.0);
+            auto fast_first = spacetrains::simulation::Simulation::from_data_root(pax_root);
+            fast_first.set_timewarp(86400.0);
+            const auto visitor = static_cast<std::size_t>(spacetrains::domain::PassengerKind::Visitor);
+            int commissioned = fast.snapshot().fleet_investment.ships_commissioned;
+            double visitors_posted = fast.passenger_audit().posted[visitor];
+            std::string fast_saved;
+            constexpr int kFastDays = 130;
+            for (int day = 1; day <= kFastDays; ++day) {
+                fast.step(1.0);
+                const int now_commissioned = fast.snapshot().fleet_investment.ships_commissioned;
+                require(now_commissioned - commissioned <= 1, "with purchase spacing at most one ship should be bought a day");
+                commissioned = now_commissioned;
+                const double now_posted = fast.passenger_audit().posted[visitor];
+                if (day % 7 != 0) {
+                    require(now_posted == visitors_posted, "visitors should be posted only at the start of a week");
+                }
+                visitors_posted = now_posted;
+                if (day <= kFastDays / 2) {
+                    fast_first.step(1.0);
+                    if (day == kFastDays / 2) {
+                        fast_saved = fast_first.save_state_json();
+                    }
+                }
+            }
+            require(visitors_posted > 0.0, "visitors should still be posted in weekly batches");
+            auto fast_resumed = spacetrains::simulation::Simulation::from_data_root(pax_root);
+            fast_resumed.load_state_json(fast_saved);
+            for (int day = kFastDays / 2; day < kFastDays; ++day) {
+                fast_resumed.step(1.0);
+            }
+            require(fast_resumed.save_state_json() == fast.save_state_json(),
+                "with the speed switches on, a game saved, loaded and continued should equal one that never stopped");
             std::filesystem::remove_all(root);
         }
 

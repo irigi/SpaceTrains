@@ -535,6 +535,12 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 {"settler_payback_exponent", &passengers.settler_payback_exponent},
                 {"passage_recovery_days", &passengers.passage_recovery_days},
                 {"passage_max_markup", &passengers.passage_max_markup},
+                {"cabin_shared_probe", &passengers.cabin_shared_probe},
+                {"visitor_batch_days", &passengers.visitor_batch_days},
+                {"min_leg_passengers", &passengers.min_leg_passengers},
+                {"rider_time_min_share", &passengers.rider_time_min_share},
+                {"rider_time_relative_step", &passengers.rider_time_relative_step},
+                {"passenger_leg_from_empty", &passengers.passenger_leg_from_empty},
             };
             for (std::size_t i = 1; i < rows.size(); ++i) {
                 const auto& row = rows[i];
@@ -1015,6 +1021,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"salvage_fraction", &investment.salvage_fraction},
             {"route_commitment_days", &investment.route_commitment_days},
             {"max_ships_per_review", &investment.max_ships_per_review},
+            {"purchase_spacing_days", &investment.purchase_spacing_days},
             {"max_fleet_size", &investment.max_fleet_size},
             {"max_fleet_hold_units", &investment.max_fleet_hold_units},
         };

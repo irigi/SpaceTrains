@@ -464,11 +464,13 @@ private:
             double wait_days {0.0};
             double fuel_cost {0.0};
             int run {-1};  // lots of one mixed hold share a run number (its fuel is on the first lot)
+            std::string module_id {};  // passengers: for the hull with this cabin module (cabin_shared_probe)
         };
         std::vector<CargoOption> cargo_options;
     };
     // --- Passengers (src/simulation/Passengers.cpp, docs/plans/passengers.md) ---
     [[nodiscard]] bool passengers_on() const { return universe_.passengers.enabled != 0.0; }
+    [[nodiscard]] bool passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const;
     [[nodiscard]] bool migration_by_ship() const { return passengers_on() && universe_.passengers.migration != 0.0; }
     [[nodiscard]] bool rotation_on() const { return passengers_on() && universe_.passengers.rotation != 0.0; }
     [[nodiscard]] bool visits_on() const { return passengers_on() && universe_.passengers.discretionary != 0.0; }
@@ -626,6 +628,7 @@ private:
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};
     int investment_purchases_left_ {0};   // of the current review, one per tick
+    double next_purchase_s_ {0.0};        // no purchase before this (purchase_spacing_days)
     // A review's probes, by "hull class|yard": the cargo runs a new ship could fly. Saved with
     // the game (the review spans several ticks).
     struct ProbedRun {
@@ -636,6 +639,7 @@ private:
         double wait_days {0.0};
         double fuel_cost {0.0};
         int run {-1};
+        std::string module_id {};  // a passenger run for the hull with this cabin module (cabin_shared_probe)
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;
