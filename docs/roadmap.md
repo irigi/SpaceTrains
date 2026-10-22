@@ -18,12 +18,11 @@
 
 ## Current Plan (updated 2026-10-22) — start here
 
-**Status.** `main` holds everything up to tier 2 ship structures (PR #17). Branch `feature/passengers` (from
-`main` at `5442d96`, not merged yet) adds passengers, **on in the data since 2026-10-22**
-(`data/economy/passengers.csv` `passengers,1`): settlers, crew rotation and visitors travel by ship in cabin
-modules and liners, with shielded cabins for Titan. Plan `docs/plans/passengers.md`; decisions and results
-`docs/plans/passengers_log.md` (the activation check is at its end). Also on the branch: the VariableISP
-planner's fuel-check fix and the passenger speed work (no longer switches; the old code paths are removed).
+**Status.** `main` holds everything up to passengers (PR #18, merged 2026-10-22): settlers, crew rotation and
+visitors travel by ship in cabin modules and liners, with shielded cabins for Titan; **on in the data**
+(`data/economy/passengers.csv` `passengers,1`). Plan `docs/plans/passengers.md`; decisions and results
+`docs/plans/passengers_log.md`. Also merged: the VariableISP planner's fuel-check fix and the passenger speed
+work. Work now continues on `feature/passenger_routes` (plan `docs/plans/passenger_routes.md`).
 
 Benchmark, passengers on, cap 130, 4 starts × 1,460 days (2026-10-22): unmet demand 1.1 ± 0.3%, last fifth
 2.1 ± 1.0%, 145 ships (76% profitable), money −20 ± 7% against target, drift 0; ~45 ms per simulated day, the
