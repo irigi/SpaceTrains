@@ -24,6 +24,8 @@ constexpr double SURFACE_SUPPLY_FULL_PRICE = 1.25;
 constexpr double SURFACE_RESERVE_DAYS = 14.0;
 // A colony keeps its gateway stocked with at least this many days of the station's own use.
 constexpr double SURFACE_COVER_DAYS = 30.0;
+// A colony fills its gateway's vacancies, and takes its unemployed, over about this many days.
+constexpr double COLONY_FILL_DAYS = 30.0;
 // What a station paid per unit is averaged over about this many days of its use (as in Simulation.cpp).
 constexpr double IMPORT_COST_DAYS = 30.0;
 }  // namespace
@@ -476,6 +478,59 @@ std::string Simulation::station_economy_json(const domain::StationState& station
         station.household_credits, station_wage_cr_per_day(station), workers,
         in_labour_market(station) ? station.jobs : workers, in_labour_market(station) ? "true" : "false", incomes, surface,
         station.ledger.days_in_red);
+}
+
+void Simulation::step_colony_labour(double dt_s) {
+    // Local hiring (labour market): the people of a colony take its gateway station's jobs when the
+    // wage gain over a stay beats the ascent (a seat to orbit at the colony's launch price), and the
+    // station's unemployed go down to work on the surface. No ship is needed either way.
+    if (!labour_on()) {
+        return;
+    }
+    const auto& labour = universe_.labour_market;
+    const double dt_days = dt_s / 86400.0;
+    const double participation = std::max(1e-6, universe_.households.participation);
+    for (const auto& economy : universe_.background_economies) {
+        const auto colony = background_population_.find(economy.id);
+        if (colony == background_population_.end()) {
+            continue;
+        }
+        double& colonists = colony->second;
+        colonists *= std::exp(economy.growth_per_year * dt_days / 365.25);
+        for (const auto& gateway_id : economy.gateways) {
+            auto& station = get_station_state(gateway_id);
+            if (!in_labour_market(station)) {
+                continue;
+            }
+            const double workers = station_workers(station);
+            // Up: those whose wage on the surface is low enough that the station's job, less the
+            // hardship, repays the ascent over a stay.
+            const double ascent_cr = economy.launch_cr_per_kg * passenger_kg(0.0);
+            const double ceiling = station_wage_cr_per_day(station) * (1.0 - labour.hardship_share)
+                - ascent_cr / (365.25 * labour.stay_years);
+            const double share = ceiling > 0.0
+                ? 0.5 * std::erfc(-std::log(ceiling / economy.wage_median_cr_per_day) / economy.wage_sigma / std::sqrt(2.0)) : 0.0;
+            const double needed = std::max(0.0, station.jobs - workers) / participation;
+            const double hires = std::min({needed * std::min(1.0, dt_days / COLONY_FILL_DAYS),
+                colonists * economy.search_per_year * share * dt_days / 365.25, colonists});
+            // Down: the unemployed take work on the surface.
+            const double idle = std::max(0.0, workers - station.jobs) / participation;
+            const double down = idle * std::min(1.0, dt_days / COLONY_FILL_DAYS);
+            if (hires <= 0.0 && down <= 0.0) {
+                continue;
+            }
+            // Savings follow the people: what a colonist brings, what a resident takes.
+            const double brought = hires * universe_.households.migrant_savings_cr;
+            const double taken = down * per_capita_savings(station);
+            economy_account(economy.id) -= brought - taken;
+            station.household_credits += brought - taken;
+            colonists += down - hires;
+            station.population += hires - down;
+            station.ledger.hired_from_surface += hires;
+            station.ledger.moved_to_surface += down;
+            economy_.set_population(station.station_id, station.population);
+        }
+    }
 }
 
 const domain::StationDefinition* Simulation::yard_station_for(const domain::StationDefinition& home) const {

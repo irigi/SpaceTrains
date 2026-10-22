@@ -263,6 +263,7 @@ private:
     void step_households(double dt_s);
     void step_surface_markets(double dt_s);
     void step_labour(double dt_s);
+    void step_colony_labour(double dt_s);
     // Phase C: supply follows price, demand follows price and income (StationState factors).
     void update_market_responses();
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
@@ -685,6 +686,8 @@ private:
     double outside_economy_credits_ {0.0};   // Earth's economy (the outside account)
     // The other background economies' accounts (economy overhaul), by id.
     std::map<std::string, double> background_credits_;
+    // The colonies' people (labour market), by economy id.
+    std::map<std::string, double> background_population_;
     std::map<std::string, double> faction_treasuries_;
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};

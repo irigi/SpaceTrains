@@ -485,6 +485,13 @@ struct BackgroundEconomyDefinition {
     double landing_cr_per_kg {0.0};
     double initial_credits {0.0};        // how far it may spend below zero (its credit line); Earth has no limit
     double income_cr_per_day {0.0};      // Earth's investment in it (paid from Earth's account)
+    // A colony's people (labour market): they take the gateway station's jobs when the wage gain beats
+    // the ascent, and the station's unemployed go down to work on the surface. Earth: 0 (not modelled).
+    double population {0.0};
+    double growth_per_year {0.0};
+    double wage_median_cr_per_day {0.0};
+    double wage_sigma {0.0};
+    double search_per_year {0.0};        // share of its people looking for a better job each year
 };
 
 // One good a background economy trades at a gateway (data/economy/surface_markets.csv,
@@ -854,6 +861,8 @@ struct StationLedger {
     double ship_purchases {0.0};        // it paid ships for cargo they delivered
     double days_in_red {0.0};           // days its credits stood below zero
     double crew_wages {0.0};            // its ships' crews' wages, paid to its households
+    double hired_from_surface {0.0};    // people who came up from its colony's surface for its jobs
+    double moved_to_surface {0.0};      // its unemployed who went down to work on the surface
 };
 
 // The treasuries' trade in ships with the outside economy (fleet investment), all amounts
@@ -980,6 +989,7 @@ struct SimulationSnapshot {
     double outside_economy_credits {0.0};
     // Background economies other than Earth (Earth is outside_economy_credits).
     std::map<std::string, double> background_credits;
+    std::map<std::string, double> background_population;
     std::map<std::string, double> faction_treasuries;
     // What each faction may borrow (negative treasury) and has paid in interest (step 17).
     std::map<std::string, double> faction_credit_limits;

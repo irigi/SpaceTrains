@@ -683,6 +683,19 @@ void print_economy_audit(
             std::cout << std::format("  {} {:.0f}", economy_id, balance);
         }
         std::cout << " cr (negative: paid into the simulated economy)\n";
+        if (!snap.background_population.empty()) {
+            std::cout << "    Colonies' people:";
+            for (const auto& [economy_id, people] : snap.background_population) {
+                std::cout << std::format("  {} {:.0f}", economy_id, people);
+            }
+            double up = 0.0;
+            double down = 0.0;
+            for (const auto& ss : snap.stations) {
+                up += ss.ledger.hired_from_surface;
+                down += ss.ledger.moved_to_surface;
+            }
+            std::cout << std::format("  (hired up to their gateways {:.0f}, gone down {:.0f})\n", up, down);
+        }
     }
     spacetrains::domain::ShipLedger fleet;
     int profitable = 0;

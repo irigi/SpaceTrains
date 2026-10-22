@@ -244,6 +244,12 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             .route_until_s = 0.0,
         });
     }
+    // The colonies' people (labour market).
+    for (const auto& economy : universe_.background_economies) {
+        if (economy.population > 0.0) {
+            background_population_[economy.id] = economy.population;
+        }
+    }
     // Residents start with their savings buffer, brought from Earth (economy overhaul).
     if (households_on()) {
         for (auto& station : stations_) {
@@ -4183,6 +4189,7 @@ void Simulation::tick() {
     step_households(dt_s);
     step_surface_markets(dt_s);
     step_labour(dt_s);
+    step_colony_labour(dt_s);
     step_population(dt_s);
     if (passengers_on()) {
         step_passengers(dt_s);
@@ -5693,6 +5700,7 @@ domain::SimulationSnapshot Simulation::snapshot() const {
         .game_time_s = game_time_s_,
         .outside_economy_credits = outside_economy_credits_,
         .background_credits = background_credits_,
+        .background_population = background_population_,
         .faction_treasuries = faction_treasuries_,
         .faction_credit_limits = [&] {
             std::map<std::string, double> limits;

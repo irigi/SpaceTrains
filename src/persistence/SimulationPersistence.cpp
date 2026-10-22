@@ -392,6 +392,8 @@ Json station_to_json(const domain::StationState& s) {
     ledger.set("ship_purchases", s.ledger.ship_purchases);
     ledger.set("days_in_red", s.ledger.days_in_red);
     ledger.set("crew_wages", s.ledger.crew_wages);
+    ledger.set("hired_from_surface", s.ledger.hired_from_surface);
+    ledger.set("moved_to_surface", s.ledger.moved_to_surface);
     out.set("ledger", std::move(ledger));
     out.set("household_credits", s.household_credits);
     out.set("travel_budget_cr", s.travel_budget_cr);
@@ -471,6 +473,8 @@ domain::StationState station_from_json(const Json& j) {
     s.ledger.ship_purchases = ledger.get("ship_purchases").number();
     s.ledger.days_in_red = ledger.get("days_in_red").number();
     s.ledger.crew_wages = ledger.get("crew_wages").number();
+    s.ledger.hired_from_surface = ledger.get("hired_from_surface").number();
+    s.ledger.moved_to_surface = ledger.get("moved_to_surface").number();
     s.household_credits = j.get("household_credits").number();
     s.travel_budget_cr = j.get("travel_budget_cr").number();
     s.jobs = j.get("jobs").number();
@@ -618,8 +622,9 @@ std::string Simulation::data_fingerprint() const {
             mix("Hy" + yard + ";");
         }
         for (const auto& economy : universe_.background_economies) {
-            mix(std::format("B{}|{}|{}|{}|{};", economy.id, economy.launch_cr_per_kg, economy.landing_cr_per_kg, economy.initial_credits,
-                economy.income_cr_per_day));
+            mix(std::format("B{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", economy.id, economy.launch_cr_per_kg, economy.landing_cr_per_kg,
+                economy.initial_credits, economy.income_cr_per_day, economy.population, economy.growth_per_year,
+                economy.wage_median_cr_per_day, economy.wage_sigma, economy.search_per_year));
         }
         for (const auto& market : universe_.surface_markets) {
             mix(std::format("S{}|{}|{}|{}|{}|{}|{}|{};", market.economy_id, market.station_id, market.commodity_id, market.ask_cr,
@@ -656,6 +661,11 @@ std::string Simulation::save_state_json() const {
         background.set(economy_id, balance);
     }
     root.set("background_credits", std::move(background));
+    auto colonists = Json::object();
+    for (const auto& [economy_id, people] : background_population_) {
+        colonists.set(economy_id, people);
+    }
+    root.set("background_population", std::move(colonists));
     auto treasuries = Json::object();
     for (const auto& [faction_id, balance] : faction_treasuries_) {
         treasuries.set(faction_id, balance);
@@ -886,6 +896,10 @@ void Simulation::load_state_json(const std::string& text) {
     background_credits_.clear();
     for (const auto& [economy_id, balance] : root.get("background_credits").fields()) {
         background_credits_[economy_id] = balance.number();
+    }
+    background_population_.clear();
+    for (const auto& [economy_id, people] : root.get("background_population").fields()) {
+        background_population_[economy_id] = people.number();
     }
     faction_treasuries_ = std::move(treasuries);
     faction_tax_per_day_ = std::move(tax_per_day);
