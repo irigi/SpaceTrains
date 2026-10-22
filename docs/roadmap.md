@@ -125,7 +125,9 @@ Checks after each step: the test suites (`ctest`), `tools/benchmark.py` (four st
 one run is too noisy to judge a change) and `--trajectory-audit`; for speed, `--profile` runs one after another
 with all threads (the slowest 20-day stretch must stay above 5 days/s). "Unmet demand" is the share of the
 stations' consumption (by base value, over the whole run) that found no stock. Debug idle ships with
-`SPACETRAINS_TRACE_SHIP="<ship name>"`.
+`SPACETRAINS_TRACE_SHIP="<ship name>"`. After changing purchase valuations, fares, prices or ship classes, also
+run `tools/purchase_returns.py` (expected against earned return by ship group; the estimate should stay within
+about 2× of the result, and a group far below it is being overbought).
 
 ## Trajectory Correctness Over Long Runs (mostly done)
 

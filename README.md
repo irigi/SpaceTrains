@@ -61,6 +61,12 @@ Compare economy versions over several starting dates (one run is too noisy to ju
 tools/benchmark.py --binary build/bin/spacetrains_headless --days 730 --starts 0,90,180,270
 ```
 
+Check whether ships earn the return their purchase valuation promised (by ship group):
+
+```bash
+tools/purchase_returns.py --days 1460 --starts 0,90 [--ships]
+```
+
 Run the bridge directly for debugging:
 
 ```bash
