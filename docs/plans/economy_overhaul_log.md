@@ -100,3 +100,31 @@ Benchmark (4 starts × 1,460 days, before the last two fixes): unmet 0.3 ± 0.1%
 79.5 of 115 ships profitable (69%), 1.0 ± 0.8 stations in the red at the end, worst station 248 ± 106 days
 in the red, 10,300 boardings, 3.2M cr fares, 0 trajectory flags in 3 of 4 runs.
 Speed: 50.8 ms per simulated day, slowest 20-day stretch 6.3 days/s (limit 5).
+
+### Long-run check and fixes (2026-10-23, 00:25-01:05)
+
+The first 8-year run (start 0, before these fixes):
+- unmet demand rose from 0.2% (year 2) to 1.4% (year 8, cumulative);
+- Titan ran out of machinery and reactor fuel (35-38% unmet, upkeep 30%), and Mars and Titan cut jobs;
+- treasuries piled up unspent money (Sol Federation 8.9M) once the fleet cap stopped purchases.
+
+- **Decision:** ships pay their crews' wages and hazard pay to the home station's households (the user:
+  "ships pay their employees"), not to the station.
+- **Decision:** plants run with the workers employed. Outputs and the inputs feeding them scale with
+  jobs ÷ workers (at most 1, saved per station in half-percent steps); consumption follows residents. Job
+  cuts now cost output.
+- **Decision:** Titan and Ganymede are science stations (`science_station` income). They centre their
+  import prices 50% above landed cost, paid from their budget (the user: "willing to pay even high prices
+  for being supplied, Earth is paying"). Mercury and Venus keep a plain `science` income.
+- **Decision:** settlement subsidies Mars 400k → 700k, Ceres 150k → 300k cr/yr. Both are short of labour,
+  so wages and imports rise.
+- **Decision:** taxes only above 1.5M (was 500k). Remote stations take lumpy deliveries, and a faction that
+  taxed their cash away left them in the red when a big delivery arrived: Ceres paid 1.3M in taxes and drew
+  1.2M in subsidies, and spent up to 493 of 1,460 days in the red.
+
+Benchmark (4 starts × 1,460 days):
+- unmet 0.3 ± 0.1%, last fifth 0.5 ± 0.1%;
+- 88 of 140 ships profitable (63%);
+- stations in the red at the end 0.2 per run; worst station 126 ± 33 days in the red (was 291 ± 160);
+- 5,000 boardings, 2.6M cr fares (the 3% travel budget halved residents' trips);
+- 0 trajectory flags, drift 0; faction interest to Earth 1.0M (they now borrow for ships).
