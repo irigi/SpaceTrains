@@ -186,7 +186,7 @@ std::vector<Simulation::PassengerBand> Simulation::passenger_bands(domain::Passe
 void Simulation::post_travellers(domain::StationState& origin, domain::PassengerKind kind,
     const std::string& destination_id, const std::string& work_station_id, double count, bool fixed) {
     const double dose_msv = 0.0;
-    for (const auto& [band, people, max_cost, value_of_time, queued] : passenger_bands(kind, origin.station_id, destination_id, count, fixed)) {
+    for (const auto& [band, people, max_cost, value_of_time, queued, home_pays] : passenger_bands(kind, origin.station_id, destination_id, count, fixed)) {
         passenger_audit_.posted[static_cast<std::size_t>(kind)] += people;
         passenger_audit_.routes[{origin.station_id, destination_id}].posted += people;
         auto group = std::find_if(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& g) {
@@ -372,9 +372,21 @@ std::vector<Simulation::PassengerBand> Simulation::expected_travellers(const std
     const std::string& destination_id, double window_days) const {
     // What post_travellers would post over `window_days` (the steady flows), by band.
     std::vector<PassengerBand> out;
+    // Who pays: a station's residents (households on) for those who are not Earth's people and
+    // whose employer does not pay.
+    const auto home_pays = [&](domain::PassengerKind kind) -> std::string {
+        if (!households_on() || employer_pays(kind)) {
+            return {};
+        }
+        const std::string& home = kind == domain::PassengerKind::VisitorHome ? destination_id : origin_id;
+        return is_earth_gateway(home) ? std::string() : home;
+    };
     const auto add = [&](domain::PassengerKind kind, double per_day, bool fixed) {
         if (per_day > 0.0) {
             auto bands = passenger_bands(kind, origin_id, destination_id, per_day * window_days, fixed);
+            for (auto& band : bands) {
+                band.home_pays = home_pays(kind);
+            }
             out.insert(out.end(), bands.begin(), bands.end());
         }
     };
@@ -418,7 +430,8 @@ std::vector<Simulation::PassengerBand> Simulation::expected_travellers(const std
     for (const auto& group : get_station_state(origin_id).waiting) {
         if (group.destination_id == destination_id && group.count > 0.0) {
             out.push_back({.band = group.band, .people = group.count * spread, .max_cost_cr = group.max_cost_cr,
-                .value_of_time_cr_per_day = group.value_of_time_cr_per_day, .queued = true});
+                .value_of_time_cr_per_day = group.value_of_time_cr_per_day, .queued = true,
+                .home_pays = home_pays(group.kind)});
         }
     }
     return out;
@@ -458,6 +471,7 @@ Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::s
         double willing;
         double hedonic;
         bool queued;
+        std::string home_pays;
     };
     std::vector<Candidate> candidates;
     for (const auto& band : expected_travellers(origin_id, destination_id, window_days)) {
@@ -466,10 +480,21 @@ Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::s
         if (willing <= 0.0) {
             continue;
         }
-        candidates.push_back({band.people * open_share, willing,
+        // Travellers still to come wait about half the cycle for this ship, and give up as queues
+        // do (at value of time / their highest cost per day): only those left board.
+        const double give_up_rate = band.max_cost_cr > 0.0 ? band.value_of_time_cr_per_day / band.max_cost_cr : 0.0;
+        const double staying = band.queued ? 1.0 : std::exp(-give_up_rate * 0.5 * window_days);
+        candidates.push_back({band.people * open_share * staying, willing,
             live_fare_cr(origin_id, destination_id, *reference)
                 + passenger_nonfare_cr(band.value_of_time_cr_per_day, reference->days, dose_rate) - nonfare,
-            band.queued});
+            band.queued, band.home_pays});
+    }
+    // Residents travel within their travel budget over the window (this ship's open share of it).
+    std::map<std::string, double> home_budgets;
+    for (const auto& candidate : candidates) {
+        if (!candidate.home_pays.empty() && !home_budgets.contains(candidate.home_pays)) {
+            home_budgets[candidate.home_pays] = std::max(0.0, household_travel_budget(candidate.home_pays, window_days)) * open_share;
+        }
     }
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.willing > b.willing; });
@@ -502,10 +527,16 @@ Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::s
     left = berths;
     for (std::size_t c = 0; c < boarding; ++c) {
         const auto& candidate = candidates[c];
-        const double count = std::min(candidate.people, left);
+        double count = std::min(candidate.people, left);
+        const double fare = std::min(candidate.willing, std::max(candidate.hedonic, clearing));
+        if (!candidate.home_pays.empty() && fare > 0.0) {
+            double& budget = home_budgets[candidate.home_pays];
+            count = std::min(count, budget / fare);
+            budget -= count * fare;
+        }
         left -= count;
         revenue.people += count;
-        revenue.fares_cr += count * std::min(candidate.willing, std::max(candidate.hedonic, clearing));
+        revenue.fares_cr += count * fare;
     }
     return revenue;
 }
@@ -710,10 +741,8 @@ Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& 
                 const auto key = "households:" + home;
                 auto budget = budgets.find(key);
                 if (budget == budgets.end()) {
-                    // What they have saved beyond half their buffer (the rest pays their living).
-                    const auto& home_state = get_station_state(home);
-                    budget = budgets.emplace(key, home_state.household_credits
-                        - 0.5 * universe_.households.savings_days * resident_wages_per_day(home_state)).first;
+                    // Their travel budget (or, without one, their savings beyond half their buffer).
+                    budget = budgets.emplace(key, household_travel_budget(home, 0.0)).first;
                 }
                 count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
                 if (count < 1.0) {

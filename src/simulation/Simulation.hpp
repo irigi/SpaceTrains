@@ -209,6 +209,7 @@ public:
         double max_cost_cr {0.0};
         double value_of_time_cr_per_day {0.0};
         bool queued {false};  // already waiting (not a flow still to come)
+        std::string home_pays {};   // a station whose residents pay out of their travel budget (households on)
     };
     struct PassengerRevenue {
         double people {0.0};
@@ -235,7 +236,35 @@ public:
         double fares_per_day {0.0};   // per position
     };
     [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return rotation_tours_; }
+    // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
+    // with the background economies at their gateways.
+    [[nodiscard]] bool households_on() const { return universe_.households.enabled != 0.0; }
+    [[nodiscard]] double economy_balance(const std::string& economy_id) const;
+    [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
+    [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double per_capita_savings(const domain::StationState& station) const;
+    [[nodiscard]] double household_travel_budget(const std::string& home_id, double window_days) const;
+    [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
+    // Labour market (phase B, Households.cpp).
+    [[nodiscard]] bool labour_on() const { return households_on() && universe_.labour_market.enabled != 0.0; }
+    [[nodiscard]] bool in_labour_market(const domain::StationState& station) const;
+    [[nodiscard]] double station_wage_cr_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double station_workers(const domain::StationState& station) const;
+    [[nodiscard]] double labour_migrants_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double labour_emigrants_per_day(const domain::StationState& station) const;
+    [[nodiscard]] double settler_gain_tail(const domain::StationState& destination, double gain_cr) const;
+    [[nodiscard]] double returner_gain_tail(double gain_cr) const;
+    [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
+
 private:
+    // Economy overhaul (Households.cpp): the steps and the payments they make.
+    double& economy_account(const std::string& economy_id);
+    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares);
+    void step_households(double dt_s);
+    void step_surface_markets(double dt_s);
+    void step_labour(double dt_s);
+    // Phase C: supply follows price, demand follows price and income (StationState factors).
+    void update_market_responses();
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
     // The design a ship flies with: its class, or with modules fitted (tier 2,
     // docs/plans/ship_structures_tier2.md) the design derived from the class and the fit.
@@ -408,31 +437,6 @@ private:
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.
     void settle_local_economy(const std::vector<domain::Inventory>& stocks_before, double dt_s);
-    // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
-    // with the background economies at their gateways.
-    [[nodiscard]] bool households_on() const { return universe_.households.enabled != 0.0; }
-    double& economy_account(const std::string& economy_id);
-    [[nodiscard]] double economy_balance(const std::string& economy_id) const;
-    [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
-    [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
-    [[nodiscard]] double per_capita_savings(const domain::StationState& station) const;
-    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares);
-    void step_households(double dt_s);
-    void step_surface_markets(double dt_s);
-    [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
-    // Labour market (phase B, Households.cpp).
-    [[nodiscard]] bool labour_on() const { return households_on() && universe_.labour_market.enabled != 0.0; }
-    [[nodiscard]] bool in_labour_market(const domain::StationState& station) const;
-    [[nodiscard]] double station_wage_cr_per_day(const domain::StationState& station) const;
-    [[nodiscard]] double station_workers(const domain::StationState& station) const;
-    [[nodiscard]] double labour_migrants_per_day(const domain::StationState& station) const;
-    [[nodiscard]] double labour_emigrants_per_day(const domain::StationState& station) const;
-    [[nodiscard]] double settler_gain_tail(const domain::StationState& destination, double gain_cr) const;
-    [[nodiscard]] double returner_gain_tail(double gain_cr) const;
-    [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
-    void step_labour(double dt_s);
-    // Phase C: supply follows price, demand follows price and income (StationState factors).
-    void update_market_responses();
     // Dividends, the faction treasuries' subsidies, taxes and interest, and the money-supply controller.
     void step_treasuries(double dt_s);
     void step_population(double dt_s);
@@ -560,6 +564,8 @@ private:
     // Passengers' daily step: demand (migration instead of formula growth), waiting groups give up.
     [[nodiscard]] std::string ship_passengers_json(const domain::ShipState& ship, const domain::ShipClassDefinition& design) const;
     [[nodiscard]] std::string station_passengers_json(const domain::StationState& station) const;
+    // Economy overhaul bridge fields (households on): residents, wages, incomes, surface trade.
+    [[nodiscard]] std::string station_economy_json(const domain::StationState& station) const;
     void step_passengers(double dt_s);
     // Who boards a ship leaving `origin` for `destination` on a leg of `days`: groups in order of
     // what they pay over their marginal cost (provisions and the propellant their mass burns),

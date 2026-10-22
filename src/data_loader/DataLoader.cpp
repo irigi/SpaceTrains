@@ -953,6 +953,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"visitor_spend_cr_per_day", &households.visitor_spend_cr_per_day},
             {"credits_per_usd", &households.credits_per_usd},
             {"yard_share", &households.yard_share},
+            {"yard_materials_share", &households.yard_materials_share},
+            {"travel_share", &households.travel_share},
             {"surface_depth_units", &households.surface_depth_units},
             {"supply_price_elasticity", &households.supply_price_elasticity},
             {"min_utilization", &households.min_utilization},

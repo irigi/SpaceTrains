@@ -526,6 +526,8 @@ struct HouseholdDefinition {
     double credits_per_usd {0.00078};    // the hardware price scale (ships) used for surface prices
     double surface_depth_units {0.0};    // stock a surface keeps at its gateway of each good it sells in any amount
     double yard_share {0.0};             // of a new ship's price paid to its yard station (the rest to Earth)
+    double yard_materials_share {0.0};   // of the price, the goods the yard builds it from (from its stock)
+    double travel_share {0.0};           // of residents' wages they put aside for long trips (0: no limit beyond savings)
     std::vector<std::string> yards;      // stations that build ships
     // Phase C: supply and demand respond to prices and incomes (0 elasticities: off).
     double supply_price_elasticity {0.0};    // plants run at (price / reference)^e of capacity...
@@ -846,6 +848,7 @@ struct StationLedger {
     double yard_sales {0.0};            // the yard's share of new ships
     double ship_sales {0.0};            // ships paid it for cargo, fuel, provisions, refits and repairs
     double ship_purchases {0.0};        // it paid ships for cargo they delivered
+    double days_in_red {0.0};           // days its credits stood below zero
 };
 
 // The treasuries' trade in ships with the outside economy (fleet investment), all amounts
@@ -951,6 +954,8 @@ struct StationState {
     std::vector<PassengerGroup> visiting {};
     // The residents' savings (households on): wages in, spending out.
     double household_credits {0.0};
+    // What the residents may still spend on long trips: travel_share of their wages accrues to it.
+    double travel_budget_cr {0.0};
     // Labour market (phase B): jobs at the station and its wage per worker per day.
     double jobs {0.0};
     double wage_cr_per_day {0.0};

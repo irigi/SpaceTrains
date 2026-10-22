@@ -390,8 +390,10 @@ Json station_to_json(const domain::StationState& s) {
     ledger.set("yard_sales", s.ledger.yard_sales);
     ledger.set("ship_sales", s.ledger.ship_sales);
     ledger.set("ship_purchases", s.ledger.ship_purchases);
+    ledger.set("days_in_red", s.ledger.days_in_red);
     out.set("ledger", std::move(ledger));
     out.set("household_credits", s.household_credits);
+    out.set("travel_budget_cr", s.travel_budget_cr);
     out.set("jobs", s.jobs);
     out.set("wage_cr_per_day", s.wage_cr_per_day);
     out.set("ship_fuel_units_per_day", s.ship_fuel_units_per_day);
@@ -465,7 +467,9 @@ domain::StationState station_from_json(const Json& j) {
     s.ledger.yard_sales = ledger.get("yard_sales").number();
     s.ledger.ship_sales = ledger.get("ship_sales").number();
     s.ledger.ship_purchases = ledger.get("ship_purchases").number();
+    s.ledger.days_in_red = ledger.get("days_in_red").number();
     s.household_credits = j.get("household_credits").number();
+    s.travel_budget_cr = j.get("travel_budget_cr").number();
     s.jobs = j.get("jobs").number();
     s.wage_cr_per_day = j.get("wage_cr_per_day").number();
     s.ship_fuel_units_per_day = j.get("ship_fuel_units_per_day").number();
@@ -595,8 +599,9 @@ std::string Simulation::data_fingerprint() const {
         const auto& h = universe_.households;
         mix(std::format("H{}|{}|{}|{}|{}|{}|{}|{}|{};", h.enabled, h.participation, h.savings_days, h.spend_days,
             h.migrant_savings_cr, h.visitor_spend_cr_per_day, h.credits_per_usd, h.yard_share, h.surface_depth_units));
-        mix(std::format("Hc{}|{}|{}|{}|{};", h.supply_price_elasticity, h.min_utilization, h.consume_income_elasticity,
-            h.consume_price_elasticity, h.upkeep_price_elasticity));
+        mix(std::format("Hc{}|{}|{}|{}|{}|{};", h.supply_price_elasticity, h.min_utilization, h.consume_income_elasticity,
+            h.consume_price_elasticity, h.upkeep_price_elasticity, h.yard_materials_share));
+        mix(std::format("Ht{};", h.travel_share));
         const std::map<std::string, double> wages(h.wage_multiple.begin(), h.wage_multiple.end());
         for (const auto& [station_id, multiple] : wages) {
             mix(std::format("Hw{}|{};", station_id, multiple));

@@ -661,7 +661,7 @@ void print_economy_audit(
     if (universe.households.enabled != 0.0 || !universe.surface_markets.empty()) {
         std::cout << std::format("    {:30s}  {:>10s} {:>9s} {:>9s} {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s} {:>9s} {:>7s} {:>7s} {:>6s}  {}\n", "",
             "residents", "wages", "spending", "surf.buy", "surf.sell", "incomes", "visitors", "yard", "to ships", "from ship",
-            "people", "jobs", "wage", "below floor");
+            "people", "jobs", "wage", "red days, below floor");
         for (const auto& ss : snap.stations) {
             household_credits += ss.household_credits;
             const auto& l = ss.ledger;
@@ -672,7 +672,8 @@ void print_economy_audit(
                     l.visitor_spending, l.yard_sales, l.ship_sales, l.ship_purchases, ss.population,
                     ss.jobs / std::max(1e-9, universe.households.participation),
                     ss.wage_cr_per_day > 0.0 ? ss.wage_cr_per_day : universe.labour.reference_wage_cr_per_day,
-                    ss.credits < universe.open_economy.station_credit_floor ? "yes" : "");
+                    std::format("{:5.0f}{}", l.days_in_red, ss.credits < 0.0 ? std::format("  yes, in the red {:.0f}", ss.credits)
+                        : ss.credits < universe.open_economy.station_credit_floor ? std::string("  yes") : std::string()));
                 break;
             }
         }

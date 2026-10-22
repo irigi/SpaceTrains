@@ -76,8 +76,16 @@ def run_one(binary, days, start, threads, extra):
         # passengers boarded and fares.
         if re.search(r"\s+residents\s+wages\s+spending", line):
             result["below_floor"] = 0
-        elif "below_floor" in result and re.search(r"\s{2}yes\s*$", line):
+            result["in_red"] = 0
+            result["red_days_max"] = 0.0
+        elif "below_floor" in result and re.search(r"\s{2}yes(, in the red -?\d+)?\s*$", line):
             result["below_floor"] += 1
+            if "in the red" in line:
+                result["in_red"] = result.get("in_red", 0) + 1
+        # The share of the run the worst station spent in the red (days_in_red column).
+        m = re.search(r"\s(\d+)(\s+yes.*)?$", line) if "below_floor" in result and re.search(r"\d+\.\d\d\s+\d+(\s+yes.*)?$", line) else None
+        if m:
+            result["red_days_max"] = max(result.get("red_days_max", 0.0), float(m.group(1)))
         m = re.search(r"Passengers: (\d+) cr in fares", line)
         if m:
             result["fares_m"] = float(m.group(1)) / 1e6
@@ -111,7 +119,7 @@ def main():
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
                ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("ship_cash", "ship cash %"),
                ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"),
-               ("below_floor", "below floor"), ("boarded", "boarded"), ("fares_m", "fares M"), ("seconds", "run s")]
+               ("below_floor", "below floor"), ("in_red", "in red"), ("red_days_max", "red days"), ("boarded", "boarded"), ("fares_m", "fares M"), ("seconds", "run s")]
     print(f"{'start day':>10}" + "".join(f"{title:>12}" for _, title in columns))
     for result in results:
         print(f"{result['start']:>10.0f}" + "".join(

@@ -4830,8 +4830,11 @@ void Simulation::step_treasuries(double dt_s) {
                 // Rotation fares (passengers) are upkeep too: the faction keeps its staff relieved.
                 const auto* tour = rotation_tour(definition.id);
                 const double rotation = tour == nullptr ? 0.0 : tour->fares_per_day * rotation_positions(station);
+                // With households (economy overhaul), the core crew's wages are upkeep too.
+                const double core_wages = households_on() ? resident_wages_per_day(station) : 0.0;
                 transfer = std::min(transfer,
-                    std::max((open.core_crew_fraction * consumption_value_per_day(definition, true) + rotation) * dt_days, savings));
+                    std::max((open.core_crew_fraction * (consumption_value_per_day(definition, true) + core_wages) + rotation) * dt_days,
+                        savings));
             }
         } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
             transfer = -(station.credits - open.station_credit_ceiling) * band_share;
@@ -5591,8 +5594,26 @@ Simulation::CommissionStep Simulation::commission_step() {
     // parts made on Earth to Earth's economy.
     double earth_part = best_class->ship_value_cr;
     if (const auto* yard = households_on() ? yard_station_for(*best_yard) : nullptr; yard != nullptr) {
-        const double yard_part = universe_.households.yard_share * best_class->ship_value_cr;
+        double yard_part = universe_.households.yard_share * best_class->ship_value_cr;
         auto& yard_state = get_station_state(yard->id);
+        // The yard builds the hull from goods worth yard_materials_share of the price (metals half,
+        // machinery 30%, electronics 20%, at its reference prices), out of its stock; what it lacks
+        // comes from Earth, and that part of the price goes there.
+        const double materials = universe_.households.yard_materials_share * best_class->ship_value_cr;
+        for (const auto& [good, share] : std::initializer_list<std::pair<const char*, double>> {
+                 {"metals", 0.5}, {"machinery", 0.3}, {"electronics", 0.2}}) {
+            const double price = economy_.reference_price(*yard, good);
+            if (price <= 0.0) {
+                continue;
+            }
+            const double wanted = share * materials / price;
+            double& stock = yard_state.inventory[good];
+            const double used = std::clamp(stock, 0.0, wanted);
+            stock -= used;
+            yard_state.demand_units[good] += used;
+            yard_part -= (wanted - used) * price;
+        }
+        yard_part = std::max(0.0, yard_part);
         yard_state.credits += yard_part;
         yard_state.ledger.yard_sales += yard_part;
         earth_part -= yard_part;
@@ -6041,6 +6062,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"population\":" << std::llround(get_station_state(station.id).population) << ","
                << "\"seeded_population\":" << station.population << ","
                << "\"supply_index\":" << get_station_state(station.id).supply_index << ","
+               << station_economy_json(get_station_state(station.id))
                << station_passengers_json(get_station_state(station.id))
                << "\"events\":" << [&] {
                       std::string list = "[";

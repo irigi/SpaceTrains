@@ -81,8 +81,21 @@ void Simulation::pay_traveller_fare(domain::StationState& origin, const domain::
     if (is_earth_gateway(home)) {
         outside_economy_credits_ -= fares;
     } else {
-        get_station_state(home).household_credits -= fares;
+        auto& home_state = get_station_state(home);
+        home_state.household_credits -= fares;
+        home_state.travel_budget_cr = std::max(0.0, home_state.travel_budget_cr - fares);
     }
+}
+
+double Simulation::household_travel_budget(const std::string& home_id, double window_days) const {
+    // What a station's residents may spend on trips over the next window_days (households on).
+    const auto& home = get_station_state(home_id);
+    const auto& households = universe_.households;
+    if (households.travel_share > 0.0) {
+        return home.travel_budget_cr + households.travel_share * resident_wages_per_day(home) * std::max(0.0, window_days);
+    }
+    // Without a travel share: their savings beyond half their buffer.
+    return home.household_credits - 0.5 * households.savings_days * resident_wages_per_day(home);
 }
 
 void Simulation::step_households(double dt_s) {
@@ -92,11 +105,19 @@ void Simulation::step_households(double dt_s) {
     const auto& households = universe_.households;
     const double dt_days = dt_s / 86400.0;
     for (auto& station : stations_) {
+        if (station.credits < 0.0) {
+            station.ledger.days_in_red += dt_days;
+        }
         // Wages: the station employs its residents.
         const double wages = resident_wages_per_day(station) * dt_days;
         station.credits -= wages;
         station.household_credits += wages;
         station.ledger.wages_paid += wages;
+        // A share of it is put aside for long trips (a year's worth at most).
+        if (households.travel_share > 0.0) {
+            station.travel_budget_cr = std::min(station.travel_budget_cr + households.travel_share * wages,
+                households.travel_share * resident_wages_per_day(station) * 365.25);
+        }
         // Spending beyond the goods they used up (local services, rent, taxes): savings above
         // the buffer go back to the station over spend_days.
         const double buffer = households.savings_days * resident_wages_per_day(station);
@@ -399,6 +420,47 @@ void Simulation::update_market_responses() {
             }
         }
     }
+}
+
+std::string Simulation::station_economy_json(const domain::StationState& station) const {
+    if (!households_on()) {
+        return {};
+    }
+    const auto& definition = get_station_definition(station.station_id);
+    const auto escape = [](const std::string& text) {
+        std::string out;
+        for (const char c : text) {
+            if (c == '"' || c == '\\') {
+                out += '\\';
+            }
+            out += c;
+        }
+        return out;
+    };
+    std::string incomes = "[";
+    for (const auto& income : universe_.station_incomes) {
+        if (income.station_id == station.station_id) {
+            incomes += std::format("{}{{\"kind\":\"{}\",\"payer\":\"{}\",\"cr_per_year\":{:.0f}}}", incomes.size() > 1 ? "," : "",
+                escape(income.kind), escape(income.payer_id), income.cr_per_day * 365.25);
+        }
+    }
+    incomes += "]";
+    std::string surface = "[";
+    for (const auto* market : economy_.surface_markets_at(station.station_id)) {
+        const auto economy = std::find_if(universe_.background_economies.begin(), universe_.background_economies.end(),
+            [&](const auto& e) { return e.id == market->economy_id; });
+        surface += std::format("{}{{\"economy\":\"{}\",\"good\":\"{}\",\"ask\":{:.2f},\"bid\":{:.2f},\"units_per_day\":{:.1f}}}",
+            surface.size() > 1 ? "," : "", escape(economy == universe_.background_economies.end() ? market->economy_id : economy->name),
+            escape(market->commodity_id), market->ask_cr, economy_.surface_bid(definition, market->commodity_id),
+            market->ask_cr > 0.0 ? market->sell_units_per_day : market->buy_units_per_day);
+    }
+    surface += "]";
+    const double workers = station_workers(station);
+    return std::format("\"household_credits\":{:.0f},\"wage_cr_per_day\":{:.3f},\"workers\":{:.0f},\"jobs\":{:.0f},"
+        "\"labour_market\":{},\"incomes\":{},\"surface_trade\":{},\"days_in_red\":{:.0f},",
+        station.household_credits, station_wage_cr_per_day(station), workers,
+        in_labour_market(station) ? station.jobs : workers, in_labour_market(station) ? "true" : "false", incomes, surface,
+        station.ledger.days_in_red);
 }
 
 const domain::StationDefinition* Simulation::yard_station_for(const domain::StationDefinition& home) const {

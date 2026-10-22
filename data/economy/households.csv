@@ -2,7 +2,7 @@ key,value
 enabled,1
 participation,0.6
 savings_days,90
-spend_days,30
+spend_days,2
 migrant_savings_cr,39
 visitor_spend_cr_per_day,0.39
 credits_per_usd,0.00078
@@ -20,3 +20,5 @@ min_utilization,0.1
 consume_income_elasticity,1.0
 consume_price_elasticity,-1.0
 upkeep_price_elasticity,-0.1
+yard_materials_share,0.2
+travel_share,0.03

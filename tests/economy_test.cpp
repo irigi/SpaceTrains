@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <random>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -410,7 +411,10 @@ int main() {
         // back, and it must not run away. Under station orders (step 29) a delivery is paid one
         // flat price, so imports and what residents pay start higher: 180 days end at +32%
         // (+24% on the curve).
-        require(std::abs(internal_supply / snap.money_supply_target - 1.0) < (open.money_supply_days > 0.0 ? 0.35 : 0.5),
+        // Without the controller (economy overhaul: money enters and leaves through named flows,
+        // Earth's incomes among them), it must still not run away.
+        require(open.money_supply_days > 0.0 ? std::abs(internal_supply / snap.money_supply_target - 1.0) < 0.35
+                                             : internal_supply / snap.money_supply_target < 3.0 && internal_supply > 0.0,
             "stations + ships must stay near the seeded money");
         // Dividends drain cash above the reserve over a month: a ship just paid for a big hold may
         // hold more for a while, but not the fleet on average.
@@ -453,7 +457,8 @@ int main() {
         const auto json = sim.build_bridge_snapshot_json(false, 1, 0.0);
         for (const char* key : {"\"factions\"", "\"commodities\"", "\"total_credits\"", "\"recent_trades\"",
                                 "\"prices\"", "\"net_rates\"", "\"credits\"", "\"storage_capacity\"",
-                                "\"lifetime_profit\"", "\"mission_value\"", "\"category\""}) {
+                                "\"lifetime_profit\"", "\"mission_value\"", "\"category\"", "\"household_credits\"",
+                                "\"surface_trade\"", "\"wage_cr_per_day\""}) {
             require(json.find(key) != std::string::npos, "snapshot JSON missing a market field");
         }
     }
@@ -484,6 +489,98 @@ int main() {
         require(use < 0.0, "Mars should use medicine");
         require_near(run_day("mars_transfer", "medicine", "mars_epidemic"), use * epidemic->magnitude, 1.0e-9,
             "an epidemic should multiply Mars's medicine use");
+    }
+
+    {
+        // --- Economy overhaul (docs/plans/economy_overhaul.md): the game's own data. ---
+        const auto full = loader.load_universe("data");
+        require(full.households.enabled != 0.0 && full.labour_market.enabled != 0.0,
+            "the data should switch households and the labour market on");
+        const spacetrains::economy::EconomySystem overhaul(full);
+        const auto station = [&](const char* id) -> const auto& {
+            return *std::find_if(full.stations.begin(), full.stations.end(), [&](const auto& s) { return s.id == id; });
+        };
+        const auto commodity = [&](const char* id) -> const auto& {
+            return *std::find_if(full.commodities.begin(), full.commodities.end(), [&](const auto& c) { return c.id == id; });
+        };
+        const double cr = full.households.credits_per_usd;
+        // Earth sells at its surface price plus launch, in any amount: a lot costs the ask per unit.
+        const auto& leo = station("earth_orbit");
+        const double food_ask = (8.0 + 100.0) * commodity("food").mass_per_unit_kg * cr;
+        require(overhaul.surface_supplied(leo, "food"), "Earth keeps Low Earth Logistics stocked with food");
+        require_near(overhaul.reference_price(leo, "food"), food_ask, 1e-9, "a gateway's curve is centred on Earth's ask");
+        require_near(overhaul.get_trade_value(leo, "food", overhaul.surface_depth_units(), -1000.0, commodity("food").base_price),
+            1000.0 * food_ask, 1e-6, "buying from Earth's stock costs the ask, never more");
+        // Earth buys space goods at its surface price less landing, at a flat price.
+        const double platinum_bid = (32000.0 - 50.0) * commodity("platinum").mass_per_unit_kg * cr;
+        require(overhaul.is_export_market(leo, "platinum"), "Earth buys platinum at its gateways");
+        require_near(overhaul.get_price(leo, "platinum", 0.0, commodity("platinum").base_price), platinum_bid, 1e-9,
+            "the platinum bid is Earth's surface price less landing");
+        require(!overhaul.is_export_market(leo, "food") && overhaul.surface_bid(leo, "food") == 0.0,
+            "Earth does not buy ordinary goods (stations make them for free)");
+        // Low-orbit propellant for Earth's own traffic: bought at 0.9 of the ask, which floors the curve.
+        require_near(overhaul.surface_bid(leo, "fuel"), 0.9 * overhaul.reference_price(leo, "fuel"), 1e-9,
+            "Earth's traffic buys propellant at 0.9 of the ask");
+        require(overhaul.get_price(leo, "fuel", 1.0e9, commodity("fuel").base_price) >= overhaul.surface_bid(leo, "fuel") - 1e-9,
+            "a glut never sells below what Earth's traffic pays");
+        // Earth's stock at its gateway stands in its own warehouse.
+        spacetrains::domain::Inventory stocked {{"food", overhaul.surface_depth_units()}};
+        require(overhaul.storage_used_units(leo, stocked) == 0.0, "Earth's stock does not fill the gateway's storage");
+        // A colony's trade at its gateway is a rate the planners see.
+        const auto& mars = station("mars_transfer");
+        require(overhaul.surface_market(mars, "fuel") != nullptr && overhaul.get_station_net_rates(mars).at("fuel") > 0.0,
+            "the Mars surface sells propellant at Mars Transfer Port");
+
+        auto sim = spacetrains::simulation::Simulation::from_data_root("data");
+        sim.set_timewarp(86400.0);
+        const auto start = sim.snapshot();
+        // Distributions: the share of Earth's job seekers gaining at least g falls with g.
+        const auto& titan = *std::find_if(start.stations.begin(), start.stations.end(),
+            [](const auto& s) { return s.station_id == "titan_works"; });
+        double last = 1.0;
+        for (double gain : {0.0, 500.0, 1000.0, 2000.0, 4000.0}) {
+            const double share = sim.settler_gain_tail(titan, gain);
+            require(share >= 0.0 && share <= last + 1e-12, "fewer seekers gain more");
+            last = share;
+        }
+        // Monte Carlo check of the closed form: P(w_S (1 - h) - w_E) x stay >= g) for lognormal w_E.
+        {
+            const auto& labour = full.labour_market;
+            const double wage = sim.station_wage_cr_per_day(titan);
+            const double gain = 1500.0;
+            std::mt19937_64 rng(7);
+            std::lognormal_distribution<double> earth(std::log(labour.earth_wage_median_cr_per_day), labour.earth_wage_sigma);
+            int hits = 0;
+            constexpr int N = 200000;
+            for (int i = 0; i < N; ++i) {
+                hits += (wage * (1.0 - labour.hardship_share) - earth(rng)) * 365.25 * labour.stay_years >= gain;
+            }
+            require(std::abs(sim.settler_gain_tail(titan, gain) - static_cast<double>(hits) / N) < 0.005,
+                "the settlers' gain tail should match a Monte Carlo draw");
+        }
+        require(sim.traveller_budget_tail("earth_orbit", 100.0) > sim.traveller_budget_tail("earth_orbit", 1000.0),
+            "fewer can afford a dearer trip");
+        // A day's flows: wages paid, goods paid for by residents, incomes received; nothing made.
+        sim.step(1.0);
+        const auto day = sim.snapshot();
+        double wages = 0.0;
+        double household_sales = 0.0;
+        double incomes = 0.0;
+        for (const auto& s : day.stations) {
+            wages += s.ledger.wages_paid;
+            household_sales += s.ledger.household_sales;
+            incomes += s.ledger.incomes;
+        }
+        double expected_incomes = 0.0;
+        for (const auto& income : full.station_incomes) {
+            expected_incomes += income.cr_per_day;
+        }
+        require(wages > 0.0 && household_sales > 0.0, "stations pay wages and residents pay for goods");
+        require_near(incomes, expected_incomes, 1e-6, "every station income is paid each day");
+        for (const auto& s : day.stations) {
+            require(s.station_id == "earth_orbit" || s.station_id == "earth_l1" || s.jobs > 0.0,
+                "every station off Earth has jobs");
+        }
     }
 
     std::cout << "All economy tests passed.\n";
