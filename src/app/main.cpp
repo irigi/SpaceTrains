@@ -1,9 +1,11 @@
+#include <array>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -176,7 +178,7 @@ void print_economy_summary(
     const spacetrains::economy::EconomySystem& economy) {
     std::cout << "\n=== Station Economy (net rates, units/day) ===\n";
     for (const auto& station : universe.stations) {
-        const auto rates = economy.get_station_net_rates(station);
+        const auto& rates = economy.get_station_net_rates(station);
         std::cout << std::format("  {:30s}  profile={}\n", station.name, station.economy_profile_id);
         for (const auto& [commodity, rate] : rates) {
             if (std::abs(rate) > 0.001) {
@@ -202,6 +204,165 @@ void print_station_inventories(
             }
         }
         std::cout << "\n";
+    }
+}
+
+// Passengers (docs/plans/passengers.md): who travelled, what they paid, who is still waiting.
+void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
+    const spacetrains::domain::UniverseDefinition& universe,
+    const spacetrains::simulation::Simulation::PassengerAudit& audit,
+    const std::map<std::string, spacetrains::simulation::Simulation::RotationTour>& tours) {
+    if (universe.passengers.enabled == 0.0) {
+        return;
+    }
+    if (!tours.empty()) {
+        std::string line;
+        for (const auto& [station_id, tour] : tours) {
+            line += std::format("{}{} {:.0f} d ({:.2f} cr/day)", line.empty() ? "" : ", ", station_id, tour.tour_days,
+                tour.fares_per_day);
+        }
+        std::cout << "    Rotation tours (fares per position-day): " << line << "\n";
+    }
+    using spacetrains::simulation::Simulation;
+    std::array<double, 6> waiting {};
+    for (const auto& station : snap.stations) {
+        for (const auto& group : station.waiting) {
+            waiting[static_cast<std::size_t>(group.kind)] += group.count;
+        }
+    }
+    std::array<double, 6> aboard {};
+    double fares = 0.0;
+    for (const auto& ship : snap.ships) {
+        fares += ship.ledger.fares;
+        for (const auto& lot : ship.passengers) {
+            aboard[static_cast<std::size_t>(lot.kind)] += lot.count;
+        }
+    }
+    double flown = 0.0;
+    for (const double days : audit.flight_days) {
+        flown += days;
+    }
+    std::cout << std::format("    Passengers: {:.0f} cr in fares, {} departures with passengers, load factor {:.0f}%\n",
+        fares, audit.departures_with_passengers, audit.berth_days > 0.0 ? 100.0 * flown / audit.berth_days : 0.0);
+    for (std::size_t k = 0; k < waiting.size(); ++k) {
+        if (audit.posted[k] <= 0.0 && waiting[k] <= 0.0 && aboard[k] <= 0.0) {
+            continue;
+        }
+        const double boarded = audit.boarded[k];
+        std::cout << std::format("      {:14s} posted {:.0f}, boarded {:.0f} (mean wait {:.0f} d, fare {:.0f} cr), landed {:.0f}, "
+                                 "gave up {:.0f}, waiting {:.0f}, aboard {:.0f}\n",
+            Simulation::passenger_kind_name(static_cast<spacetrains::domain::PassengerKind>(k)), audit.posted[k], boarded,
+            boarded > 0.0 ? audit.wait_days[k] / boarded : 0.0, boarded > 0.0 ? audit.fares_cr[k] / boarded : 0.0,
+            audit.landed[k], audit.gave_up[k], waiting[k], aboard[k]);
+    }
+    // Passages stations paid (rotation, sponsored settlers) and recovered through their prices.
+    double paid = 0.0;
+    double recovered = 0.0;
+    double owed = 0.0;
+    double household = 0.0;
+    for (const auto& station : snap.stations) {
+        paid += station.ledger.passages_paid;
+        recovered += station.ledger.passages_recovered;
+        owed += station.passage_debt_cr;
+        household += station.ledger.household_sales;
+    }
+    if (paid > 0.0) {
+        std::cout << std::format("    Passages paid by stations: {:.0f} cr, recovered {:.0f} cr through prices "
+                                 "(+{:.1f}% on residents' goods), {:.0f} cr still to recover\n",
+            paid, recovered, household > 0.0 ? 100.0 * recovered / household : 0.0, owed);
+    }
+    // Ships with berths, by hull and fit.
+    std::map<std::string, int> carriers;
+    for (const auto& ship : snap.ships) {
+        const spacetrains::domain::ShipClassDefinition* ship_class = nullptr;
+        for (const auto& candidate : universe.ship_classes) {
+            if (candidate.id == ship.class_id) {
+                ship_class = &candidate;
+            }
+        }
+        const bool liner = ship_class != nullptr && ship_class->berths > 0.0;
+        bool cabin = false;
+        std::string fit;
+        for (const auto& module : ship.fit) {
+            cabin = cabin || module == "cabin" || module == "shielded_cabin";
+            if (module == "cabin" || module == "shielded_cabin" || module == "cabin_water_wall" || module == "tank_wrap") {
+                fit += "+" + module;
+            }
+        }
+        if (liner || cabin) {
+            ++carriers[(ship_class != nullptr ? ship_class->hull_id : ship.class_id) + fit];
+        }
+    }
+    if (!carriers.empty()) {
+        std::string line;
+        for (const auto& [name, count] : carriers) {
+            line += std::format("{}{} {}", line.empty() ? "" : ", ", name, count);
+        }
+        std::cout << "    Passenger carriers: " << line << "\n";
+    }
+    // By destination station (all kinds and origins), then every route to or from Titan.
+    struct Totals {
+        double posted {0.0};
+        double boarded {0.0};
+        double landed {0.0};
+        double gave_up {0.0};
+    };
+    std::map<std::string, Totals> to;
+    std::map<std::string, Totals> from;
+    for (const auto& [key, route] : audit.routes) {
+        for (auto* totals : {&to[key.second], &from[key.first]}) {
+            totals->posted += route.posted;
+            totals->boarded += route.boarded;
+            totals->landed += route.landed;
+            totals->gave_up += route.gave_up;
+        }
+    }
+    std::cout << "    Passengers by station (to it: posted/boarded/landed/gave up | from it: posted/boarded/landed):\n";
+    for (const auto& [station_id, t] : to) {
+        const auto& f = from[station_id];
+        std::cout << std::format("      {:18s} to {:6.0f} {:6.0f} {:6.0f} {:6.0f}   from {:6.0f} {:6.0f} {:6.0f}\n", station_id,
+            t.posted, t.boarded, t.landed, t.gave_up, f.posted, f.boarded, f.landed);
+    }
+    // The routes where most people gave up, with what flew them.
+    std::vector<std::pair<std::pair<std::string, std::string>, const spacetrains::simulation::Simulation::PassengerAudit::Route*>> worst;
+    for (const auto& [key, route] : audit.routes) {
+        worst.emplace_back(key, &route);
+    }
+    std::ranges::sort(worst, [](const auto& a, const auto& b) { return a.second->gave_up > b.second->gave_up; });
+    std::cout << "    Routes by people who gave up (posted/boarded/gave up | legs flown, by ships with berths, "
+                 "of those left empty while people waited):\n";
+    {
+        int legs = 0, berth_legs = 0, berth_legs_queue = 0;
+        double berth_boarded = 0.0;
+        for (const auto& [key, route] : audit.routes) {
+            legs += route.departures;
+            berth_legs += route.berth_departures;
+            if (route.posted > 0.0) {
+                berth_legs_queue += route.berth_departures;
+            }
+            berth_boarded += route.boarded;
+        }
+        std::cout << std::format("    Legs flown: {}, by ships with berths {} ({} on routes where people post trips), {:.0f} boarded\n",
+            legs, berth_legs, berth_legs_queue, berth_boarded);
+    }
+    for (std::size_t i = 0; i < std::min<std::size_t>(10, worst.size()); ++i) {
+        const auto& [key, route] = worst[i];
+        std::cout << std::format("      {:>15s} -> {:15s} {:6.0f} {:6.0f} {:6.0f} | {:5d} {:5d} {:5d}\n", key.first, key.second,
+            route->posted, route->boarded, route->gave_up, route->departures, route->berth_departures, route->empty_with_waiting);
+    }
+    for (const auto& [key, route] : audit.routes) {
+        if (key.first != "titan_works" && key.second != "titan_works") {
+            continue;
+        }
+        std::string carriers;
+        for (const auto& [design, count] : route.carriers) {
+            carriers += std::format("{}{} x{}", carriers.empty() ? "" : ", ", design, count);
+        }
+        std::cout << std::format("    Titan route {} -> {}: posted {:.0f}, boarded {:.0f}, landed {:.0f}, gave up {:.0f}, "
+                                 "mean trip {:.0f} d, max leg dose {:.0f} mSv{}{}\n",
+            key.first, key.second, route.posted, route.boarded, route.landed, route.gave_up,
+            route.landed > 0.0 ? route.flight_days / route.landed : 0.0, route.max_leg_dose_msv,
+            carriers.empty() ? "" : "; boardings: ", carriers);
     }
 }
 
@@ -234,7 +395,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_station_net_rates(sd);
+            const auto& rates = economy.get_station_net_rates(sd);
             for (const auto& [c, amount] : ss.inventory) {
                 sys_stock[c] += amount;
             }
@@ -266,7 +427,7 @@ void print_economy_audit(
     for (const auto& ss : snap.stations) {
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            const auto rates = economy.get_station_net_rates(sd);
+            const auto& rates = economy.get_station_net_rates(sd);
             for (const auto& [c, rate] : rates) {
                 if (rate >= 0.0 || economy.is_export_market(sd, c)) continue;
                 const double stock = ss.inventory.count(c) ? ss.inventory.at(c) : 0.0;
@@ -977,7 +1138,7 @@ void print_capacity_balance(const spacetrains::domain::UniverseDefinition& unive
     std::cout << "\n  [DEMAND AUDIT] Transport capacity for steady supply (nearest producer, Hohmann-like times):\n";
     std::cout << std::format("    {:<26}{:<14}{:>8}{:>26}{:>9}{:>11}\n", "consumer", "good", "u/day", "nearest producer", "days", "hold u");
     for (const auto& consumer : universe.stations) {
-        const auto rates = economy.get_station_net_rates(consumer);
+        const auto& rates = economy.get_station_net_rates(consumer);
         for (const auto& commodity : universe.commodities) {
             const auto it = rates.find(commodity.id);
             if (it == rates.end() || it->second >= 0.0) continue;
@@ -985,7 +1146,7 @@ void print_capacity_balance(const spacetrains::domain::UniverseDefinition& unive
             const domain::StationDefinition* best = nullptr;
             double best_days = 1e18;
             for (const auto& producer : universe.stations) {
-                const auto prates = economy.get_station_net_rates(producer);
+                const auto& prates = economy.get_station_net_rates(producer);
                 const auto pit = prates.find(commodity.id);
                 if (pit == prates.end() || pit->second <= 0.0) continue;
                 const double days = one_way_days(producer, consumer);
@@ -1032,6 +1193,7 @@ int main(int argc, char** argv) {
     bool no_events = false;
     int save_at_day = -1;
     std::string write_reference_prices_path;
+    std::string write_reference_fares_path;
 
     // Parse arguments
     std::vector<std::string> args(argv + 1, argv + argc);
@@ -1057,6 +1219,8 @@ int main(int argc, char** argv) {
             save_path = args[++i];
         } else if (args[i] == "--write-reference-prices" && i + 1 < args.size()) {
             write_reference_prices_path = args[++i];
+        } else if (args[i] == "--write-reference-fares" && i + 1 < args.size()) {
+            write_reference_fares_path = args[++i];
         } else if (args[i] == "--profile") {
             profile = true;
         } else if (args[i] == "--step-days" && i + 1 < args.size()) {
@@ -1103,6 +1267,20 @@ int main(int argc, char** argv) {
         std::cout << std::format("Wrote {} reference prices to {}\n", prices.size(), write_reference_prices_path);
         return 0;
     }
+    if (!write_reference_fares_path.empty()) {
+        // Plans the reference passenger trips and writes data/economy/reference_fares.csv.
+        const auto fares = sim.compute_reference_fares();
+        std::ofstream file(write_reference_fares_path);
+        file << "origin_id,destination_id,fare_cr,days,class_id\n";
+        for (const auto& fare : fares) {
+            file << std::format("{},{},{:.2f},{:.1f},{}\n", fare.origin_id, fare.destination_id, fare.fare_cr, fare.days,
+                fare.class_id);
+            std::cout << std::format("{:16s} -> {:16s} {:8.1f} cr  {:6.1f} d  by {}\n", fare.origin_id,
+                fare.destination_id, fare.fare_cr, fare.days, fare.class_id);
+        }
+        std::cout << std::format("Wrote {} reference fares to {}\n", fares.size(), write_reference_fares_path);
+        return 0;
+    }
     const double load_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count();
     if (start_day > 0.0) {
         sim.start_at(start_day * kDayS);
@@ -1147,6 +1325,10 @@ int main(int argc, char** argv) {
     int total_events = 0;
     // Per-step wall time (profiling): the bridge shows a hitch whenever one step is slow.
     std::vector<double> step_wall_s;
+    // and the running totals of its main phases (SPACETRAINS_PROFILE_STEPS).
+    const std::array step_phases {spacetrains::profiling::Phase::FleetInvestment, spacetrains::profiling::Phase::ShipReview,
+        spacetrains::profiling::Phase::ChooseMission, spacetrains::profiling::Phase::ConsiderRefit};
+    std::array<std::vector<double>, 4> step_phase_s;
     const auto run_start = std::chrono::steady_clock::now();
     const int steps_per_day = std::max(1, static_cast<int>(std::lround(1.0 / step_days)));
 
@@ -1156,6 +1338,10 @@ int main(int argc, char** argv) {
             sim.step(1.0 / steps_per_day);  // advance 1 simulated day in steps_per_day steps
             if (profile) {
                 step_wall_s.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - step_start).count());
+                using spacetrains::profiling::Phase;
+                for (std::size_t p = 0; p < step_phases.size(); ++p) {
+                    step_phase_s[p].push_back(spacetrains::profiling::total_seconds(step_phases[p]));
+                }
             }
         }
 
@@ -1193,6 +1379,7 @@ int main(int argc, char** argv) {
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
                 print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
+                print_passenger_audit(snap, sim.universe(), sim.passenger_audit(), sim.rotation_tours());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }
             if (!verbose) {
@@ -1226,14 +1413,32 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 double sum = 0.0, worst = 0.0;
+                std::size_t worst_end = 0;
                 for (std::size_t i = 1; i < step_wall_s.size(); ++i) {
                     sum += step_wall_s[i] - (i > window ? step_wall_s[i - window] : 0.0);
-                    worst = i >= window ? std::max(worst, sum) : worst;
+                    if (i >= window && sum > worst) {
+                        worst = sum;
+                        worst_end = i;
+                    }
                 }
-                std::cout << std::format("slowest {}-day stretch: {:.2f} s ({:.1f} days/s)\n", days, worst, days / worst);
+                std::cout << std::format("slowest {}-day stretch: {:.2f} s ({:.1f} days/s), from day {:.0f}\n", days, worst,
+                    days / worst, static_cast<double>(worst_end + 1 - window) / steps_per_day);
             }
         }
         std::cout << spacetrains::profiling::report();
+        // Debug aid: SPACETRAINS_PROFILE_STEPS=<file> writes each step's wall time and the time of
+        // its fleet investment, ship reviews, mission choices and refit checks (ms), one step per line.
+        if (const char* steps_path = std::getenv("SPACETRAINS_PROFILE_STEPS"); steps_path != nullptr) {
+            std::ofstream steps_file(steps_path, std::ios::trunc);
+            steps_file << "day wall invest review choose refit\n";
+            for (std::size_t i = 0; i < step_wall_s.size(); ++i) {
+                steps_file << std::format("{:.2f} {:.2f}", static_cast<double>(i) / steps_per_day, 1000.0 * step_wall_s[i]);
+                for (const auto& totals : step_phase_s) {
+                    steps_file << std::format(" {:.2f}", 1000.0 * (totals[i] - (i > 0 ? totals[i - 1] : 0.0)));
+                }
+                steps_file << "\n";
+            }
+        }
     }
 
     if (!snapshot_json_path.empty()) {

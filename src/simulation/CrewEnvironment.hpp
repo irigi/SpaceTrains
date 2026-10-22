@@ -19,6 +19,12 @@ namespace spacetrains::simulation::crew_environment {
 // Extra water areal density (g/cm2) a design's storm shelter gives (0 without one).
 [[nodiscard]] double shelter_g_cm2(const domain::ShipClassDefinition& design);
 
+// Water round the passenger cabins, g/cm2, full time (passengers, docs/plans/passengers_log.md):
+// a cabin water wall (effect cabin_shield_g_cm2) plus, for cabins inside the propellant tanks
+// (effect tank_wrap_m2: the wrapped wall area), the water in them spread over that wall.
+// The crew lives behind it too.
+[[nodiscard]] double cabin_shield_g_cm2(const domain::ShipClassDefinition& design, double propellant_kg);
+
 // The share of the hull's GCR dose a crew gets with that shelter (it sleeps there).
 [[nodiscard]] double gcr_factor(const domain::ShipEnvironmentDefinition& env, double shelter_g_cm2);
 
@@ -31,8 +37,13 @@ namespace spacetrains::simulation::crew_environment {
 
 // Expected dose rate of a crew in transit between r1 and r2 (AU): cosmic rays at the mean
 // distance, particle events averaged as 1/(r1 r2) (the mean of 1/r^2 on a transfer between them).
+// cabin_g_cm2: full-time water round the cabins (cabin_shield_g_cm2), 0 without.
 [[nodiscard]] double expected_transit_msv_per_day(const domain::ShipEnvironmentDefinition& env,
-    const domain::ShipClassDefinition& design, double r1_au, double r2_au, double day);
+    const domain::ShipClassDefinition& design, double r1_au, double r2_au, double day, double cabin_g_cm2 = 0.0);
+
+// GCR share in transit behind the shelter and the cabin water (both 0: 1).
+[[nodiscard]] double transit_gcr_factor(const domain::ShipEnvironmentDefinition& env,
+    const domain::ShipClassDefinition& design, double cabin_g_cm2);
 
 // Expected dose rate of a crew living on a station at r (AU).
 [[nodiscard]] double expected_docked_msv_per_day(const domain::ShipEnvironmentDefinition& env,

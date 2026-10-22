@@ -275,12 +275,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const auto rows = read_csv_rows(ship_classes_path);
         require_header(rows.front(),
             {"id", "name", "propulsion_type", "dry_mass_kg", "propellant_capacity_kg", "cargo_capacity_units",
-             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size", "hull_id"},
+             "max_delta_v_mps", "cruise_accel_mps2", "specific_engine_power_w_per_kg", "ship_value_cr", "crew_size", "hull_id",
+             "berths"},
             ship_classes_path);
         std::unordered_set<std::string> seen_ids;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 12, ship_classes_path, i + 1);
+            require_field_count(row, 13, ship_classes_path, i + 1);
             require_unique_id(row[0], seen_ids, ship_classes_path, i + 1);
             if (row[2] != "nuclear_thermal" && row[2] != "variable_isp") {
                 throw std::runtime_error(std::format("{}:{}: propulsion_type must be nuclear_thermal or variable_isp, got '{}'",
@@ -298,6 +299,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .specific_engine_power_w_per_kg = parse_double(row[8], ship_classes_path, i + 1, "specific_engine_power_w_per_kg"),
                 .ship_value_cr = parse_double(row[9], ship_classes_path, i + 1, "ship_value_cr"),
                 .crew_size = parse_double(row[10], ship_classes_path, i + 1, "crew_size"),
+                .berths = parse_double(row[12], ship_classes_path, i + 1, "berths"),
                 .hull_id = row[11].empty() ? row[0] : row[11],
                 .components = {},
             });
@@ -312,7 +314,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"class_id", "component_id", "parent_id", "kind", "name", "mass_kg", "price_cr", "power_w", "heat_w",
              "temperature_k", "volume_m3", "area_m2", "capacity_kg", "crew_capacity", "isp_s", "thrust_n"},
             ship_components_path);
-        static const std::unordered_set<std::string> top_kinds {"engine", "radiator", "tank", "habitat", "hold", "structure"};
+        static const std::unordered_set<std::string> top_kinds {"engine", "radiator", "tank", "habitat", "hold", "structure",
+            "cabin"};
         static const std::unordered_set<std::string> habitat_kinds {"pressure_hull", "shielding", "life_support",
             "thermal_control", "power_avionics", "crew_quarters", "common_rooms", "airlock_eva"};
         // Wearing and lasting parts (tier 2: spares.csv lists the wearing ones).
@@ -379,11 +382,15 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         for (const auto& ship_class : universe.ship_classes) {
             double mass = 0.0;
             double price = 0.0;
+            double berths = 0.0;
             std::unordered_map<std::string, std::pair<double, double>> parts;  // parent -> mass, price of its parts
             for (const auto& c : ship_class.components) {
                 if (c.parent_id.empty()) {
                     mass += c.mass_kg;
                     price += c.price_cr;
+                    if (c.kind == "cabin") {
+                        berths += c.crew_capacity;
+                    }
                 } else {
                     parts[c.parent_id].first += c.mass_kg;
                     parts[c.parent_id].second += c.price_cr;
@@ -394,6 +401,10 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 throw std::runtime_error(std::format(
                     "{}: components of '{}' add up to {:.0f} kg and {:.0f} cr, the class has {:.0f} kg and {:.0f} cr",
                     ship_components_path.string(), ship_class.id, mass, price, ship_class.dry_mass_kg, ship_class.ship_value_cr));
+            }
+            if (berths != ship_class.berths) {
+                throw std::runtime_error(std::format("{}: the cabins of '{}' have {:.0f} berths, the class {:.0f}",
+                    ship_components_path.string(), ship_class.id, berths, ship_class.berths));
             }
             for (const auto& [parent_id, sums] : parts) {
                 const auto& parent = *std::find_if(ship_class.components.begin(), ship_class.components.end(),
@@ -490,6 +501,97 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 at = end + 1;
             }
             universe.ship_modules.push_back(std::move(module));
+        }
+    }
+
+    {
+        // Passengers (docs/plans/passengers.md): every key optional, defaults in PassengerDefinition.
+        const auto passengers_path = root / "economy" / "passengers.csv";
+        auto& passengers = universe.passengers;
+        if (std::filesystem::exists(passengers_path)) {
+            const auto rows = read_csv_rows(passengers_path);
+            require_header(rows.front(), {"key", "value"}, passengers_path);
+            std::unordered_set<std::string> seen_keys;
+            const std::unordered_map<std::string, double*> fields {
+                {"passengers", &passengers.enabled},
+                {"rotation", &passengers.rotation},
+                {"migration", &passengers.migration},
+                {"discretionary", &passengers.discretionary},
+                {"body_luggage_kg", &passengers.body_luggage_kg},
+                {"consumables_kg_per_day", &passengers.consumables_kg_per_day},
+                {"recovery_days_per_flight_day", &passengers.recovery_days_per_flight_day},
+                {"rotation_share", &passengers.rotation_share},
+                {"hardship_per_year", &passengers.hardship_per_year},
+                {"resident_wage_multiple", &passengers.resident_wage_multiple},
+                {"visit_trips_per_person_year", &passengers.visit_trips_per_person_year},
+                {"earth_population_weight", &passengers.earth_population_weight},
+                {"fare_elasticity", &passengers.fare_elasticity},
+                {"demand_bands", &passengers.demand_bands},
+                {"band_ratio", &passengers.band_ratio},
+                {"visit_days", &passengers.visit_days},
+                {"tank_wrap_mean_fill", &passengers.tank_wrap_mean_fill},
+                {"settlers_sponsored", &passengers.settlers_sponsored},
+                {"settler_payback_half_years", &passengers.settler_payback_half_years},
+                {"settler_payback_exponent", &passengers.settler_payback_exponent},
+                {"passage_recovery_days", &passengers.passage_recovery_days},
+                {"passage_max_markup", &passengers.passage_max_markup},
+                {"visitor_batch_days", &passengers.visitor_batch_days},
+                {"min_leg_passengers", &passengers.min_leg_passengers},
+                {"rider_time_min_share", &passengers.rider_time_min_share},
+                {"rider_time_relative_step", &passengers.rider_time_relative_step},
+            };
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 2, passengers_path, i + 1);
+                require_unique_id(row[0], seen_keys, passengers_path, i + 1);
+                if (row[0] == "rotation_grade") {
+                    passengers.rotation_grade = row[1];
+                    continue;
+                }
+                if (row[0] == "earth_gateways") {
+                    passengers.earth_gateways.clear();
+                    std::size_t at = 0;
+                    while (at <= row[1].size()) {
+                        const auto end = std::min(row[1].find('|', at), row[1].size());
+                        if (end > at) {
+                            passengers.earth_gateways.push_back(row[1].substr(at, end - at));
+                        }
+                        at = end + 1;
+                    }
+                    continue;
+                }
+                const auto field = fields.find(row[0]);
+                if (field == fields.end()) {
+                    throw std::runtime_error("Unknown key '" + row[0] + "' in " + passengers_path.string());
+                }
+                *field->second = parse_double(row[1], passengers_path, i + 1, row[0].c_str());
+            }
+            if (passengers.body_luggage_kg < 0.0 || passengers.consumables_kg_per_day < 0.0
+                || passengers.recovery_days_per_flight_day < 0.0 || passengers.rotation_share < 0.0
+                || passengers.rotation_share > 1.0 || passengers.hardship_per_year <= 0.0
+                || passengers.demand_bands < 1.0 || passengers.band_ratio <= 1.0 || passengers.visit_days <= 0.0
+                || passengers.fare_elasticity >= 0.0) {
+                throw std::runtime_error("Passenger settings out of range in " + passengers_path.string());
+            }
+        }
+        if (passengers.enabled == 0.0) {
+            // Without passengers the liner classes (built-in berths) do not exist: the economy is the
+            // one before passengers, class for class.
+            std::unordered_set<std::string> liner_hulls;
+            std::erase_if(universe.ship_classes, [&](const auto& ship_class) {
+                if (ship_class.berths > 0.0) {
+                    liner_hulls.insert(ship_class.hull_id);
+                    return true;
+                }
+                return false;
+            });
+            for (const auto& ship_class : universe.ship_classes) {
+                liner_hulls.erase(ship_class.hull_id);
+            }
+            std::erase_if(universe.ship_modules, [&](const auto& module) { return liner_hulls.contains(module.hull_id); });
+            for (const auto& hull : liner_hulls) {
+                universe.hull_slots.erase(hull);
+            }
         }
     }
 
@@ -915,6 +1017,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"salvage_fraction", &investment.salvage_fraction},
             {"route_commitment_days", &investment.route_commitment_days},
             {"max_ships_per_review", &investment.max_ships_per_review},
+            {"purchase_spacing_days", &investment.purchase_spacing_days},
             {"max_fleet_size", &investment.max_fleet_size},
             {"max_fleet_hold_units", &investment.max_fleet_hold_units},
         };
@@ -1242,6 +1345,37 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             }
             universe.pricing.reference_prices[row[0]][row[1]] = price;
             universe.pricing.round_trip_days[row[0]][row[1]] = parse_double(row[7], reference_path, i + 1, "round_trip_days");
+        }
+    }
+
+    {
+        // Written by `spacetrains_headless --write-reference-fares` (passengers): the cheapest cabin
+        // carrier's fare per berth and its days. Optional: without it nobody can price a trip.
+        const auto fares_path = root / "economy" / "reference_fares.csv";
+        if (std::filesystem::exists(fares_path)) {
+            const auto rows = read_csv_rows(fares_path);
+            require_header(rows.front(), {"origin_id", "destination_id", "fare_cr", "days", "class_id"}, fares_path);
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 5, fares_path, i + 1);
+                require_station(row[0], fares_path);
+                require_station(row[1], fares_path);
+                const double fare = parse_double(row[2], fares_path, i + 1, "fare_cr");
+                const double days = parse_double(row[3], fares_path, i + 1, "days");
+                if (fare <= 0.0 || days <= 0.0) {
+                    throw std::runtime_error("fare_cr and days must be positive in " + fares_path.string());
+                }
+                universe.passengers.reference_fares[row[0]][row[1]] = {.fare_cr = fare, .days = days, .class_id = row[4]};
+            }
+        }
+        for (const auto& gateway : universe.passengers.earth_gateways) {
+            require_station(gateway, root / "economy" / "passengers.csv");
+        }
+        if (universe.passengers.earth_gateways.empty()) {
+            throw std::runtime_error("passengers.csv: earth_gateways must name at least one station");
+        }
+        if (universe.passengers.enabled != 0.0 && !universe.labour.grades.contains(universe.passengers.rotation_grade)) {
+            throw std::runtime_error("passengers.csv: unknown rotation_grade '" + universe.passengers.rotation_grade + "'");
         }
     }
 

@@ -45,6 +45,8 @@ DesignTotals totals_from_parts(const ShipClassDefinition& ship_class) {
             jet_power_w += part.power_w;
         } else if (part.kind == "habitat") {
             totals.crew_capacity += part.crew_capacity;
+        } else if (part.kind == "cabin") {
+            totals.berths += part.crew_capacity;
         } else if (part.kind == "hold") {
             totals.cargo_capacity_units += part.capacity_kg / RATED_KG_PER_CARGO_UNIT;
         }

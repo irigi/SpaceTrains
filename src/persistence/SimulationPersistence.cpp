@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 14;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules)
+constexpr int kSaveVersion = 16;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -150,6 +150,63 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     return m;
 }
 
+// Passengers (save version 15).
+Json passenger_group_to_json(const domain::PassengerGroup& g) {
+    auto out = Json::object();
+    out.set("kind", static_cast<double>(static_cast<int>(g.kind)));
+    out.set("destination_id", g.destination_id);
+    out.set("work_station_id", g.work_station_id);
+    out.set("count", g.count);
+    out.set("since_s", g.since_s);
+    out.set("max_cost_cr", g.max_cost_cr);
+    out.set("value_of_time_cr_per_day", g.value_of_time_cr_per_day);
+    out.set("dose_msv", g.dose_msv);
+    out.set("band", static_cast<double>(g.band));
+    return out;
+}
+
+domain::PassengerGroup passenger_group_from_json(const Json& j) {
+    return {
+        .kind = static_cast<domain::PassengerKind>(static_cast<int>(j.get("kind").number())),
+        .destination_id = j.get("destination_id").string(),
+        .work_station_id = j.get("work_station_id").string(),
+        .count = j.get("count").number(),
+        .since_s = j.get("since_s").number(),
+        .max_cost_cr = j.get("max_cost_cr").number(),
+        .value_of_time_cr_per_day = j.get("value_of_time_cr_per_day").number(),
+        .dose_msv = j.get("dose_msv").number(),
+        .band = static_cast<int>(j.get("band").number()),
+    };
+}
+
+Json passenger_lot_to_json(const domain::PassengerLot& lot) {
+    auto out = Json::object();
+    out.set("kind", static_cast<double>(static_cast<int>(lot.kind)));
+    out.set("origin_id", lot.origin_id);
+    out.set("destination_id", lot.destination_id);
+    out.set("work_station_id", lot.work_station_id);
+    out.set("count", lot.count);
+    out.set("fare_cr", lot.fare_cr);
+    out.set("value_of_time_cr_per_day", lot.value_of_time_cr_per_day);
+    out.set("dose_msv", lot.dose_msv);
+    out.set("boarded_s", lot.boarded_s);
+    return out;
+}
+
+domain::PassengerLot passenger_lot_from_json(const Json& j) {
+    return {
+        .kind = static_cast<domain::PassengerKind>(static_cast<int>(j.get("kind").number())),
+        .origin_id = j.get("origin_id").string(),
+        .destination_id = j.get("destination_id").string(),
+        .work_station_id = j.get("work_station_id").string(),
+        .count = j.get("count").number(),
+        .fare_cr = j.get("fare_cr").number(),
+        .value_of_time_cr_per_day = j.get("value_of_time_cr_per_day").number(),
+        .dose_msv = j.get("dose_msv").number(),
+        .boarded_s = j.get("boarded_s").number(),
+    };
+}
+
 Json ship_to_json(const domain::ShipState& s) {
     auto out = Json::object();
     out.set("id", s.id);
@@ -179,6 +236,7 @@ Json ship_to_json(const domain::ShipState& s) {
     ledger.set("refits", s.ledger.refits);
     ledger.set("subsidies", s.ledger.subsidies);
     ledger.set("dividends", s.ledger.dividends);
+    ledger.set("fares", s.ledger.fares);
     out.set("ledger", std::move(ledger));
     out.set("next_review_s", s.next_review_s);
     out.set("idle_since_s", s.idle_since_s);
@@ -228,6 +286,11 @@ Json ship_to_json(const domain::ShipState& s) {
         contract.set("cycle_days", s.contract.cycle_days);
         out.set("contract", std::move(contract));
     }
+    auto passengers = Json::array();
+    for (const auto& lot : s.passengers) {
+        passengers.push(passenger_lot_to_json(lot));
+    }
+    out.set("passengers", std::move(passengers));
     return out;
 }
 
@@ -258,6 +321,7 @@ domain::ShipState ship_from_json(const Json& j) {
     s.ledger.refits = ledger.get("refits").number();
     s.ledger.subsidies = ledger.get("subsidies").number();
     s.ledger.dividends = ledger.get("dividends").number();
+    s.ledger.fares = ledger.get("fares").number();
     s.next_review_s = j.get("next_review_s").number();
     s.idle_since_s = j.get("idle_since_s").number();
     s.refit_class_id = j.get("refit_class_id").string();
@@ -298,6 +362,9 @@ domain::ShipState ship_from_json(const Json& j) {
         s.contract.until_s = contract->get("until_s").number();
         s.contract.cycle_days = contract->get("cycle_days").number();
     }
+    for (const auto& lot : j.get("passengers").items()) {
+        s.passengers.push_back(passenger_lot_from_json(lot));
+    }
     return s;
 }
 
@@ -312,6 +379,8 @@ Json station_to_json(const domain::StationState& s) {
     ledger.set("dividends", s.ledger.dividends);
     ledger.set("subsidies", s.ledger.subsidies);
     ledger.set("taxes", s.ledger.taxes);
+    ledger.set("passages_paid", s.ledger.passages_paid);
+    ledger.set("passages_recovered", s.ledger.passages_recovered);
     out.set("ledger", std::move(ledger));
     out.set("ship_fuel_units_per_day", s.ship_fuel_units_per_day);
     out.set("import_units_per_day", goods_to_json(s.import_units_per_day));
@@ -348,6 +417,17 @@ Json station_to_json(const domain::StationState& s) {
         events.push(std::move(entry));
     }
     out.set("events", std::move(events));
+    auto waiting = Json::array();
+    for (const auto& group : s.waiting) {
+        waiting.push(passenger_group_to_json(group));
+    }
+    out.set("waiting", std::move(waiting));
+    auto visiting = Json::array();
+    for (const auto& group : s.visiting) {
+        visiting.push(passenger_group_to_json(group));
+    }
+    out.set("visiting", std::move(visiting));
+    out.set("passage_debt_cr", s.passage_debt_cr);
     return out;
 }
 
@@ -362,6 +442,8 @@ domain::StationState station_from_json(const Json& j) {
     s.ledger.dividends = ledger.get("dividends").number();
     s.ledger.subsidies = ledger.get("subsidies").number();
     s.ledger.taxes = ledger.get("taxes").number();
+    s.ledger.passages_paid = ledger.get("passages_paid").number();
+    s.ledger.passages_recovered = ledger.get("passages_recovered").number();
     s.ship_fuel_units_per_day = j.get("ship_fuel_units_per_day").number();
     s.import_units_per_day = goods_from_json(j.get("import_units_per_day"));
     s.export_units_per_day = goods_from_json(j.get("export_units_per_day"));
@@ -395,6 +477,13 @@ domain::StationState station_from_json(const Json& j) {
             .end_s = entry.get("end_s").number(),
         });
     }
+    for (const auto& group : j.get("waiting").items()) {
+        s.waiting.push_back(passenger_group_from_json(group));
+    }
+    for (const auto& group : j.get("visiting").items()) {
+        s.visiting.push_back(passenger_group_from_json(group));
+    }
+    s.passage_debt_cr = j.get("passage_debt_cr").number();
     return s;
 }
 
@@ -413,7 +502,25 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("s{}|{}|{}|{};", station.id, station.parent_body_id, station.population, station.storage_capacity_units));
     }
     for (const auto& ship_class : universe_.ship_classes) {
-        mix(std::format("c{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg, ship_class.cargo_capacity_units));
+        mix(std::format("c{}|{}|{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg,
+            ship_class.cargo_capacity_units, ship_class.crew_size, ship_class.berths));
+    }
+    {
+        const auto& pax = universe_.passengers;
+        mix(std::format("P{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", pax.enabled, pax.rotation, pax.migration, pax.discretionary,
+            pax.body_luggage_kg, pax.consumables_kg_per_day, pax.recovery_days_per_flight_day, pax.rotation_share,
+            pax.rotation_grade, pax.hardship_per_year, pax.resident_wage_multiple));
+        mix(std::format("V{}|{}|{}|{}|{}|{};", pax.visit_trips_per_person_year, pax.earth_population_weight,
+            pax.fare_elasticity, pax.demand_bands, pax.band_ratio, pax.visit_days));
+        mix(std::format("S{}|{}|{}|{}|{}|{}|{};", pax.tank_wrap_mean_fill, pax.settlers_sponsored,
+            pax.settler_payback_half_years, pax.settler_payback_exponent, pax.passage_recovery_days,
+            pax.passage_max_markup, 0));
+        mix(std::format("Q{}|{}|{};", pax.visitor_batch_days, pax.min_leg_passengers,
+            universe_.fleet_investment.purchase_spacing_days));
+        mix(std::format("R{}|{};", pax.rider_time_min_share, pax.rider_time_relative_step));
+        for (const auto& gateway : pax.earth_gateways) {
+            mix("G" + gateway + ";");
+        }
     }
     {
         const auto& env = universe_.ship_environment;
@@ -443,6 +550,10 @@ std::string Simulation::data_fingerprint() const {
     }
     for (const auto& module : universe_.ship_modules) {
         mix(std::format("m{}|{}|{}|{}|{};", module.hull_id, module.id, module.slot, module.part.mass_kg, module.part.price_cr));
+        std::map<std::string, double> effects(module.effects.begin(), module.effects.end());
+        for (const auto& [effect, value] : effects) {
+            mix(std::format("E{}|{};", effect, value));
+        }
     }
     for (const auto& ship_class : universe_.ship_classes) {
         if (const auto slots = universe_.hull_slots.find(ship_class.id); slots != universe_.hull_slots.end()) {
@@ -491,6 +602,7 @@ std::string Simulation::save_state_json() const {
     root.set("seeded_money_supply", seeded_money_supply_);
     root.set("next_investment_review_s", next_investment_review_s_);
     root.set("investment_purchases_left", investment_purchases_left_);
+    root.set("next_purchase_s", next_purchase_s_);
     auto probes = Json::object();
     for (const auto& [key, runs] : review_probes_) {
         auto list = Json::array();
@@ -503,6 +615,7 @@ std::string Simulation::save_state_json() const {
             entry.set("wait_days", run.wait_days);
             entry.set("fuel_cost", run.fuel_cost);
             entry.set("run", run.run);
+            entry.set("module_id", run.module_id);
             list.push(std::move(entry));
         }
         probes.set(key, std::move(list));
@@ -690,6 +803,7 @@ void Simulation::load_state_json(const std::string& text) {
                 .wait_days = entry.get("wait_days").number(),
                 .fuel_cost = entry.get("fuel_cost").number(),
                 .run = static_cast<int>(entry.get("run").number()),
+                .module_id = entry.get("module_id").string(),
             });
             (void)get_station_definition(runs.back().destination_id);  // throws on an unknown station
         }
@@ -705,6 +819,7 @@ void Simulation::load_state_json(const std::string& text) {
     seeded_money_supply_ = root.get("seeded_money_supply").number();
     next_investment_review_s_ = root.get("next_investment_review_s").number();
     investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());
+    next_purchase_s_ = root.get("next_purchase_s").number();
     review_probes_ = std::move(review_probes);
     emergencies_ = std::move(emergencies);
     emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());

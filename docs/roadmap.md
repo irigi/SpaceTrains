@@ -16,21 +16,30 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-19) — start here
+## Current Plan (updated 2026-10-22) — start here
 
-**Market redesign, 2026-10-19 (branch `feature/market_redesign`, overnight):** stations now pay at
-most what ships near a source ask (competitive pricing), and ships sign rotation contracts on loops of
-up to four stops. Unmet demand is unchanged against the reference (1.3%) while stations pay a third
-less (1.69× against 2.64× the landed reference price). Every piece is a switch in
-`data/economy/market.csv`. Design and results: `docs/plans/market_redesign.md`; experiments and
-decisions to review: `docs/plans/overnight_2026-10-19.md`. Also fixed: a rare planner crash and two
-planner caches that broke exact save/load. Reviewed 2026-10-20: y2 kept, Lunar Gateway metals and water output
-+50% (unmet 0.6%, price 1.50× the reference), fleet cap 130; merged to `main`.
+**Status.** `main` holds everything up to tier 2 ship structures (PR #17). Branch `feature/passengers` (from
+`main` at `5442d96`, not merged yet) adds passengers, **on in the data since 2026-10-22**
+(`data/economy/passengers.csv` `passengers,1`): settlers, crew rotation and visitors travel by ship in cabin
+modules and liners, with shielded cabins for Titan. Plan `docs/plans/passengers.md`; decisions and results
+`docs/plans/passengers_log.md` (the activation check is at its end). Also on the branch: the VariableISP
+planner's fuel-check fix and the passenger speed work (no longer switches; the old code paths are removed).
 
-Branch `feature/ship_structures_tier2` (from `main` at `ea7fede`, 2026-10-21: tier 2 ship structures,
-plan below under "Ship structures") (solo repo: commit on the branch, push only when asked). `main` holds
-every earlier branch: market redesign (PR #14), key bindings help (PR #15), close-zoom camera (PR #16).
-Older history: part C tank refits (v25) through mixed cargo (v37) and the overnight steps 9-13, in git history.
+Benchmark, passengers on, cap 130, 4 starts × 1,460 days (2026-10-22): unmet demand 1.1 ± 0.3%, last fifth
+2.1 ± 1.0%, 145 ships (76% profitable), money −20 ± 7% against target, drift 0; ~45 ms per simulated day, the
+slowest 20-day stretch 5.1 days/s or better (16-thread machine).
+
+**Open for the user:**
+- **Mercury has no passengers:** the VariableISP atlas has a gap at Mercury (no reference fares Mercury → Mars
+  and Mercury → Titan). Waits for the atlas update (user, 2026-10-21).
+- **Earth ↔ Luna passengers:** about 60% of the people who give up wait for this 5-day hop. Its reference fare
+  is 86-93 cr (a 200-berth plasma liner's cost), and every design's probe values a Luna passenger run below
+  the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
+  Earth → Luna times (14-22 days for plasma ships, 16 for the shuttle, some over 150) also look long for the
+  hop. Look at the fare and the shuttle's economics before more fleet.
+- Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
+
+The passenger UI was checked in the game by the user (2026-10-22).
 
 ### Decisions so far
 
@@ -61,158 +70,52 @@ Older history: part C tank refits (v25) through mixed cargo (v37) and the overni
 
 ### Next steps, in order
 
-1. **Tech plausibility review** (`docs/ship_technology.md`): fix reference numbers for the
-   era, rebuild every class bottom-up (engine, reactor, radiators, tankage, habitat, hold), rename classes,
-   price ships from the breakdown (naming already confirmed). Done so far: reference numbers, class
-   rebuild (`7cdb236`), fuel depots (`dad132c`), pricing (`1808fe6`), renaming (propulsion types
-   `nuclear_thermal` / `variable_isp`, classes `plasma_freighter` / `plasma_courier`), cargo holds with
-   price-curve trades and an economy scaled with population (v24). The tech review is complete.
-2. **Part C: modular tanks and refits** (`docs/modules/ships_and_fleet.md`): done (v25). Every class
-   has 50/100/150/200% tank variants on one hull; ships refit at their home base when the missions the
-   neighbouring tank size opens repay a 20-day yard stay and a bill of 30% of the hardware change.
-   Mostly inner-system ships shrink their tanks. Consumer stations bled faster (LEO −458k), so the open
-   economy went next.
-3. **Open economy** (`docs/modules/ships_and_fleet.md`): done (v26), moved ahead of fleet investment. Residents
-   pay for consumed goods and stations pay local producers (at most the base price) against an external
-   account; ships pay cash above a 50k reserve to their home station; faction treasuries keep station
-   cash between 25k and 250k; a 60-day controller holds the money in stations and ships near the seeded
-   amount (v26: +16.7% at day 730, driven by food scarcity at Low Earth Logistics). Money drift 0.
-4. **Fleet investment** (`docs/modules/ships_and_fleet.md`): done (v27). Ships laid up for 180 days are
-   sold for 40% salvage to their treasury; every 60 days the treasuries buy the one ship (hull, tank
-   variant, yard) with the best sustained return (margin per unit × min(hold per round trip, the
-   destination's consumption), minus running costs; hurdle 30%/yr). v27: 7 bought, 4 sold, 15/29
-   profitable, Low Earth Logistics food no longer critical, money +7.0%. v28: a new ship shuttles
-   between its yard and the destination it was bought for for 180 days, and that flow counts against
-   the destination's demand in later reviews (13/29 profitable, fleet profit −1.4%, money +5.5%).
-   v30: each candidate run is valued over the commitment at the stocks both stations would hold,
-   with other ships' observed imports and exports (fleet profit 891k vs 444k in v29, 16/32 profitable).
-   Open: treasuries buy only one ship per review and end with 542k unspent while 72% of demand goes
-   unmet.
-5. **Fuel factories and bulk tankers** (`docs/modules/ships_and_fleet.md`): done (v29). Fuel factories at
-   Venus, Titan, Lunar Gateway, Ceres and Ganymede (none in Earth orbit); other depots only hold what
-   ships deliver and price against their buffer. Bulk Tanker and Plasma Bulk Tanker classes (2000 units)
-   bought by fleet investment. Fuel-aware planning: ships carry return fuel into ports that cannot refuel
-   them (or sell at more than 2x), pay the local scarcity premium, and the planners trade propellant at
-   the port's price (cis-lunar plasma spirals are now cost-aware). v29: fuel 690k cr (v28 135k), fleet
-   profit 444k (871k), 14/32 profitable, 0 laid up, 0 stranded. Open: Mars runs dry by day 350 and
-   Mercury is marginal (no tanker bought for them); Earth-orbit fuel costs 35-60 cr/u.
-6. **Investment rate**: done (v31). A review buys until no candidate clears the hurdle (at most 8),
-   each valued against the flow of the ships already ordered. 19 ships bought (v30 10), fleet profit
-   981k, 19/41 profitable, treasuries end with 69k (v30 542k); unmet demand 71.4% (71.7%).
-7. **Outer-system exports** (`docs/modules/ships_and_fleet.md`): done (v32, v33). Ceres mines platinum,
-   Ganymede and Titan deuterium; Earth's two stations buy any amount at the base price for the outside
-   economy. v32 started a rush to Ceres; v33a: follow-ups forecast the producer's stock at arrival and
-   leave other ships' planned pickups to them. v33 (with step 8): 1.02M cr exported by day 730, fleet
-   profit 1.035M, 17/43 profitable, unmet demand 72.9% (v31 71.4%). Open: export volumes are small
-   (production-limited after the starting stockpiles), and Ganymede and Titan still get few supplies.
-8. **Trajectory reach** (`docs/modules/trajectory.md`): done (v33). The variable-Isp planner now takes κ
-   at the origin's radius (it used 1 AU for every origin: ships leaving Jupiter or Saturn were planned
-   60-280x too weak, those leaving Mercury 10x too strong), and a refined window that just passed is
-   flown at once instead of a whole synodic period later. Plasma ships reach every outer station in
-   250-550 days in both directions. Nuclear-thermal Jupiter <-> Saturn plans of 2500-4500 days are
-   physical (Hohmann about 3700 days) and lose on cost. Leftovers reviewed 2026-10-20: theta branches are
-   handled (the shooting keeps the branch the seed flies); time-optimal transfers exist since the general
-   solver (`solve_min_time`, `spend_fuel_budget`, off: no economy gain). Still open: the low-κ atlas
-   extension (7.8% of plasma requests below the grid, see `docs/plans/visp_general_solver_log.md`).
-
-Steps 9-13 (the user's 2026-10-07 priorities):
-
-9. **Speed:** done. Profiling timers (`--profile`), double-precision integration, exact parallel mission
-   planning (passes over a thread pool), a memoised Lambert grid, candidates planned without paths, fleet reviews
-   spread over ticks, a fixed 0.1-day tick for headless and UI. 730 days: 11m10 -> 52 s with 90 ships.
-10. **GUI:** done, the user reviews the look. Smooth display clock (no stalls at 1 day/s; short ones at 5 days/s
-    during fleet reviews), orbit rings exact up close, KSP-like map (true-size bodies, icon labels, brighter Sun
-    and planets), mission in words and richer ship/station panels, economy overview (M).
-11. **Save/load:** done (F5/F9, `--save-at`/`--load`; exact continuation, tested).
-12. **Unmet demand:** investigated. Main cause transport capacity (steady supply needs ~45,000 u of holds in
-    transit, the fleet had 5,000-11,000 u) and targets too small for distant supply; one forecast bug. Open for the
-    user: local life-support production at the outposts (design decision).
-13. **Orders and mixed cargo:** done. Mixed cargo by marginal value (v37), investment values mixed holds and
-    ranks by profit per day near the fleet limit (v37d, v39a), contracts with prices agreed at departure (v39c);
-    station panels show orders and contracts.
-14. **Production dependencies, upkeep penalties, emergency resupply:** done (`e8d4fdd`).
-15. **Landed-cost reference prices, price cap 4x:** done (`906e05d`).
-16. **Science trade:** done (`117e00f`).
-17. **Station money** (residents pay the import cost, local production free, faction credit and interest,
-    core-crew subsidy; budget gate built but off): done (`e633881`). UI `0a323ab`.
-    Results, variants and **19 decisions for the user to review**: `docs/plans/steps_14_17_log.md`. Four starts,
-    1460 days: unmet 33.0 +- 2.5%, last ~290 days 11.8 +- 2.6%, 73.5/92 profitable, ships hold 26% of the money
-    (was ~75%), ~4 emergencies a year, drift 0.
-
-Steps 18-22 (`docs/plans/steps_18_22_log.md`, user's choices of 2026-10-08): 18 start stocked (kept, most of the
-gain), 19 production at 3x consumption (reverted in data: it caused the steady-state regression), 20 landed-cost
-fuel at depots without a factory (kept), 21 fleet cap by hold capacity (switched off in data: worse and slower),
-22 scheduled liners to Titan and Ganymede (kept). Four starts, 1460 days: unmet 17.4 +- 2.2%, last ~290 days
-7.0 +- 4.3% (was 11.8), 76.8/93 profitable, 15 emergencies, drift 0.
-
-Steps 23-28 (`docs/plans/steps_23_28_log.md`, one push asked for by the user on 2026-10-08): 23 cover from the
-reference round trip (Titan ordered a year for a 3.4-year round trip; the big win), 24 input price caps by what
-an input makes, 25 smooth drawing of outer-system paths, 26 faction credit against station stock and factions in
-surplus covering station deficits, 27 station growth, 28 random events and stories. Four starts, 1460 days, events
-on: unmet 4.4 +- 0.4%, last ~290 days 2.3 +- 0.9%, 77/94 profitable, ~13 emergencies, no faction over its limit,
-~4.6 events a year, drift 0.
-
-Reviewed by the user 2026-10-15 (logs updated; the station budget gate deleted). **Step 29, station purchase
-orders** (`docs/plans/station_orders.md`), built 2026-10-16, awaiting the user's review:
-- Each consumer good and depot fuel has an order: (s, S) quantities from the observed use, lead, interval and
-  spread.
-- The bid comes from the projected stock at arrival (contracts counted), flat over the open quantity, capped by
-  the good's ceiling within 4× (inputs 12×, depot fuel 8×).
-- A greedy manifest builder fills holds by margin net of propellant.
-- It replaced the consumer curve, cover days, the step 24 caps and the depot buffer. Emergencies are the
-  faction's premium above the station's cap.
-- Four starts, 1460 days: unmet 1.5% (1.1-1.6), last fifth 1.7%, no Mars fuel shortage in year 4,
-  85/93 profitable, money +20 to +49%, drift 0.
-- Open: prices paid are 2-12× the reference at most stations (the acceptance check of 1.5× fails; lower bids
-  lost supply); the urgency weight is still needed.
-
-Wobbly outer-moon paths (user, 2026-10-09): resolved 2026-10-11, confirmed by the user. Godot interpolated r/θ
-linearly between path samples, which bowed long near-radial legs by up to 0.03 AU; it now uses a cubic Hermite.
-
-Ship structures (user, 2026-10-11; `docs/plans/ship_internals.md`, decisions in `ship_structures_log.md`):
-- **Tier 1, done 2026-10-11:** every class's parts (engine, radiators, tanks, habitat split by NASA's Deep Space
-  Habitat, hold, structure) with mass, price, power, heat, temperature, volume and area in
-  `ship_components.csv`; they add up exactly to the class, so the simulation is unchanged. Inspector "Ship
-  systems" section, `<snapshot>.designs` bridge file, `Simulation::ship_design()` seam.
-- **Tier 2, built 2026-10-21, awaiting the user's review** (branch `feature/ship_structures_tier2`, plan
-  `docs/plans/ship_structures_tier2.md`, decisions to review in `docs/plans/tier2_log.md`): designs derived in
-  C++, modules fitted as refits (storm shelter, cold hold, 90 K tank shield, 20 K cryocooler), crew radiation
-  (leg limit at the 1 Sv career limit, hazard pay 0.43 cr/mSv), hydrogen boil-off in flight, drive life and
-  meteoroid damage with overhauls that buy reactor fuel, machinery and electronics, and the inspector/schematic
-  for all of it. Hydroponics, habitability premiums and Set B radiators were assessed and not built (reasons in
-  the log). All switches on: 1460 days, unmet 0.9 ± 0.3% (baseline 0.6), price 1.6× the reference (1.6),
-  101/141 profitable, drift 0. Next: passengers (own plan; spin gravity and common rooms belong there).
-- **Visuals, done 2026-10-11:** a to-scale ship schematic in the inspector (false-colour temperatures, live
-  tank, hold, crew and plume, mass bar, hover) and map hints (burn-length glow sized by jet power, radiator
-  wings in false colour). A shipyard panel and 3D close-ups are archived (`docs/archive/`), not planned.
-- Tier 3, stations: after tier 2.
-
-Added by the user 2026-10-20:
-- **Better 3D ship models:** the map models follow the inspector schematic (same parts and proportions, from
-  `ship_components.csv`), with more detail drawn only when the camera is near (level of detail: the far
-  view keeps today's cheap models, so un-zoomed speed is unchanged). Revives part of the archived 3D close-ups.
-- **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
-  mass/population scale (a ship is now drawn ~48,000 km long, about 4 Earth diameters). Icons already mark
-  them when far; check arrival snaps, docking, engine glow and the near plane at metre scale.
-- **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
-  into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
-  (below). Needs the game design: who chases whom, triggers, what happens at intercept.
+1. **Merge passengers** (UI checked 2026-10-22).
+2. **Passenger routes** (`docs/plans/passenger_routes.md`): route data and a plan covering why fares don't
+   rise with long queues, a tech review of the Luna shuttle, a large liner for Luna, the interplanetary routes
+   with few legs, and the Titan return leg.
+3. **Mercury passengers:** the npz atlas update (above).
+4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
+5. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
+   proportions, from `ship_components.csv`), with more detail only when the camera is near (the far view keeps
+   today's cheap models, so un-zoomed speed is unchanged). Revives part of the archived 3D close-ups.
+6. **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
+   mass/population scale (a ship is now drawn ~48,000 km long, about 4 Earth diameters). Icons already mark
+   them when far; check arrival snaps, docking, engine glow and the near plane at metre scale.
+7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
+   into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
+   (below). Needs the game design: who chases whom, triggers, what happens at intercept.
 
 Deferred (user, 2026-10-08):
 - **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
   so an intercept is a rendezvous problem (Lambert), costly in delta-v and likeliest near departure and arrival.
   It could start as an expected-loss cost per route that police presence lowers.
 
-Checks after each step: the three test suites, `tools/benchmark.py` (four starting dates, mean and spread; one
-run is too noisy to judge a change) and `--trajectory-audit`. v39d (2026-10-08, four starts): 730 days unmet
-demand 49.8 +- 1.0%, 32.5 +- 1.6% in the last fifth, 50.8/91 profitable, holds 99,000 u, money +1.3 +- 7.4%;
-**1460 days 32.3 +- 1.2%, the last ~290 days 10.5 +- 1.9%, 84.5/93 profitable**, exports 1.84M, money +10.5 +- 12%;
-0 trajectory flags, drift 0; a single 730-day run takes about a minute. Earlier: v37b 63.3 +- 2.2% at 730 days. Older single-run figures, for history: compare with the calibration log in git history (`docs/plans/ship_operating_costs.md`, removed 2026-10-11)
-(v33: 17/43 profitable, fleet profit 1.035M, cargo margin 2.06M, fuel 599k cr, exports 1.02M, unmet demand
-72.9%, 34 CRITICAL lines, money supply +6.7%, drift 0, run 11m10; trajectory audit 0 of 277 plans flagged;
-v31 without exports: 19/41, 981k, 71.4%). "Unmet demand" is the share of the stations'
-consumption (by base value, over the whole run) that found no stock; CRITICAL lines only count the
-station goods with under 7 days of stock at the last day. Debug idle ships with
+### Done (one line each; details in the module docs, the logs named and git history)
+
+- Tech plausibility review: classes rebuilt bottom-up, priced from hardware, renamed (`docs/ship_technology.md`).
+- Part C, modular tanks and refits (v25); open economy (v26); fleet investment (v27-v31); fuel factories and
+  bulk tankers (v29); outer-system exports (v32-v33); trajectory reach, κ at the origin's radius (v33)
+  (`docs/modules/ships_and_fleet.md`, `trajectory.md`).
+- Steps 9-13: speed (`--profile`, parallel planning), GUI, save/load (F5/F9), unmet-demand findings, orders
+  and mixed cargo (`docs/plans/overnight_2026-10-08.md` in git history).
+- Steps 14-17: production dependencies, landed-cost reference prices, science trade, station money
+  (`docs/plans/steps_14_17_log.md`).
+- Steps 18-22: start stocked, landed-cost depot fuel, scheduled liners to Titan and Ganymede
+  (`docs/plans/steps_18_22_log.md`).
+- Steps 23-28: cover from the round trip, input caps, faction credit, station growth, random events
+  (`docs/plans/steps_23_28_log.md`).
+- Step 29, station purchase orders (`docs/plans/station_orders.md`).
+- Market redesign: competitive asks, multi-stop rotation contracts (PR #14, `docs/plans/market_redesign.md`,
+  `overnight_2026-10-19.md`). Key bindings help (PR #15), close-zoom camera (PR #16).
+- Ship structures: tier 1 parts and schematic (2026-10-11), tier 2 modules, radiation, boil-off and wear (PR #17;
+  `docs/plans/ship_structures_log.md`, `tier2_log.md`). Wobbly outer-moon paths fixed (cubic Hermite, 2026-10-11).
+- Passengers (branch `feature/passengers`, above).
+
+Checks after each step: the test suites (`ctest`), `tools/benchmark.py` (four starting dates, mean and spread;
+one run is too noisy to judge a change) and `--trajectory-audit`; for speed, `--profile` runs one after another
+with all threads (the slowest 20-day stretch must stay above 5 days/s). "Unmet demand" is the share of the
+stations' consumption (by base value, over the whole run) that found no stock. Debug idle ships with
 `SPACETRAINS_TRACE_SHIP="<ship name>"`.
 
 ## Trajectory Correctness Over Long Runs (mostly done)
@@ -270,10 +173,9 @@ done (`docs/modules/ships_and_fleet.md`, `economy.md`). Ideas from those plans n
 - Science samples that lose value with age (would favour fast couriers); research stations as a station type.
 - Demand elasticity: residents cut consumption at high prices, not only the station ordering less.
 
-## Phase 3 — Persistence and Scenario Control
+## Phase 3 — Scenario Control
 
-- Add save/load snapshots.
-- Add seeded scenario setup and reproducible simulation runs (also needed to replay bad trajectories deterministically).
+Save/load (exact continuation) and deterministic runs are done.
 - Add scenario-level data for alternative starting economies or factions.
 
 ## Phase 4 — Richer Orbital and Mission Fidelity
@@ -285,7 +187,7 @@ done (`docs/modules/ships_and_fleet.md`, `economy.md`). Ideas from those plans n
 
 ## Phase 5 — Ships with Individual Variation
 
-- Per-ship fits and component condition: tier 2 of `docs/plans/ship_internals.md` (the main route now).
+- Per-ship fits and component condition: done (tier 2, PR #17).
 - Add per-ship power multiplier (±α variation) and size multiplier.
 - Size scaling preserves κ; power multiplier changes κ slightly per ship.
 - Reflect individual ship specs in UI selection panel.

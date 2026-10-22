@@ -96,11 +96,24 @@ to atlas costates, so the rest of the planner is unchanged. The finite-differenc
   also reports the exact closest approach, end state and effort.
 - **Scoring plans** (`include_path` off) take mass (from the effort) and perihelion from the shooting; only
   plans with a path integrate the trajectory (4000 samples).
-- **Fuel fit.** When the corrected path needs at most 10% more effort than the fuel allows,
-  `fit_effort_by_time` changes T until it fits (56% of candidates used to be rejected as fuel-limited).
+  - **Fuel check (fixed 2026-10-21).** Until then the scoring
+    plan's check read the closest-approach marker, which carries the start mass, so a window short of fuel
+    scored as feasible. The chosen mission's replan with its path then failed and the ship picked the same
+    trip the next day (1460 days: 2,821 of 3,300 departure replans failed with passengers on, 1,876 of 2,374
+    off, mostly Mercury and Venus routes).
+  - **Larger budget for the same path.** The path does not depend on the fuel budget, so a refined path over
+    its budget is flown with the smallest of the ship's larger budgets that carries it, before any time fit
+    and with no further shooting. Checking the end state alone refined the next windows instead (+46%
+    shootings, 25% slower); with the larger budget, 37% fewer shootings than the old check and no failed
+    departure replan. 79% of the over-budget paths came from the 40% and 55% budgets.
+- **Fuel fit.** When the corrected path needs at most 10% more effort than the fuel allows and no larger
+  budget carries it, `fit_effort_by_time` changes T until it fits (56% of candidates used to be rejected as
+  fuel-limited). Fits up to 1.6x and 2x over were measured on 2026-10-21: 7x the planning time.
 - **Shared refinements.** The geometric refinement of an atlas cell is cached per (route, plan time, cell):
   the path does not depend on the ship, so plans differing only in payload or fuel reuse it and apply their
   own fuel check.
+- **Fuel fits** are cached too, by refinement, departure option, rho, kappa and perihelion limit: a pure
+  function of these. The chosen mission's replan with its path then finds the fit its scoring plan made.
 - Optional, off: `PlanningOptions::direct_fallback` (solve a departure now directly when no window converges)
   and `ShootingSettings::spend_fuel_budget` (shorten T to use all the fuel); both measured without economy gain.
 

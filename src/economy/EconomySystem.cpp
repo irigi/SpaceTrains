@@ -43,6 +43,9 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     for (const auto& event : universe_.events) {
         events_by_id_[event.id] = &event;
     }
+    for (const auto& station : universe_.stations) {
+        net_rates_[station.id] = compute_net_rates(station);
+    }
 }
 
 double EconomySystem::event_factor(const domain::StationState& station, const domain::RecipeDefinition& recipe) const {
@@ -455,9 +458,23 @@ double EconomySystem::population_factor(const domain::StationDefinition& station
 
 void EconomySystem::set_population(const std::string& station_id, double population) {
     populations_[station_id] = population;
+    for (const auto& station : universe_.stations) {
+        if (station.id == station_id) {
+            net_rates_[station_id] = compute_net_rates(station);
+        }
+    }
 }
 
-std::unordered_map<std::string, double> EconomySystem::get_station_net_rates(const domain::StationDefinition& station) const {
+const std::unordered_map<std::string, double>& EconomySystem::get_station_net_rates(const domain::StationDefinition& station) const {
+    if (const auto it = net_rates_.find(station.id); it != net_rates_.end()) {
+        return it->second;
+    }
+    thread_local std::unordered_map<std::string, double> unlisted;
+    unlisted = compute_net_rates(station);
+    return unlisted;
+}
+
+std::unordered_map<std::string, double> EconomySystem::compute_net_rates(const domain::StationDefinition& station) const {
     std::unordered_map<std::string, double> rates;
     if (const double output = fuel_factory_output(station); output > 0.0) {
         rates[FUEL_ID] += output;

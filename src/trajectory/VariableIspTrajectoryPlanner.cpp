@@ -100,7 +100,6 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
     double current_time_s,
     const PlanningOptions& options) const {
     const profiling::Scope profile_scope(profiling::Phase::VariableIspPlan);
-
     domain::TrajectoryPlan plan;
 
     // Mass model. The engine's power comes with the hull (alpha * hull dry mass); cargo and
@@ -478,12 +477,48 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     const double fuel_effort = 0.999 * kappa;  // canonical units: the budget is kappa
                     Departure departure {};
                     variable_isp::ShootingResult targeted;
-                    for (const auto& [option_departure, option] : refinement->by_wait) {
+                    // The path does not depend on the budget, so a path over this budget may fit a
+                    // larger one the ship can load: the smallest such budget flies it unchanged, with
+                    // no further shooting, ahead of the time fit (measured 2026-10-21: 40% fewer
+                    // shootings than retrying the next window, and every plan flyable).
+                    const Budget* flown = &budget;
+                    const auto larger_budget_for = [&](double effort) -> const Budget* {
+                        const Budget* best = nullptr;
+                        for (const auto& other : budgets) {
+                            if (other.kappa > kappa && 0.999 * other.kappa >= effort && (!best || other.kappa < best->kappa)) {
+                                best = &other;
+                            }
+                        }
+                        return best;
+                    };
+                    for (std::size_t w = 0; w < refinement->by_wait.size(); ++w) {
+                        const auto& [option_departure, option] = refinement->by_wait[w];
                         if (!option.converged) continue;
                         departure = option_departure;
                         targeted = option;
-                        if (option.effort > fuel_effort && option.effort < shooting.max_budget_overshoot * fuel_effort) {
-                            targeted = integrator_.refine_seed_stm(option.seed, config, station_target_for(departure), shooting);
+                        flown = &budget;
+                        const Budget* larger = option.effort > fuel_effort ? larger_budget_for(option.effort) : nullptr;
+                        if (larger != nullptr) {
+                            flown = larger;
+                            const auto larger_config = variable_isp::VariableIspIntegrator::canonical_config(rho, larger->kappa);
+                            targeted.end.mass_kg = 1.0 / (1.0 / larger_config.m0_kg
+                                + option.effort / (2.0 * larger_config.power_w * kappa_scale_factor()));
+                        } else if (option.effort > fuel_effort && option.effort < shooting.max_budget_overshoot * fuel_effort) {
+                            const auto fit_key = std::format("{}|{}|{:a}|{:a}|{:a}", key, w, rho, kappa, shooting.min_radius_m);
+                            bool cached = false;
+                            {
+                                const std::lock_guard lock(refinements_mutex_);
+                                if (const auto it = fits_.find(fit_key); it != fits_.end()) {
+                                    targeted = it->second;
+                                    cached = true;
+                                }
+                            }
+                            if (!cached) {
+                                targeted = integrator_.refine_seed_stm(option.seed, config, station_target_for(departure), shooting);
+                                const std::lock_guard lock(refinements_mutex_);
+                                if (fits_.size() >= 50000) fits_.clear();
+                                fits_.emplace(fit_key, targeted);
+                            }
                             if (!targeted.converged) continue;
                         } else {
                             // The cached end mass belongs to the ship that first planned it.
@@ -510,16 +545,23 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     // Without a path (scoring), the shooting's own end state, mass and closest
                     // approach suffice.
                     variable_isp::IntegrationSummary full;
+                    const auto flown_config = flown == &budget
+                        ? config : variable_isp::VariableIspIntegrator::canonical_config(rho, flown->kappa);
                     if (options.include_path) {
-                        full = integrator_.integrate_fixed_time(refined.seed, config, 4000);
+                        full = integrator_.integrate_fixed_time(refined.seed, flown_config, 4000);
                     } else {
                         full.samples = {
-                            {0.0, config.r0_m, 0.0, config.vr0_mps, config.vtheta0_mps, config.m0_kg},
+                            {0.0, flown_config.r0_m, 0.0, flown_config.vr0_mps, flown_config.vtheta0_mps, flown_config.m0_kg},
                             refined.end,
-                            {0.0, refined.min_radius_m, 0.0, 0.0, 0.0, config.m0_kg},  // closest approach
+                            {0.0, refined.min_radius_m, 0.0, 0.0, 0.0, flown_config.m0_kg},  // closest approach
                         };
                     }
-                    if (full.samples.back().mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
+                    // Without a path the last sample is the closest-approach marker (at the start
+                    // mass), so the end mass is the shooting's own end state, samples[1]. Until
+                    // 2026-10-21 the marker was checked, a plan short of fuel scored as feasible,
+                    // and its replan with the path then failed every day.
+                    const double end_mass_kg = !options.include_path ? full.samples[1].mass_kg : full.samples.back().mass_kg;
+                    if (end_mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
                         fuel_limited = true;
                         continue;
                     }
@@ -535,7 +577,7 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     result = std::move(full);
                     best_theta_f = theta_grid[window.k];
                     refine_iterations = refined.iterations;
-                    chosen = &budget;
+                    chosen = flown;
                     found = true;
                 } catch (const std::runtime_error&) {
                     // Seed dives into the Sun or similar: try the next seed/window.

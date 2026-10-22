@@ -87,6 +87,60 @@ Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/pla
   (`overhaul_bill`), a few days in the yard. The planners price wear in (`wear_cr_per_propellant_kg` for
   nuclear-thermal burns, `wear_cr_per_flight_day` for plasma thrust), so asks and contracts cover it.
 
+## Passengers (2026-10-21, `src/simulation/Passengers.cpp`)
+
+Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, on since 2026-10-22;
+sub-switches `rotation`, `migration`, `discretionary`). Plan in `docs/plans/passengers.md`, decisions and
+results in `docs/plans/passengers_log.md`. With `passengers,0` the economy is the one before passengers: the
+liner classes do not load and cabins are never offered. `--econ-audit` reports passengers by kind, by station
+on every route to or from Titan, the routes where most people gave up (with legs flown, legs by ships with
+berths, and those that left empty while people waited), and the legs flown in all.
+
+**Who travels.** People wait at stations in groups (kind, destination, employer, demand band):
+- **Settlers:**
+  - posted at the cheapest Earth gateway for a thriving station, at the growth rate;
+  - off Earth, growth now happens only as they land, and a failing station loses emigrants by ship;
+  - migration events post a convoy of settlers at Earth.
+- **Rotation:**
+  - a share of each off-Earth station's people is relieved once a tour;
+  - the tour minimises the cost per day on site from the reference fares;
+  - the station pays both fares, and sends no relief while it is too poor.
+- **Visitors:** a gravity model deterred by the trip's cost against a year's income. They stay `visit_days`
+  and go home.
+
+**Prices.**
+- **Reference fares** (`data/economy/reference_fares.csv`, `--write-reference-fares`): the cheapest cabin
+  carrier's cost per berth, planned with the passengers' time.
+- **What a group pays:** the reference fare adjusted for the trip's time and dose. When more wait than fit,
+  everyone pays the fare that clears the berths (up to 4× the reference cost, the top demand band).
+- **Giving up:** groups give up as waiting uses up their budget.
+- **Who pays:** fares go to the ship from the outside account (emigrants, visitors) or from the work station
+  (rotation, and settlers with `settlers_sponsored`). A station recovers what it paid for passages
+  (`passage_debt_cr`) at 1/`passage_recovery_days` a day from outside money, at most `passage_max_markup` × its
+  residents' spending on goods. Its prices thus carry the passages.
+- **Settler demand** falls with the ticket's payback time T (reference generalized cost over a year's wage):
+  1 / (1 + (T / `settler_payback_half_years`)^`settler_payback_exponent`) of the growth rate.
+
+**Ships.**
+- **Carriers:**
+  - two cabin modules for the new `cabin` slot (12/24/60 berths), plain or shielded (a 20 g/cm² water wall);
+  - two 40-berth liners and the 200-berth Large Plasma Liner;
+  - the liners' habitat slots take a cabin water wall and, on the plasma liners, a tank wrap: the cabin sits
+    inside the water tank. Its shield is the water aboard ÷ the cabin's wall area, so it thins as the tank
+    empties.
+  - Cosmic rays are cut by exp(−shield ÷ 46 g/cm²); particle events see the storm shelter plus the shield.
+  - Berths are apart from the hold; passengers' mass and their 2 kg/day are payload.
+- **Dispatch** fills berths alongside the hold:
+  - each destination's manifest adds the boarding passengers' fares less their provisions;
+  - follow-ups count passengers waiting at the next port;
+  - the planner adds their time to the ship's.
+- **Fleet investment** values cabin designs and liners at the sustained passenger flow, filled by band at
+  each group's fare or the clearing fare, and commits them to their route like cargo ships.
+  - A hull fitted with a cabin module is a candidate for its berths only (the bare hull is the cargo
+    candidate): its bound is the passenger bound, its probe plans no cargo, and only its passenger runs count.
+  - The passenger bound assumes a ship twice as fast as the reference carrier, filled the same way, and is
+    taken as the larger of the cargo and passenger bounds (a passenger run is valued on its own).
+
 ## Fleet investment (`step_fleet_investment`)
 
 - **Selling:** a ship laid up for `layup_sale_days` without a break is sold for `salvage_fraction` of its value

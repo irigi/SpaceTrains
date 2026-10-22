@@ -9,3 +9,4 @@ route_commitment_days,180
 max_ships_per_review,8
 max_fleet_size,130
 max_fleet_hold_units,0
+purchase_spacing_days,1

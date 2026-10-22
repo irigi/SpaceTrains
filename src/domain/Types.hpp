@@ -84,6 +84,9 @@ struct ShipClassDefinition {
     // Operating economics:
     double ship_value_cr {0.0};   // capital tied up in the ship (amortised + interest)
     double crew_size {0.0};
+    // Passenger berths (docs/plans/passengers.md): built-in cabins of a liner class, plus a fitted
+    // cabin module's `berths` effect on a design. Liner classes load only when passengers are on.
+    double berths {0.0};
     // Classes with the same hull differ only in their tanks; ships refit between them
     // at their home base. Empty = the class's own id (no refit options).
     std::string hull_id;
@@ -267,6 +270,7 @@ struct FleetInvestmentDefinition {
     double max_ships_per_review {1.0};     // ships bought per review while candidates clear the hurdle
     double max_fleet_size {0.0};           // no purchase while this many ships are in service; 0 = no limit
     double max_fleet_hold_units {0.0};     // no purchase that takes the fleet's holds past this; 0 = no limit (step 21)
+    double purchase_spacing_days {1.0};    // at least this long between a review's purchases; 0 = one per tick
 };
 
 // Station growth (data/economy/growth.csv, step 27). A station's population follows how well
@@ -332,6 +336,61 @@ struct OrdersDefinition {
     double consume_value {4.0};        // x reference: the ceiling for goods used up without output (construction, science)
     double depot_fuel_value {8.0};     // x reference: the cap for fuel at a depot without a factory (not min with price_cap)
     double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
+};
+
+// Passengers (docs/plans/passengers.md; data/economy/passengers.csv, every key optional). Off by
+// default: the economy without passengers, liner classes not loaded, growth by formula.
+struct PassengerDefinition {
+    double enabled {0.0};                       // master switch
+    double rotation {1.0};                      // sub-switches, only with the master on
+    double migration {1.0};
+    double discretionary {1.0};
+    double body_luggage_kg {100.0};             // EASA 2009 standard masses: ~84 kg adult + luggage
+    double consumables_kg_per_day {2.0};        // linopt per passenger-day (food, water make-up, hygiene)
+    double recovery_days_per_flight_day {0.25}; // NASA: 45 days of reconditioning after ~180-day flights
+    double rotation_share {0.03};               // of an off-Earth station's people on rotating tours
+    std::string rotation_grade {"engineer"};    // labour grade of rotating staff
+    double hardship_per_year {0.2};             // eta: tour premium, share of the wage per year of tour
+    double resident_wage_multiple {1.0};        // migrants' and visitors' value of time, x reference wage
+    double visit_trips_per_person_year {0.05};  // discretionary trips (estimate)
+    double earth_population_weight {1.0e5};     // Earth's weight in the gravity model (estimate)
+    double fare_elasticity {-1.0};              // IATA/InterVISTAS 2007: -0.8 (national) to -1.4 (route)
+    double demand_bands {4.0};
+    double band_ratio {2.0};                    // each band's maximum cost x this the next one's
+    double visit_days {90.0};
+    // Cabins inside the propellant tanks: the tanks' mean fill over a leg, as a share of their
+    // capacity, when a leg is planned (estimate: full at departure, near empty on arrival).
+    double tank_wrap_mean_fill {0.5};
+    // Settlers come for work: the station that wants them pays their passage (1), and fewer come
+    // the longer the passage takes to pay back. Of the settlers a thriving station would take, the
+    // share whose job repays a passage costing T years of the wage is 1 / (1 + (T / T50)^k):
+    // T50 = 5 years, the middle of the 4-7 year indentures that repaid a colonial passage of
+    // about a year's wages (estimate from that history); k = 2 (estimate).
+    double settlers_sponsored {1.0};
+    double settler_payback_half_years {5.0};
+    double settler_payback_exponent {2.0};
+    // A station recovers the passages it pays (settlers, rotation) from its residents through
+    // its prices: the outstanding amount at 1/recovery_days per day, at most max_markup of what
+    // they spend on goods (0 days: not recovered).
+    double passage_recovery_days {365.0};
+    double passage_max_markup {1.0};
+    // Speed (2026-10-22, passengers_log): visitors are posted every batch_days (0: every tick);
+    // a station becomes a passenger leg only once this many people wait for it.
+    double visitor_batch_days {7.0};
+    double min_leg_passengers {20.0};
+    // Plans with riders aboard: riders under min_share of the ship's time cost use the plan
+    // without them; above, their time is bucketed in relative_step of it.
+    double rider_time_min_share {0.15};
+    double rider_time_relative_step {0.25};
+    std::vector<std::string> earth_gateways {"earth_orbit", "earth_l1"};
+    // data/economy/reference_fares.csv (spacetrains_headless --write-reference-fares): the
+    // cheapest cabin carrier's fare per berth and its days, origin -> destination.
+    struct ReferenceFare {
+        double fare_cr {0.0};
+        double days {0.0};
+        std::string class_id;
+    };
+    std::map<std::string, std::map<std::string, ReferenceFare>> reference_fares;
 };
 
 // Market redesign (2026-10-19, docs/plans/market_redesign.md): optional keys in
@@ -443,6 +502,7 @@ struct UniverseDefinition {
     PricingDefinition pricing;
     OrdersDefinition orders;
     MarketDefinition market;
+    PassengerDefinition passengers;
     GrowthDefinition growth;
     std::vector<EventDefinition> events;
     std::uint64_t event_seed {0};
@@ -568,6 +628,7 @@ struct ShipLedger {
     double capital {0.0};
     double provisions {0.0};
     double refits {0.0};
+    double fares {0.0};      // passenger fares (paid at boarding)
     double dividends {0.0};  // surplus cash paid to the owner; not a cost, so not in lifetime_profit
     double subsidies {0.0};  // a liner's cash top-ups from its faction (step 22); not income, so not in lifetime_profit
 };
@@ -588,6 +649,44 @@ struct ShipContract {
     double signed_s {0.0};
     double until_s {0.0};
     double cycle_days {0.0};
+};
+
+// Passengers (docs/plans/passengers.md). Why a person travels decides who pays and what
+// happens on arrival.
+enum class PassengerKind {
+    Migrant,       // settler from Earth: joins the destination's population (pays from the outside account)
+    Emigrant,      // leaves a declining station for Earth (outside account)
+    RotationOut,   // a rotating worker going to start a tour (the work station pays)
+    RotationHome,  // a relieved worker going home to Earth (the work station pays)
+    Visitor,       // discretionary trip out (outside account)
+    VisitorHome,   // and back (outside account)
+};
+
+// People waiting at a station for a ship to one destination. Counts carry fractions (demand
+// accrues continuously); whole people board.
+struct PassengerGroup {
+    PassengerKind kind {PassengerKind::Migrant};
+    std::string destination_id;
+    std::string work_station_id;           // rotation: the employer; visitors: the station they return to
+    double count {0.0};
+    double since_s {0.0};                  // when the group started waiting
+    double max_cost_cr {0.0};              // highest generalized cost per person they accept
+    double value_of_time_cr_per_day {0.0};
+    double dose_msv {0.0};                 // rotation: dose already taken this career
+    int band {0};                          // demand band (groups merge by kind, destination, employer, band)
+};
+
+// People aboard, one lot per group that boarded.
+struct PassengerLot {
+    PassengerKind kind {PassengerKind::Migrant};
+    std::string origin_id;
+    std::string destination_id;
+    std::string work_station_id;
+    double count {0.0};                    // whole people
+    double fare_cr {0.0};                  // per person, paid at boarding
+    double value_of_time_cr_per_day {0.0};
+    double dose_msv {0.0};
+    double boarded_s {0.0};
 };
 
 struct ShipState {
@@ -631,6 +730,7 @@ struct ShipState {
     double route_until_s {0.0};
     ShipContract contract;
     double next_contract_review_s {0.0};
+    std::vector<PassengerLot> passengers;  // aboard (only in flight)
 };
 
 // A station's money flows with the world outside the simulated trade (the open economy),
@@ -641,6 +741,8 @@ struct StationLedger {
     double dividends {0.0};             // paid in by the ships it owns
     double subsidies {0.0};             // from the faction treasury (core-crew top-up and money-supply controller)
     double taxes {0.0};                 // to the faction treasury (band ceiling and money-supply controller)
+    double passages_paid {0.0};         // passengers' fares it paid (rotation, sponsored settlers)
+    double passages_recovered {0.0};    // recovered from its residents through its prices
 };
 
 // The treasuries' trade in ships with the outside economy (fleet investment), all amounts
@@ -738,6 +840,12 @@ struct StationState {
     double population_announced {0.0};
     // Events running here (step 28): the definition's id, and when each ends.
     std::vector<ActiveEvent> events {};
+    // People waiting here for a ship (passengers), in the order their groups formed.
+    std::vector<PassengerGroup> waiting {};
+    // Passages paid and not yet recovered from the residents.
+    double passage_debt_cr {0.0};
+    // Visitors staying here until they go home (since_s: when they leave for the ship).
+    std::vector<PassengerGroup> visiting {};
 };
 
 struct SimulationSnapshot {
