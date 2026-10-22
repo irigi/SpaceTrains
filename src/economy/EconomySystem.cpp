@@ -468,6 +468,13 @@ double EconomySystem::curve_centre(
         && market->sell_units_per_day <= 0.0) {
         return market->ask_cr;
     }
+    // A fuel factory prices its fuel at its own cost.
+    if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
+        const auto& prices = universe_.fuel_supply.factory_price_cr;
+        if (const auto it = prices.find(station.id); it != prices.end()) {
+            return it->second;
+        }
+    }
     const auto station_it = reference_prices_.find(station.id);
     if (station_it == reference_prices_.end()) {
         return base_price;

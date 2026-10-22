@@ -81,10 +81,12 @@ int main() {
         require_near(economy.reference_price(station("earth_orbit"), "electronics"), commodity_base("electronics"), 1.0e-9,
             "a producer's reference price is the base price");
         // Depot fuel far from any factory costs its carriage (step 20); a factory's does not.
-        require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * commodity_base("fuel"),
+        require(economy.reference_price(station("mars_transfer"), "fuel") > 2.0 * economy.reference_price(station("venus_cloud"), "fuel"),
             "Mars fuel must cost the haul from the nearest factory");
-        require_near(economy.reference_price(station("venus_cloud"), "fuel"), commodity_base("fuel"), 1.0e-9,
-            "a fuel factory's fuel keeps the base price");
+        require_near(economy.reference_price(station("venus_cloud"), "fuel"),
+            universe.fuel_supply.factory_price_cr.contains("venus_cloud") ? universe.fuel_supply.factory_price_cr.at("venus_cloud")
+                                                                          : commodity_base("fuel"),
+            1.0e-9, "a fuel factory prices its fuel at its own cost (the base price unless the data give one)");
         require_near(economy.get_price(agri, "water", 1.0e9, base), base * 0.25, 1.0e-9,
             "price at huge stock must clamp at 0.25x base");
 
@@ -260,7 +262,8 @@ int main() {
         require(stations[0].inventory["fuel"] <= buffer + 1.0e-6, "a factory depot must stop at its buffer");
         require_near(economy.fuel_stock_after_days(luna, 0.0, 2.0), 2.0 * output, 1.0e-9, "forecast must count output");
         require_near(economy.fuel_stock_after_days(luna, 0.0, 1.0e6), buffer, 1.0e-9, "forecast must stop at the buffer");
-        require_near(economy.get_price(luna, "fuel", buffer, 8.0), 8.0, 1.0e-9, "a full depot must sell fuel at base price");
+        require_near(economy.get_price(luna, "fuel", buffer, 8.0), economy.reference_price(luna, "fuel"), 1.0e-9,
+            "a full depot must sell fuel at its curve's centre (the factory's own price)");
 
         // Low Earth Logistics has no factory: its depot only drains.
         const auto& leo = station_by_id("earth_orbit");

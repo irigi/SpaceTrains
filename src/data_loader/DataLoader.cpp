@@ -1153,11 +1153,20 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
 
     {
         const auto rows = read_csv_rows(fuel_factories_path);
-        require_header(rows.front(), {"station_id", "output_units_per_day"}, fuel_factories_path);
+        // Optional third column: the factory's own price per unit (economy overhaul).
+        const bool priced = rows.front().size() >= 3;
+        require_header(rows.front(), priced ? std::vector<std::string> {"station_id", "output_units_per_day", "price_cr"}
+                                            : std::vector<std::string> {"station_id", "output_units_per_day"}, fuel_factories_path);
         std::unordered_set<std::string> seen_ids;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 2, fuel_factories_path, i + 1);
+            require_field_count(row, priced ? 3 : 2, fuel_factories_path, i + 1);
+            if (priced) {
+                const double price = parse_double(row[2], fuel_factories_path, i + 1, "price_cr");
+                if (price > 0.0) {
+                    universe.fuel_supply.factory_price_cr[row[0]] = price;
+                }
+            }
             require_unique_id(row[0], seen_ids, fuel_factories_path, i + 1);
             const bool known = std::any_of(universe.stations.begin(), universe.stations.end(),
                 [&](const domain::StationDefinition& station) { return station.id == row[0]; });

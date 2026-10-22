@@ -847,6 +847,8 @@ std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() c
             double producer_price = route.commodity->base_price;
             if (const auto* market = economy_.surface_market(*producer, route.commodity->id); market != nullptr && market->ask_cr > 0.0) {
                 producer_price = market->ask_cr;
+            } else if (route.commodity->id == economy::FUEL_ID && economy_.fuel_factory_output(*producer) > 0.0) {
+                producer_price = economy_.reference_price(*producer, economy::FUEL_ID);   // the factory's own price
             }
             for (const auto* hull : hulls) {
               for (const double load : LOADS) {

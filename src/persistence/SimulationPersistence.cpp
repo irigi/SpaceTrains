@@ -621,6 +621,13 @@ std::string Simulation::data_fingerprint() const {
         for (const auto& yard : h.yards) {
             mix("Hy" + yard + ";");
         }
+        {
+            const std::map<std::string, double> factory_prices(universe_.fuel_supply.factory_price_cr.begin(),
+                universe_.fuel_supply.factory_price_cr.end());
+            for (const auto& [station_id, price] : factory_prices) {
+                mix(std::format("Fp{}|{};", station_id, price));
+            }
+        }
         for (const auto& economy : universe_.background_economies) {
             mix(std::format("B{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", economy.id, economy.launch_cr_per_kg, economy.landing_cr_per_kg,
                 economy.initial_credits, economy.income_cr_per_day, economy.population, economy.growth_per_year,

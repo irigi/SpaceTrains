@@ -15,7 +15,7 @@ luna_base,machinery,74.33,70.20,2.75,earth_l1,plasma_bulk_tanker,107.9
 luna_base,medicine,122.47,120.90,1.05,earth_l1,plasma_bulk_tanker,32.3
 luna_base,science_samples,789.66,779.61,6.70,mercury_yard,plasma_bulk_tanker,272.9
 mars_transfer,electronics,76.02,63.96,8.04,earth_orbit,plasma_bulk_tanker,398.7
-mars_transfer,fuel,20.68,7.92,8.51,venus_cloud,plasma_bulk_tanker,433.6
+mars_transfer,fuel,15.76,3.00,8.51,venus_cloud,plasma_bulk_tanker,433.6
 mars_transfer,machinery,89.75,70.20,13.04,earth_l1,plasma_bulk_tanker,705.3
 mars_transfer,medicine,134.55,120.90,9.10,venus_cloud,plasma_bulk_tanker,338.3
 mars_transfer,reactor_fuel,452.37,429.00,15.58,earth_l1,plasma_bulk_tanker,954.2

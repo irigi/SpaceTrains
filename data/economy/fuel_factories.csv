@@ -1,7 +1,7 @@
-station_id,output_units_per_day
-venus_cloud,360
-titan_works,210
-luna_base,250
-ceres_depot,100
-ganymede_depot,100
-mercury_yard,200
+station_id,output_units_per_day,price_cr
+venus_cloud,360,3.0
+titan_works,210,3.0
+luna_base,250,2.5
+ceres_depot,100,2.5
+ganymede_depot,100,3.0
+mercury_yard,200,3.5

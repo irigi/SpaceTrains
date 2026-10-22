@@ -237,6 +237,9 @@ struct StationRadiationDefinition {
 struct FuelSupplyDefinition {
     double factory_buffer_days {0.0};         // a factory's depot holds this many days of output
     std::unordered_map<std::string, double> factory_output_units_per_day;  // by station id
+    // What a factory's fuel costs where it is made, per unit (economy overhaul: local propellant is far
+    // cheaper than Earth's launched price); absent: the base price.
+    std::unordered_map<std::string, double> factory_price_cr;
 };
 
 // The open economy (data/economy/open_economy.csv). Faction treasuries keep each station's
