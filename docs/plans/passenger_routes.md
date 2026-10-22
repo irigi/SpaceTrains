@@ -183,6 +183,48 @@ Options (user to choose):
   Earth L1 water. Unmet 0.86 → 1.47%.
 - **Contracts stay on** (user's rule): without them unmet doubles (3.06%) for a 7% faster game.
 
+### Luna ferry: design study and trial (2026-10-22, user)
+
+**Study** (scratchpad model on the builder's masses and prices and the game's spiral and cost rules; fuel at
+Earth 42 cr/u, Luna 10; flows 3.2 people/day out, 1.2 back; each leg at its cheapest trip time):
+
+| Design | Dry | Price | W/kg | Out / back | Fuel per person | Cost per person |
+|---|---|---|---|---|---|---|
+| Plasma Liner (40 berths) | 198 t | 268k | 504 | 16.7 / 8.7 d | 46 cr | 96 cr |
+| Large Plasma Liner, 50% tanks (200) | 877 t | 1.22 M | 570 | 17.8 / 9.7 d | 91 cr | 190 cr (cannot fill) |
+| 30 berths, 2 crew, 65-70 MW, 2.5 t cabins | 126-128 t | 169-175k | 514-548 | 16 / 8 d | 36 cr | 75-76 cr |
+| same, 1.5 t cabins (estimate) | 88 t | 120k | 512 | 15 / 7.5 d | 30 cr | 61 cr |
+| same, 1.0 t cabins (estimate) | 69 t | 95k | 509 | 14 / 7 d | 26 cr | 54 cr |
+
+- **Slower is not cheaper beyond the optimum.** Passengers' time is cheap (0.5 cr/day wage, ~0.8 cr/day dose),
+  so the cheapest trip is set by fuel against the ship's capital and crew. Out of Earth it is about twice the
+  reference trip (16-17 days against 9), back from Luna about the same (8 days). Lower-power ferries (260 W/kg)
+  fly 24 days and cost about as much: the fuel saved goes to capital.
+- **Small ships fit the flow** (3 people a day): 30-40 berths; the 200-berth liner flies half empty.
+- **The big lever is cabin mass:** 2.5 t per berth is the long-haul cabin (linopt); a short-hop cabin would
+  cut the cost per person by 20-30% more. Not built: a new mass assumption for the user to decide.
+- Power-to-mass capped at the liners' level (≤ 570 W/kg, tech era); faster designs above 900 W/kg were dropped.
+
+**Trial:** `luna_ferry` (Luna Ferry: 30 berths, 2 crew, long habitat like every class, 65 MW, 12 t tanks;
+135 t, 178k cr, 481 W/kg) added through `build_ship_classes.py`. With the short habitat it became the cheapest
+reference carrier on 150-200-day routes (Earth → Venus, Mars → Earth), which a two-week habitat should not fly,
+so it got the long one; it is then no route's reference carrier. Reference prices and fares regenerated
+(prices had drifted from the code in 33 rows; the ferry changes none).
+
+| Run (8 starts × 1,460 days) | Unmet | Last fifth | Profitable | Ships | Money |
+|---|---|---|---|---|---|
+| option A | 1.47 ± 0.60% | 2.51 ± 0.66% | 118.6 | 146.1 | −6 ± 24% |
+| A + regenerated prices | 1.68 ± 0.40% | 2.41 ± 0.59% | 117.3 | 143.6 | +8 ± 21% |
+| A + prices + Luna Ferry | 1.80 ± 0.37% | 2.92 ± 1.03% | 119.5 | 146.4 | −1 ± 26% |
+
+(Delivered price ÷ reference is not comparable across the price regeneration.) The ferry is bought (4-6 per
+run, valued 90-117%/yr on Luna → Earth L1 at Luna) but Luna service does not measurably change: Earth L1 → Luna
+gave up 1,304 / 851 without it, 1,433 / 1,181 with it (starts 0 / 90). Within noise overall.
+
+**What the runs show instead:** about 45 of ~145 ships now carry passengers (12-15 Large Plasma Liners on
+interplanetary routes, where few berths against long queues clear near the top band's budget), and Mars fuel
+is the largest shortage (25-47% unmet at Mars). Under the 130-ship cap, passengers and cargo compete for hulls.
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band

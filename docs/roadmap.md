@@ -39,6 +39,9 @@ slowest 20-day stretch 5.1 days/s or better (16-thread machine).
 - **Earth ↔ Luna trip times fixed (2026-10-22):** no Moon wait for low-orbit stations, purchase probes plan
   passenger legs with the riders' time and a full tank, contract loops may wait in port. Benchmark same within
   noise (`docs/plans/passenger_routes.md`, "A2 fixes built"). Luna passengers still limited by the fare.
+- **Fuel at real prices (option A) and a Luna Ferry (2026-10-22):** fares follow port fuel prices; Luna
+  passengers board (give-ups about halved) but passenger carriers take ~45 of ~145 hulls and unmet cargo rises
+  0.86 → 1.5-1.8% (Mars fuel). Contracts kept (off doubles unmet). `passenger_routes.md`.
 - Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
 
 The passenger UI was checked in the game by the user (2026-10-22).
