@@ -147,6 +147,7 @@ void Simulation::post_travellers(domain::StationState& origin, domain::Passenger
     const double dose_msv = 0.0;
     for (const auto& [band, people, max_cost, value_of_time] : passenger_bands(kind, origin.station_id, destination_id, count, fixed)) {
         passenger_audit_.posted[static_cast<std::size_t>(kind)] += people;
+        passenger_audit_.routes[{origin.station_id, destination_id}].posted += people;
         auto group = std::find_if(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& g) {
             return g.kind == kind && g.band == band && g.destination_id == destination_id
                 && g.work_station_id == work_station_id && g.dose_msv == dose_msv;
@@ -489,12 +490,14 @@ void Simulation::step_passengers(double dt_s) {
             const double lost = group.count * (1.0 - std::exp(-rate * dt_days));
             group.count -= lost;
             passenger_audit_.gave_up[static_cast<std::size_t>(group.kind)] += lost;
+            passenger_audit_.routes[{station.station_id, group.destination_id}].gave_up += lost;
         }
         std::erase_if(station.waiting, [&](const domain::PassengerGroup& group) {
             if (group.count >= MIN_GROUP_COUNT) {
                 return false;
             }
             passenger_audit_.gave_up[static_cast<std::size_t>(group.kind)] += group.count;
+            passenger_audit_.routes[{station.station_id, group.destination_id}].gave_up += group.count;
             return true;
         });
     }
@@ -656,6 +659,21 @@ void Simulation::board_passengers(domain::ShipState& ship, domain::StationState&
         passenger_audit_.boarded[kind] += count;
         passenger_audit_.fares_cr[kind] += fares;
         passenger_audit_.wait_days[kind] += count * std::max(0.0, game_time_s_ - group.since_s) / 86400.0;
+        {
+            auto& route = passenger_audit_.routes[{origin.station_id, destination_id}];
+            route.boarded += count;
+            const auto& env = universe_.ship_environment;
+            if (env.radiation) {
+                const double rate = leg_dose_msv_per_day(ship_design(ship), get_station_definition(origin.station_id),
+                    get_station_definition(destination_id), game_time_s_);
+                route.max_leg_dose_msv = std::max(route.max_leg_dose_msv, rate * days);
+            }
+            std::string design = ship.class_id;
+            for (const auto& module : ship.fit) {
+                design += "+" + module;
+            }
+            ++route.carriers[design];
+        }
         ship.passengers.push_back({
             .kind = group.kind,
             .origin_id = origin.station_id,
@@ -690,6 +708,11 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
         const auto kind = static_cast<std::size_t>(lot.kind);
         passenger_audit_.landed[kind] += lot.count;
         passenger_audit_.flight_days[kind] += lot.count * std::max(0.0, game_time_s_ - lot.boarded_s) / 86400.0;
+        {
+            auto& route = passenger_audit_.routes[{lot.origin_id, destination.station_id}];
+            route.landed += lot.count;
+            route.flight_days += lot.count * std::max(0.0, game_time_s_ - lot.boarded_s) / 86400.0;
+        }
         if (lot.kind == domain::PassengerKind::Migrant || lot.kind == domain::PassengerKind::RotationOut) {
             destination.population += lot.count;
             economy_.set_population(destination.station_id, destination.population);

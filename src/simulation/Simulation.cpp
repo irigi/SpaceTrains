@@ -2566,20 +2566,16 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     std::unordered_map<const domain::TrajectoryPlan*, std::pair<trajectory::PlanningOptions, double>> plan_inputs;
     const auto plan_to = [&](const domain::StationDefinition& destination, double cargo_kg,
                              double rider_time_cr_per_day = 0.0) -> const domain::TrajectoryPlan& {
-        // Cargo rounded up to whole tonnes keeps the cache small and the estimate safe; the
-        // passengers' time to 10 cr/day.
+        // Cargo rounded up to whole tonnes keeps the cache small and the estimate safe.
         const double cargo_bucket_kg = std::ceil(std::max(0.0, cargo_kg) / 1000.0) * 1000.0;
-        // With rider_time_min_share, riders adding less than that share of the ship's own time
-        // cost fly on the plan without them; with rider_time_relative_step, their time is bucketed
-        // in that share of the ship's time cost (fewer plans than 10 cr/day steps).
+        // Riders adding less than rider_time_min_share of the ship's own time cost fly on the plan
+        // without them; above, their time is bucketed in rider_time_relative_step of it.
         const auto& pax = universe_.passengers;
         const double riders = std::max(0.0, rider_time_cr_per_day);
-        const double rider_step = pax.rider_time_relative_step > 0.0
-            ? std::max(1.0, pax.rider_time_relative_step * time_cost_per_day) : 10.0;
+        const double rider_step = std::max(1.0, pax.rider_time_relative_step * time_cost_per_day);
         const double rider_bucket = riders < pax.rider_time_min_share * time_cost_per_day
             ? 0.0 : std::ceil(riders / rider_step) * rider_step;
-        auto key = rider_bucket > 0.0 ? std::format("{}|{:.0f}|t{:.{}f}", destination.id, cargo_bucket_kg, rider_bucket,
-                                            pax.rider_time_relative_step > 0.0 ? 3 : 0)
+        auto key = rider_bucket > 0.0 ? std::format("{}|{:.0f}|t{:.3f}", destination.id, cargo_bucket_kg, rider_bucket)
                                       : std::format("{}|{:.0f}", destination.id, cargo_bucket_kg);
         if (const auto it = plans.find(key); it != plans.end()) {
             plan_inputs[&it->second] = {planning_options(destination, cargo_bucket_kg, rider_bucket),
@@ -2976,9 +2972,9 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         // the heaviest good (or half of one) gives the propellant per kg of cargo. All three are
         // asked for in one pass.
         const auto& probe = plan_to(destination, 0.0);
-        // Without goods, full berths give the propellant per kg (with passenger_leg_from_empty,
-        // the empty plan does: at the same mass ratio, propellant grows with the mass it moves).
-        const bool from_empty = goods.empty() && universe_.passengers.passenger_leg_from_empty != 0.0;
+        // Without goods the empty plan gives the propellant per kg (berths weigh little; at the
+        // same mass ratio, propellant grows with the mass it moves).
+        const bool from_empty = goods.empty();
         const double laden_kg = goods.empty() ? berths * passenger_kg(economy_.transfer_days(origin_def, destination))
                                               : ship_class.cargo_capacity_units * heaviest_kg;
         const auto& laden = from_empty ? probe : plan_to(destination, laden_kg);
@@ -3226,11 +3222,10 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 .run = -1});
         }
     }
-    // With cabin_shared_probe, a bare hull's probe also values the hull with each of its cabin
-    // modules (fleet investment then probes no cabin design of its own): the same transfers with
-    // the module's mass and full berths as payload, in this probe's plans; the limits are the
-    // fitted design's.
-    if (cargo_only && passengers_on() && universe_.passengers.cabin_shared_probe != 0.0 && ship_class.berths <= 0.0
+    // A bare hull's probe also values the hull with each of its cabin modules (fleet investment
+    // probes no cabin design of its own): the same transfers with the module's mass and full
+    // berths as payload, in this probe's plans; the limits are the fitted design's.
+    if (cargo_only && passengers_on() && ship_class.berths <= 0.0
         && ship_class.fit.empty()) {
         for (const auto& module : universe_.ship_modules) {
             if (module.hull_id != ship_class.id || module.slot != "cabin" || !module_has_active_effect(module)) {
@@ -5302,9 +5297,9 @@ Simulation::CommissionStep Simulation::commission_step() {
     // as probing one by one. A candidate not probed yet in this review stops the scan: the
     // next batch is probed (this tick) and the purchase waits for a later tick.
     constexpr std::size_t kProbeBatch = 2;
-    // With cabin_shared_probe a cabin design is valued from its bare hull's probe (its runs are
-    // tagged with the cabin module); otherwise each design is probed on its own.
-    const bool shared_cabin_probe = passengers_on() && universe_.passengers.cabin_shared_probe != 0.0;
+    // A cabin design is valued from its bare hull's probe (its runs are tagged with the cabin
+    // module); every other design is probed on its own.
+    const bool shared_cabin_probe = passengers_on();
     const auto probe_class = [&](const Candidate& candidate) -> const domain::ShipClassDefinition& {
         return shared_cabin_probe && cabin_fit(*candidate.ship_class) ? get_ship_class(candidate.ship_class->base_class_id)
                                                                       : *candidate.ship_class;

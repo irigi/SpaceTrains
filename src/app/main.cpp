@@ -300,6 +300,43 @@ void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
         }
         std::cout << "    Passenger carriers: " << line << "\n";
     }
+    // By destination station (all kinds and origins), then every route to or from Titan.
+    struct Totals {
+        double posted {0.0};
+        double boarded {0.0};
+        double landed {0.0};
+        double gave_up {0.0};
+    };
+    std::map<std::string, Totals> to;
+    std::map<std::string, Totals> from;
+    for (const auto& [key, route] : audit.routes) {
+        for (auto* totals : {&to[key.second], &from[key.first]}) {
+            totals->posted += route.posted;
+            totals->boarded += route.boarded;
+            totals->landed += route.landed;
+            totals->gave_up += route.gave_up;
+        }
+    }
+    std::cout << "    Passengers by station (to it: posted/boarded/landed/gave up | from it: posted/boarded/landed):\n";
+    for (const auto& [station_id, t] : to) {
+        const auto& f = from[station_id];
+        std::cout << std::format("      {:18s} to {:6.0f} {:6.0f} {:6.0f} {:6.0f}   from {:6.0f} {:6.0f} {:6.0f}\n", station_id,
+            t.posted, t.boarded, t.landed, t.gave_up, f.posted, f.boarded, f.landed);
+    }
+    for (const auto& [key, route] : audit.routes) {
+        if (key.first != "titan_works" && key.second != "titan_works") {
+            continue;
+        }
+        std::string carriers;
+        for (const auto& [design, count] : route.carriers) {
+            carriers += std::format("{}{} x{}", carriers.empty() ? "" : ", ", design, count);
+        }
+        std::cout << std::format("    Titan route {} -> {}: posted {:.0f}, boarded {:.0f}, landed {:.0f}, gave up {:.0f}, "
+                                 "mean trip {:.0f} d, max leg dose {:.0f} mSv{}{}\n",
+            key.first, key.second, route.posted, route.boarded, route.landed, route.gave_up,
+            route.landed > 0.0 ? route.flight_days / route.landed : 0.0, route.max_leg_dose_msv,
+            carriers.empty() ? "" : "; boardings: ", carriers);
+    }
 }
 
 void print_economy_audit(

@@ -139,6 +139,17 @@ public:
         std::array<double, 6> flight_days {};  // person-days aboard
         double berth_days {0.0};               // berths flown (load factor = flight_days / berth_days)
         int departures_with_passengers {0};
+        // Per route (origin, destination), all kinds together.
+        struct Route {
+            double posted {0.0};
+            double boarded {0.0};
+            double landed {0.0};
+            double gave_up {0.0};
+            double flight_days {0.0};      // person-days aboard of those who landed
+            double max_leg_dose_msv {0.0}; // highest planned leg dose of a boarding
+            std::map<std::string, int> carriers;  // boardings by ship design
+        };
+        std::map<std::pair<std::string, std::string>, Route> routes;
     };
     [[nodiscard]] const PassengerAudit& passenger_audit() const { return passenger_audit_; }
     [[nodiscard]] static const char* passenger_kind_name(domain::PassengerKind kind);
@@ -464,7 +475,7 @@ private:
             double wait_days {0.0};
             double fuel_cost {0.0};
             int run {-1};  // lots of one mixed hold share a run number (its fuel is on the first lot)
-            std::string module_id {};  // passengers: for the hull with this cabin module (cabin_shared_probe)
+            std::string module_id {};  // passengers: for the hull with this cabin module
         };
         std::vector<CargoOption> cargo_options;
     };
@@ -639,7 +650,7 @@ private:
         double wait_days {0.0};
         double fuel_cost {0.0};
         int run {-1};
-        std::string module_id {};  // a passenger run for the hull with this cabin module (cabin_shared_probe)
+        std::string module_id {};  // a passenger run for the hull with this cabin module
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;

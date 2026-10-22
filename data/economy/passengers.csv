@@ -1,5 +1,5 @@
 key,value
-passengers,0
+passengers,1
 rotation,1
 migration,1
 discretionary,1
@@ -23,9 +23,7 @@ settler_payback_half_years,5
 settler_payback_exponent,2
 passage_recovery_days,365
 passage_max_markup,1
-cabin_shared_probe,1
 visitor_batch_days,7
 min_leg_passengers,20
 rider_time_min_share,0.15
 rider_time_relative_step,0.25
-passenger_leg_from_empty,1

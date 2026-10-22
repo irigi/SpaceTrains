@@ -515,9 +515,9 @@ std::string Simulation::data_fingerprint() const {
         mix(std::format("S{}|{}|{}|{}|{}|{}|{};", pax.tank_wrap_mean_fill, pax.settlers_sponsored,
             pax.settler_payback_half_years, pax.settler_payback_exponent, pax.passage_recovery_days,
             pax.passage_max_markup, 0));
-        mix(std::format("Q{}|{}|{}|{};", pax.cabin_shared_probe, pax.visitor_batch_days, pax.min_leg_passengers,
+        mix(std::format("Q{}|{}|{};", pax.visitor_batch_days, pax.min_leg_passengers,
             universe_.fleet_investment.purchase_spacing_days));
-        mix(std::format("R{}|{}|{};", pax.rider_time_min_share, pax.rider_time_relative_step, pax.passenger_leg_from_empty));
+        mix(std::format("R{}|{};", pax.rider_time_min_share, pax.rider_time_relative_step));
         for (const auto& gateway : pax.earth_gateways) {
             mix("G" + gateway + ";");
         }

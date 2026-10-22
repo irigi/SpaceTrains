@@ -479,11 +479,10 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     variable_isp::ShootingResult targeted;
                     // The path does not depend on the budget, so a path over this budget may fit a
                     // larger one the ship can load: the smallest such budget flies it unchanged, with
-                    // no further shooting, ahead of the time fit (planner_fuel_check; measured
-                    // 2026-10-21: 40% fewer shootings than the old check, and every plan flyable).
+                    // no further shooting, ahead of the time fit (measured 2026-10-21: 40% fewer
+                    // shootings than retrying the next window, and every plan flyable).
                     const Budget* flown = &budget;
                     const auto larger_budget_for = [&](double effort) -> const Budget* {
-                        if (!universe_.ship_operations.planner_fuel_check) return nullptr;
                         const Budget* best = nullptr;
                         for (const auto& other : budgets) {
                             if (other.kappa > kappa && 0.999 * other.kappa >= effort && (!best || other.kappa < best->kappa)) {
@@ -560,10 +559,8 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
                     // Without a path the last sample is the closest-approach marker (at the start
                     // mass), so the end mass is the shooting's own end state, samples[1]. Until
                     // 2026-10-21 the marker was checked, a plan short of fuel scored as feasible,
-                    // and its replan with the path then failed every day (ship_operations.csv,
-                    // planner_fuel_check; 0 = the old check).
-                    const double end_mass_kg = !options.include_path && universe_.ship_operations.planner_fuel_check
-                        ? full.samples[1].mass_kg : full.samples.back().mass_kg;
+                    // and its replan with the path then failed every day.
+                    const double end_mass_kg = !options.include_path ? full.samples[1].mass_kg : full.samples.back().mass_kg;
                     if (end_mass_kg < kDryMassSlack * variable_isp::VariableIspIntegrator::kCanonicalDryMassKg) {
                         fuel_limited = true;
                         continue;

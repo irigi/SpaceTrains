@@ -146,10 +146,6 @@ struct ShipOperationsDefinition {
     // through the capital charge on the new ship value).
     double refit_days {20.0};
     double refit_cost_fraction {0.3};
-    // 1: a VariableISP plan scored without its path is checked for fuel at its end state, as the
-    // replan with the path checks it, and a path over its budget flies on a larger one
-    // (0: the marker bug before 2026-10-21; see the planner).
-    double planner_fuel_check {1.0};
     // Life support per crew-day, in commodity units, bought as real goods.
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
@@ -274,7 +270,7 @@ struct FleetInvestmentDefinition {
     double max_ships_per_review {1.0};     // ships bought per review while candidates clear the hurdle
     double max_fleet_size {0.0};           // no purchase while this many ships are in service; 0 = no limit
     double max_fleet_hold_units {0.0};     // no purchase that takes the fleet's holds past this; 0 = no limit (step 21)
-    double purchase_spacing_days {0.0};    // at least this long between a review's purchases; 0 = one per tick
+    double purchase_spacing_days {1.0};    // at least this long between a review's purchases; 0 = one per tick
 };
 
 // Station growth (data/economy/growth.csv, step 27). A station's population follows how well
@@ -378,18 +374,14 @@ struct PassengerDefinition {
     // they spend on goods (0 days: not recovered).
     double passage_recovery_days {365.0};
     double passage_max_markup {1.0};
-    // Speed (2026-10-22, passengers_log): fleet investment values a hull's cabin designs from
-    // the bare hull's probe (1); visitors are posted every batch_days (0: every tick); a station
-    // becomes a passenger leg only once this many people wait for it.
-    double cabin_shared_probe {0.0};
-    double visitor_batch_days {0.0};
-    double min_leg_passengers {1.0};
+    // Speed (2026-10-22, passengers_log): visitors are posted every batch_days (0: every tick);
+    // a station becomes a passenger leg only once this many people wait for it.
+    double visitor_batch_days {7.0};
+    double min_leg_passengers {20.0};
     // Plans with riders aboard: riders under min_share of the ship's time cost use the plan
-    // without them; their time in steps of relative_step of it (0: 10 cr/day steps). Legs for
-    // passengers alone take the propellant per kg from the empty plan (passenger_leg_from_empty).
-    double rider_time_min_share {0.0};
-    double rider_time_relative_step {0.0};
-    double passenger_leg_from_empty {0.0};
+    // without them; above, their time is bucketed in relative_step of it.
+    double rider_time_min_share {0.15};
+    double rider_time_relative_step {0.25};
     std::vector<std::string> earth_gateways {"earth_orbit", "earth_l1"};
     // data/economy/reference_fares.csv (spacetrains_headless --write-reference-fares): the
     // cheapest cabin carrier's fare per berth and its days, origin -> destination.

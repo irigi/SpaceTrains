@@ -103,6 +103,28 @@ spacetrains::math::Vec3d interpolate_timed_path(
     return path[lower_index] * (1.0 - alpha) + path[upper_index] * alpha;
 }
 
+// A copy of the data with passengers switched off (the economy before passengers), for tests
+// of that economy. Made once per run in the temp directory; the atlas is linked from the repo.
+std::string passengers_off_data(const std::filesystem::path& repo_root) {
+    const auto root = std::filesystem::temp_directory_path() / "spacetrains_passengers_off";
+    static const bool made = [&] {
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root);
+        std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
+        std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+        const auto path = root / "data" / "economy" / "passengers.csv";
+        std::ifstream in(path);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const auto at = text.find("passengers,1");
+        require(at != std::string::npos, "the data should switch passengers on");
+        text.replace(at, 12, "passengers,0");
+        std::ofstream(path) << text;
+        return true;
+    }();
+    (void)made;
+    return (root / "data").string();
+}
+
 }  // namespace
 
 int main() {
@@ -856,23 +878,17 @@ int main() {
     // Scoring plans (no path) checked the end mass on the closest-approach marker, which carries
     // the start mass, so a transfer short of fuel scored as feasible; the replan with its path
     // then failed, and the ship chose the same trip again every day (80% of departures on the
-    // inner routes). With ship_operations planner_fuel_check both must agree, also on the fuel
-    // loaded (a path over its budget flies on a larger budget).
+    // inner routes). Both must agree, also on the fuel loaded (a path over its budget flies on
+    // a larger budget).
     {
         const auto atlas_path = (repo_root / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string();
         spacetrains::variable_isp::VariableIspAtlas visp_atlas;
         visp_atlas.load_binary(atlas_path);
-        auto checked_universe = universe;
-        checked_universe.ship_operations.planner_fuel_check = 1.0;
-        auto old_universe = universe;
-        old_universe.ship_operations.planner_fuel_check = 0.0;
-        const spacetrains::trajectory::VariableIspTrajectoryPlanner checked(checked_universe, mechanics, visp_atlas);
-        const spacetrains::trajectory::VariableIspTrajectoryPlanner old_check(old_universe, mechanics, visp_atlas);
+        const spacetrains::trajectory::VariableIspTrajectoryPlanner checked(universe, mechanics, visp_atlas);
         const auto& ship_class = ship_class_by_id(universe, "plasma_bulk_tanker");
         spacetrains::domain::ShipState ship;
         ship.class_id = ship_class.id;
         int checked_disagree = 0;
-        int old_disagree = 0;
         int feasible = 0;
         for (const auto& [from, to] : std::vector<std::pair<const char*, const char*>> {
                  {"earth_l1", "mercury_yard"}, {"venus_cloud", "mercury_yard"}, {"mercury_yard", "venus_cloud"}}) {
@@ -887,24 +903,20 @@ int main() {
                     };
                     const auto& origin = station_by_id(universe, from);
                     const auto& destination = station_by_id(universe, to);
-                    for (const auto* planner : {&checked, &old_check}) {
-                        options.include_path = false;
-                        const auto scored = planner->plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
-                        options.include_path = true;
-                        const auto drawn = planner->plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
-                        const bool agree = scored.feasible == drawn.feasible
-                            && (!drawn.feasible || (scored.arrival_time_s == drawn.arrival_time_s
-                                && scored.propellant_load_kg == drawn.propellant_load_kg));
-                        (planner == &checked ? checked_disagree : old_disagree) += agree ? 0 : 1;
-                        feasible += planner == &checked && drawn.feasible ? 1 : 0;
-                    }
+                    options.include_path = false;
+                    const auto scored = checked.plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
+                    options.include_path = true;
+                    const auto drawn = checked.plan_transfer(origin, destination, ship, ship_class, day * 86400.0, options);
+                    const bool agree = scored.feasible == drawn.feasible
+                        && (!drawn.feasible || (scored.arrival_time_s == drawn.arrival_time_s
+                            && scored.propellant_load_kg == drawn.propellant_load_kg));
+                    checked_disagree += agree ? 0 : 1;
+                    feasible += drawn.feasible ? 1 : 0;
                 }
             }
         }
-        const auto message = std::format("fuel check without a path: {} disagree (old check {}), {} feasible",
-            checked_disagree, old_disagree, feasible);
+        const auto message = std::format("fuel check without a path: {} disagree, {} feasible", checked_disagree, feasible);
         require(checked_disagree == 0, message.c_str());
-        require(old_disagree > 0, message.c_str());
         require(feasible > 0, message.c_str());
     }
 
@@ -1174,7 +1186,7 @@ int main() {
         }
         {
             // Passengers (docs/plans/passengers.md). Off: no liner classes, no queues.
-            auto off = spacetrains::simulation::Simulation::from_data_root(data_root);
+            auto off = spacetrains::simulation::Simulation::from_data_root(passengers_off_data(repo_root));
             for (const auto& c : off.universe().ship_classes) {
                 require(c.berths == 0.0, "without passengers no class should have berths");
             }
@@ -1192,7 +1204,6 @@ int main() {
                 text.replace(at, from.size(), to);
                 std::ofstream(path) << text;
             };
-            rewrite(root / "data" / "economy" / "passengers.csv", "passengers,0", "passengers,1");
             rewrite(root / "data" / "ships" / "ships.csv", "IN Celeris,independent,plasma_courier", "IN Celeris,independent,plasma_liner");
             const auto pax_root = (root / "data").string();
             auto straight = spacetrains::simulation::Simulation::from_data_root(pax_root);
@@ -1280,13 +1291,11 @@ int main() {
             require_near(change, audit.landed[migrant] + audit.landed[relief] - audit.boarded[emigrant] - audit.boarded[relieved],
                 1e-6, "populations off Earth should change by the people landed less those who left");
 
-            // Speed switches in the data (2026-10-22, passengers_log): cabin designs valued from
-            // their hull's probe, purchases a day apart, visitors posted a week at a time. Purchases
-            // never fall on the same day, visitors are posted only at week edges, and the game
-            // saves and continues exactly.
-            require(pax_universe.passengers.visitor_batch_days == 7.0 && pax_universe.fleet_investment.purchase_spacing_days == 1.0
-                    && pax_universe.passengers.cabin_shared_probe == 1.0,
-                "test fixture: the data should batch visitors weekly, space purchases a day and share cabin probes");
+            // Speed settings in the data (2026-10-22, passengers_log): purchases a day apart,
+            // visitors posted a week at a time. Purchases never fall on the same day, visitors are
+            // posted only at week edges, and the game saves and continues exactly.
+            require(pax_universe.passengers.visitor_batch_days == 7.0 && pax_universe.fleet_investment.purchase_spacing_days == 1.0,
+                "test fixture: the data should batch visitors weekly and space purchases a day");
             auto fast = spacetrains::simulation::Simulation::from_data_root(pax_root);
             fast.set_timewarp(86400.0);
             auto fast_first = spacetrains::simulation::Simulation::from_data_root(pax_root);
@@ -1446,9 +1455,10 @@ int main() {
     }
 
     // --- Station growth (step 27): residents come to a station that keeps them supplied and
-    // leave one that does not, within the data's bounds. ---
+    // leave one that does not, within the data's bounds. Passengers off: with them on, people
+    // come and go by ship (tested with the passengers). ---
     {
-        auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        auto sim = spacetrains::simulation::Simulation::from_data_root(passengers_off_data(repo_root));
         sim.set_timewarp(86400.0);
         const auto& universe = sim.universe();
         const auto& economy = sim.economy_system();
@@ -1483,7 +1493,7 @@ int main() {
         require(population("mars_transfer") >= universe.open_economy.core_crew_fraction * mars_seed - 1.0e-6,
             "a station should keep its core crew");
         const auto restored = [&] {
-            auto copy = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+            auto copy = spacetrains::simulation::Simulation::from_data_root(passengers_off_data(repo_root));
             copy.load_state_json(sim.save_state_json());
             return copy.snapshot();
         }();

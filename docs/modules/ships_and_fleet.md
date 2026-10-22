@@ -89,10 +89,11 @@ Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/pla
 
 ## Passengers (2026-10-21, `src/simulation/Passengers.cpp`)
 
-Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, sub-switches `rotation`,
-`migration`, `discretionary`). Plan in `docs/plans/passengers.md`, decisions and results in
-`docs/plans/passengers_log.md`. With `passengers,0` the economy is the one before passengers: the liner classes
-do not load and cabins are never offered.
+Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, on since 2026-10-22;
+sub-switches `rotation`, `migration`, `discretionary`). Plan in `docs/plans/passengers.md`, decisions and
+results in `docs/plans/passengers_log.md`. With `passengers,0` the economy is the one before passengers: the
+liner classes do not load and cabins are never offered. `--econ-audit` reports passengers by kind, by station
+and on every route to or from Titan.
 
 **Who travels.** People wait at stations in groups (kind, destination, employer, demand band):
 - **Settlers:**

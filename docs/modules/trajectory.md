@@ -96,11 +96,11 @@ to atlas costates, so the rest of the planner is unchanged. The finite-differenc
   also reports the exact closest approach, end state and effort.
 - **Scoring plans** (`include_path` off) take mass (from the effort) and perihelion from the shooting; only
   plans with a path integrate the trajectory (4000 samples).
-  - **Fuel check (fixed 2026-10-21, `ship_operations.csv` `planner_fuel_check,1`).** Until then the scoring
+  - **Fuel check (fixed 2026-10-21).** Until then the scoring
     plan's check read the closest-approach marker, which carries the start mass, so a window short of fuel
     scored as feasible. The chosen mission's replan with its path then failed and the ship picked the same
     trip the next day (1460 days: 2,821 of 3,300 departure replans failed with passengers on, 1,876 of 2,374
-    off, mostly Mercury and Venus routes). `planner_fuel_check,0` restores the old check.
+    off, mostly Mercury and Venus routes).
   - **Larger budget for the same path.** The path does not depend on the fuel budget, so a refined path over
     its budget is flown with the smallest of the ship's larger budgets that carries it, before any time fit
     and with no further shooting. Checking the end state alone refined the next windows instead (+46%

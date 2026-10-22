@@ -528,3 +528,47 @@ changes do not touch. Passengers now cost about 14 ms per day over passengers of
 Checks: ctest 5/5 (the passenger test now also checks, with the data's switches, at most one purchase a day,
 visitors posted only at week edges, and save at day 65 / load / run to 130 equal to a straight run); the
 passengers-off audit with `purchase_spacing_days,0` is byte-identical to the one before these changes.
+
+## Activation (2026-10-22, the user's request: raise the cap if 5 days/s holds, check Titan, then switch on)
+
+**Fleet cap sweep** (passengers on, 4 starts × 1,460 days, runs one after another with all 16 threads):
+
+| Cap | Unmet | Last fifth | Ships | Profitable | Money | Slowest 20 days (worst start) | Boarded | Gave up | Waiting at end | Visitors' mean wait |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 130 | 1.1 ± 0.3% | 2.1 ± 1.0% | 145 | 76% | −20 ± 7% | 5.1 days/s | 10,033 | 10,947 | 8,820 | 225 d |
+| 160 | 1.1 ± 0.6% | 2.1 ± 1.1% | 177 | 70% | −41 ± 19% | 6.3 days/s | 9,246 | 10,977 | 8,836 | 233 d |
+| 190 | 1.2 ± 0.2% | 1.1 ± 1.1% | 203 | 65% | −52 ± 18% | 6.2 days/s | 9,228 | 11,160 | 8,656 | 237 d |
+| 220 | 0.9 ± 0.4% | 1.2 ± 1.0% | 208 | 65% | −43 ± 20% | 6.9 days/s | 8,066 | 11,369 | 9,038 | 253 d |
+
+- 5 days/s holds at every cap (the slowest stretch is set by fleet investment and chaotic, not by the ship count).
+- More ships carry no more passengers: the extra purchases are mostly bulk tankers with cabins, the berths' load
+  factor falls (50% → 39%), and as many people give up. The queues are not short of berths; they wait for a
+  trip that suits them (budget, minimum leg of 20, the carrier's other cargo).
+- Unmet demand is the same within the spread; profitability and money fall as capital goes into hulls.
+- Above ~200 ships the cap no longer binds (no candidate clears the hurdle).
+- **Decision (default, reported to the user):** the cap stays at 130.
+
+**Titan check** (2 starts × 2,920 days, with a new per-route passenger audit: `--econ-audit` prints passengers
+by station and every route to or from Titan):
+
+| Route | Start 0: boarded / landed | Start 180: boarded / landed | Trip | Highest leg dose | Carriers |
+|---|---|---|---|---|---|
+| Earth L1 → Titan | 223 / 223 | 236 / 236 | 613–790 d | 858–937 mSv | Large Plasma Liners with a water wall or tank wrap, Plasma Liners with 200% tanks |
+| Earth orbit → Titan | 124 / 0 | 153 / 0 | still in flight at the end | 854–868 mSv | Large Plasma Liners with tank wrap |
+| Titan → Earth orbit | 40 / 40 | 211 / 211 | 600–632 d | 780–887 mSv | liners with tank wrap or water wall, couriers with shielded cabins |
+
+- Titan is served both ways, under the 1 Sv leg limit; the shields are what make it possible.
+- Few ships leave Titan, so most of Titan's travellers home give up (2,428–2,684 posted); one Plasma Liner was laid up
+  and sold at Titan. A matter of demand for the return leg, not a blocker.
+
+**Switches removed** (the user's question: are the speed switches needed?): `cabin_shared_probe`,
+`passenger_leg_from_empty` and `planner_fuel_check` were on/off choices between an old and a new code path, and
+the old paths are gone. `rider_time_relative_step` lost its 0 = 10 cr/day fallback. The tunable numbers stay in
+the data (`visitor_batch_days`, `min_leg_passengers`, `rider_time_min_share`, `rider_time_relative_step`,
+`purchase_spacing_days`), with code defaults equal to the data. Runs before and after are byte-identical
+(passengers on 365 and 1,460 days, passengers off 365 days).
+
+**Switched on:** `passengers,1` in `data/economy/passengers.csv`. Tests of the economy before passengers (the
+off check, station growth by step 27) run on a copy of the data with passengers off; the money identity test
+now counts fares travellers pay and passages stations recover. ctest 5/5. Godot started headless with no script
+errors; the passenger UI still needs a look in the game. Mercury still has no passengers (atlas gap).

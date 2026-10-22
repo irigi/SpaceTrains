@@ -299,15 +299,20 @@ int main() {
             stations_ledger.dividends += station.ledger.dividends;
             stations_ledger.subsidies += station.ledger.subsidies;
             stations_ledger.taxes += station.ledger.taxes;
+            stations_ledger.passages_paid += station.ledger.passages_paid;
+            stations_ledger.passages_recovered += station.ledger.passages_recovered;
         }
         double ship_dividends = 0.0;
+        double fares = 0.0;
         for (const auto& ship : snap.ships) {
             final_supply += ship.credits;
             ship_dividends += ship.ledger.dividends;
+            fares += ship.ledger.fares;
         }
         for (const auto& ship : snap.sold_ships) {
             require(ship.credits == 0.0, "a sold ship's cash must go to its home station");
             ship_dividends += ship.ledger.dividends;
+            fares += ship.ledger.fares;
         }
         const auto& investment = snap.fleet_investment;
         const double internal_supply = final_supply;
@@ -328,9 +333,11 @@ int main() {
             "residents must pay for consumed goods; local production is free (step 17)");
         require_near(snap.outside_economy_credits,
             stations_ledger.producer_purchases - stations_ledger.household_sales
-                + investment.hulls_bought - investment.salvage + snap.faction_interest_paid, 1.0e-3,
+                + investment.hulls_bought - investment.salvage + snap.faction_interest_paid
+                - (fares - stations_ledger.passages_paid) - stations_ledger.passages_recovered, 1.0e-3,
             "the outside economy's balance must equal producer payments minus resident payments,"
-            " plus ships sold to the treasuries minus salvage bought back, plus interest");
+            " plus ships sold to the treasuries minus salvage bought back, plus interest, less the fares"
+            " travellers paid themselves and the passages stations recovered");
         require_near(treasuries, stations_ledger.taxes - stations_ledger.subsidies
                 - investment.hulls_bought - investment.working_capital + investment.salvage - snap.emergency_paid
                 - snap.faction_interest_paid - liner_subsidies, 1.0e-3,
