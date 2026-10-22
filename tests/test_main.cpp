@@ -1309,7 +1309,8 @@ int main() {
             }
             const auto relief = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationOut);
             const auto relieved = static_cast<std::size_t>(spacetrains::domain::PassengerKind::RotationHome);
-            require_near(change, audit.landed[migrant] + audit.landed[relief] - audit.boarded[emigrant] - audit.boarded[relieved] + local,
+            require_near(change, audit.landed[migrant] - audit.colony_recruits_landed + audit.landed[relief] - audit.boarded[emigrant]
+                    - audit.boarded[relieved] + local,
                 1e-6, "populations off Earth should change by the people landed less those who left (and local hires)");
 
             // Speed settings in the data (2026-10-22, passengers_log): purchases a day apart,

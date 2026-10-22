@@ -1039,13 +1039,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const auto rows = read_csv_rows(economies_path);
         require_header(rows.front(),
             {"id", "name", "gateways", "launch_usd_per_kg", "landing_usd_per_kg", "initial_credits", "income_cr_per_year",
-                "population", "growth_per_year", "wage_median_cr_per_day", "wage_sigma", "search_per_year"},
+                "population", "growth_per_year", "wage_median_cr_per_day", "wage_sigma", "search_per_year", "immigration_share"},
             economies_path);
         std::unordered_set<std::string> seen_ids;
         const double scale = universe.households.credits_per_usd;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 12, economies_path, i + 1);
+            require_field_count(row, 13, economies_path, i + 1);
             require_unique_id(row[0], seen_ids, economies_path, i + 1);
             domain::BackgroundEconomyDefinition economy {
                 .id = row[0],
@@ -1059,6 +1059,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                 .wage_median_cr_per_day = parse_double(row[9], economies_path, i + 1, "wage_median_cr_per_day"),
                 .wage_sigma = parse_double(row[10], economies_path, i + 1, "wage_sigma"),
                 .search_per_year = parse_double(row[11], economies_path, i + 1, "search_per_year"),
+                .immigration_share = parse_double(row[12], economies_path, i + 1, "immigration_share"),
             };
             if (economy.population > 0.0 && (economy.wage_median_cr_per_day <= 0.0 || economy.wage_sigma <= 0.0)) {
                 throw std::runtime_error("A colony with people needs a wage median and spread in " + economies_path.string());

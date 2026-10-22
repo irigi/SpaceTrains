@@ -75,9 +75,9 @@ int main() {
         const auto station = [&](const char* id) -> const auto& {
             return *std::find_if(universe.stations.begin(), universe.stations.end(), [&](const auto& s) { return s.id == id; });
         };
-        require(economy.reference_price(station("titan_works"), "machinery")
-                > economy.reference_price(station("luna_base"), "machinery"),
-            "Titan's machinery must cost more to land than Lunar Gateway's");
+        require(economy.reference_price(station("titan_works"), "electronics")
+                > economy.reference_price(station("luna_base"), "electronics"),
+            "Titan's electronics must cost more to land than Lunar Gateway's");
         require_near(economy.reference_price(station("earth_orbit"), "electronics"), commodity_base("electronics"), 1.0e-9,
             "a producer's reference price is the base price");
         // Depot fuel far from any factory costs its carriage (step 20); a factory's does not.

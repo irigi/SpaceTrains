@@ -75,6 +75,10 @@ void Simulation::pay_traveller_fare(domain::StationState& origin, const domain::
     // A visitor going home pays from home; everyone else from where they board. Travellers from
     // an Earth gateway are Earth's people (Earth's account); a station's residents pay from
     // their households (the outside account before households existed).
+    if (colony_employer(group.work_station_id)) {
+        economy_account(group.work_station_id.substr(std::string("colony:").size())) -= fares;   // a colony's recruits
+        return;
+    }
     if (!households_on()) {
         outside_economy_credits_ -= fares;
         return;
@@ -496,7 +500,13 @@ void Simulation::step_colony_labour(double dt_s) {
             continue;
         }
         double& colonists = colony->second;
-        colonists *= std::exp(economy.growth_per_year * dt_days / 365.25);
+        // Natural growth; the rest of its growth it recruits on Earth (they come by ship).
+        colonists *= std::exp((1.0 - economy.immigration_share) * economy.growth_per_year * dt_days / 365.25);
+        if (const double recruits = colony_recruits_per_day(economy) * dt_days; recruits > 0.0 && !economy.gateways.empty()) {
+            const auto& gateway = economy.gateways.front();
+            post_travellers(get_station_state(gateway_for(gateway, true)), domain::PassengerKind::Migrant, gateway,
+                "colony:" + economy.id, recruits, true);
+        }
         for (const auto& gateway_id : economy.gateways) {
             auto& station = get_station_state(gateway_id);
             if (!in_labour_market(station)) {

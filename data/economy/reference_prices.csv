@@ -26,7 +26,6 @@ mercury_yard,medicine,132.94,120.90,8.03,earth_l1,plasma_bulk_tanker,268.3
 mercury_yard,oxygen,15.95,3.91,8.03,earth_l1,plasma_bulk_tanker,268.3
 mercury_yard,water,19.82,7.84,7.99,earth_l1,plasma_bulk_tanker,287.2
 titan_works,electronics,92.46,63.96,19.00,earth_l1,plasma_bulk_tanker,1245.8
-titan_works,machinery,117.56,70.20,31.57,earth_l1,plasma_bulk_tanker,1987.6
 titan_works,metals,59.49,16.85,28.43,earth_l1,plasma_bulk_tanker,1725.1
 titan_works,reactor_fuel,491.53,429.00,41.69,earth_l1,plasma_bulk_tanker,2737.6
 venus_cloud,electronics,74.32,63.96,6.90,earth_l1,plasma_bulk_tanker,289.4

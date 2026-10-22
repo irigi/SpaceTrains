@@ -140,6 +140,7 @@ public:
         std::array<double, 6> wait_days {};    // person-days waited by those who boarded
         std::array<double, 6> flight_days {};  // person-days aboard
         double berth_days {0.0};               // berths flown (load factor = flight_days / berth_days)
+        double colony_recruits_landed {0.0};   // settlers a colony recruited, landed at its gateway (they go down)
         int departures_with_passengers {0};
         // Per route (origin, destination), all kinds together.
         struct Route {
@@ -553,7 +554,10 @@ private:
     // (fare elasticity): more come if trips are cheaper, fewer if dearer. `fixed`: exactly
     // `count` people travel (a relief, a worker going home), their budgets spread the same way.
     [[nodiscard]] std::vector<PassengerBand> passenger_bands(domain::PassengerKind kind, const std::string& origin_id,
-        const std::string& destination_id, double count, bool fixed) const;
+        const std::string& destination_id, double count, bool fixed, const std::string& employer = {}) const;
+    // Settlers a colony recruits on Earth (labour market): their employer id is "colony:<economy id>".
+    [[nodiscard]] static bool colony_employer(const std::string& work_station_id) { return work_station_id.starts_with("colony:"); }
+    [[nodiscard]] double colony_recruits_per_day(const domain::BackgroundEconomyDefinition& economy) const;
     void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
         const std::string& work_station_id, double count, bool fixed = false);
     void compute_rotation_tours();

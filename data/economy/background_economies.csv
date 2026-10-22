@@ -1,5 +1,5 @@
-id,name,gateways,launch_usd_per_kg,landing_usd_per_kg,initial_credits,income_cr_per_year,population,growth_per_year,wage_median_cr_per_day,wage_sigma,search_per_year
-earth,Earth,earth_orbit|earth_l1,100,50,0,0,0,0,0,0,0
-mars_surface,Mars surface,mars_transfer,40,20,500000,300000,50000,0.03,0.3,0.4,0.05
-luna_surface,Luna surface,luna_base,20,10,150000,40000,10000,0.03,0.25,0.4,0.05
-belt,Belt miners,ceres_depot,5,5,100000,40000,5000,0.02,0.35,0.6,0.05
+id,name,gateways,launch_usd_per_kg,landing_usd_per_kg,initial_credits,income_cr_per_year,population,growth_per_year,wage_median_cr_per_day,wage_sigma,search_per_year,immigration_share
+earth,Earth,earth_orbit|earth_l1,100,50,0,0,0,0,0,0,0,0
+mars_surface,Mars surface,mars_transfer,40,20,500000,300000,50000,0.03,0.3,0.4,0.05,0.3
+luna_surface,Luna surface,luna_base,20,10,150000,40000,10000,0.03,0.25,0.4,0.05,0.5
+belt,Belt miners,ceres_depot,5,5,100000,40000,5000,0.02,0.35,0.6,0.05,0.5

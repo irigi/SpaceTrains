@@ -625,6 +625,7 @@ std::string Simulation::data_fingerprint() const {
             mix(std::format("B{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", economy.id, economy.launch_cr_per_kg, economy.landing_cr_per_kg,
                 economy.initial_credits, economy.income_cr_per_day, economy.population, economy.growth_per_year,
                 economy.wage_median_cr_per_day, economy.wage_sigma, economy.search_per_year));
+            mix(std::format("Bi{};", economy.immigration_share));
         }
         for (const auto& market : universe_.surface_markets) {
             mix(std::format("S{}|{}|{}|{}|{}|{}|{}|{};", market.economy_id, market.station_id, market.commodity_id, market.ask_cr,

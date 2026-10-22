@@ -22,3 +22,4 @@ earth_l1,electronics,-0.1,input:microgravity_products
 venus_cloud,science_samples,0.2,
 venus_cloud,electronics,-0.02,input:science_samples
 venus_cloud,machinery,-0.1,consume
+titan_works,machinery,1.5,

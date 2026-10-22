@@ -271,6 +271,10 @@ void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
                                  "(+{:.1f}% on residents' goods), {:.0f} cr still to recover\n",
             paid, recovered, household > 0.0 ? 100.0 * recovered / household : 0.0, owed);
     }
+    if (audit.colony_recruits_landed > 0.0) {
+        std::cout << std::format("    Of the settlers landed, {:.0f} were recruited by a colony and went down to its surface\n",
+            audit.colony_recruits_landed);
+    }
     // Ships with berths, by hull and fit.
     std::map<std::string, int> carriers;
     for (const auto& ship : snap.ships) {

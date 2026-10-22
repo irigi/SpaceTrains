@@ -492,6 +492,7 @@ struct BackgroundEconomyDefinition {
     double wage_median_cr_per_day {0.0};
     double wage_sigma {0.0};
     double search_per_year {0.0};        // share of its people looking for a better job each year
+    double immigration_share {0.0};      // of its growth, settlers it recruits on Earth and pays passage for
 };
 
 // One good a background economy trades at a gateway (data/economy/surface_markets.csv,
