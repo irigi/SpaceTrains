@@ -32,7 +32,9 @@ struct TrajectoryAuditThresholds {
     double max_revolutions {1.25};
     // Continuous-thrust (variable-Isp) spirals: an inward spiral from Venus to Mercury
     // sweeps 1.3-1.4 turns around the Sun in ~245 days; that is the physics, not a fault.
-    double max_revolutions_continuous {2.0};
+    // Low-budget legs to or from Mercury (the atlas's low-kappa levels, 2026-10-22) spiral
+    // 2-3.3 turns in 300-530 days (Mercury's year is 88 days).
+    double max_revolutions_continuous {4.0};
     double max_step_deg {20.0};       // wait prefix: heliocentric angle per step
     double max_turn_deg {15.0};       // transfer: direction change at one point
     double end_turn_deg {30.0};

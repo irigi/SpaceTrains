@@ -63,7 +63,7 @@ double heliocentric_orbital_rate_rad_s(
 }
 
 // Canonical kappa scale factor: (1 AU)^2.5 / mu_sun^1.5
-// Precomputed constant — same value as in generate_atlas.py KAPPA_SCALE_FACTOR.
+// Precomputed constant (the atlas generator's KAPPA_SCALE_FACTOR).
 double kappa_scale_factor() {
     using VI = variable_isp::VariableIspIntegrator;
     const double au = VI::kAstronomicalUnitM;
