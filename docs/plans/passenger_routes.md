@@ -79,6 +79,40 @@ Proposed fixes (for the user to choose):
   passenger plans.
 - 3: value a probe's passenger legs on a full tank budget (the sustained route), not today's fuel on sale.
 
+### A2 fixes built (2026-10-22, user approved all three)
+
+- **1. No Moon wait** (`TrajectoryPlanner.cpp`, Kepler planet-system branch): when both stations' parking
+  orbits take under a day (LEO 90 min; every Earth and Moon station), a ship leaves at once. Earth ↔ Luna by
+  NTR: 5.0 days instead of 5.0 + 15.8 waiting.
+- **2. Riders' time in the probe:** fleet investment's passenger plans add `berths × fill_ref × person-day`
+  (as the reference fares).
+- **3. Full tank in the probe:** those plans may buy a whole tank (`full_tank` in `plan_to` /
+  `plan_with_return_fuel`), return fuel included, instead of today's fuel on sale.
+- **Contract loops wait in port.** Fix 1 stopped rotation contracts: a loop carries `need per day × cycle` per
+  lap and pays fuel per lap, and the Moon wait had been stretching Earth–Moon loops to ~29 days. Without it a
+  9.8-day loop was worth −20 cr/day (the 28.8-day one +249), and no contract was signed in 400 days. A loop may
+  now wait at its first stop before each lap (0, 7, 14, 28 or 56 days, the best value; the wait costs the ship's
+  time). Saved as before: the wait is the cycle minus the legs (no save version change). Loops are worth
+  100-390 cr/day again, but are signed less often: they must earn half the best spot score, and quick Luna spot
+  trips score in the thousands. First contract on day 180 (was 71); the contract save/load test now runs
+  200 + 90 days.
+- Reference fares do not change (the reference carriers are plasma ships). `reference_fares.csv` differs from
+  what the current code writes in 53 of 68 rows (interplanetary, not Earth ↔ Luna), both before and after these
+  fixes: an older drift, left for the user.
+
+**Benchmark, 8 starts × 1,460 days** (baseline = this branch before the fixes, same tool and machine):
+
+| Run | Unmet | Last fifth | Profitable | Ships | Money |
+|---|---|---|---|---|---|
+| baseline | 1.15 ± 0.49% | 1.79 ± 0.76% | 110.3 | 142.9 | −17 ± 8% |
+| fixes 1-3 only (4 starts) | 1.8 ± 1.1% | 2.6 ± 3.1% | 115.2 | 144.8 | −15 ± 18% |
+| fixes 1-3 + loop waits | 1.07 ± 0.76% | 2.33 ± 2.24% | 113.5 | 144.9 | −21 ± 14% |
+
+The last fifth's mean comes from start 0 (7.6%; without it 1.57% against 1.76%): Earth-system shortages (LEO
+food, Earth L1 electronics and machinery), not Luna. Earlier versions also had single starts at 5-9%
+(passengers_log). Luna passengers do not change (start 0: Earth L1 → Luna 3,344 gave up, was 2,998): the times
+were not the limit; the fare is (plan point 1).
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band

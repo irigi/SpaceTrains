@@ -520,11 +520,20 @@ domain::TrajectoryPlan KeplerTrajectoryPlanner::plan_transfer(
         const double r2 = r_of(relative(destination, current_time_s));
         const double axis = 0.5 * (r1 + r2);
         const double transfer_s = PI * std::sqrt(axis * axis * axis / mu_p);
-        // Phase: arrive where the destination is, half a revolution from departure.
-        // Scan one month (the Moon's period) for the best departure.
+        // Phase: arrive where the destination is, half a revolution from departure. Stations are
+        // drawn at a fixed angle around their body, but one in a low parking orbit (LEO: 90 min)
+        // comes round many times a day, so a departure window is always within hours: no wait.
+        // Only where an end's parking orbit takes a day or more does the scan look one month
+        // (the Moon's period) for the best departure.
+        const auto parking_period_s = [&](const domain::StationDefinition& station) {
+            const auto& body = mechanics_.get_body(station.parent_body_id);
+            const double r = body.radius_m + station.altitude_m;
+            return body.mu_m3_s2 > 0.0 ? TAU * std::sqrt(r * r * r / body.mu_m3_s2) : 0.0;
+        };
+        const bool phase_free = parking_period_s(origin) < 86400.0 && parking_period_s(destination) < 86400.0;
         double best_wait_s = 0.0;
-        double best_mismatch = std::numeric_limits<double>::max();
-        for (double wait = 0.0; wait <= 30.0 * 86400.0; wait += 0.05 * 86400.0) {
+        double best_mismatch = phase_free ? 0.0 : std::numeric_limits<double>::max();
+        for (double wait = 0.0; !phase_free && wait <= 30.0 * 86400.0; wait += 0.05 * 86400.0) {
             const auto o = relative(origin, current_time_s + wait);
             const auto d = relative(destination, current_time_s + wait + transfer_s);
             const double mismatch = std::abs(std::remainder(

@@ -1259,8 +1259,13 @@ std::vector<std::pair<double, double>> Simulation::contracted_arrivals(
         if (moving) {
             t = std::max(game_time_s_, ship.active_mission.arrival_time_s);
         }
+        const double dwell_s = contract_dwell_days(contract) * 86400.0;
         for (std::size_t step = 0; step < 2 * count; ++step) {
             const auto next = (at + 1) % count;
+            if (at == 0) {
+                // The wait in port at the first stop: a docked ship has served part of it.
+                t = step == 0 && !moving ? std::max(t, ship.idle_since_s + dwell_s) : t + dwell_s;
+            }
             t += contract.leg_days[at] * 86400.0;
             if (t > contract.until_s) {
                 break;
@@ -2550,13 +2555,17 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // propellant for the transfer plus the reserve.
     // Hydrogen boil-off averaged over the leg (tier 2, step F).
     // Passengers aboard add their time (and dose) to the ship's: `rider_time_cr_per_day`.
+    // A full-tank plan (fleet investment's passenger probes) may buy a whole tank: a route is
+    // valued as it will be flown, not on the fuel this port happens to have on sale today.
     const auto planning_options = [&](const domain::StationDefinition& destination, double cargo_kg,
-                                      double rider_time_cr_per_day = 0.0) {
+                                      double rider_time_cr_per_day = 0.0, bool full_tank = false) {
         return trajectory::PlanningOptions {
             .propellant_cr_per_kg = planning_fuel_price / FUEL_UNITS_TO_KG + wear_cr_per_propellant_kg(ship_class),
             .time_cr_per_day = time_cost_per_day + rider_time_cr_per_day,
             .payload_kg = provisions_kg + cargo_kg,
-            .purchasable_propellant_kg = origin_fuel_for_sale_kg,
+            .purchasable_propellant_kg = full_tank
+                ? std::max(0.0, ship_class.propellant_capacity_kg - std::max(0.0, ship.propellant_kg))
+                : origin_fuel_for_sale_kg,
             .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
             .boiloff_kg_per_day = leg_boiloff_kg_per_day(ship_class, origin_def, destination, game_time_s_),
             .include_path = false,  // the chosen mission is planned again with its path
@@ -2565,7 +2574,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     // What each plan was planned with, so the chosen one can be planned again with its path.
     std::unordered_map<const domain::TrajectoryPlan*, std::pair<trajectory::PlanningOptions, double>> plan_inputs;
     const auto plan_to = [&](const domain::StationDefinition& destination, double cargo_kg,
-                             double rider_time_cr_per_day = 0.0) -> const domain::TrajectoryPlan& {
+                             double rider_time_cr_per_day = 0.0, bool full_tank = false) -> const domain::TrajectoryPlan& {
         // Cargo rounded up to whole tonnes keeps the cache small and the estimate safe.
         const double cargo_bucket_kg = std::ceil(std::max(0.0, cargo_kg) / 1000.0) * 1000.0;
         // Riders adding less than rider_time_min_share of the ship's own time cost fly on the plan
@@ -2577,8 +2586,11 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             ? 0.0 : std::ceil(riders / rider_step) * rider_step;
         auto key = rider_bucket > 0.0 ? std::format("{}|{:.0f}|t{:.3f}", destination.id, cargo_bucket_kg, rider_bucket)
                                       : std::format("{}|{:.0f}", destination.id, cargo_bucket_kg);
+        if (full_tank) {
+            key += "|full";
+        }
         if (const auto it = plans.find(key); it != plans.end()) {
-            plan_inputs[&it->second] = {planning_options(destination, cargo_bucket_kg, rider_bucket),
+            plan_inputs[&it->second] = {planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank),
                 std::max(game_time_s_, earliest_departure_s)};
             return it->second;
         }
@@ -2591,7 +2603,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         defer_plan(deferred_prefix_ + "plan|" + key, {
             .compute = [&planner, &origin_def, &destination, &ship, &ship_class,
                            departure_s = std::max(game_time_s_, earliest_departure_s),
-                           options = planning_options(destination, cargo_bucket_kg, rider_bucket)] {
+                           options = planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank)] {
                 return planner.plan_transfer(origin_def, destination, ship, ship_class, departure_s, options);
             },
             .commit = [&plans, key](domain::TrajectoryPlan&& plan) { plans.emplace(key, std::move(plan)); },
@@ -2610,8 +2622,9 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
     const double fuel_limit_kg = std::min(ship_class.propellant_capacity_kg,
         std::max(0.0, ship.propellant_kg) + origin_fuel_for_sale_kg);
     const auto plan_with_return_fuel = [&](const domain::StationDefinition& destination, double cargo_kg,
-                                           double rider_time_cr_per_day = 0.0) {
-        const auto& plan = plan_to(destination, cargo_kg, rider_time_cr_per_day);
+                                           double rider_time_cr_per_day = 0.0, bool full_tank = false) {
+        const double limit_kg = full_tank ? ship_class.propellant_capacity_kg : fuel_limit_kg;
+        const auto& plan = plan_to(destination, cargo_kg, rider_time_cr_per_day, full_tank);
         if (!plan.feasible) {
             return FuelAwarePlan {&plan, 0.0, false};
         }
@@ -2620,8 +2633,8 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
             return FuelAwarePlan {&plan, 0.0, true};
         }
         for (int attempt = 0; attempt < 3; ++attempt) {
-            const auto& laden = plan_to(destination, cargo_kg + carried_kg, rider_time_cr_per_day);
-            if (!laden.feasible || laden.propellant_load_kg + carried_kg > fuel_limit_kg) {
+            const auto& laden = plan_to(destination, cargo_kg + carried_kg, rider_time_cr_per_day, full_tank);
+            if (!laden.feasible || laden.propellant_load_kg + carried_kg > limit_kg) {
                 break;
             }
             const double missing_kg = leave_shortfall_kg(destination, laden, cargo_kg + carried_kg, carried_kg);
@@ -3196,6 +3209,12 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
         }
     }
 
+    // Investment probes plan passenger legs as the reference fares and dispatch do, with the
+    // riders' time (full berths at the reference fill, a resident's time and dose per day), and
+    // on a full tank (see planning_options).
+    const double probe_rider_day_cr = universe_.market.fill_ref
+        * passenger_nonfare_cr(value_of_time_cr_per_day(domain::PassengerKind::Migrant), 1.0,
+            universe_.ship_environment.radiation ? universe_.ship_environment.gcr_msv_per_day : 0.0);
     // Fleet investment probes of a ship with berths: one passenger option per destination it can
     // carry full berths to, valued later at the sustained flow of travellers (not today's queue).
     if (cargo_only && passengers_on() && ship_class.berths >= 1.0) {
@@ -3204,7 +3223,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                 continue;
             }
             const double load_kg = ship_class.berths * passenger_kg(economy_.transfer_days(origin_def, destination));
-            const auto fuel_plan = plan_with_return_fuel(destination, load_kg);
+            const auto fuel_plan = plan_with_return_fuel(destination, load_kg, ship_class.berths * probe_rider_day_cr, true);
             const auto& plan = *fuel_plan.plan;
             if (!plan.feasible || !fuel_plan.feasible) {
                 continue;
@@ -3241,7 +3260,7 @@ Simulation::MissionChoice Simulation::choose_mission_pass(
                     continue;
                 }
                 const double load_kg = module_kg + design.berths * passenger_kg(economy_.transfer_days(origin_def, destination));
-                const auto fuel_plan = plan_with_return_fuel(destination, load_kg);
+                const auto fuel_plan = plan_with_return_fuel(destination, load_kg, design.berths * probe_rider_day_cr, true);
                 const auto& plan = *fuel_plan.plan;
                 if (!plan.feasible || !fuel_plan.feasible) {
                     continue;
@@ -3511,6 +3530,14 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         add_event(std::format("{}'s rotation contract ended at {}", ship.name,
             get_station_definition(ship.current_station_id).name), "mission");
         ship.contract = {};
+    }
+    // A loop's wait in port at its first stop, counted from arrival (cycle minus the legs).
+    if (under_contract(ship) && ship.current_station_id == ship.contract.stops.front()) {
+        const double ready_s = ship.idle_since_s + contract_dwell_days(ship.contract) * 86400.0;
+        if (game_time_s_ < ready_s) {
+            ship.next_review_s = std::min(ship.next_review_s, ready_s);
+            return;
+        }
     }
     auto choice = choose_mission(ship, ship_class, trace, game_time_s_);
     // Rotation contracts: a free ship looks for a loop now and then, and signs one that earns
@@ -4365,6 +4392,14 @@ std::string Simulation::next_scheduled_stop(const domain::ShipState& ship, const
     return at == stops.end() ? stops.front() : stops.at(static_cast<std::size_t>(at - stops.begin() + 1) % stops.size());
 }
 
+double Simulation::contract_dwell_days(const domain::ShipContract& contract) {
+    double legs = 0.0;
+    for (const double days : contract.leg_days) {
+        legs += days;
+    }
+    return std::max(0.0, contract.cycle_days - legs);
+}
+
 double Simulation::contracted_flow(const std::string& station_id, const std::string& commodity_id) const {
     double flow = 0.0;
     for (const auto& ship : ships_) {
@@ -4480,11 +4515,15 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     const auto max_stops = static_cast<std::size_t>(std::clamp(market.contract_max_stops, 2.0, 4.0));
     // A loop's value with the given legs: profit per day after time and fuel, its hold filled
     // on each leg by margin per unit with what the next stop still needs.
+    // A loop may wait in port at its first stop before each lap (`dwell_days`), so each lap
+    // carries more of the stations' needs on the same fuel; the wait costs the ship's time.
+    // (Short hops such as Earth <-> Moon would otherwise fly half-empty loops.)
     const auto value = [&](const std::vector<std::size_t>& loop, const std::vector<LegEstimate>& loop_legs,
-                           domain::ShipContract* contract, double* contract_profit_per_day = nullptr) {
+                           domain::ShipContract* contract, double* contract_profit_per_day = nullptr,
+                           double dwell_days = 0.0) {
         std::vector<double> buys;
         std::vector<double> caps;
-        double cycle_days = 0.0;
+        double cycle_days = dwell_days;
         for (const auto& leg : loop_legs) {
             if (!leg.feasible) {
                 return 0.0;
@@ -4575,6 +4614,18 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
         }
         return profit / cycle_days;
     };
+    static constexpr std::array<double, 5> kDwellDays {0.0, 7.0, 14.0, 28.0, 56.0};
+    const auto best_dwell = [&](const std::vector<std::size_t>& candidate, const std::vector<LegEstimate>& loop_legs) {
+        double best_value = 0.0;
+        double best_wait = 0.0;
+        for (const double dwell : kDwellDays) {
+            if (const double v = value(candidate, loop_legs, nullptr, nullptr, dwell); v > best_value) {
+                best_value = v;
+                best_wait = dwell;
+            }
+        }
+        return std::make_pair(best_value, best_wait);
+    };
     // Every loop from this port, valued with today's legs; the best few again with each leg
     // dated from when the one before it arrives (launch windows).
     std::vector<std::pair<double, std::vector<std::size_t>>> ranked;
@@ -4585,7 +4636,7 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
             for (std::size_t k = 0; k < loop.size(); ++k) {
                 loop_legs.push_back(legs[loop[k] * n + loop[(k + 1) % loop.size()]]);
             }
-            if (const double score = value(loop, loop_legs, nullptr); score > 0.0) {
+            if (const double score = best_dwell(loop, loop_legs).first; score > 0.0) {
                 ranked.emplace_back(score, loop);
             }
         }
@@ -4625,7 +4676,8 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     for (std::size_t r = 0; r < ranked.size(); ++r) {
         domain::ShipContract contract;
         double profit = 0.0;
-        if (const double score = value(ranked[r].second, dated[r], &contract, &profit); score > best_score) {
+        const double dwell = best_dwell(ranked[r].second, dated[r]).second;
+        if (const double score = value(ranked[r].second, dated[r], &contract, &profit, dwell); score > best_score) {
             best_score = score;
             best_profit = profit;
             best = std::move(contract);

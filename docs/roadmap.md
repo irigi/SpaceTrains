@@ -36,6 +36,9 @@ slowest 20-day stretch 5.1 days/s or better (16-thread machine).
   the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
   Earth → Luna times (14-22 days for plasma ships, 16 for the shuttle, some over 150) also look long for the
   hop. Look at the fare and the shuttle's economics before more fleet.
+- **Earth ↔ Luna trip times fixed (2026-10-22):** no Moon wait for low-orbit stations, purchase probes plan
+  passenger legs with the riders' time and a full tank, contract loops may wait in port. Benchmark same within
+  noise (`docs/plans/passenger_routes.md`, "A2 fixes built"). Luna passengers still limited by the fare.
 - Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
 
 The passenger UI was checked in the game by the user (2026-10-22).

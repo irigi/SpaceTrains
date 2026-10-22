@@ -423,6 +423,8 @@ private:
     [[nodiscard]] std::string next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const;
     [[nodiscard]] bool under_contract(const domain::ShipState& ship) const;
     // Rotation contracts: units per day of a good contracted to a station, over every contract.
+    // A rotation contract's wait in port at its first stop before each lap (its cycle minus its legs).
+    [[nodiscard]] static double contract_dwell_days(const domain::ShipContract& contract);
     [[nodiscard]] double contracted_flow(const std::string& station_id, const std::string& commodity_id) const;
     // The best loop for a ship from its port, with its profit per day (0: none).
     std::pair<domain::ShipContract, double> find_contract(const domain::ShipState& ship,
