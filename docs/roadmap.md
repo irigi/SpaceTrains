@@ -42,6 +42,10 @@ slowest 20-day stretch 5.1 days/s or better (16-thread machine).
 - **Fuel at real prices (option A) and a Luna Ferry (2026-10-22):** fares follow port fuel prices; Luna
   passengers board (give-ups about halved) but passenger carriers take ~45 of ~145 hulls and unmet cargo rises
   0.86 → 1.5-1.8% (Mars fuel). Contracts kept (off doubles unmet). `passenger_routes.md`.
+- **Passenger purchases no longer overvalued (2026-10-22):** valuations counted a route's whole flow and
+  their own clearing fare (expected 154%/yr, earned 37%; Large Liners 68% → 7%). Now valued on the flow other
+  ships leave open; estimate ~2× the result, as for cargo. 8 starts: unmet 1.55%, last fifth 1.96%, 63 passenger
+  buys instead of 95 (`passenger_routes.md`, "Overvaluation fix built").
 - Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
 
 The passenger UI was checked in the game by the user (2026-10-22).

@@ -266,6 +266,39 @@ observed imports), so the new ship's travellers are the flow nobody carries (≈
 growth); and price them at the hedonic fare, with a clearing premium only on the queue the ship would find at
 departure. Then rerun this check; the cap question (decision 1) follows from it.
 
+## Overvaluation fix built (user, 2026-10-22)
+
+Three changes to the passenger purchase valuation (`expected_travellers`, `expected_passenger_revenue`,
+`sustained_passenger_profit_per_day`); no save change:
+1. **Taken flow from the ships flying the route.** `carried_passengers_per_day(origin, destination)` counts
+   the people aboard ships now flying the route, each lot divided by twice its trip time (Little's law: the
+   carrier comes round once per trip out and back). Cabin hulls, liners and uncommitted ships all count. The
+   open share is `flow − max(committed, carried + committed ships still in the yard)`.
+2. **The queue counts once.** People already waiting were spread over the 180-day route commitment and then
+   multiplied by the ship's window (a 750-day Ceres cycle counted the queue 4×). Now at most once.
+3. **Clearing premium only on the real queue.** The fare clears above the hedonic fare only when the people
+   already waiting outnumber the berths. The flow still to come boards whichever ship calls first.
+
+Check rerun (starts 0 and 90, 1,460 days, ships in service ≥ 180 days; median %/yr):
+
+| Ships | Before: n | expected | earned | spent | After: n | expected | earned | spent |
+|---|---|---|---|---|---|---|---|---|
+| Cargo | 150 | 240 | 104 | 12.6 M | 171 | 204 | 96 | 15.2 M |
+| Cargo hulls with cabins | 34 | 218 | 70 | 4.2 M | 22 | 146 | 93 | 2.8 M |
+| Plasma Liner | 17 | 94 | 47 | 4.6 M | 9 | 96 | 78 | 2.4 M |
+| Large Plasma Liner | 31 | 68 | 7 | 38.0 M | 20 | 46 | 27 | 24.5 M |
+| Luna Ferry | 13 | 165 | 30 | 2.3 M | 12 | 112 | 57 | 2.1 M |
+
+Passenger purchases overall: expected 154 → 96%/yr, earned 37 → 51%/yr, so the estimate is now about 2×
+the result, as for cargo (204 against 96). 63 passenger purchases instead of 95.
+
+Benchmark, 8 starts × 1,460 days: unmet 1.55% (was 1.80% with the Luna Ferry), last fifth 1.96% (was 2.92%),
+profitable 117.9 of 144.5 ships, money +2% against target, ship cash 23%. Boardings: start 0 9,025 (was
+11,378), start 90 11,641 (was 11,339); Earth ↔ Luna about the same.
+
+Left: cargo and passenger estimates are both ~2× optimistic (a common cause, e.g. competition after purchase,
+is a separate question). Large Liners still earn below the 30% hurdle.
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band

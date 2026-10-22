@@ -163,7 +163,7 @@ std::vector<Simulation::PassengerBand> Simulation::passenger_bands(domain::Passe
 void Simulation::post_travellers(domain::StationState& origin, domain::PassengerKind kind,
     const std::string& destination_id, const std::string& work_station_id, double count, bool fixed) {
     const double dose_msv = 0.0;
-    for (const auto& [band, people, max_cost, value_of_time] : passenger_bands(kind, origin.station_id, destination_id, count, fixed)) {
+    for (const auto& [band, people, max_cost, value_of_time, queued] : passenger_bands(kind, origin.station_id, destination_id, count, fixed)) {
         passenger_audit_.posted[static_cast<std::size_t>(kind)] += people;
         passenger_audit_.routes[{origin.station_id, destination_id}].posted += people;
         auto group = std::find_if(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& g) {
@@ -371,15 +371,33 @@ std::vector<Simulation::PassengerBand> Simulation::expected_travellers(const std
             }
         }
     }
-    // Those already waiting, spread over a new ship's route commitment.
-    const double spread = window_days / std::max(1.0, universe_.fleet_investment.route_commitment_days);
+    // Those already waiting: a window as long as the route commitment or longer finds each of
+    // them once (they are not a flow).
+    const double spread = std::min(1.0, window_days / std::max(1.0, universe_.fleet_investment.route_commitment_days));
     for (const auto& group : get_station_state(origin_id).waiting) {
         if (group.destination_id == destination_id && group.count > 0.0) {
             out.push_back({.band = group.band, .people = group.count * spread, .max_cost_cr = group.max_cost_cr,
-                .value_of_time_cr_per_day = group.value_of_time_cr_per_day});
+                .value_of_time_cr_per_day = group.value_of_time_cr_per_day, .queued = true});
         }
     }
     return out;
+}
+
+double Simulation::carried_passengers_per_day(const std::string& origin_id, const std::string& destination_id) const {
+    // What the ships flying the route now carry, by Little's law: the people aboard over the
+    // time each carrier takes to come round again (its trip out and back, taken as twice the
+    // trip out).
+    double rate = 0.0;
+    for (const auto& ship : ships_) {
+        for (const auto& lot : ship.passengers) {
+            if (lot.origin_id != origin_id || lot.destination_id != destination_id) {
+                continue;
+            }
+            const double trip_days = std::max(1.0, (ship.active_mission.arrival_time_s - lot.boarded_s) / 86400.0);
+            rate += lot.count / (2.0 * trip_days);
+        }
+    }
+    return rate;
 }
 
 Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::string& origin_id,
@@ -398,6 +416,7 @@ Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::s
         double people;
         double willing;
         double hedonic;
+        bool queued;
     };
     std::vector<Candidate> candidates;
     for (const auto& band : expected_travellers(origin_id, destination_id, window_days)) {
@@ -408,25 +427,36 @@ Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::s
         }
         candidates.push_back({band.people * open_share, willing,
             live_fare_cr(origin_id, destination_id, *reference)
-                + passenger_nonfare_cr(band.value_of_time_cr_per_day, reference->days, dose_rate) - nonfare});
+                + passenger_nonfare_cr(band.value_of_time_cr_per_day, reference->days, dose_rate) - nonfare,
+            band.queued});
     }
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.willing > b.willing; });
-    double left = berths;
+    // The fare clears above the hedonic fare only when the queue already waiting outnumbers the
+    // berths: the travellers still to come board whichever ship calls first, so a long window
+    // does not let this ship pick the most willing of them.
     double clearing = 0.0;
+    {
+        double queue_left = berths;
+        for (const auto& candidate : candidates) {
+            if (!candidate.queued) {
+                continue;
+            }
+            if (candidate.people > queue_left) {
+                clearing = candidate.willing;
+                break;
+            }
+            queue_left -= candidate.people;
+        }
+    }
+    double left = berths;
     std::size_t boarding = 0;
     for (const auto& candidate : candidates) {
         if (left <= 0.0) {
-            clearing = candidate.willing;
             break;
         }
-        const double take = std::min(candidate.people, left);
-        left -= take;
+        left -= std::min(candidate.people, left);
         ++boarding;
-        if (take < candidate.people) {
-            clearing = candidate.willing;
-            break;
-        }
     }
     left = berths;
     for (std::size_t c = 0; c < boarding; ++c) {

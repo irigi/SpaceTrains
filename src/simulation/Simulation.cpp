@@ -5271,11 +5271,14 @@ Simulation::CommissionStep Simulation::commission_step() {
         for (const auto& [commodity_id, units] : universe_.ship_operations.life_support_units_per_crew_day) {
             provisions_per_day += units * station_price(get_station_state(yard.id), commodity_id);
         }
-        const double committed = committed_flow(destination.id, PASSENGER_GOOD, false)
-            + committed_flow(destination.id, PASSENGER_GOOD, true);
+        // Taken: what ships flying the route carry now (cabin hulls and liners alike, committed or
+        // not) plus ships still in the yard, and at least what the committed ships carry.
+        const double committed_in_yard = committed_flow(destination.id, PASSENGER_GOOD, true);
+        const double committed = committed_flow(destination.id, PASSENGER_GOOD, false) + committed_in_yard;
         const auto open_share = [&](const std::string& from, const std::string& to) {
             const double flow = flow_per_day(from, to);
-            return flow > 0.0 ? std::max(0.0, flow - committed) / flow : 0.0;
+            const double taken = std::max(committed, carried_passengers_per_day(from, to) + committed_in_yard);
+            return flow > 0.0 ? std::max(0.0, flow - taken) / flow : 0.0;
         };
         const auto outbound = expected_passenger_revenue(yard.id, destination.id, option.travel_days, cycle_days,
             option.cargo_units, open_share(yard.id, destination.id));

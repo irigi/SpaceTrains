@@ -208,6 +208,7 @@ public:
         double people {0.0};
         double max_cost_cr {0.0};
         double value_of_time_cr_per_day {0.0};
+        bool queued {false};  // already waiting (not a flow still to come)
     };
     struct PassengerRevenue {
         double people {0.0};
@@ -215,6 +216,7 @@ public:
     };
     [[nodiscard]] std::vector<PassengerBand> expected_travellers(const std::string& origin_id,
         const std::string& destination_id, double window_days) const;
+    [[nodiscard]] double carried_passengers_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] PassengerRevenue expected_passenger_revenue(const std::string& origin_id,
         const std::string& destination_id, double days, double window_days, double berths, double open_share) const;
     // Fuel at a port at today's price (never below base), and a reference fare at those prices.
