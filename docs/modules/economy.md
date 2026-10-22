@@ -176,12 +176,24 @@ Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
   - Residents' use of `consume` goods follows their wage (elasticity 1) and price (−1); upkeep goods barely
     respond (−0.1). A supply response to price is built but off (`supply_price_elasticity` 0).
 - **Station incomes** (`station_incomes.csv`), paid by Earth:
-  - science budgets: Titan, Ganymede, Mercury, the Venus cloud base;
+  - science budgets: Titan and Ganymede as science stations, Mercury, the Venus cloud base;
   - relay services: Ganymede, Mercury, Earth L1;
   - settlement: Mars, Ceres;
   - tourism and survey: Luna.
 
   Visitors also spend at the station during their stay.
+  - **Grants are need-based** (`need_based` 1: science and settlement): full while the station holds less
+    than half the credit ceiling, falling to nothing at it. Services (relay, tourism) are paid in full.
+  - **Science stations** (`science_station`: Titan, Ganymede) centre their import prices 50% above landed
+    cost (`science_price_premium`): Earth pays to keep them supplied.
+- **Crews:** ships pay their crews' wages and hazard pay to the home station's households.
+- **Output follows employment:** outputs and the inputs feeding them scale with jobs ÷ workers (at most 1;
+  `StationState::employed_share`, in half-percent steps); consumption follows residents.
+- **Local hiring:** the colonies have people (Mars 50,000, Luna 10,000, belt 5,000) with a lognormal wage.
+  - Up: those whose surface wage is low enough that the gateway's job, less hardship, repays the ascent over
+    a stay take its vacancies, without a ship.
+  - Down: the gateway's unemployed go down to work on the surface.
+  - Savings follow the people (`Simulation::step_colony_labour`).
 - **Shipyards:** a new ship pays its nearest yard (Mercury Sunward Yard or Low Earth Logistics) half its price.
   The yard builds it from metals, machinery and electronics worth 20% of the price, out of its stock; what it
   lacks comes from Earth. The rest of the price goes to Earth.
@@ -196,9 +208,12 @@ Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
   - **Visitors** travel when half a year's income covers the trip (lognormal, σ 1.2 on Earth).
   - Settlers pay their own passage (sponsorship only without the labour market).
 - **Money:** the money-supply controller is off (`money_supply_days` 0); money enters and leaves through the
-  named flows. The faction credit band is 25k-500k. While a faction borrows, its top-up of a station covers
-  the core crew's goods and wages. The audit's residents table shows each station's flows, its people, jobs
-  and wage, and its days in the red.
+  named flows.
+  - The faction credit band is 25k-750k.
+  - While a faction borrows, its top-up of a station covers the core crew's goods and wages.
+  - A station in the red is covered within 2 days while its faction can borrow the gap.
+- **Audit:** the residents table shows each station's flows, its people, jobs and wage, and its days in the
+  red. `tools/benchmark.py` reports stations below the floor, in the red and the worst station's red days.
 
 ## Deferred Work
 
