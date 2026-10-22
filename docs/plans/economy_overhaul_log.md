@@ -40,14 +40,14 @@ Start 0, 1,460 days:
   5-10k cr/day, so the old band taxed stations on the swing of wages paid against spending returned.
 - **Decision (23:40):** with households, a station's residents travel on their own savings: only what they
   hold beyond half their buffer. Mars households had paid 3M cr of emigrant fares from pooled savings.
-- **Decision (00:00):** station incomes, set from each station's four-year trade deficit (cr/yr):
+- **Decision (23:20):** station incomes, set from each station's four-year trade deficit (cr/yr):
   - science: Titan 800k, Ganymede 250k, Mercury 100k, Venus cloud base 100k;
   - relay: Ganymede 50k, Mercury 50k, Earth L1 30k;
   - settlement: Mars 400k, Ceres 150k;
   - tourism and survey: Luna 60k.
 
   Luna's helium-3 output is 0.2 kg/day per 10,000 residents.
-- **Decision (00:10):** labour market. Starting wages are set so that a job seeker at Earth's 30th wage
+- **Decision (23:30):** labour market. Starting wages are set so that a job seeker at Earth's 30th wage
   percentile gains the fare over a 10-year stay (multiples of 0.5 cr/day):
   - 1.0 in cislunar space, at Venus and at Mercury;
   - 1.2 at Mars, 1.4 at Ceres, 2.0 at Ganymede, 3.0 at Titan.
@@ -56,7 +56,7 @@ Start 0, 1,460 days:
   or when credits fall below minus the floor (credits below zero alone cut Mars jobs on wage swings).
   Visitor trips are scaled ×10 (0.05 → 0.5 per person-year) because only those whose budget covers the
   fare travel now.
-- **Decision (00:15):** purchase valuations sell at most at the destination's landed cost (reference
+- **Decision (23:40):** purchase valuations sell at most at the destination's landed cost (reference
   price). With Earth selling at its ask, a ship's margin is the carriage; at scarcity prices, cargo estimates
   were 89%/yr against 6% earned. After the fix: 44% expected, 62% earned. Carrier margin 1.2 → 1.5 and hurdle
   30% → 20%/yr, so freight earns a normal return. Ceres and Ganymede reactor-fuel output cut 10 → 2 per
