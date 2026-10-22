@@ -24,6 +24,8 @@ constexpr double SURFACE_SUPPLY_FULL_PRICE = 1.25;
 constexpr double SURFACE_RESERVE_DAYS = 14.0;
 // A colony keeps its gateway stocked with at least this many days of the station's own use.
 constexpr double SURFACE_COVER_DAYS = 30.0;
+// A station adds jobs only while fewer than this share of its workers' jobs stand open.
+constexpr double VACANCY_GROWTH_LIMIT = 0.05;
 // A colony fills its gateway's vacancies, and takes its unemployed, over about this many days.
 constexpr double COLONY_FILL_DAYS = 30.0;
 // What a station paid per unit is averaged over about this many days of its use (as in Simulation.cpp).
@@ -380,8 +382,11 @@ void Simulation::step_labour(double dt_s) {
             }
         }
         const double utilization = output_value > 0.0 ? running_value / output_value : 1.0;
+        // New jobs only while the ones open get filled (under VACANCY_GROWTH_LIMIT unfilled).
+        const double open_share = (station.jobs - station_workers(station)) / std::max(1.0, station_workers(station));
         double rate = 0.0;
-        if (station.supply_index >= growth.grow_above && station.credits >= floor_credits && utilization >= 0.8) {
+        if (station.supply_index >= growth.grow_above && station.credits >= floor_credits && utilization >= 0.8
+            && open_share < VACANCY_GROWTH_LIMIT) {
             rate = growth.growth_per_year;
         } else if (station.supply_index < growth.decline_below || station.credits < -floor_credits || utilization < 0.5) {
             rate = -growth.decline_per_year;
