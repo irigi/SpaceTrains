@@ -9,7 +9,7 @@
     "C_theta",
     "transfer_time_days"
   ],
-  "source_npz": "VariableISP/trajectory_atlas.npz (kappa >= 0.1)",
+  "source_npz": "VariableISP/trajectory_atlas.npz from the Python generator (kappa >= 0.1); the Python code and the npz were removed 2026-10-22 (git history before commit removing them)",
   "solved_state_value": 2,
   "record_width": 6,
   "shape": [
@@ -298,5 +298,5 @@
     6.795344109529519,
     6.911503837897546
   ],
-  "extended_by": "tools/atlas_fill (spacetrains_atlas_fill --extend 14 --below-kappa 0.1), 2026-10-22: 14 kappa levels below 0.1 solved with GeneralTransfer; the npz does not contain them"
+  "extended_by": "tools/atlas_fill (spacetrains_atlas_fill --extend 14 --below-kappa 0.1), 2026-10-22: 14 kappa levels below 0.1 solved with the C++ general solver; this .bin is now the master atlas"
 }

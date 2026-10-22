@@ -262,3 +262,17 @@ the hard regions the holes sit in. Possible later, with more speed work.
 4-year run 122 → 140 s. Purchase check: cargo earned 96 → 76 %/yr (more ships serve Mercury, whose earlier
 few buyers earned 196%), passengers 51 → 46%. The audit's continuous-thrust revolution limit is now 4: low-κ
 Mercury legs spiral 2-3.3 turns in 300-530 days, with exact endpoints.
+
+**Why the hole fill was slow** (measured after the tolerance change, one 730-day game): 57.8 against 49.1 ms
+per simulated day. Refinements were 5% fewer but each cost 34% more (0.52 against 0.39 ms): longer paths, not
+more work. The holes lie where trips are long (filled cells' median transfer 360 canonical days against 52 for
+the old cells; mostly outer-system transfers the Python generator struggled with), so windows the planner used
+to skip are now refined over long integrations; and 17% of the filled cells took a branch with extra turns
+(more than 2× their column's median time, up to 3.6×), because the fill accepts θ mod 2π. Restricting the fill
+to the cell's own branch would remove the second part.
+
+**Python prototype removed (2026-10-22, user).** `VariableISP/*.py` (rocketHamilton integrator, generator,
+exporter, viewer, reference-set builder) and `trajectory_atlas.npz` were unused by the game and the tests: the
+game reads the runtime `.bin`, which `tools/atlas_fill` now extends. The tests keep the frozen reference
+trajectories the Python integrator produced (`tests/data/variable_isp/reference_*.json`) as an independent
+check of the C++ integrator; they cannot be regenerated without the prototype (in git history).
