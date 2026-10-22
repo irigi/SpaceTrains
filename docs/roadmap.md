@@ -18,12 +18,11 @@
 
 ## Current Plan (updated 2026-10-22) — start here
 
-**Status.** `main` holds everything up to tier 2 ship structures (PR #17). Branch `feature/passengers` (from
-`main` at `5442d96`, not merged yet) adds passengers, **on in the data since 2026-10-22**
-(`data/economy/passengers.csv` `passengers,1`): settlers, crew rotation and visitors travel by ship in cabin
-modules and liners, with shielded cabins for Titan. Plan `docs/plans/passengers.md`; decisions and results
-`docs/plans/passengers_log.md` (the activation check is at its end). Also on the branch: the VariableISP
-planner's fuel-check fix and the passenger speed work (no longer switches; the old code paths are removed).
+**Status.** `main` holds everything up to passengers (PR #18, merged 2026-10-22): settlers, crew rotation and
+visitors travel by ship in cabin modules and liners, with shielded cabins for Titan; **on in the data**
+(`data/economy/passengers.csv` `passengers,1`). Plan `docs/plans/passengers.md`; decisions and results
+`docs/plans/passengers_log.md`. Also merged: the VariableISP planner's fuel-check fix and the passenger speed
+work. Work now continues on `feature/passenger_routes` (plan `docs/plans/passenger_routes.md`).
 
 Benchmark, passengers on, cap 130, 4 starts × 1,460 days (2026-10-22): unmet demand 1.1 ± 0.3%, last fifth
 2.1 ± 1.0%, 145 ships (76% profitable), money −20 ± 7% against target, drift 0; ~45 ms per simulated day, the
@@ -37,6 +36,16 @@ slowest 20-day stretch 5.1 days/s or better (16-thread machine).
   the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
   Earth → Luna times (14-22 days for plasma ships, 16 for the shuttle, some over 150) also look long for the
   hop. Look at the fare and the shuttle's economics before more fleet.
+- **Earth ↔ Luna trip times fixed (2026-10-22):** no Moon wait for low-orbit stations, purchase probes plan
+  passenger legs with the riders' time and a full tank, contract loops may wait in port. Benchmark same within
+  noise (`docs/plans/passenger_routes.md`, "A2 fixes built"). Luna passengers still limited by the fare.
+- **Fuel at real prices (option A) and a Luna Ferry (2026-10-22):** fares follow port fuel prices; Luna
+  passengers board (give-ups about halved) but passenger carriers take ~45 of ~145 hulls and unmet cargo rises
+  0.86 → 1.5-1.8% (Mars fuel). Contracts kept (off doubles unmet). `passenger_routes.md`.
+- **Passenger purchases no longer overvalued (2026-10-22):** valuations counted a route's whole flow and
+  their own clearing fare (expected 154%/yr, earned 37%; Large Liners 68% → 7%). Now valued on the flow other
+  ships leave open; estimate ~2× the result, as for cargo. 8 starts: unmet 1.55%, last fifth 1.96%, 63 passenger
+  buys instead of 95 (`passenger_routes.md`, "Overvaluation fix built").
 - Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
 
 The passenger UI was checked in the game by the user (2026-10-22).
@@ -116,7 +125,9 @@ Checks after each step: the test suites (`ctest`), `tools/benchmark.py` (four st
 one run is too noisy to judge a change) and `--trajectory-audit`; for speed, `--profile` runs one after another
 with all threads (the slowest 20-day stretch must stay above 5 days/s). "Unmet demand" is the share of the
 stations' consumption (by base value, over the whole run) that found no stock. Debug idle ships with
-`SPACETRAINS_TRACE_SHIP="<ship name>"`.
+`SPACETRAINS_TRACE_SHIP="<ship name>"`. After changing purchase valuations, fares, prices or ship classes, also
+run `tools/purchase_returns.py` (expected against earned return by ship group; the estimate should stay within
+about 2× of the result, and a group far below it is being overbought).
 
 ## Trajectory Correctness Over Long Runs (mostly done)
 

@@ -55,3 +55,6 @@ ntr_shuttle,boiloff_shield,tank,90 K cooled tank shield (reduced boil-off),817,2
 large_plasma_liner,storm_shelter,habitat,Storm shelter (water wall),8506,345,,,,16,35.1502,7030.04,,spe_shield_g_cm2=20
 large_plasma_liner,cabin_water_wall,habitat,Cabin water wall,315769,12824,,,,,1304.83,260966,,cabin_shield_g_cm2=20
 large_plasma_liner,tank_wrap,habitat,Cabins inside the propellant tanks,8250,1930,,,,,1304.83,,,tank_wrap_m2=1304.83
+luna_ferry,storm_shelter,habitat,Storm shelter (water wall),3376,137,,,,4,13.9494,2789.87,,spe_shield_g_cm2=20
+luna_ferry,cabin_water_wall,habitat,Cabin water wall,89145,3620,,,,,368.367,73673.5,,cabin_shield_g_cm2=20
+luna_ferry,tank_wrap,habitat,Cabins inside the propellant tanks,330,77,,,,,368.367,,,tank_wrap_m2=368.367

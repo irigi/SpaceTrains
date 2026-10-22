@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 16;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes
+constexpr int kSaveVersion = 17;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -616,6 +616,7 @@ std::string Simulation::save_state_json() const {
             entry.set("fuel_cost", run.fuel_cost);
             entry.set("run", run.run);
             entry.set("module_id", run.module_id);
+            entry.set("return_fuel_kg", run.return_fuel_kg);
             list.push(std::move(entry));
         }
         probes.set(key, std::move(list));
@@ -804,6 +805,7 @@ void Simulation::load_state_json(const std::string& text) {
                 .fuel_cost = entry.get("fuel_cost").number(),
                 .run = static_cast<int>(entry.get("run").number()),
                 .module_id = entry.get("module_id").string(),
+                .return_fuel_kg = entry.get("return_fuel_kg").number(),
             });
             (void)get_station_definition(runs.back().destination_id);  // throws on an unknown station
         }

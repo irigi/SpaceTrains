@@ -47,3 +47,7 @@ large_plasma_liner_tank050,Large Plasma Liner (50% tanks),variable_isp,877250,15
 large_plasma_liner,Large Plasma Liner,variable_isp,885500,300000,50,0,0,565,1224300,8,large_plasma_liner,200
 large_plasma_liner_tank150,Large Plasma Liner (150% tanks),variable_isp,893750,450000,50,0,0,559,1226200,8,large_plasma_liner,200
 large_plasma_liner_tank200,Large Plasma Liner (200% tanks),variable_isp,902000,600000,50,0,0,554,1228100,8,large_plasma_liner,200
+luna_ferry_tank050,Luna Ferry (50% tanks),variable_isp,134915,6000,5,0,0,482,178300,2,luna_ferry,30
+luna_ferry,Luna Ferry,variable_isp,135245,12000,5,0,0,481,178400,2,luna_ferry,30
+luna_ferry_tank150,Luna Ferry (150% tanks),variable_isp,135575,18000,5,0,0,479,178500,2,luna_ferry,30
+luna_ferry_tank200,Luna Ferry (200% tanks),variable_isp,135905,24000,5,0,0,478,178500,2,luna_ferry,30

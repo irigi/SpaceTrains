@@ -1065,13 +1065,17 @@ int main() {
         straight.set_timewarp(86400.0);
         auto first_half = spacetrains::simulation::Simulation::from_data_root(data_root, market_on);
         first_half.set_timewarp(86400.0);
-        constexpr int kHalfDays = 90;  // the first loop is signed on day 76
-        for (int day = 0; day < kHalfDays; ++day) {
+        // The first loop is signed on day 180 (Earth <-> Moon ships leave without waiting for the
+        // Moon since 2026-10-22, so quick spot trips beat loops early on); the 90 days after the
+        // load cover a loop's wait in port at its first stop.
+        constexpr int kFirstDays = 200;
+        constexpr int kSecondDays = 90;
+        for (int day = 0; day < kFirstDays; ++day) {
             straight.step(1.0);
             first_half.step(1.0);
         }
         const auto saved = first_half.save_state_json();
-        require(saved.find("\"contract\":{\"stops\"") != std::string::npos, "some ship should sign a rotation contract within 90 days");
+        require(saved.find("\"contract\":{\"stops\"") != std::string::npos, "some ship should sign a rotation contract within 200 days");
         bool priced = false;
         for (auto at = saved.find("\"market_bidders\":"); at != std::string::npos; at = saved.find("\"market_bidders\":", at + 1)) {
             priced = priced || saved[at + 17] != '0';
@@ -1080,13 +1084,13 @@ int main() {
         auto resumed = spacetrains::simulation::Simulation::from_data_root(data_root, market_on);
         resumed.load_state_json(saved);
         require(resumed.save_state_json() == saved, "a loaded game with contracts should save back to the same JSON");
-        for (int day = 0; day < kHalfDays; ++day) {
+        for (int day = 0; day < kSecondDays; ++day) {
             straight.step(1.0);
             resumed.step(1.0);
         }
         require(resumed.save_state_json() == straight.save_state_json(),
             "a game with contracts saved, loaded and continued should equal one that never stopped");
-        std::cout << std::format("Market redesign: contracts signed, save/load exact after {} + {} days\n", kHalfDays, kHalfDays);
+        std::cout << std::format("Market redesign: contracts signed, save/load exact after {} + {} days\n", kFirstDays, kSecondDays);
     }
 
     // --- Save and load: a game continued after a load plays exactly as one that never
@@ -1230,8 +1234,11 @@ int main() {
                 "Mars should cost more to reach than Luna");
             const double days = fares.at("earth_orbit").at("mars_transfer").days;
             const double at_reference = straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 40.0, 40.0);
-            require_near(at_reference, fares.at("earth_orbit").at("mars_transfer").fare_cr, 1e-6,
-                "berths just filled at the reference trip should pay the reference fare");
+            // The reference fare at today's fuel prices (its propellant bought at the ports' prices).
+            const double live = straight.live_fare_cr("earth_orbit", "mars_transfer", fares.at("earth_orbit").at("mars_transfer"));
+            require(live >= fares.at("earth_orbit").at("mars_transfer").fare_cr - 1e-9,
+                "fuel never below base: the live fare is at least the base-price fare");
+            require_near(at_reference, live, 1e-6, "berths just filled at the reference trip should pay the reference fare");
             require(straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 80.0, 40.0) > 1.9 * at_reference,
                 "twice the demand should clear at about twice the reference cost");
             require_near(straight.expected_fare_cr("earth_orbit", "mars_transfer", days, 1e9, 40.0),

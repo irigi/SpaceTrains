@@ -82,6 +82,8 @@ public:
         double fare_cr {0.0};
         double days {0.0};
         std::string class_id;
+        double fuel_out_kg {0.0};
+        double fuel_back_kg {0.0};
     };
     [[nodiscard]] std::vector<ReferenceFareRow> compute_reference_fares() const;
     // Tests and debugging: overwrite one good's stock at a station.
@@ -206,6 +208,7 @@ public:
         double people {0.0};
         double max_cost_cr {0.0};
         double value_of_time_cr_per_day {0.0};
+        bool queued {false};  // already waiting (not a flow still to come)
     };
     struct PassengerRevenue {
         double people {0.0};
@@ -213,8 +216,13 @@ public:
     };
     [[nodiscard]] std::vector<PassengerBand> expected_travellers(const std::string& origin_id,
         const std::string& destination_id, double window_days) const;
+    [[nodiscard]] double carried_passengers_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] PassengerRevenue expected_passenger_revenue(const std::string& origin_id,
         const std::string& destination_id, double days, double window_days, double berths, double open_share) const;
+    // Fuel at a port at today's price (never below base), and a reference fare at those prices.
+    [[nodiscard]] double port_fuel_price(const std::string& station_id) const;
+    [[nodiscard]] double live_fare_cr(const std::string& origin_id, const std::string& destination_id,
+        const domain::PassengerDefinition::ReferenceFare& reference) const;
     [[nodiscard]] double expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
         double demand_per_trip, double berths) const;
     // Rotation (step 4): each off-Earth station's tour, which minimises its cost per day on site,
@@ -423,6 +431,8 @@ private:
     [[nodiscard]] std::string next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const;
     [[nodiscard]] bool under_contract(const domain::ShipState& ship) const;
     // Rotation contracts: units per day of a good contracted to a station, over every contract.
+    // A rotation contract's wait in port at its first stop before each lap (its cycle minus its legs).
+    [[nodiscard]] static double contract_dwell_days(const domain::ShipContract& contract);
     [[nodiscard]] double contracted_flow(const std::string& station_id, const std::string& commodity_id) const;
     // The best loop for a ship from its port, with its profit per day (0: none).
     std::pair<domain::ShipContract, double> find_contract(const domain::ShipState& ship,
@@ -479,6 +489,9 @@ private:
             double fuel_cost {0.0};
             int run {-1};  // lots of one mixed hold share a run number (its fuel is on the first lot)
             std::string module_id {};  // passengers: for the hull with this cabin module
+            // Passengers: propellant (kg) for the way back, bought at the destination at its price;
+            // -1 when the ship carries it from here (then the way back costs fuel_cost again).
+            double return_fuel_kg {-1.0};
         };
         std::vector<CargoOption> cargo_options;
     };
@@ -654,6 +667,7 @@ private:
         double fuel_cost {0.0};
         int run {-1};
         std::string module_id {};  // a passenger run for the hull with this cabin module
+        double return_fuel_kg {-1.0};  // see MissionChoice::CargoOption
     };
     std::map<std::string, std::vector<ProbedRun>> review_probes_;
     domain::FleetInvestmentLedger investment_ledger_;

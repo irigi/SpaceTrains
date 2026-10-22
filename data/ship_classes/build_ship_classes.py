@@ -319,6 +319,13 @@ CLASSES = [
     # as the 40-berth liner; crew of 8 (estimate: two watches of four).
     ClassSpec("large_plasma_liner", "Large Plasma Liner", "plasma", crew=8, habitat="long",
               cargo_units=50, propellant_kg=300_000, jet_power_w=500.0e6, berths=200),
+    # A cislunar ferry (docs/plans/passenger_routes.md, "Luna ferry"): the cheapest cost per
+    # passenger on Earth <-> Luna in a design study at the liners' cabin standard and power to mass
+    # (<= ~540 W/kg): 30 berths for a flow of ~3 people a day, a crew of two, and tanks for a few
+    # spiral legs (~3.5 t a leg out of Earth). The crew habitat is the long one, as every class's:
+    # nothing keeps a ship on short hops, and it is the cheapest small liner on some long routes too.
+    ClassSpec("luna_ferry", "Luna Ferry", "plasma", crew=2, habitat="long",
+              cargo_units=5, propellant_kg=12_000, jet_power_w=65.0e6, berths=30),
 ]
 
 

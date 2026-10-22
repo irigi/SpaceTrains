@@ -1271,10 +1271,10 @@ int main(int argc, char** argv) {
         // Plans the reference passenger trips and writes data/economy/reference_fares.csv.
         const auto fares = sim.compute_reference_fares();
         std::ofstream file(write_reference_fares_path);
-        file << "origin_id,destination_id,fare_cr,days,class_id\n";
+        file << "origin_id,destination_id,fare_cr,days,class_id,fuel_out_kg,fuel_back_kg\n";
         for (const auto& fare : fares) {
-            file << std::format("{},{},{:.2f},{:.1f},{}\n", fare.origin_id, fare.destination_id, fare.fare_cr, fare.days,
-                fare.class_id);
+            file << std::format("{},{},{:.2f},{:.1f},{},{:.1f},{:.1f}\n", fare.origin_id, fare.destination_id, fare.fare_cr,
+                fare.days, fare.class_id, fare.fuel_out_kg, fare.fuel_back_kg);
             std::cout << std::format("{:16s} -> {:16s} {:8.1f} cr  {:6.1f} d  by {}\n", fare.origin_id,
                 fare.destination_id, fare.fare_cr, fare.days, fare.class_id);
         }
