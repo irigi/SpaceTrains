@@ -113,6 +113,49 @@ food, Earth L1 electronics and machinery), not Luna. Earlier versions also had s
 (passengers_log). Luna passengers do not change (start 0: Earth L1 → Luna 3,344 gave up, was 2,998): the times
 were not the limit; the fare is (plan point 1).
 
+### Reference fares regenerated (2026-10-22, user)
+
+`reference_fares.csv` rewritten from the current code: 53 of 68 fares changed (most 0-5%, Mercury +8-12%),
+Earth ↔ Luna unchanged; Mercury → Ceres and Mercury → Ganymede dropped out (no feasible reference trip: the
+Mercury atlas gap, point D). Benchmark, 8 starts × 1,460 days, with the A2 fixes: unmet 0.86 ± 0.34%, last
+fifth 1.98 ± 0.76% (start 0: 3.8%), 112.3 profitable of 145.8 ships, money −23 ± 20% (before the A2 fixes:
+1.15%, 1.79%, 110.3 / 142.9, −17%).
+
+### Point 3 checked: a larger liner does not make Luna pay (2026-10-22)
+
+Purchase valuations of the Luna passenger runs (730 days, start 0, temporary trace of each part; per cycle):
+
+| Ship (yard → destination) | Cycle | People out / back | Fares | Fuel (2 legs) | Profit/d − running/d | Return |
+|---|---|---|---|---|---|---|
+| Large Plasma Liner, Earth L1 → Luna | 35.9 d | 186 / 89 | 14,183 cr | 61,518 cr | −1,341 − 326 | −50%/yr |
+| Large Plasma Liner, Luna → Earth L1 | 16.9 d | 38 / 84 | 8,078 cr | 9,840 cr | −118 − 327 | −13%/yr |
+| Plasma Liner, Earth L1 → Luna | 44.2 d | 40 / 40 | 17,226 cr | 12,066 cr | 110 − 78 | +4%/yr |
+| Plasma Liner, Luna → Earth L1 | 19.9 d | 40 / 40 | 10,096 cr | 1,620 cr | 417 − 78 | **+46%/yr** |
+| Passenger Shuttle (NTR), Earth L1 → Luna | 10.0 d | 40 / 25 | 4,937 cr | 136,020 cr | −13,122 − 70 | −1,793%/yr |
+
+- **Fuel decides it, not size.** Earth makes no fuel: its order price runs 28-77 cr/u and the going rate 40-45,
+  against a reference of 9.7 (base 8). A probe ship starts with empty tanks, so it buys its load at Earth's
+  price, and the valuation charges the way back at the same price (`2 × fuel_cost`), although a ship refuels
+  at Luna, a fuel factory. From Luna the same liner pays a sixth of the fuel.
+- **The fare ignores it too.** The reference fare (86 cr Earth L1 ↔ Luna) is planned at the base fuel price,
+  so it covers a fraction of what an Earth departure costs.
+- **A bigger ship does not help.** Fuel per seat is about the same (885 t dry for 200 berths against 198 t
+  for 40), the Large Liner's capital is 280 cr/day, and the flow (about 3.2 people a day out, 1.2 back) fills
+  200 berths only one way.
+- **NTR is out on this hop:** 68,000 cr of hydrogen per leg (73 t at Earth prices) for 40 seats.
+- **The Plasma Liner based at Luna clears the 30% hurdle (+46%/yr) and is still not bought:** above half the
+  fleet cap, candidates are ranked by profit per day (339 cr/day), and cargo runs earn more.
+
+Options (user to choose):
+- **A. Fuel in the valuation and the fare (recommended):** price the way back at the fuel the ship would buy at
+  the destination (Luna: cheap), and plan reference fares at each origin's fuel price (the going rate) rather
+  than the base price. Earth departures then cost what they cost, and Luna-based liners show their advantage.
+- **B. A scheduled Luna liner** like the IC Outer Loop liners (`liners.csv`, outside the fleet cap): a Plasma
+  Liner based at Luna on Luna → Earth L1 → Luna (or with LEO). Quick to add, but at today's fares it is
+  a service someone subsidises.
+- **C. Let passenger carriers compete by return, not profit per day,** under the cap, so the +46% Luna liner
+  is bought. Changes fleet composition across the board.
+
 ## Plan (the user's points, in order of work)
 
 1. **Why fares do not rise when people give up (A).** The traveller's budget is `reference cost × band
