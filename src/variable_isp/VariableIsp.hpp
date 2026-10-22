@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "variable_isp/GeneralTransfer.hpp"
+
 namespace spacetrains::variable_isp {
 
 struct SimilarityRequest {
@@ -178,5 +180,13 @@ public:
         std::size_t sample_count,
         const IntegratorSettings& settings = {}) const;
 };
+
+// Atlas costates <-> the general solver's primer at departure (normalised units: length r0,
+// mu = 1), for a canonical mission starting on the +x axis. Exact both ways.
+[[nodiscard]] general::Primer primer_from_costates(const AtlasSeed& seed, const CanonicalMissionConfig& config);
+[[nodiscard]] AtlasSeed costates_from_primer(const general::Primer& primer, double transfer_time_units,
+    const CanonicalMissionConfig& config);
+// One normalised time unit, sqrt(r0^3 / mu), in days.
+[[nodiscard]] double canonical_days_per_unit(const CanonicalMissionConfig& config);
 
 }  // namespace spacetrains::variable_isp

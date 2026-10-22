@@ -29,8 +29,10 @@ Benchmark, passengers on, cap 130, 4 starts × 1,460 days (2026-10-22): unmet de
 slowest 20-day stretch 5.1 days/s or better (16-thread machine).
 
 **Open for the user:**
-- **Mercury has no passengers:** the VariableISP atlas has a gap at Mercury (no reference fares Mercury → Mars
-  and Mercury → Titan). Waits for the atlas update (user, 2026-10-21).
+- **Mercury gap filled (2026-10-22, branch `feature/atlas_fill`):** the atlas has 14 new κ levels below 0.1,
+  solved with the C++ general solver (`tools/atlas_fill`); plan failures 55,871 → 3,410 per 730 days, fares for
+  all 72 pairs, unmet 1.55 → 1.11%, speed kept by a looser refinement tolerance. Filling the old grid's holes too
+  was measured and left out (12% slower). `docs/plans/visp_general_solver_log.md`, "Atlas extension to low κ".
 - **Earth ↔ Luna passengers:** about 60% of the people who give up wait for this 5-day hop. Its reference fare
   is 86-93 cr (a 200-berth plasma liner's cost), and every design's probe values a Luna passenger run below
   the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
@@ -83,7 +85,7 @@ The passenger UI was checked in the game by the user (2026-10-22).
 2. **Passenger routes** (`docs/plans/passenger_routes.md`): route data and a plan covering why fares don't
    rise with long queues, a tech review of the Luna shuttle, a large liner for Luna, the interplanetary routes
    with few legs, and the Titan return leg.
-3. **Mercury passengers:** the npz atlas update (above).
+3. ~~**Mercury passengers**~~: done (atlas extension, above).
 4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
 5. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
    proportions, from `ship_components.csv`), with more detail only when the camera is near (the far view keeps

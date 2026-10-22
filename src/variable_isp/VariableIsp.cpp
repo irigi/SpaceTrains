@@ -634,6 +634,40 @@ ShootingResult VariableIspIntegrator::refine_seed(
     return result;
 }
 
+double canonical_days_per_unit(const CanonicalMissionConfig& config) {
+    return std::sqrt(config.r0_m * config.r0_m * config.r0_m / config.mu_m3_s2) / VariableIspIntegrator::kDayS;
+}
+
+// Polar costates <-> primer at departure (on the +x axis, so e_r = x, e_θ = y):
+// p = k λ_v, w = −k [λ_r e_r + (C_θ + v_θ λ_vr − v_r λ_vθ)/r e_θ].
+general::Primer primer_from_costates(const AtlasSeed& seed, const CanonicalMissionConfig& config) {
+    const double time = std::sqrt(config.r0_m * config.r0_m * config.r0_m / config.mu_m3_s2);
+    const double accel = config.r0_m / (time * time);
+    const double k = config.k_gain;
+    return {
+        {k * seed.params[1] / accel, k * seed.params[2] / accel},
+        {-k * seed.params[0] / (accel / time),
+            -k * (seed.params[4] + config.vtheta0_mps * seed.params[1] - config.vr0_mps * seed.params[2]) / config.r0_m
+                / (accel / time)},
+    };
+}
+
+AtlasSeed costates_from_primer(const general::Primer& primer, double transfer_time_units,
+    const CanonicalMissionConfig& config) {
+    const double time = std::sqrt(config.r0_m * config.r0_m * config.r0_m / config.mu_m3_s2);
+    const double accel = config.r0_m / (time * time);
+    const double k = config.k_gain;
+    AtlasSeed out;
+    out.params[1] = primer.p.x * accel / k;
+    out.params[2] = primer.p.y * accel / k;
+    out.params[0] = -primer.w.x * (accel / time) / k;
+    out.params[3] = 0.0;
+    out.params[4] = -primer.w.y * (accel / time) * config.r0_m / k - config.vtheta0_mps * out.params[1]
+        + config.vr0_mps * out.params[2];
+    out.transfer_time_days = transfer_time_units * time / VariableIspIntegrator::kDayS;
+    return out;
+}
+
 ShootingResult VariableIspIntegrator::refine_seed_stm(
     const AtlasSeed& seed,
     const CanonicalMissionConfig& config,
@@ -647,17 +681,10 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
     const double time = std::sqrt(length * length * length / config.mu_m3_s2);
     const double speed = length / time;
     const double accel = length / (time * time);
-    const double k = config.k_gain;
     const double vr0 = config.vr0_mps;
     const double vt0 = config.vtheta0_mps;
 
-    // Polar costates <-> primer at departure (on the +x axis, so e_r = x, e_θ = y):
-    // p = k λ_v, w = −k [λ_r e_r + (C_θ + v_θ λ_vr − v_r λ_vθ)/r e_θ].
-    const g::Primer seed_primer {
-        {k * seed.params[1] / accel, k * seed.params[2] / accel},
-        {-k * seed.params[0] / (accel / time),
-            -k * (seed.params[4] + vt0 * seed.params[1] - vr0 * seed.params[2]) / config.r0_m / (accel / time)},
-    };
+    const g::Primer seed_primer = primer_from_costates(seed, config);
     const g::State start {{1.0, 0.0}, {vr0 / speed, vt0 / speed}};
     const double days_per_unit = time / kDayS;
 
@@ -677,9 +704,11 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
     };
 
     g::PropagationSettings propagation;
-    // Endpoint-only shooting: 1e-8 matches refine_seed's integration accuracy.
-    propagation.relative_tolerance = 1e-8;
-    propagation.absolute_tolerance = 1e-9;
+    // Endpoint-only shooting: 1e-7 meets the endpoint tolerances (1e-4) with room to spare and
+    // takes ~1.6x fewer steps than 1e-8 on long low-kappa spirals (2026-10-22: planning time back
+    // to before the atlas's low-kappa levels, endpoint misses unchanged). Paths are flown at 1e-8.
+    propagation.relative_tolerance = 1e-7;
+    propagation.absolute_tolerance = 1e-8;
     propagation.high_order = false;  // DOPRI5: as fast here, and the planner's plans stay as measured
     // Fail fast on paths that dive far below the caller's perihelion limit; intermediate
     // iterates may dip a little below it.
@@ -730,13 +759,8 @@ ShootingResult VariableIspIntegrator::refine_seed_stm(
     if (std::abs(solution.end.sweep_rad - (seed_sweep + std::remainder(theta_target - seed_sweep, kTau))) > 0.5) {
         return result;
     }
-    const auto& pr = solution.primer;
-    AtlasSeed out = seed;
-    out.params[1] = pr.p.x * accel / k;
-    out.params[2] = pr.p.y * accel / k;
-    out.params[0] = -pr.w.x * (accel / time) / k;
-    out.params[4] = -pr.w.y * (accel / time) * config.r0_m / k - vt0 * out.params[1] + vr0 * out.params[2];
-    out.transfer_time_days = solution.T * days_per_unit;
+    AtlasSeed out = costates_from_primer(solution.primer, solution.T, config);
+    out.params[3] = seed.params[3];
     result.seed = out;
     const auto& e = solution.end;
     const double r_end = g::norm(e.state.r);

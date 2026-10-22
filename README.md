@@ -61,6 +61,12 @@ Compare economy versions over several starting dates (one run is too noisy to ju
 tools/benchmark.py --binary build/bin/spacetrains_headless --days 730 --starts 0,90,180,270
 ```
 
+Solve VariableISP atlas cells with the C++ solver (the game's atlas adds 14 low-κ levels; ~8 minutes):
+
+```bash
+./build/bin/spacetrains_atlas_fill --input <old atlas.bin> --extend 14 --below-kappa 0.1 --output new.bin
+```
+
 Check whether ships earn the return their purchase valuation promised (by ship group):
 
 ```bash

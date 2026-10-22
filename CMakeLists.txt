@@ -49,6 +49,8 @@ target_link_libraries(spacetrains_bridge PRIVATE spacetrains_core)
 
 add_executable(spacetrains_visp_bench tools/visp_bench/main.cpp)
 target_link_libraries(spacetrains_visp_bench PRIVATE spacetrains_core)
+add_executable(spacetrains_atlas_fill tools/atlas_fill/main.cpp)
+target_link_libraries(spacetrains_atlas_fill PRIVATE spacetrains_core)
 
 enable_testing()
 add_executable(spacetrains_tests tests/test_main.cpp)

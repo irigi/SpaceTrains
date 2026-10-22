@@ -224,3 +224,41 @@ Sub-millisecond replanning makes a pirate/police AI that re-plans every few game
 4. **Pursuit-evasion** (RocketsChaseAstra.tex): the min-time and replanning primitives are the inner loop;
    the game-theoretic layer is not started.
 5. ~~**3D**~~: not planned. The game is 2D by design (user, 2026-10-15); see `docs/game_design.md`.
+
+## Atlas extension to low κ (2026-10-22, option 2 above; branch `feature/atlas_fill`)
+
+**Why.** The planner rejects a request whose κ is below the atlas grid (0.1). κ scales with (origin
+radius)^2.5, 0.093 at Mercury, so in a 730-day game 18.4% of plasma plan requests fell below the grid, 82% of
+them leaving Mercury (also the cheaper part-tank budgets of heavy ships). 55,871 requests found no plan, 40,528
+of them from Mercury; there were no reference fares Mercury → Mars, Ceres, Ganymede, Titan.
+
+**Tool.** `tools/atlas_fill` (`spacetrains_atlas_fill`) solves atlas cells with the general solver: a
+wavefront from solved neighbours (κ+1 first: the path does not depend on κ, only the time), `shoot` onto the
+cell's target, then `fit_effort_by_time` / `spend_effort_by_time` to the budget 0.999 κ (minimum time on the
+branch, perihelion ≥ 0.26 canonical when shortening, ≥ 0.1 accepted). Each new record is checked by
+integrating the polar costates with `VariableIspIntegrator` (the planner's tolerances, m_end ≥ 0.998 m_dry).
+The polar ↔ primer mapping is shared with `refine_seed_stm` (`primer_from_costates`, `costates_from_primer`).
+Deterministic (synchronous passes), 8 minutes on 16 threads.
+
+**What is in the game.** `--extend 14 --below-kappa 0.1`: 14 levels at the grid's own step (×1.279), κ down
+to 0.0032, covering 99% of the below-grid requests (99% quantile 0.0041). 77,567 new cells; at ρ 2-30 (the
+game's outward routes) every level from 0.0041 up is 100% solved. The old cells are untouched. Below-grid
+requests fall from 46,885 to 715 and plan failures from 55,871 to 3,410 per 730 days. Reference fares exist
+for all 72 pairs (Mercury → Mars 883 cr / 173 d, Mercury → Titan 3,558 cr / 734 d).
+
+**Speed.** The new plans cost time: refinement calls +21%, mean cost +51% (slow spirals integrate long);
+47-56 → 64-80 ms per simulated day. Loosening the refinement's integration (`refine_seed_stm`, DOPRI5
+1e-8 → 1e-7 relative) recovered it: endpoint misses unchanged (≤ 0.0001 AU), bench set R still 98.6-98.7%
+refined, median 0.11 → 0.07 ms. Final: 52-61 ms per day, slowest 20-day stretch 5.1-6.7 days/s (3 starts).
+The flown path is still integrated at 1e-8.
+
+**Not taken: filling the old grid's holes.** The same tool also fills 69% → 82% of the old grid (147k cells),
+best economy (unmet 0.8%) but another ~12% planning time that the refinement tolerance did not cover (4 days/s
+before the tolerance change). Fuel slack in the new cells (one κ level) did not help, so the cost is probably
+the hard regions the holes sit in. Possible later, with more speed work.
+
+**Results** (8 starts × 1,460 days, against the overvaluation-fix baseline): unmet 1.55 → 1.11%, last fifth
+1.96 → 1.98% (noise: 1.64% in a near-identical run), 137 ships (was 144), 114 profitable, money −12.5 ± 16%,
+4-year run 122 → 140 s. Purchase check: cargo earned 96 → 76 %/yr (more ships serve Mercury, whose earlier
+few buyers earned 196%), passengers 51 → 46%. The audit's continuous-thrust revolution limit is now 4: low-κ
+Mercury legs spiral 2-3.3 turns in 300-530 days, with exact endpoints.

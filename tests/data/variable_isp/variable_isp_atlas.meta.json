@@ -9,15 +9,15 @@
     "C_theta",
     "transfer_time_days"
   ],
-  "source_npz": "/home/blue-whale/SpaceTrains/VariableISP/trajectory_atlas.npz",
+  "source_npz": "VariableISP/trajectory_atlas.npz (kappa >= 0.1)",
   "solved_state_value": 2,
   "record_width": 6,
   "shape": [
     80,
-    60,
+    74,
     120
   ],
-  "solved_count": 400037,
+  "solved_count": 477604,
   "rho": [
     0.01,
     0.01123654800138751,
@@ -101,6 +101,20 @@
     100.0
   ],
   "kappa": [
+    0.003197719313758514,
+    0.004089191586676487,
+    0.0052291918682793245,
+    0.006687005735894847,
+    0.00855123446189487,
+    0.010935179916144205,
+    0.013983730691901326,
+    0.017882167971916923,
+    0.022867426327156548,
+    0.029242493843540208,
+    0.037394826770425514,
+    0.04781989787437501,
+    0.0611513096919645,
+    0.07819930286899271,
     0.1,
     0.12787837785143688,
     0.1635287952191486,
@@ -283,5 +297,6 @@
     6.679184381161494,
     6.795344109529519,
     6.911503837897546
-  ]
+  ],
+  "extended_by": "tools/atlas_fill (spacetrains_atlas_fill --extend 14 --below-kappa 0.1), 2026-10-22: 14 kappa levels below 0.1 solved with GeneralTransfer; the npz does not contain them"
 }
