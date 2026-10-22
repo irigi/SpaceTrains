@@ -128,3 +128,27 @@ Benchmark (4 starts × 1,460 days):
 - stations in the red at the end 0.2 per run; worst station 126 ± 33 days in the red (was 291 ± 160);
 - 5,000 boardings, 2.6M cr fares (the 3% travel budget halved residents' trips);
 - 0 trajectory flags, drift 0; faction interest to Earth 1.0M (they now borrow for ships).
+
+### Station money (2026-10-23, 00:45-01:10)
+
+The second 8-year run (ceiling 1.5M) was stable: unmet 0.2% → 0.5% cumulative by year 8. But every station
+ran a surplus in years 6-8 (Titan ~980k cr/yr, Low Earth Logistics 2.1M from yard sales) and sat at the
+ceiling: 13.6M cr in stations, while Independent Consortium borrowed ~4M at interest.
+
+- **Decision:** science and settlement grants are need-based (`station_incomes.csv` `need_based`): full
+  while the station holds less than half the credit ceiling, falling to nothing at the ceiling. Relay and
+  tourism are paid services and stay fixed.
+- **Decision:** a faction covers a station in the red at once (within 2 days) while it can borrow the gap.
+  The 30-day band left remote stations weeks in the red after each lumpy delivery: cash-flow timing, not
+  insolvency.
+- **Decision:** with that cover, taxes start again at 750k (was 1.5M).
+
+Benchmark (4 starts × 1,460 days):
+- unmet 0.3 ± 0.1%, last fifth 0.4 ± 0.1%;
+- 89.8 of 139 ships profitable (65%);
+- no station in the red or below its floor at the end; worst station 14.5 ± 4.7 days in the red;
+- 5,150 boardings, 2.9M cr fares; faction interest to Earth 0.9M.
+
+Trajectory audit: 0.5 ± 1.0 flags per run, all `many_revolutions` on Mercury departures at κ ≈ 0.005
+(5.5 revolutions, 929 days). Those paths exist since the atlas was extended to low κ (main, PR #20), not
+from the overhaul. They are costly, and the economy flies them rarely.
