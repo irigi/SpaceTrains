@@ -30,6 +30,10 @@ public:
     // 27) over RATE_REFERENCE_POPULATION, the seeded one until set.
     [[nodiscard]] double population_factor(const domain::StationDefinition& station) const;
     void set_population(const std::string& station_id, double population);
+    // Labour market (economy overhaul): plants run with the workers employed, so outputs and the
+    // inputs that feed them scale with employed workers / workers (at most 1; 1 until set).
+    void set_employment(const std::string& station_id, double employed_share);
+    [[nodiscard]] double employment(const std::string& station_id) const;
 
     // Units that count against a station's storage capacity (depot fuel does not, nor what a
     // background economy keeps stocked at its gateway).
@@ -127,6 +131,7 @@ private:
     std::unordered_map<std::string, std::vector<const domain::SurfaceMarketDefinition*>> surface_by_station_;
     std::unordered_map<std::string, std::unordered_map<std::string, double>> export_bids_;
     bool legacy_export_markets_ {false};
+    std::unordered_set<std::string> science_stations_;   // stations whose budget is science (station_incomes kind science_station)
     double surface_depth_units_ {0.0};
     // Landed-cost reference prices by station id and good (empty: base prices).
     std::unordered_map<std::string, std::unordered_map<std::string, double>> reference_prices_;
@@ -134,6 +139,8 @@ private:
     std::unordered_map<std::string, const domain::EventDefinition*> events_by_id_;
     // Current populations by station id (step 27).
     std::unordered_map<std::string, double> populations_;
+    // Employed share of the workers by station id (economy overhaul; 1 if absent).
+    std::unordered_map<std::string, double> employment_;
     // get_station_net_rates by station id, rebuilt by set_population.
     std::unordered_map<std::string, std::unordered_map<std::string, double>> net_rates_;
 };

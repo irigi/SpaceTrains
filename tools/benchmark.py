@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 
-def run_one(binary, days, start, threads, extra):
+def run_one(binary, days, start, threads, extra, keep=None):
     env = dict(os.environ, SPACETRAINS_THREADS=str(threads))
     interval = max(1, days // 5)
     began = time.time()
@@ -29,6 +29,10 @@ def run_one(binary, days, start, threads, extra):
          "--start-day", str(start)] + extra,
         capture_output=True, text=True, env=env, check=False).stdout
     seconds = time.time() - began
+    if keep:
+        os.makedirs(keep, exist_ok=True)
+        with open(os.path.join(keep, f"run_{start:.0f}.out"), "w") as handle:
+            handle.write(output)
     result = {"start": start, "seconds": seconds}
     previous = (0.0, 0.0)
     for line in output.splitlines():
@@ -106,6 +110,7 @@ def main():
     parser.add_argument("--starts", default="0,90,180,270")
     parser.add_argument("--threads", type=int, default=0, help="per run (default: cores / runs)")
     parser.add_argument("--no-events", action="store_true", help="switch random events off (step 28)")
+    parser.add_argument("--keep", default=None, help="directory to keep each run's output in (run_<start>.out)")
     parser.add_argument("extra", nargs="*", help="more arguments for the binary")
     args = parser.parse_args()
     if args.no_events:
@@ -113,7 +118,7 @@ def main():
     starts = [float(x) for x in args.starts.split(",")]
     threads = args.threads or max(1, (os.cpu_count() or 4) // len(starts))
     with ThreadPoolExecutor(max_workers=len(starts)) as pool:
-        results = list(pool.map(lambda s: run_one(args.binary, args.days, s, threads, args.extra), starts))
+        results = list(pool.map(lambda s: run_one(args.binary, args.days, s, threads, args.extra, args.keep), starts))
 
     columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("price", "price÷ref"), ("profitable", "profitable"), ("ships", "ships"),
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),

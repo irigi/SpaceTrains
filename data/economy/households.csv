@@ -22,3 +22,4 @@ consume_price_elasticity,-1.0
 upkeep_price_elasticity,-0.1
 yard_materials_share,0.2
 travel_share,0.03
+science_price_premium,0.5

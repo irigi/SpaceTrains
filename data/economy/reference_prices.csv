@@ -19,7 +19,7 @@ mars_transfer,fuel,20.68,7.92,8.51,venus_cloud,plasma_bulk_tanker,433.6
 mars_transfer,machinery,89.75,70.20,13.04,earth_l1,plasma_bulk_tanker,705.3
 mars_transfer,medicine,134.55,120.90,9.10,venus_cloud,plasma_bulk_tanker,338.3
 mars_transfer,reactor_fuel,452.37,429.00,15.58,earth_l1,plasma_bulk_tanker,954.2
-mars_transfer,science_samples,791.95,779.61,8.23,mercury_yard,plasma_bulk_tanker,373.3
+mars_transfer,science_samples,790.71,779.61,7.40,venus_cloud,plasma_bulk_tanker,277.1
 mercury_yard,electronics,74.99,63.96,7.35,earth_orbit,plasma_bulk_tanker,219.2
 mercury_yard,food,19.45,8.42,7.36,venus_cloud,plasma_bulk_tanker,243.1
 mercury_yard,medicine,132.94,120.90,8.03,earth_l1,plasma_bulk_tanker,268.3

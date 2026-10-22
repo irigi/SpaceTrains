@@ -44,6 +44,11 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     // see it as a consumer of its daily volume (EXPORT_PLANNING_UNITS where it takes any amount).
     constexpr double EXPORT_PLANNING_UNITS = 10.0;
     surface_depth_units_ = universe_.households.surface_depth_units;
+    for (const auto& income : universe_.station_incomes) {
+        if (income.kind == "science_station") {
+            science_stations_.insert(income.station_id);
+        }
+    }
     for (const auto& market : universe_.surface_markets) {
         surface_by_station_[market.station_id].push_back(&market);
         if (market.ask_cr <= 0.0 && market.bid_cr > 0.0) {
@@ -300,8 +305,12 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             }
         }
 
+        const double employed = employment(station.station_id);
         for (const auto* recipe : recipes) {
             double units_per_day = recipe->units_per_day * factor * event_factor(station, *recipe);
+            if (recipe->units_per_day > 0.0 || recipe->role == domain::RecipeRole::Input) {
+                units_per_day *= employed;   // plants run with the workers employed
+            }
             // Phase C: residents use more or less of what they consume with its price and their income.
             if (recipe->units_per_day < 0.0 && recipe->role != domain::RecipeRole::Input) {
                 if (const auto demand = station.demand_factor.find(recipe->commodity_id); demand != station.demand_factor.end()) {
@@ -464,7 +473,11 @@ double EconomySystem::curve_centre(
         return base_price;
     }
     const auto it = station_it->second.find(commodity_id);
-    return it == station_it->second.end() ? base_price : it->second;
+    if (it == station_it->second.end()) {
+        return base_price;
+    }
+    // A science station pays above the landed cost to be supplied (Earth's budget pays for it).
+    return science_stations_.contains(station.id) ? it->second * (1.0 + universe_.households.science_price_premium) : it->second;
 }
 
 double EconomySystem::reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -572,6 +585,24 @@ void EconomySystem::set_population(const std::string& station_id, double populat
     }
 }
 
+void EconomySystem::set_employment(const std::string& station_id, double employed_share) {
+    const double share = std::clamp(employed_share, 0.0, 1.0);
+    if (const auto it = employment_.find(station_id); it != employment_.end() ? it->second == share : share == 1.0) {
+        return;
+    }
+    employment_[station_id] = share;
+    for (const auto& station : universe_.stations) {
+        if (station.id == station_id) {
+            net_rates_[station_id] = compute_net_rates(station);
+        }
+    }
+}
+
+double EconomySystem::employment(const std::string& station_id) const {
+    const auto it = employment_.find(station_id);
+    return it == employment_.end() ? 1.0 : it->second;
+}
+
 const std::unordered_map<std::string, double>& EconomySystem::get_station_net_rates(const domain::StationDefinition& station) const {
     if (const auto it = net_rates_.find(station.id); it != net_rates_.end()) {
         return it->second;
@@ -587,8 +618,10 @@ std::unordered_map<std::string, double> EconomySystem::compute_net_rates(const d
         rates[FUEL_ID] += output;
     }
     const double factor = population_factor(station);
+    const double employed = employment(station.id);
     for (const auto* recipe : recipes_of(station)) {
-        rates[recipe->commodity_id] += recipe->units_per_day * factor;
+        const bool plant = recipe->units_per_day > 0.0 || recipe->role == domain::RecipeRole::Input;
+        rates[recipe->commodity_id] += recipe->units_per_day * factor * (plant ? employed : 1.0);
     }
     if (const auto it = export_markets_.find(station.id); it != export_markets_.end()) {
         for (const auto& [commodity_id, units_per_day] : it->second) {

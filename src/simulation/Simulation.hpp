@@ -433,6 +433,7 @@ private:
     void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
     void pay_home_station(domain::ShipState& ship, double amount);
+    void pay_crew(domain::ShipState& ship, double amount);
     // Open economy: residents pay their station for the goods the economy step used up, at what
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.

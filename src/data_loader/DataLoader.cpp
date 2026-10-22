@@ -955,6 +955,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"yard_share", &households.yard_share},
             {"yard_materials_share", &households.yard_materials_share},
             {"travel_share", &households.travel_share},
+            {"science_price_premium", &households.science_price_premium},
             {"surface_depth_units", &households.surface_depth_units},
             {"supply_price_elasticity", &households.supply_price_elasticity},
             {"min_utilization", &households.min_utilization},

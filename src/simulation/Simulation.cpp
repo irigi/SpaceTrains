@@ -1873,7 +1873,7 @@ void Simulation::accrue_radiation(domain::ShipState& ship, const domain::ShipCla
     ship.leg_dose_msv += dose;
     const double pay = design.crew_size * dose * env.hazard_cr_per_msv;
     if (pay > 0.0) {
-        pay_home_station(ship, pay);
+        pay_crew(ship, pay);
         ship.ledger.wages += pay;
     }
     radiation_audit_.crew_dose_msv += design.crew_size * dose;
@@ -2173,7 +2173,7 @@ void Simulation::step_particle_events(double dt_s) {
         ship.leg_dose_msv += dose;
         const double pay = design.crew_size * dose * env.hazard_cr_per_msv;
         if (pay > 0.0) {
-            pay_home_station(ship, pay);
+            pay_crew(ship, pay);
             ship.ledger.wages += pay;
         }
         radiation_audit_.crew_dose_msv += design.crew_size * dose;
@@ -2190,6 +2190,20 @@ void Simulation::step_particle_events(double dt_s) {
     }
     add_event(std::format("Solar particle event ({:.2f}x August 1972): {} ships in flight exposed{}", magnitude, hit,
         worst > 0.0 ? std::format(", worst {} with {:.0f} mSv", worst_ship, worst) : std::string()), "news");
+}
+
+void Simulation::pay_crew(domain::ShipState& ship, double amount) {
+    // The crew are residents of the home station: with households on (economy overhaul) their pay
+    // goes to its households, who spend it there; before, to the station itself.
+    if (!households_on()) {
+        pay_home_station(ship, amount);
+        return;
+    }
+    ship.credits -= amount;
+    ship.lifetime_profit -= amount;
+    auto& home = get_station_state(ship.home_station_id);
+    home.household_credits += amount;
+    home.ledger.crew_wages += amount;
 }
 
 void Simulation::pay_home_station(domain::ShipState& ship, double amount) {
@@ -2222,7 +2236,7 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     }
 
     const double wages = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day * days;
-    pay_home_station(ship, wages);
+    pay_crew(ship, wages);
     ship.ledger.wages += wages;
     accrue_radiation(ship, ship_class, days);
 
@@ -5267,7 +5281,12 @@ Simulation::CommissionStep Simulation::commission_step() {
         // (its reference price): scarcity bids do not last once ships serve it (economy overhaul:
         // with Earth selling at its ask, margins are the carriage and estimates at scarcity
         // prices ran 15x the earned returns).
-        const double sustained_cap = economy_.reference_price(destination, commodity_id);
+        // A station that keeps paying more than that (a science station far out, short for years)
+        // is valued at what it has been paying: its going rate.
+        double sustained_cap = economy_.reference_price(destination, commodity_id);
+        if (const auto stats = destination_state.order_stats.find(commodity_id); stats != destination_state.order_stats.end()) {
+            sustained_cap = std::max(sustained_cap, stats->second.going_rate);
+        }
         const auto sale_value = [&](double units) {
             return std::min(units * sustained_cap, [&] {
             const auto order = destination_state.order_stats.find(commodity_id);

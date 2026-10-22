@@ -380,6 +380,14 @@ void Simulation::step_labour(double dt_s) {
         const double vacancy_rate = std::clamp((station.jobs - workers) / workers, -1.0, 1.0);
         station.wage_cr_per_day = std::max(labour.min_wage_multiple * universe_.labour.reference_wage_cr_per_day,
             station.wage_cr_per_day * std::exp(labour.wage_adjust_per_year * vacancy_rate * dt_years));
+        // Plants run with the workers employed (jobs filled / workers). The share the economy runs
+        // on moves in steps of half a percent (or to full employment), so net rates are rebuilt
+        // rarely; it is saved with the station.
+        const double share = std::min(1.0, station.jobs / workers);
+        if (std::abs(share - station.employed_share) >= 0.005 || (share == 1.0 && station.employed_share != 1.0)) {
+            station.employed_share = share;
+            economy_.set_employment(station.station_id, share);
+        }
     }
 }
 

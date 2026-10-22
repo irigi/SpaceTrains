@@ -528,6 +528,7 @@ struct HouseholdDefinition {
     double yard_share {0.0};             // of a new ship's price paid to its yard station (the rest to Earth)
     double yard_materials_share {0.0};   // of the price, the goods the yard builds it from (from its stock)
     double travel_share {0.0};           // of residents' wages they put aside for long trips (0: no limit beyond savings)
+    double science_price_premium {0.0};  // a station with a science budget centres its import prices this much above landed cost
     std::vector<std::string> yards;      // stations that build ships
     // Phase C: supply and demand respond to prices and incomes (0 elasticities: off).
     double supply_price_elasticity {0.0};    // plants run at (price / reference)^e of capacity...
@@ -849,6 +850,7 @@ struct StationLedger {
     double ship_sales {0.0};            // ships paid it for cargo, fuel, provisions, refits and repairs
     double ship_purchases {0.0};        // it paid ships for cargo they delivered
     double days_in_red {0.0};           // days its credits stood below zero
+    double crew_wages {0.0};            // its ships' crews' wages, paid to its households
 };
 
 // The treasuries' trade in ships with the outside economy (fleet investment), all amounts
@@ -959,6 +961,7 @@ struct StationState {
     // Labour market (phase B): jobs at the station and its wage per worker per day.
     double jobs {0.0};
     double wage_cr_per_day {0.0};
+    double employed_share {1.0};   // what its plants run on (jobs / workers, at most 1, in half-percent steps)
     // Phase C (not saved: set from prices and wages at the start of every tick): what each
     // output's plants run at for its price (supply responds to price), and what residents use
     // of each good they consume for its price and their income (demand responds to both).

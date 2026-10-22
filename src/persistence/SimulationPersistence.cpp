@@ -391,11 +391,13 @@ Json station_to_json(const domain::StationState& s) {
     ledger.set("ship_sales", s.ledger.ship_sales);
     ledger.set("ship_purchases", s.ledger.ship_purchases);
     ledger.set("days_in_red", s.ledger.days_in_red);
+    ledger.set("crew_wages", s.ledger.crew_wages);
     out.set("ledger", std::move(ledger));
     out.set("household_credits", s.household_credits);
     out.set("travel_budget_cr", s.travel_budget_cr);
     out.set("jobs", s.jobs);
     out.set("wage_cr_per_day", s.wage_cr_per_day);
+    out.set("employed_share", s.employed_share);
     out.set("ship_fuel_units_per_day", s.ship_fuel_units_per_day);
     out.set("import_units_per_day", goods_to_json(s.import_units_per_day));
     out.set("export_units_per_day", goods_to_json(s.export_units_per_day));
@@ -468,10 +470,12 @@ domain::StationState station_from_json(const Json& j) {
     s.ledger.ship_sales = ledger.get("ship_sales").number();
     s.ledger.ship_purchases = ledger.get("ship_purchases").number();
     s.ledger.days_in_red = ledger.get("days_in_red").number();
+    s.ledger.crew_wages = ledger.get("crew_wages").number();
     s.household_credits = j.get("household_credits").number();
     s.travel_budget_cr = j.get("travel_budget_cr").number();
     s.jobs = j.get("jobs").number();
     s.wage_cr_per_day = j.get("wage_cr_per_day").number();
+    s.employed_share = j.get("employed_share").number();
     s.ship_fuel_units_per_day = j.get("ship_fuel_units_per_day").number();
     s.import_units_per_day = goods_from_json(j.get("import_units_per_day"));
     s.export_units_per_day = goods_from_json(j.get("export_units_per_day"));
@@ -601,7 +605,7 @@ std::string Simulation::data_fingerprint() const {
             h.migrant_savings_cr, h.visitor_spend_cr_per_day, h.credits_per_usd, h.yard_share, h.surface_depth_units));
         mix(std::format("Hc{}|{}|{}|{}|{}|{};", h.supply_price_elasticity, h.min_utilization, h.consume_income_elasticity,
             h.consume_price_elasticity, h.upkeep_price_elasticity, h.yard_materials_share));
-        mix(std::format("Ht{};", h.travel_share));
+        mix(std::format("Ht{}|{};", h.travel_share, h.science_price_premium));
         const std::map<std::string, double> wages(h.wage_multiple.begin(), h.wage_multiple.end());
         for (const auto& [station_id, multiple] : wages) {
             mix(std::format("Hw{}|{};", station_id, multiple));
@@ -904,6 +908,7 @@ void Simulation::load_state_json(const std::string& text) {
     investment_ledger_.salvage = investment.get("salvage").number();
     stations_ = std::move(stations);
     for (const auto& station : stations_) {
+        economy_.set_employment(station.station_id, station.employed_share);
         economy_.set_population(station.station_id, station.population);
     }
     ships_ = std::move(ships);
