@@ -1,15 +1,19 @@
 extends RefCounted
 
-# Generic station models, built in metres and drawn at the ships' scale (Main.gd
-# SHIP_METRES_TO_WORLD), so docked ships are in proportion. Sizes are compressed: a real
-# torus for 20,000 people would be ~1.8 km across; here the habitat ring's radius grows
-# from ~44 m (5,000 people) to ~72 m (22,000). Tier 3 (station structures) may replace this.
+# Generic station models, built in metres at real size and drawn at the ships' scale
+# (Main.gd ship_metres_to_world), so docked ships are in proportion.
+# - The habitat ring is sized by population, anchored on the Stanford torus (900 m radius
+#   for 10,000 people, tube 65 m): radius grows with the square root of the people per ring,
+#   never under 250 m (1 g at 2 rpm). Rings turn at the rate that gives 1 g.
+# - Everything else (spine, docking hubs, berths, tanks, arrays, flavour) is sized for the
+#   ships that dock there (40-140 m long), the same at every station.
+# Tier 3 (station structures) may replace this.
 #
 # Layout (local Z is the station's axis; Main tilts it to stand up from the ecliptic):
 # - a spine with a docking hub at each end, four berthing arms per hub (docked ships sit
 #   at their ends, bow to the hub);
 # - one habitat ring, two counter-rotating ones above 15,000 people, with spokes, windows
-#   and the faction band; rings turn slowly in real time (timewarp would spin them);
+#   and the faction band; rings turn in real time (timewarp would spin them);
 # - storage tanks by storage capacity, solar arrays and radiators;
 # - a flavour by economy profile: greenhouses (agri), fabrication blocks (industrial), a
 #   sphere tank farm (chemical, and any fuel factory), a solar furnace (smelter), container
@@ -18,13 +22,24 @@ extends RefCounted
 const MeshBuilder := preload("res://scripts/MeshBuilder.gd")
 const Materials := preload("res://scripts/ModelMaterials.gd")
 
-const RING_SPIN_RAD_S := 0.04
 const TWO_RING_POPULATION := 15000.0
+# The size the docking core's parts are drawn for (they were once scaled by ring radius).
+const CORE_M := 110.0
+const STANFORD_RADIUS_M := 900.0
+const STANFORD_POPULATION := 10000.0
+const MIN_RING_RADIUS_M := 250.0
+const TUBE_RATIO := 65.0 / 900.0
 
 static var _cache := {}
 
+# Habitat ring radius for a station's (seeded) population, split over its rings.
 static func ring_radius_m(population: float) -> float:
-    return 55.0 * pow(maxf(population, 1000.0) / 10000.0, 1.0 / 3.0)
+    var per_ring := maxf(population, 1000.0) / float(2 if population >= TWO_RING_POPULATION else 1)
+    return maxf(MIN_RING_RADIUS_M, STANFORD_RADIUS_M * sqrt(per_ring / STANFORD_POPULATION))
+
+# Spin that gives 1 g at the ring's rim.
+static func ring_spin_rad_s(radius_m: float) -> float:
+    return sqrt(9.81 / maxf(radius_m, 1.0))
 
 static func _key(data: Dictionary) -> String:
     return "%s|%d|%d|%d" % [String(data.get("economy_profile_id", "")), int(_ring_count(data)),
@@ -37,7 +52,8 @@ static func _ring_count(data: Dictionary) -> int:
 static func _tank_count(data: Dictionary) -> int:
     return clampi(int(float(data.get("storage_capacity", 20000.0)) / 9000.0), 2, 8)
 
-# {hull: mesh info, ring: mesh info, ring_z: [z...], radius_m, berths: [{pos, dir}]}
+# {hull, ring (mesh infos), ring_z: [z...], radius_m (whole station), core_radius_m (without
+#  the ring), ring_radius_m, spin_rad_s, berths: [{pos, dir}]}
 static func model_info(data: Dictionary) -> Dictionary:
     var key := _key(data)
     if not _cache.has(key):
@@ -46,14 +62,20 @@ static func model_info(data: Dictionary) -> Dictionary:
 
 static func _build(data: Dictionary) -> Dictionary:
     # Seeded population: the model is the station as founded, not rebuilt as people come and go.
-    var radius := ring_radius_m(float(data.get("seeded_population", data.get("population", 10000.0))))
-    var length := 2.4 * radius
-    var half := length * 0.5
-    var hub_r := 0.14 * radius
+    var ring_radius := ring_radius_m(float(data.get("seeded_population", data.get("population", 10000.0))))
+    var tube := TUBE_RATIO * ring_radius
+    var ring_count := _ring_count(data)
+    # The docking core: `radius` sizes its parts. Two rings sit side by side, a tube apart;
+    # the hubs stand far enough beyond the spokes that docked ships clear them.
+    var radius := CORE_M
+    var ring_z: Array = [0.0] if ring_count == 1 else [-1.3 * tube, 1.3 * tube]
+    var half := maxf(1.2 * radius, absf(float(ring_z[0])) + 150.0)
+    var length := 2.0 * half
+    var hub_r := 0.22 * radius
     var b := MeshBuilder.new()
     # Spine: a truss core with pressurized modules along it.
-    b.cylinder("truss", -half, half, 0.05 * radius, 12)
-    b.vessel("blanket", -half * 0.75, half * 0.75, 0.08 * radius, 0.06 * radius, 20)
+    b.cylinder("truss", -half, half, 0.09 * radius, 12)
+    b.vessel("blanket", -half * 0.75, half * 0.75, 0.14 * radius, 0.1 * radius, 20)
     # Docking hubs and berthing arms.
     var berths: Array = []
     for end in [-1.0, 1.0]:
@@ -61,33 +83,28 @@ static func _build(data: Dictionary) -> Dictionary:
         b.vessel("blanket", zc - hub_r, zc + hub_r, hub_r, hub_r * 0.6, 20)
         b.cylinder("metal", zc + end * hub_r * 0.8, zc + end * (hub_r + 4.0), 3.0, 14)
         b.torus("steel", zc + end * (hub_r + 4.0), 3.4, 0.5, Transform3D.IDENTITY, 16, 5)
-        var arm := 0.35 * radius
+        # Long enough that neighbouring berths' ships (up to ~200 m across the radiators) clear.
+        var arm := 1.0 * radius
         for k in range(4):
             var a := PI * 0.25 + PI * 0.5 * float(k)
             var radial := Vector3(cos(a), sin(a), 0.0)
             var tip := radial * arm + Vector3(0.0, 0.0, zc)
-            b.beam("truss", radial * hub_r * 0.8 + Vector3(0.0, 0.0, zc), tip, 1.6)
+            b.beam("truss", radial * hub_r * 0.8 + Vector3(0.0, 0.0, zc), tip, 3.0)
             b.cylinder("metal", -1.5, 1.5, 2.2, 10, Transform3D(Basis(Vector3(0, 0, 1), radial.cross(Vector3(0, 0, 1)), radial).orthonormalized(), tip))
             berths.append({"pos": tip, "dir": radial})
     # Habitat ring(s) as separate meshes (they spin); here only their spokes' hub collars.
-    var ring_count := _ring_count(data)
-    var ring_z: Array = []
-    if ring_count == 1:
-        ring_z = [0.0]
-    else:
-        ring_z = [-0.3 * length, 0.3 * length]
     for z in ring_z:
-        b.cylinder("steel", float(z) - 0.05 * radius, float(z) + 0.05 * radius, 0.12 * radius, 20)
+        b.cylinder("steel", float(z) - 0.1 * radius, float(z) + 0.1 * radius, 0.3 * radius, 24)
     # Storage tanks round the spine, between the rings and the lower hub.
     var tanks := _tank_count(data)
-    var tank_r := 0.07 * radius
+    var tank_r := 0.09 * radius
     var tz0 := -half + hub_r * 2.2
     var tz1 := (float(ring_z[0]) - 0.2 * radius) if ring_count == 2 else -0.25 * radius
     if tz1 - tz0 < 4.0 * tank_r:
         tz1 = tz0 + 4.0 * tank_r
     for k in range(tanks):
         var a := TAU * float(k) / float(tanks)
-        var at := Vector3(cos(a), sin(a), 0.0) * (0.08 * radius + tank_r * 1.3)
+        var at := Vector3(cos(a), sin(a), 0.0) * (0.14 * radius + tank_r * 1.3)
         b.vessel("tank", tz0, tz1, tank_r, tank_r * 0.8, 14, Transform3D(Basis.IDENTITY, at))
     # Solar arrays (upper end) and radiators (lower end) on masts.
     for side in [-1.0, 1.0]:
@@ -100,32 +117,37 @@ static func _build(data: Dictionary) -> Dictionary:
     _flavour(b, String(data.get("economy_profile_id", "")), radius, length, ring_z,
         float(data.get("fuel_factory_per_day", 0.0)) > 0.0)
     var hull := b.commit()
-    var ring := _build_ring(radius)
+    var ring := _build_ring(ring_radius, 0.3 * radius)
     var aabb: AABB = hull["aabb"]
-    var bound := radius * 1.15
+    var bound := (ring_radius + tube) * 1.02
+    var core_bound := 0.0
     for i in range(8):
-        bound = maxf(bound, aabb.get_endpoint(i).length())
-    return {"hull": hull, "ring": ring, "ring_z": ring_z, "radius_m": bound, "ring_radius_m": radius, "berths": berths}
+        core_bound = maxf(core_bound, aabb.get_endpoint(i).length())
+    bound = maxf(bound, core_bound)
+    return {"hull": hull, "ring": ring, "ring_z": ring_z, "radius_m": bound, "core_radius_m": core_bound,
+        "ring_radius_m": ring_radius, "spin_rad_s": ring_spin_rad_s(ring_radius), "berths": berths}
 
-# A habitat ring around local Z at z = 0: torus, windows facing out, the faction band,
-# spokes to the spine.
-static func _build_ring(radius: float) -> Dictionary:
+# A habitat ring around local Z at z = 0: torus, window strips facing out, the faction
+# band, spokes to the hub collar (radius collar_m).
+static func _build_ring(radius: float, collar_m: float) -> Dictionary:
     var b := MeshBuilder.new()
-    var tube := 0.13 * radius
-    b.torus("blanket", 0.0, radius, tube, Transform3D.IDENTITY, 64, 12)
+    var tube := TUBE_RATIO * radius
+    b.torus("blanket", 0.0, radius, tube, Transform3D.IDENTITY, 128, 16)
     # The faction band round the ring's outer rim, between the two rows of windows.
-    b.cylinder("band", -0.22 * tube, 0.22 * tube, radius + tube * 1.01, 64, Transform3D.IDENTITY, true)
-    var windows := 72
+    b.cylinder("band", -0.22 * tube, 0.22 * tube, radius + tube * 1.01, 128, Transform3D.IDENTITY, true)
+    var windows := 96
+    var window_len := 0.45 * TAU * radius / float(windows)
     for k in range(windows):
         var a := TAU * (float(k) + 0.5) / float(windows)
         var radial := Vector3(cos(a), sin(a), 0.0)
         var basis := Basis(radial, Vector3(-sin(a), cos(a), 0.0), Vector3(0.0, 0.0, 1.0))
         for row in [-0.45, 0.45]:
-            b.box("window", Vector3(0.3, 1.6, 1.0), Transform3D(basis, radial * (radius + tube * 0.98) + Vector3(0.0, 0.0, row * tube)))
+            b.box("window", Vector3(0.6, window_len, 0.09 * tube), Transform3D(basis, radial * (radius + tube * 0.98) + Vector3(0.0, 0.0, row * tube)))
+    # Spokes: lift tubes, 15 m across as on the Stanford torus.
     for k in range(6):
         var a := TAU * float(k) / 6.0
         var radial := Vector3(cos(a), sin(a), 0.0)
-        b.beam("steel", radial * 0.12 * radius, radial * (radius - tube * 0.9), 0.035 * radius)
+        b.beam("steel", radial * collar_m * 0.9, radial * (radius - tube * 0.9), 15.0)
     return b.commit()
 
 static func _flavour(b: MeshBuilder, profile: String, radius: float, length: float, ring_z: Array, fuel_factory: bool) -> void:
@@ -232,8 +254,11 @@ static func ensure(container: Node3D, data: Dictionary) -> void:
     container.set_meta("model_key", key)
     container.set_meta("radius_m", info["radius_m"])
     container.set_meta("berths", info["berths"])
+    container.set_meta("core_radius_m", info["core_radius_m"])
+    container.set_meta("spin_rad_s", info["spin_rad_s"])
 
 static func spin_rings(container: Node3D, real_time_s: float) -> void:
+    var rate := float(container.get_meta("spin_rad_s", 0.1))
     for child in container.get_children():
         if child.has_meta("spin"):
-            (child as Node3D).rotation = Vector3(0.0, 0.0, fmod(real_time_s * RING_SPIN_RAD_S, TAU) * float(child.get_meta("spin")))
+            (child as Node3D).rotation = Vector3(0.0, 0.0, fmod(real_time_s * rate, TAU) * float(child.get_meta("spin")))

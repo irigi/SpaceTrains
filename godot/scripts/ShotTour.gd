@@ -22,11 +22,22 @@ const STOPS := [
     {"name": "station_mars", "id": "mars_transfer", "kind": "station", "distance": 0.004},
     # Close-ups: the station models with docked ships, and the same paint near the Sun
     # (Mercury) and far from it (Titan) for the colour check.
-    {"name": "station_leo_close", "id": "earth_orbit", "kind": "station", "distance": 0.0004},
-    {"name": "station_l1_close", "id": "earth_l1", "kind": "station", "distance": 0.0004},
-    {"name": "station_mercury_close", "id": "mercury_yard", "kind": "station", "distance": 0.0003},
-    {"name": "station_titan_close", "id": "titan_works", "kind": "station", "distance": 0.0003},
+    # "size": the distance in model sizes (the model's world radius), whatever the model scale.
+    {"name": "station_leo_close", "id": "earth_orbit", "kind": "station", "size": 3.0},
+    {"name": "station_l1_close", "id": "earth_l1", "kind": "station", "size": 3.0},
+    {"name": "station_luna_close", "id": "luna_base", "kind": "station", "size": 3.0},
+    {"name": "station_mercury_close", "id": "mercury_yard", "kind": "station", "size": 3.0},
+    {"name": "station_titan_close", "id": "titan_works", "kind": "station", "size": 3.0},
+    # The Low Earth station with Earth behind it, and from further out (how big it is next to its orbit).
+    {"name": "station_leo_earth", "id": "earth_orbit", "kind": "station", "size": 12.0},
+    {"name": "station_leo_far", "id": "earth_orbit", "kind": "station", "size": 200.0},
 ]
+
+# A stop's camera distance: fixed world units, or model sizes ("size").
+func _stop_distance(stop: Dictionary) -> float:
+    if stop.has("size"):
+        return float(stop["size"]) * main._model_world_size(main.entity_nodes[stop["id"]])
+    return float(stop["distance"])
 
 func _ready() -> void:
     for arg in OS.get_cmdline_user_args():
@@ -130,7 +141,13 @@ func _run() -> void:
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()
             return
+    if OS.get_cmdline_user_args().has("--shot-arrival"):
+        await _arrival_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-close"):
+        _report_path_end_gaps()
+        await _docked_close_shot(rig)
         await _close_zoom_shots(rig)
         get_tree().quit()
         return
@@ -139,7 +156,7 @@ func _run() -> void:
             print("[ShotTour] skip %s (no %s)" % [stop["name"], stop["id"]])
             continue
         main.select_entity(stop["id"], stop["kind"], true)
-        rig.set("distance", maxf(float(stop["distance"]), float(rig.get("min_distance"))))
+        rig.set("distance", maxf(_stop_distance(stop), float(rig.get("min_distance"))))
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot(stop["name"])
@@ -147,6 +164,7 @@ func _run() -> void:
             await _report_fps(stop["name"])
         if OS.get_cmdline_user_args().has("--shot-big-meshes"):
             _report_big_meshes(main.get_tree().root, stop["name"])
+    await _docked_close_shot(rig)
     # A ship in flight, if any.
     for ship_id in main.entity_details.keys():
         if main.entity_kinds.get(ship_id, "") == "ship" and String(main.entity_details[ship_id].get("phase", "")) == "in_transit":
@@ -257,7 +275,7 @@ func _run() -> void:
             continue
         shot_hulls[hull] = true
         main.select_entity(ship_id, "ship", true)
-        rig.set("distance", 0.0003)
+        rig.set("distance", maxf(main._model_world_size(main.entity_nodes[ship_id]) * 40.0, float(rig.get("min_distance"))))
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot("ship_model_" + hull)
@@ -355,6 +373,113 @@ func _close_zoom_shots(rig: Node3D) -> void:
         print("[ShotTour] close station: camera %.6f from Earth's centre, radius %.6f, near %.10f" % [
             camera.global_position.distance_to(earth.global_position), earth.scale.x, camera.near])
         await _shoot("close_station_blocked")
+
+# The next ship to dock, watched from its destination station at a slow timewarp: it
+# should ease into a berth over the ring, without a jump.
+func _arrival_shots(rig: Node3D) -> void:
+    var pick := ""
+    var soonest := INF
+    var waited := 0
+    while waited < 240:
+        var now := float(main.get("display_time_s"))
+        soonest = INF
+        for ship_id in main.entity_details.keys():
+            var ship: Dictionary = main.entity_details[ship_id]
+            if main.entity_kinds.get(ship_id, "") != "ship" or String(ship.get("phase", "")) != "in_transit":
+                continue
+            var arrival := float(ship.get("arrival_time_s", 0.0))
+            if arrival > now + 4.0 * 3600.0 and arrival < soonest and main.entity_nodes.has(String(ship.get("destination_station_id", ""))):
+                soonest = arrival
+                pick = ship_id
+        if soonest - now < 2.0 * 86400.0:
+            break
+        await get_tree().create_timer(0.5).timeout
+        waited += 1
+    if pick == "" or soonest == INF:
+        print("[ShotTour] arrival: no ship in flight")
+        return
+    var station_id := String(main.entity_details[pick].get("destination_station_id", ""))
+    print("[ShotTour] arrival: %s to %s in %.2f d" % [pick, station_id, (soonest - float(main.get("display_time_s"))) / 86400.0])
+    main.select_entity(station_id, "station", true)
+    var station: Node3D = main.entity_nodes[station_id]
+    rig.set("distance", main._model_world_size(station) * 6.0)
+    rig.set("pitch", -0.6)
+    rig.call("_update_transform")
+    main._on_timewarp_changed(21600.0)
+    while float(main.get("display_time_s")) < float(main.entity_details[pick].get("arrival_time_s", 0.0)) - 3.0 * 3600.0:
+        await get_tree().process_frame
+    main._on_timewarp_changed(600.0)
+    var frame := 0
+    var last_offset := Vector3.ZERO
+    var docked_at := -1
+    var started := Time.get_ticks_msec()
+    while Time.get_ticks_msec() - started < 200000 and (docked_at < 0 or frame < docked_at + 120):
+        await get_tree().process_frame
+        var ship: Dictionary = main.entity_details[pick]
+        var node: Node3D = main.entity_nodes[pick]
+        var offset := (node.global_position - station.global_position) / float(main.get("ship_metres_to_world"))
+        var step := offset.distance_to(last_offset)
+        if docked_at < 0 and String(ship.get("phase", "")) != "in_transit":
+            docked_at = frame
+        # A step is a jump only when the ship is near the station (it covers ~30 km per frame
+        # on approach even at 600x: arrivals are at speed, the burns are impulsive).
+        if frame % 120 == 0 or (step > 60.0 and offset.length() < 5000.0 and last_offset.length() < 5000.0):
+            print("[ShotTour] arrival t%+.0f s: %.0f m from the station centre, moved %.0f m this frame (%s)" % [
+                float(main.get("display_time_s")) - float(ship.get("arrival_time_s", 0.0)), offset.length(), step, String(ship.get("phase", ""))])
+        if frame % 90 == 0 and offset.length() < 6000.0:
+            await _shoot("arrival_%04d" % frame)
+        last_offset = offset
+        frame += 1
+    await _shoot("arrival_docked")
+    main._on_timewarp_changed(86400.0)
+
+# How far each planned path's ends are from its stations (a ship jumps by this much when
+# it docks or leaves; it matters at true scale).
+func _report_path_end_gaps() -> void:
+    for ship_id in main.ship_paths.keys():
+        var ship: Dictionary = main.entity_details.get(ship_id, {})
+        var path: Dictionary = main.ship_paths[ship_id]
+        var gaps := []
+        for end in [["origin_station_id", float(path["departure"])], ["destination_station_id", float(path["arrival"])]]:
+            var orbit: Dictionary = main.station_orbits.get(String(ship.get(end[0], "")), {})
+            if orbit.is_empty():
+                gaps.append(-1.0)
+                continue
+            var base: PackedFloat64Array = main._body_at_m(String(orbit["body"]), end[1])
+            var p: PackedFloat64Array = main._rail_point_m(path, end[1])
+            var dx: float = p[0] - (base[0] + cos(float(orbit["theta"])) * float(orbit["r"]))
+            var dy: float = p[1] - base[1]
+            var dz: float = p[2] - (base[2] + sin(float(orbit["theta"])) * float(orbit["r"]))
+            gaps.append(sqrt(dx * dx + dy * dy + dz * dz))
+        print("[ShotTour] path ends %s (%s): departure gap %.0f m, arrival gap %.0f m" % [ship_id, "helio" if bool(path.get("helio", false)) else "local", gaps[0], gaps[1]])
+
+# A docked ship at its berth, close up, with its station behind.
+func _docked_close_shot(rig: Node3D) -> void:
+    for ship_id in main.entity_details.keys():
+        if main.entity_kinds.get(ship_id, "") == "ship" and String(main.entity_details[ship_id].get("phase", "")) != "in_transit" \
+                and main.entity_nodes.has(ship_id):
+            main.select_entity(ship_id, "ship", true)
+            rig.set("distance", maxf(main._model_world_size(main.entity_nodes[ship_id]) * 2.5, float(rig.get("min_distance"))))
+            rig.call("_update_transform")
+            await get_tree().create_timer(1.5).timeout
+            await _shoot("ship_docked_close")
+            # Picking up close: the ship on its body off the icon, then its station's ring.
+            var camera: Camera3D = rig.get("camera")
+            var node: Node3D = main.entity_nodes[ship_id]
+            var at := camera.unproject_position(node.global_position)
+            var off := Vector2(main._projected_model_pixels(node) * 0.6, 0.0)
+            main._pick_entity(at + off)
+            var on_ship := String(main.get("selected_id"))
+            main.select_entity(String(main.entity_details[ship_id].get("current_station_id", "")), "station", true)
+            rig.set("distance", main._model_world_size(main.entity_nodes[main.get("selected_id")]) * 2.5)
+            rig.call("_update_transform")
+            await get_tree().create_timer(0.3).timeout
+            var station: Node3D = main.entity_nodes[main.get("selected_id")]
+            var ring_at := camera.unproject_position(station.global_position) + Vector2(main._projected_model_pixels(station) * 0.7, 0.0)
+            main.select_entity(ship_id, "ship")
+            main._pick_entity(ring_at)
+            print("[ShotTour] pick: ship body off the icon -> %s (want %s); inside the ring -> %s" % [on_ship, ship_id, String(main.get("selected_id"))])
+            return
 
 # Frame rate at the current view: mean and worst frame over two seconds.
 func _report_fps(stop_name: String) -> void:

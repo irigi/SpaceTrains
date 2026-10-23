@@ -211,7 +211,8 @@ func _run() -> void:
             var name := "station_%s" % String(station.get("id", ""))
             _frame(radius * 1.1, "three_quarter")
             tiles.append(await _shoot(out.path_join(name + ".png")))
-            _frame(radius * 0.6, "three_quarter")
+            # The docking core with its ships (the ring is ~1 km out).
+            _frame(float(container.get_meta("core_radius_m", radius * 0.6)) * 1.1, "three_quarter")
             await _shoot(out.path_join(name + "_close.png"))
             container.queue_free()
             await process_frame

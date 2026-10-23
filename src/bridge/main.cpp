@@ -234,8 +234,10 @@ int main(int argc, char** argv) {
             // runs slower than the timewarp asks (a fleet review), snapshots keep coming and
             // the UI slows down smoothly; the rest of the time is carried over (up to
             // kMaxCatchUpS) instead of being run in one long burst.
-            owed_real_s = std::min(kMaxCatchUpS, owed_real_s + elapsed_s);
+            // The cap is at least one tick: at the slowest timewarp (600x) a tick is 14.4 s of
+            // real time, and a 4 s cap alone would never let one run.
             const double tick_real_s = spacetrains::simulation::Simulation::TICK_S / std::max(1.0, timewarp);
+            owed_real_s = std::min(std::max(kMaxCatchUpS, tick_real_s), owed_real_s + elapsed_s);
             const double before_s = simulation.game_time_s();
             const auto work_start = std::chrono::steady_clock::now();
             while (owed_real_s >= tick_real_s - 1e-9

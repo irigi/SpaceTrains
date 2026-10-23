@@ -5,9 +5,12 @@ const POSITION_SCALE := 1.0 / 8_000_000_000.0
 # across, as in Kerbal Space Program's map view). Ships and stations are tiny next to a
 # planet; their models are a few hundred kilometres, shown only up close, icons otherwise.
 const BODY_MIN_MODEL_SCALE := 1.0e-9
-# Ship models are built in metres (ShipModels.gd) and drawn ~4,500x real size (1 world unit
-# is 8e9 m): a 49 m light freighter is ~220 km. Proportions between ships are real.
-const SHIP_METRES_TO_WORLD := 5.6e-7
+# Ship and station models are built in metres (ShipModels.gd, StationModels.gd) and drawn
+# MODEL_SIZE_EXAGGERATION times real size; 1 is true scale (a 49 m light freighter is
+# 6e-9 world units). Ships and stations share the factor, so their size ratios stay real.
+# The user arg --model-scale=N overrides it.
+const MODEL_SIZE_EXAGGERATION := 1.0
+var ship_metres_to_world := POSITION_SCALE * MODEL_SIZE_EXAGGERATION
 # A ship's detailed model replaces the coarse one above this on-screen radius (pixels),
 # and goes back below the lower one.
 const SHIP_DETAIL_PX := 150.0
@@ -209,6 +212,8 @@ func _ready() -> void:
     if "--debug-map" in OS.get_cmdline_user_args():
         debug_map_enabled = true
     for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--model-scale="):
+            ship_metres_to_world = POSITION_SCALE * maxf(float(arg.trim_prefix("--model-scale=")), 1.0e-3)
         if arg.begins_with("--shot-tour="):
             add_child(load("res://scripts/ShotTour.gd").new())
     if bridge_started:
@@ -751,9 +756,13 @@ func _update_nodes(delta: float) -> void:
             if String(detail.get("phase", "idle")) != "in_transit":
                 docked.append(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
-    # Docked ships after every station has its position for this frame.
+    # Docked ships, and ships near a station, after every station has its position for this frame.
     for entity_id in docked:
         _place_docked_ship(entity_nodes[entity_id], entity_id)
+    for entity_id in entity_nodes.keys():
+        if entity_kinds.get(entity_id, "") == "ship" \
+                and String((entity_details.get(entity_id, {}) as Dictionary).get("phase", "idle")) == "in_transit":
+            _ease_into_berth(entity_nodes[entity_id], entity_id)
     for entity_id in entity_nodes.keys():
         if entity_kinds.get(entity_id, "") == "ship":
             var node: Node3D = entity_nodes[entity_id]
@@ -1160,32 +1169,77 @@ func _to_render(p: PackedFloat64Array) -> Vector3:
 func _abs_render(p: PackedFloat64Array) -> Vector3:
     return Vector3(p[0] * POSITION_SCALE, p[1] * POSITION_SCALE, p[2] * POSITION_SCALE)
 
-# Docked ships sit in a small ring around their station, so several stay pickable.
 # A docked ship sits at one of its station's berths (StationModels: the ends of the
-# berthing arms), bow to the hub; ships beyond the berth count queue further out. Slots
-# are by ship id among the ships docked there (_docked_slots, per snapshot).
+# berthing arms), bow to the hub; ships beyond the berth count queue further out. A ship
+# keeps its slot while docked; an arriving ship takes the lowest free one (_docked_slots).
 func _place_docked_ship(node: Node3D, ship_id: String) -> void:
     var detail: Dictionary = entity_details.get(ship_id, {})
     var station: Node3D = entity_nodes.get(String(detail.get("current_station_id", "")))
-    if station == null or not station.has_meta("berths"):
+    var pose := _berth_pose(station, int(_docked_slots.get(ship_id, 0)), float(node.get_meta("length_m", 50.0)))
+    if pose.is_empty():
         return
+    node.position = pose["position"]
+    node.basis = (pose["basis"] as Basis).scaled(Vector3.ONE * ship_metres_to_world)
+
+# Where a ship of this length sits at a berth slot: {position, basis (unscaled)}, or {}.
+func _berth_pose(station: Node3D, slot: int, length_m: float) -> Dictionary:
+    if station == null or not station.has_meta("berths"):
+        return {}
     var berths: Array = station.get_meta("berths")
     if berths.is_empty():
-        return
-    var slot := int(_docked_slots.get(ship_id, 0))
+        return {}
     var berth: Dictionary = berths[slot % berths.size()]
     var layer := slot / berths.size()
     var dir := (station.basis * (berth["dir"] as Vector3)).normalized()
     var axis := (station.basis * Vector3(0.0, 0.0, 1.0)).normalized()
-    var half_length := float(node.get_meta("length_m", 50.0)) * 0.5
-    var out_m := half_length + 3.0 + float(layer) * 110.0
-    node.position = station.position + station.basis * (berth["pos"] as Vector3) + dir * out_m * SHIP_METRES_TO_WORLD
-    node.basis = Basis.looking_at(-dir, axis).scaled(Vector3.ONE * SHIP_METRES_TO_WORLD)
+    # Queued ships stand off a ship length apart (the longest is ~140 m).
+    var out_m := length_m * 0.5 + 3.0 + float(layer) * 160.0
+    return {"position": station.position + station.basis * (berth["pos"] as Vector3) + dir * out_m * ship_metres_to_world,
+        "basis": Basis.looking_at(-dir, axis)}
 
-var _docked_slots: Dictionary = {}
+# Near a station a ship in flight eases between its path (which ends at the station's
+# centre) and its berth: the one it left, or the lowest free one where it is going. The
+# blend follows distance (full within 1.3 station radii, none beyond 4), so the ship
+# docks without a jump and passes over the habitat ring rather than through it.
+func _ease_into_berth(node: Node3D, ship_id: String) -> void:
+    var detail: Dictionary = entity_details.get(ship_id, {})
+    var best: Node3D = null
+    var best_id := ""
+    var best_d := INF
+    for key in ["origin_station_id", "destination_station_id"]:
+        var station_id := String(detail.get(key, ""))
+        var station: Node3D = entity_nodes.get(station_id)
+        if station == null:
+            continue
+        var d := node.position.distance_to(station.position)
+        if d < best_d:
+            best = station
+            best_id = station_id
+            best_d = d
+    if best == null:
+        return
+    var radius := float(best.get_meta("radius_m", 1000.0)) * best.scale.x
+    var w := 1.0 - smoothstep(1.3 * radius, 4.0 * radius, best_d)
+    if w <= 0.0:
+        return
+    var slot := 0
+    var last: Array = _last_berth.get(ship_id, [])
+    if not last.is_empty() and String(last[0]) == best_id and best_id == String(detail.get("origin_station_id", "")):
+        slot = int(last[1])
+    else:
+        slot = _free_slot(best_id)
+    var pose := _berth_pose(best, slot, float(node.get_meta("length_m", 50.0)))
+    if pose.is_empty():
+        return
+    node.position += ((pose["position"] as Vector3) - best.position) * w
+    var turn := node.basis.get_rotation_quaternion().slerp((pose["basis"] as Basis).get_rotation_quaternion(), w)
+    node.basis = Basis(turn).scaled(Vector3.ONE * ship_metres_to_world)
+
+var _docked_slots: Dictionary = {}    # ship id -> berth slot, while docked
+var _docked_station: Dictionary = {}  # ship id -> station id, while docked
+var _last_berth: Dictionary = {}      # ship id -> [station id, slot] of its last stay
 
 func _rebuild_docked_slots() -> void:
-    _docked_slots.clear()
     var by_station := {}
     for ship in bridge_state.get("ships", []):
         if String(ship.get("phase", "idle")) == "in_transit":
@@ -1194,11 +1248,45 @@ func _rebuild_docked_slots() -> void:
         if not by_station.has(station_id):
             by_station[station_id] = []
         by_station[station_id].append(String(ship["id"]))
+    var kept := {}
     for station_id in by_station.keys():
         var ids: Array = by_station[station_id]
         ids.sort()
-        for i in range(ids.size()):
-            _docked_slots[ids[i]] = i
+        for ship_id in ids:
+            if String(_docked_station.get(ship_id, "")) == station_id:
+                kept[ship_id] = int(_docked_slots[ship_id])
+    var slots := {}
+    var stations := {}
+    for station_id in by_station.keys():
+        var used := {}
+        for ship_id in by_station[station_id]:
+            if kept.has(ship_id):
+                used[kept[ship_id]] = true
+        var next := 0
+        for ship_id in by_station[station_id]:
+            var slot: int
+            if kept.has(ship_id):
+                slot = kept[ship_id]
+            else:
+                while used.has(next):
+                    next += 1
+                slot = next
+                used[slot] = true
+            slots[ship_id] = slot
+            stations[ship_id] = station_id
+            _last_berth[ship_id] = [station_id, slot]
+    _docked_slots = slots
+    _docked_station = stations
+
+func _free_slot(station_id: String) -> int:
+    var used := {}
+    for ship_id in _docked_station.keys():
+        if String(_docked_station[ship_id]) == station_id:
+            used[int(_docked_slots[ship_id])] = true
+    var slot := 0
+    while used.has(slot):
+        slot += 1
+    return slot
 
 # --- Orbit rings near the focus -----------------------------------------------
 
@@ -1566,7 +1654,7 @@ func _body_display_scale(body_id: String) -> float:
     return _body_scale_from_radius(float(detail.get("radius_m", 0.0)))
 
 func _ship_display_scale(_data: Dictionary) -> float:
-    return SHIP_METRES_TO_WORLD
+    return ship_metres_to_world
 
 # The ship's model for its design (a stand-in until the designs file has it), rebuilt when
 # the design changes (a refit, worn radiators).
@@ -1608,12 +1696,12 @@ func _model_world_size(node: Node3D) -> float:
         return float(node.get_meta("radius_m")) * node.scale.x
     return node.scale.x
 
-# Stations are drawn at the ships' scale, but never reach more than 60% of the way down to
-# their planet (the Lunar Gateway orbits 200 km up).
+# Stations are drawn at the ships' scale. A guard for large --model-scale values: a station
+# never reaches more than 60% of the way down to its planet (never binds at true scale).
 func _station_display_scale(data: Dictionary) -> float:
     var radius_m := float(StationModelsScript.model_info(data)["radius_m"])
     var limit := 0.6 * float(data.get("altitude_m", 1.0e9)) * POSITION_SCALE / maxf(radius_m, 1.0)
-    return minf(SHIP_METRES_TO_WORLD, limit)
+    return minf(ship_metres_to_world, limit)
 
 func _model_display_scale(kind: String, data: Dictionary) -> float:
     if kind == "body":
@@ -1766,7 +1854,7 @@ func _price_trends_for(station_id: String) -> Dictionary:
 
 func _pick_entity(mouse_pos: Vector2) -> void:
     var best_id := ""
-    var best_distance := 28.0
+    var best_distance := INF
     var best_kind := ""
     for entity_id in entity_nodes.keys():
         var node: Node3D = entity_nodes[entity_id]
@@ -1777,8 +1865,18 @@ func _pick_entity(mouse_pos: Vector2) -> void:
         var detail: Dictionary = entity_details.get(entity_id, {})
         var pick_radius: float = max(_icon_pixel_size(kind, detail) + ICON_PICK_PADDING_PX, 20.0)
         var distance := screen_pos.distance_to(mouse_pos)
-        if distance < pick_radius and distance < best_distance:
-            best_distance = distance
+        # Near the icon: the nearest wins. Up close a ship or station is also hit anywhere on
+        # its model (its projected radius); then the smallest model wins, so a docked ship
+        # beats the station around it.
+        var score := INF
+        if distance < minf(pick_radius, 28.0):
+            score = distance
+        elif kind == "ship" or kind == "station":
+            var model_px := _projected_model_pixels(node)
+            if distance < model_px:
+                score = 1000.0 + model_px
+        if score < best_distance:
+            best_distance = score
             best_id = entity_id
             best_kind = kind
     if best_id != "":
@@ -1973,14 +2071,14 @@ func _attach_map_icon(entity_id: String, kind: String, data: Dictionary) -> void
 
 func _projected_model_pixels(node: Node3D) -> float:
     var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
-    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-9)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-14)
     return _model_world_size(node) / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
 
 # Inverse of the above: the world size that projects to target_pixels at the
 # node's current camera distance.
 func _world_size_for_pixels(node: Node3D, target_pixels: float) -> float:
     var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
-    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-9)
+    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-14)
     return target_pixels / viewport_height * 2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)
 
 func _update_map_icons() -> void:
@@ -2359,11 +2457,16 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
     focused_kind = entity_kind
     # Zoom stops outside the focused body (bodies are drawn at true size now); a ship or
     # station can be zoomed until it fills most of the view.
-    var min_distance := 1.0e-6
+    var min_distance := 1.0e-12
     if entity_kind == "body":
         min_distance = maxf(min_distance, _body_display_scale(entity_id) * 1.6)
     elif entity_nodes.has(entity_id):
-        min_distance = maxf(min_distance, _model_world_size(entity_nodes[entity_id]) * (1.6 if entity_kind == "ship" else 2.5))
+        var node: Node3D = entity_nodes[entity_id]
+        if entity_kind == "station" and node.has_meta("core_radius_m"):
+            # Inside the habitat ring, close to the docking core.
+            min_distance = maxf(min_distance, float(node.get_meta("core_radius_m")) * node.scale.x * 1.6)
+        else:
+            min_distance = maxf(min_distance, _model_world_size(node) * (1.6 if entity_kind == "ship" else 2.5))
     camera_rig.set("min_distance", min_distance)
     camera_rig.set("distance", maxf(float(camera_rig.get("distance")), min_distance))
     if entity_nodes.has(entity_id):

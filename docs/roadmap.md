@@ -126,11 +126,11 @@ An 8-year run holds at 0.1% unmet.
 4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
 5. ~~**Better 3D ship models**~~ (user, 2026-10-20): built on `feature/ship_models_3d` (above), with generic
    station models and the colour fix; awaiting review and merge.
-6. **True scale for ships and stations:** ships and stations are now built in metres, so this is mostly one
-   constant (`Main.SHIP_METRES_TO_WORLD`, now ~4,500x real) and real station sizes (drop the compressed rings and
-   the altitude cap in `_station_display_scale`, which today shrinks Low Earth Logistics and the Lunar Gateway).
-   Real size ratios for everything: ships, stations, docked ships (user, 2026-10-23). Then check, at metre scale: arrival snaps, docking, engine glow,
-   picking, focus distances and the camera near plane.
+6. ~~**True scale for ships and stations**~~ (2026-10-23, on `feature/ship_models_3d`): ships and stations at real
+   size (`Main.MODEL_SIZE_EXAGGERATION` = 1, `--model-scale=N` to change), Stanford-torus habitat rings by
+   population, a ship-sized docking core, sticky berths with a blend into them, model-aware picking, near plane and
+   zoom limits for metre scale. Also fixed: the bridge never ticked at the slowest timewarp (600x). Awaiting review
+   with step 5.
 7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.

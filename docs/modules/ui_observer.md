@@ -37,8 +37,13 @@
   camera that reaches only ships and stations (render layer 2), so their night sides stay readable.
 - **Ship models** (`ShipModels.gd`, 2026-10-23): built from the design's components with the schematic's layout
   (`ShipLayout.gd`, shared with `ui/ShipSchematic.gd`), so the map shows the same parts in the same order and
-  proportions, in metres. `Main.SHIP_METRES_TO_WORLD` (5.6e-7 world units per metre, ~4,500x real) sets the size,
-  so a 49 m light freighter is drawn ~220 km long and a 125 m-wide liner 2.5x a courier.
+  proportions, in metres, at true scale (roadmap step 6): `Main.MODEL_SIZE_EXAGGERATION` (1.0) times real size, so a
+  49 m light freighter is 6e-9 world units long next to a 12,742 km Earth. Ships and stations share the factor,
+  so their size ratios are real at any setting; the user arg `--model-scale=N` overrides it (testing, or a
+  fallback if true scale ever proves awkward). The camera's near plane goes down to 1e-14 world units (~8 cm)
+  and the focus zoom limit follows the model's size.
+  - Picking: near its icon the nearest entity wins; up close a ship or station is also hit anywhere within its
+    projected radius, and then the smallest model wins (a docked ship before its station).
   - Two levels of detail, each one cached mesh per design (`MeshBuilder.gd` merges the parts into one surface per
     material slot, so a ship is a few draw calls):
     - coarse (mid zoom, ~1,000 triangles);
@@ -65,11 +70,20 @@
   - Far out, the billboard engine glow marks a running engine (`EntityVisuals.update_engine_glow`: thermal ships
     for `engine_burn_s` after departure and before arrival, plasma ships the whole transit, sized by jet power).
   - Until the designs file is read, a stand-in design is drawn.
-- **Station models** (`StationModels.gd`): generic, in metres at the ships' scale, so docked ships are in proportion.
-  - Sizes are compressed: the habitat ring's radius is 44-72 m for 5,000-22,000 people.
-  - A spine with a docking hub and four berthing arms at each end; docked ships sit at the arm ends, bow to the hub,
-    queuing outwards when there are more ships than berths.
-  - One habitat ring, two counter-rotating ones from 15,000 people; they turn slowly in real time.
+- **Station models** (`StationModels.gd`): generic, in metres at real size, at the ships' scale.
+  - The habitat ring is anchored on the Stanford torus (900 m radius, 65 m tube, 10,000 people): radius grows with
+    the square root of the people per ring, at least 250 m (1 g at 2 rpm), so 640-990 m for the stations today.
+    Rings turn at the rate that gives 1 g (about 0.1 rad/s, a turn a minute), in real time.
+  - Everything else is sized for the ships (40-140 m long; the large liner's radiators span ~200 m) and is the same
+    at every station: a spine with a docking hub and four 110 m berthing arms at each end; docked ships sit at the
+    arm ends, bow to the hub, queuing outwards 160 m apart when there are more ships than berths.
+  - A docked ship keeps its berth while docked; an arriving ship takes the lowest free one. Near a station a ship
+    in flight blends between its path (which ends at the station's centre) and its berth, by distance (full within
+    1.3 station radii, none beyond 4), so it docks without a jump and passes over the ring, not through it. In
+    practice ships arrive at speed (burns are impulsive), ~30 km per frame even at 600x, so this is rarely seen.
+  - One habitat ring, two counter-rotating ones side by side from 15,000 people.
+  - The real sizes need no altitude cap (stations orbit at least 200 km up); `_station_display_scale` keeps one
+    (60% of the altitude) only for large `--model-scale` values.
   - Storage tanks by capacity, solar arrays, radiators.
   - A flavour by economy profile (`economy_profile_id` in the snapshot): greenhouses, fabrication blocks, sphere
     tank farm (also at fuel factories), solar furnace, container stacks, ore bins, shuttle pads, extraction rigs.
@@ -127,7 +141,9 @@
   `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
-  pressing T), and station close-ups; `--shot-fps` prints the frame rate at each stop); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
+  `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
+  `--shot-arrival` watches the next ship dock at 600x); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
   - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>
     [--only=id,prefix*] [--stations=<snapshot.json>] [--thermal]`. It renders every base class and one design per
     module, coarse and detailed, from several views (plus the cargo bay close and from the side), with the engine
