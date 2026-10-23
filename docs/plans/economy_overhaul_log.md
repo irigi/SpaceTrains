@@ -5,17 +5,17 @@ their reason.
 
 ## Goal checklist (updated as work goes)
 
-| Goal | State (2026-10-23 00:25) |
+| Goal | State (2026-10-23 02:20) |
 |---|---|
-| Real prices, Earth market | done (phase A) |
-| Closed money, wages, households | done (A); money identity exact; controller off (C) |
-| Station incomes | done: science, relay, settlement, tourism, yards, microgravity, helium-3, LEO propellant, colonies' investment, migrants' savings |
-| Venus | done: Venus Orbital Exchange, cloud science base (samples, budget) |
-| Labour, wage distributions, migration | done (B): jobs, wages from vacancies, lognormal gains and incomes |
-| Demand follows income and price | done (C); supply response built, off |
-| Stations not bankrupt | improving: about 1 station in the red at the end; worst station ~250 of 1,460 days in the red |
-| Old checks (unmet, drift, save/load, speed) | unmet 0.3%, drift 0, tests pass, 6.3 days/s slowest 20-day stretch |
-| Passengers still travel | ~10,000 boardings in 4 years (was ~16,000), mostly cislunar |
+| Real prices, Earth market | done: Earth sells at surface + launch, buys space goods; colonies' surface markets |
+| Closed money, wages, households | done: exact identity; ships pay crews; residents spend wages; controller off |
+| Station incomes | done: science (need-based, science stations pay a premium), relay, settlement, tourism, yards build from goods, microgravity, helium-3, LEO propellant (85,000 u in 4 yr), colonies' investment, migrants' savings |
+| Venus | done: Venus Orbital Exchange, cloud science base, cheap scooped propellant |
+| Labour, wage distributions, migration | done: jobs, wages from vacancies, lognormal gains and incomes, colonies' people move to their gateway's jobs, colonies recruit on Earth |
+| Demand follows income and price | done; supply response built, off |
+| Stations not bankrupt | done: no station in the red at the end; worst ~12 days in the red per 4 years |
+| Old checks | unmet 0.2%, drift 0, tests pass, 6.0 days/s slowest 20-day stretch, trajectory flags 0.2/run (low-κ Mercury spirals) |
+| Passengers still travel | ~4,600 boardings in 4 years, mostly cislunar; settlers and colony recruits interplanetary |
 
 ## Baseline (main 50d876c, 2026-10-22)
 
@@ -201,3 +201,20 @@ Benchmark (4 starts × 1,460 days):
 An 8-year run (start 90, before the propellant change) was stable: 0.1% unmet over the whole run, station
 money steady at ~6.6M cr, the colonies grew (Mars surface 59,000) while sending ~3,500 people up to their
 gateways.
+
+### Speed and the purchase hurdle (2026-10-23, 02:15)
+
+- **Finding:** the slowest 20-day stretch had fallen to 3.6 days/s (59.5 ms per simulated day). Fleet
+  investment took 40 of 86 s: each review probed 100+ candidates, because the 20% hurdle let more of them
+  through the bound.
+- **Decision:** hurdle back to 30%/yr. Purchases now expect ~1.6× what they earn (cargo 41% against 25%),
+  so 30% expected is ~19% earned. Slowest 20-day stretch 6.0 days/s (54.6 ms per day).
+
+Benchmark (4 starts × 1,460 days):
+- unmet 0.2 ± 0.1%, last fifth 0.0%;
+- 91.8 of 129 ships profitable (71%);
+- worst station 12 ± 7 days in the red, 0.2 stations below the floor at the end and none in the red;
+- 4,600 boardings, 2.0M cr fares; Earth exports 5.9M cr.
+
+The passenger test now checks that settlers are posted and passengers board, pay and land. Settlers
+come only for vacancies, which are few early in a game.
