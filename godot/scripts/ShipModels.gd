@@ -39,6 +39,7 @@ static var _finished := {}
 static var _mutex := Mutex.new()
 static var _plume_meshes := {}
 static var _cargo_meshes := {}
+static var _cargo_slots := {}  # shape -> slot name per surface
 
 # --- Cached meshes ----------------------------------------------------------------
 
@@ -573,6 +574,7 @@ static func _cargo_mesh(shape: String) -> ArrayMesh:
     for i in range(slots.size()):
         mesh.surface_set_material(i, Materials.shared(String(slots[i])))
     _cargo_meshes[shape] = mesh
+    _cargo_slots[shape] = slots
     return mesh
 
 # The commodity colour as paint on the container marks.
@@ -627,31 +629,55 @@ static func _update_cargo(container: Node3D, data: Dictionary) -> void:
         for k in range(count):
             if picks.size() < slots:
                 picks.append([String(CARGO_SHAPES.get(id, "box")), _cargo_paint(id)])
-    node = Node3D.new()
-    node.name = "cargo"
-    container.add_child(node)
-    var by_shape := {}
+    # One merged mesh, not a MultiMesh: in Godot 4.3 a MultiMesh instance's offset ignores
+    # its node's scale, so under a true-scale ship (1e-10) the containers land far away.
+    var parts := {}  # slot -> {v, n, c}
     for n in range(picks.size()):
         var slot: Vector2i = row_order[n % row_order.size()]
         var row := n / row_order.size()
         var size := Vector3(cell * 0.92, cell * 0.92, step * 0.94)
         var pos := Vector3(-half + cell * (float(slot.x) + 0.5), -half + cell * (float(slot.y) + 0.5),
             z0 + step * (float(row) + 0.5))
-        var shape: String = picks[n][0]
-        if not by_shape.has(shape):
-            by_shape[shape] = []
-        by_shape[shape].append([Transform3D(Basis.from_scale(size), pos), picks[n][1]])
-    for shape in by_shape.keys():
-        var items: Array = by_shape[shape]
-        var mm := MultiMesh.new()
-        mm.transform_format = MultiMesh.TRANSFORM_3D
-        mm.use_colors = true
-        mm.mesh = _cargo_mesh(shape)
-        mm.instance_count = items.size()
-        for i in range(items.size()):
-            mm.set_instance_transform(i, items[i][0])
-            mm.set_instance_color(i, items[i][1])
-        var instance := MultiMeshInstance3D.new()
-        instance.multimesh = mm
-        instance.layers = Materials.MODEL_LAYERS
-        node.add_child(instance)
+        _append_cargo(parts, String(picks[n][0]), Transform3D(Basis.from_scale(size), pos), picks[n][1])
+    var mesh := ArrayMesh.new()
+    for slot_name in parts.keys():
+        var part: Dictionary = parts[slot_name]
+        var arrays := []
+        arrays.resize(Mesh.ARRAY_MAX)
+        arrays[Mesh.ARRAY_VERTEX] = part["v"]
+        arrays[Mesh.ARRAY_NORMAL] = part["n"]
+        arrays[Mesh.ARRAY_COLOR] = part["c"]
+        mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+        mesh.surface_set_material(mesh.get_surface_count() - 1, Materials.shared(String(slot_name)))
+    var instance := MeshInstance3D.new()
+    instance.name = "cargo"
+    instance.mesh = mesh
+    instance.layers = Materials.MODEL_LAYERS
+    container.add_child(instance)
+
+# Adds one container (a unit cargo mesh placed by xf, painted `paint`) to the merged arrays.
+static func _append_cargo(parts: Dictionary, shape: String, xf: Transform3D, paint: Color) -> void:
+    var unit := _cargo_mesh(shape)
+    var slots: Array = _cargo_slots[shape]
+    var normal_basis := xf.basis.inverse().transposed()
+    for i in range(unit.get_surface_count()):
+        var slot_name := String(slots[i])
+        if not parts.has(slot_name):
+            parts[slot_name] = {"v": PackedVector3Array(), "n": PackedVector3Array(), "c": PackedColorArray()}
+        var part: Dictionary = parts[slot_name]
+        var arrays := unit.surface_get_arrays(i)
+        var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+        var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+        var index = arrays[Mesh.ARRAY_INDEX]
+        var order: PackedInt32Array = index if index is PackedInt32Array and (index as PackedInt32Array).size() > 0 \
+            else PackedInt32Array(range(verts.size()))
+        var v: PackedVector3Array = part["v"]
+        var nn: PackedVector3Array = part["n"]
+        var c: PackedColorArray = part["c"]
+        for k in order:
+            v.append(xf * verts[k])
+            nn.append((normal_basis * normals[k]).normalized())
+            c.append(paint)
+        part["v"] = v
+        part["n"] = nn
+        part["c"] = c

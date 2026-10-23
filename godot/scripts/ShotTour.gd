@@ -129,7 +129,10 @@ func _run() -> void:
         if arg == "--shot-pause":
             var before := float(main.get("display_time_s"))
             main._on_pause_toggled()
-            await get_tree().create_timer(3.0).timeout
+            await get_tree().create_timer(0.5).timeout
+            var spin_before := float(main.get("spin_clock_s"))
+            await get_tree().create_timer(2.5).timeout
+            print("[ShotTour] pause: station spin clock moved %.3f s while paused" % (float(main.get("spin_clock_s")) - spin_before))
             var paused_at := float(main.get("display_time_s"))
             main._on_pause_toggled()
             await get_tree().create_timer(1.0).timeout
@@ -145,6 +148,10 @@ func _run() -> void:
             return
     if OS.get_cmdline_user_args().has("--shot-arrival"):
         await _arrival_shots(rig)
+        get_tree().quit()
+        return
+    if OS.get_cmdline_user_args().has("--shot-cargo"):
+        await _cargo_shots(rig)
         get_tree().quit()
         return
     if OS.get_cmdline_user_args().has("--shot-close"):
@@ -517,3 +524,38 @@ func _report_big_meshes(node: Node, stop_name: String) -> void:
             if world_size / distance > 0.8 and world_size < 1000.0:
                 print("[ShotTour] %s: big mesh %s size %.6f at distance %.6f" % [stop_name, child.get_path(), world_size, distance])
         _report_big_meshes(child, stop_name)
+
+# Loaded ships in flight, close up: the hold must show their cargo (prints the hold state).
+func _cargo_shots(rig: Node3D) -> void:
+    var shot := 0
+    for ship_id in main.entity_details.keys():
+        var ship: Dictionary = main.entity_details[ship_id]
+        if main.entity_kinds.get(ship_id, "") != "ship" or String(ship.get("phase", "")) != "in_transit" \
+                or (ship.get("cargo", []) as Array).is_empty():
+            continue
+        main.select_entity(ship_id, "ship", true)
+        rig.set("distance", 1.5 * main._model_world_size(main.entity_nodes[ship_id]))
+        rig.call("_update_transform")
+        await get_tree().create_timer(1.5).timeout
+        var node: Node3D = main.entity_nodes[ship_id]
+        var cargo := node.get_node_or_null("cargo")
+        var vertices := 0
+        if cargo is MeshInstance3D:
+            for k in range((cargo as MeshInstance3D).mesh.get_surface_count()):
+                vertices += (cargo as MeshInstance3D).mesh.surface_get_array_len(k)
+        print("[ShotTour] cargo %s (%s): lod %d, lots %s, hold %s, cargo mesh %s, %d vertices" % [
+            ship_id, String(ship.get("design_id", "")), int(node.get_meta("lod", -1)), str(ship.get("cargo")),
+            str(node.get_meta("hold", {})), cargo != null, vertices])
+        await _shoot("cargo_%s" % ship_id)
+        if OS.get_cmdline_user_args().has("--shot-cargo-angles"):
+            for k in range(4):
+                rig.set("yaw", float(k) * PI * 0.5)
+                rig.set("pitch", 0.5 if k % 2 == 0 else -0.5)
+                rig.set("distance", 0.7 * main._model_world_size(node))
+                rig.call("_update_transform")
+                await get_tree().create_timer(0.4).timeout
+                await _shoot("cargo_%s_%d" % [ship_id, k])
+        shot += 1
+        if shot >= 4:
+            break
+    print("[ShotTour] cargo: %d loaded ships in flight shot" % shot)

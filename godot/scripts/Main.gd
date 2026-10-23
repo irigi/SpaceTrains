@@ -131,6 +131,9 @@ const TRAJECTORY_COLORS := {
 }
 var destination_body_ghost: MeshInstance3D
 var current_paused := false
+# Station ring spin runs on real time, but stops while the game is paused (as the top bar shows it).
+var spin_clock_s := 0.0
+var _spin_wall_s := -1.0
 # Save/load requests to the bridge (F5 quick save, F9 quick load).
 var command_request := 0
 var command_save_path := ""
@@ -753,7 +756,11 @@ func _update_nodes(delta: float) -> void:
     for station_id in station_orbits.keys():
         station_positions[station_id] = _abs_render(_station_m(station_id))
     var docked: Array[String] = []
-    var spin_time := _wall_time_s()
+    var wall_s := _wall_time_s()
+    if _spin_wall_s >= 0.0 and not bool(bridge_state.get("paused", current_paused)):
+        spin_clock_s += wall_s - _spin_wall_s
+    _spin_wall_s = wall_s
+    var spin_time := spin_clock_s
     for entity_id in entity_nodes.keys():
         var node: Node3D = entity_nodes[entity_id]
         var kind: String = entity_kinds.get(entity_id, "")

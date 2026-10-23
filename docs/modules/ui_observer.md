@@ -64,7 +64,10 @@
       6 m. Rows fill from the bow, each from the floor and the middle out, so a part load is a solid block. The
       share of slots per lot is its share of the capacity. Shape by commodity: ISO tanks for water, oxygen, fuel,
       deuterium and helium-3, ore bins for metals and platinum, ribbed boxes for the rest. Light grey, with the
-      commodity colour on the doors, stripe, tank shell or bin rim. A cold-hold liner hides them;
+      commodity colour on the doors, stripe, tank shell or bin rim (vertex colours). A cold-hold liner hides them.
+      The containers are merged into one mesh, not a MultiMesh: in Godot 4.3 a MultiMesh instance's offset ignores
+      its node's scale, so under a true-scale ship they were drawn far from the hold (the station sectors are
+      MultiMeshes too, but their instances only rotate about the origin, so they are unaffected);
     - the empty cargo bay still reads as one: a floor plate with ribs and a latch pair per slot, low sills and
       corner gussets at the ends (no solid bulkheads, which hid the cargo when looking along the ship); the
       truss stops at the bay;
@@ -75,7 +78,8 @@
 - **Station models** (`StationModels.gd`): generic, in metres at real size, at the ships' scale.
   - The habitat ring is anchored on the Stanford torus (900 m radius, 65 m tube, 10,000 people): radius grows with
     the square root of the people per ring, at least 250 m (1 g at 2 rpm), so 640-990 m for the stations today.
-    Rings turn at the rate that gives 1 g (about 0.1 rad/s, a turn a minute), in real time.
+    Rings turn at the rate that gives 1 g (about 0.1 rad/s, a turn a minute), in real time, and stop while the game
+    is paused (`Main.spin_clock_s`).
   - Everything else is sized for the ships (40-140 m long; the large liner's radiators span ~200 m) and is the same
     at every station: a spine with a docking hub and four 110 m berthing arms at each end; docked ships sit at the
     arm ends, bow to the hub, queuing outwards 160 m apart when there are more ships than berths.
@@ -154,7 +158,9 @@
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
-  `--shot-arrival` watches the next ship dock at 600x); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  `--shot-arrival` watches the next ship dock at 600x; `--shot-cargo` shoots up to four loaded ships in flight
+  close up and prints their hold state, `--shot-cargo-angles` adds four views each; `--shot-pause` also checks the
+  ring spin stops); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
   - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>
     [--only=id,prefix*] [--stations=<snapshot.json>] [--thermal]`. It renders every base class and one design per
     module, coarse and detailed, from several views (plus the cargo bay close and from the side), with the engine

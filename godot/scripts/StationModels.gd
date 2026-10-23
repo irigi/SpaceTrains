@@ -694,8 +694,8 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
     container.set_meta("core_radius_m", info["core_radius_m"])
     container.set_meta("spin_rad_s", info["spin_rad_s"])
 
-static func spin_rings(container: Node3D, real_time_s: float) -> void:
+static func spin_rings(container: Node3D, spin_time_s: float) -> void:
     var rate := float(container.get_meta("spin_rad_s", 0.1))
     for child in container.get_children():
         if child.has_meta("spin"):
-            (child as Node3D).rotation = Vector3(0.0, 0.0, fmod(real_time_s * rate, TAU) * float(child.get_meta("spin")))
+            (child as Node3D).rotation = Vector3(0.0, 0.0, fmod(spin_time_s * rate, TAU) * float(child.get_meta("spin")))
