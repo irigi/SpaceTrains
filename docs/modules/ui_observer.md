@@ -31,9 +31,49 @@
   points concentrated at the camera (sinh spacing) in focus-relative coordinates: exact at any zoom. A moon's ring
   fades out when it is only a few pixels across.
 - **Map look (KSP-like):** bodies at true radius (smooth spheres, faint self-lit texture for the night side), the
-  camera stops outside the focused body; ship and station models a few tens of km, a map icon stands in when a model
-  is a few pixels; screen-space labels beside icons (bodies, then stations, then ships in flight; overlap culling);
-  Sun halo and bloom; sunlight with a gentle falloff.
+  camera stops outside the focused body; ship and station models (below) drawn ~4,500x real size, a map icon
+  stands in when a model is a few pixels; screen-space labels beside icons (bodies, then stations, then ships in
+  flight; overlap culling); Sun halo and bloom; sunlight with a gentle falloff, and a weak fill light from the
+  camera that reaches only ships and stations (render layer 2), so their night sides stay readable.
+- **Ship models** (`ShipModels.gd`, 2026-10-23): built from the design's components with the schematic's layout
+  (`ShipLayout.gd`, shared with `ui/ShipSchematic.gd`), so the map shows the same parts in the same order and
+  proportions, in metres. `Main.SHIP_METRES_TO_WORLD` (5.6e-7 world units per metre, ~4,500x real) sets the size,
+  so a 49 m light freighter is drawn ~220 km long and a 125 m-wide liner 2.5x a courier.
+  - Two levels of detail, each one cached mesh per design (`MeshBuilder.gd` merges the parts into one surface per
+    material slot, so a ship is a few draw calls):
+    - coarse (mid zoom, ~1,000 triangles);
+    - detailed (on-screen radius above 150 px, back below 110 px, ~8,500 triangles): truss lattice, domed habitat
+      with windows, docking port, antenna and RCS, open hold frame, tank clusters, the tier 2 modules, shadow
+      shield, reactor and bell nozzle, or plasma drive, field coils and radiator wings on booms.
+  - Detailed meshes take ~25 ms each, so they are built on worker threads; the coarse model stays until the
+    detailed one is ready.
+  - Live state per ship:
+    - radiators in false colour (`ThermalPalette.gd`) while thrusting, dark where worn;
+    - the nozzle glows and a plume shows (close up) while the engine runs;
+    - cargo containers in the hold, in the commodity colours;
+    - the faction band, red when stranded.
+  - Far out, the billboard engine glow marks a running engine (`EntityVisuals.update_engine_glow`: thermal ships
+    for `engine_burn_s` after departure and before arrival, plasma ships the whole transit, sized by jet power).
+  - Until the designs file is read, a stand-in design is drawn.
+- **Station models** (`StationModels.gd`): generic, in metres at the ships' scale, so docked ships are in proportion.
+  - Sizes are compressed: the habitat ring's radius is 44-72 m for 5,000-22,000 people.
+  - A spine with a docking hub and four berthing arms at each end; docked ships sit at the arm ends, bow to the hub,
+    queuing outwards when there are more ships than berths.
+  - One habitat ring, two counter-rotating ones from 15,000 people; they turn slowly in real time.
+  - Storage tanks by capacity, solar arrays, radiators.
+  - A flavour by economy profile (`economy_profile_id` in the snapshot): greenhouses, fabrication blocks, sphere
+    tank farm (also at fuel factories), solar furnace, container stacks, ore bins, shuttle pads, extraction rigs.
+  - A station is never drawn reaching more than 60% of the way down to its planet. Low Earth Logistics (500 km up)
+    and the Lunar Gateway (200 km) are therefore smaller than the ships' scale, and their docked ships look large;
+    true scale (roadmap) removes this.
+- **Paint** (`ModelMaterials.gd`): muted and matte, nothing self-lit except windows, hot nozzles, plumes and
+  radiators while a drive runs:
+  - white and gold insulation blankets;
+  - grey truss and steel;
+  - dark engine metal;
+  - the faction colour as a band with capped saturation.
+  The old models' hull self-emission, which clipped about 30% of their pixels and made them glare near the Sun, is
+  gone. A close-up near Mercury and one at Titan measure the same.
 - **Panels:** top bar (date, pause, timewarp, fleet summary, unmet demand over 30 days, money); registry (ships,
   stations, bodies); inspector: ship (mission in words, propellant, cargo lots, provisions, transit, expected trip
   earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: engine state and drive
@@ -54,11 +94,6 @@
   - Below the drawing: a scale bar and a bar of the current mass by part (dry parts, propellant, cargo,
     provisions). Hovering a part or a segment highlights both and shows the spec line. The inspector keeps one
     instance across refreshes, so a hover survives them.
-- **Map ship hints** (`EntityVisuals.update_engine_glow`):
-  - Nuclear-thermal ships glow while burning, for the bridge's `engine_burn_s` after departure and before
-    arrival.
-  - The glow's size follows the engine's jet power, log-scaled.
-  - Plasma ships' radiator wings glow in false colour while thrusting.
 - **Wheel:** zooms the map, except over the inspector, browser or market panel, which take it even at the
   end of their scroll.
 - **Statistics screen** (S, `ui/StatisticsPanel.gd`, charts `ui/LineChart.gd`): it reads the bridge's
@@ -80,7 +115,12 @@
 - **Dev:** `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
   `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
-  the map alone); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  the map alone; it shoots each flying hull at mid zoom and close up, and station close-ups; `--shot-fps` prints the
+  frame rate at each stop); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>
+    [--only=id,prefix*] [--stations=<snapshot.json>]`. It renders every base class and one design per module,
+    coarse and detailed, from several views, with the engine running and cargo aboard, plus every station with
+    docked ships, and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
 
 ## Data Flow
 

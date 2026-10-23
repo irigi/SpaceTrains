@@ -524,7 +524,7 @@ static func _update_cargo(container: Node3D, data: Dictionary) -> void:
         var color := UiTheme.commodity_color(String(lot.get("commodity_id", "")))
         # The UI's pastel as paint: less saturated and darker.
         var grey := color.get_luminance()
-        color = color.lerp(Color(grey, grey, grey), 0.3) * 0.62
+        color = color.lerp(Color(grey, grey, grey), 0.3) * 0.5
         for i in range(count):
             if colors.size() < slots:
                 colors.append(color)

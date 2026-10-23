@@ -21,6 +21,9 @@ ship visuals proposal. Proposals A (the inspector schematic) and D (map hints) w
 
 ## C: a 3D ship close-up built from components
 
+(Partly revived 2026-10-23: the map models are now built from the components with the schematic's layout and
+shown in detail when the camera is near; see `docs/modules/ui_observer.md`. The inspector turntable stays shelved.)
+
 The map can't show a ship closely: `OrbitCamera.gd` clamps the near plane to at least 0.0002 world units, and a
 model is about 2·10⁻⁵ units.
 - Render the selected ship in its own small SubViewport in the inspector, as a turntable with its own camera and

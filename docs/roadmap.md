@@ -18,10 +18,11 @@
 
 ## Current Plan (updated 2026-10-23) — start here
 
-**Status.** `main` holds everything up to passengers, passenger routes and the low-κ atlas (PRs #18-20). The
-**economy overhaul** is on branch `feature/economy_overhaul` (2026-10-23, overnight, not merged). Plan
+**Status.** `main` holds everything up to the economy overhaul (merged as PR #21, 2026-10-23). **Better 3D ship
+models** (roadmap step 5) are on branch `feature/ship_models_3d` (2026-10-23, not merged; see "Ship and station
+models" below). The economy overhaul (plan
 `docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
-`docs/modules/economy.md` ("Economy overhaul"). It brings:
+`docs/modules/economy.md` ("Economy overhaul")) brought:
 - real prices: Earth surface price + $100/kg launch at the Earth stations;
 - Earth and colony surface markets with their own accounts;
 - residents paid wages, with travel and savings from their own accounts;
@@ -41,8 +42,22 @@ Benchmark, 4 starts × 1,460 days (2026-10-23):
 
 An 8-year run holds at 0.1% unmet.
 
+**Ship and station models** (branch `feature/ship_models_3d`, `docs/modules/ui_observer.md`):
+- Map ships are built from their design's components with the schematic's layout, in metres. A coarse model shows
+  at mid zoom; a detailed one (built in the background) shows close up, with live radiators, plume and cargo.
+- Generic stations with rings, berths and a flavour per economy profile; docked ships sit at the berths.
+- Muted, non-emissive paint. Ships no longer glare near the Sun (0% clipped pixels, down from ~30%), and a camera
+  fill light keeps night sides readable.
+- Frame time at overview is unchanged against `main`; station close-ups run at 56-60 fps.
+- The station snapshot gained `economy_profile_id`.
+- **For the user to review:**
+  - the look (gallery: `scripts/ModelGallery.gd`);
+  - the size: ~4,500x real, stations compressed to 44-72 m ring radius;
+  - the Low Earth and Lunar Gateway stations, drawn smaller than the ships' scale so they stay above their planet.
+- Then merge.
+
 **Open for the user:**
-- **Review the economy overhaul** (the log's decisions; all taken overnight without the user). The main
+- **Review the economy overhaul** (merged; the log's decisions were all taken overnight without the user). The main
   calls:
   - goods repriced to Earth's real prices plus launch (bulk goods 3-7× cheaper, platinum 12× cheaper);
   - Earth buys only space-sourced goods;
@@ -66,7 +81,6 @@ An 8-year run holds at 0.1% unmet.
   above 375k. Mars surface 42% → ~70% of imports met; Mars Corporation and the Independent Consortium end 8 years
   near or above zero. Log: `economy_overhaul_log.md`, "Mars reactor fuel and faction debt". Still open: Luna
   surface's money piles up (later: imports that rise with income).
-- **Merge** `feature/economy_overhaul` after the review (one push with the statistics and the colony fix).
 - **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person (Luna Ferry study,
   `passenger_routes.md`). Its other open points were closed after the overhaul (same file, "Re-evaluated
   after the economy overhaul").
@@ -107,16 +121,15 @@ An 8-year run holds at 0.1% unmet.
 
 1. ~~**Merge passengers**~~, ~~**passenger routes**~~, ~~**Mercury passengers**~~: done (PRs #18-20); the
    routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
-2. **Economy overhaul review and merge** (above).
+2. ~~**Economy overhaul merge**~~ (PR #21); its review is still open (above).
 3. (free)
 4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
-5. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
-   proportions, from `ship_components.csv`), with more detail only when the camera is near (the far view keeps
-   today's cheap models, so un-zoomed speed is unchanged). Revives part of the archived 3D close-ups.
-   Also fix the colours: ship and station models are over-saturated today, worst near the Sun (user, 2026-10-22).
-6. **True scale for ships and stations:** size models from their real dimensions instead of the exaggerated
-   mass/population scale (a ship is now drawn ~48,000 km long, about 4 Earth diameters). Icons already mark
-   them when far; check arrival snaps, docking, engine glow and the near plane at metre scale.
+5. ~~**Better 3D ship models**~~ (user, 2026-10-20): built on `feature/ship_models_3d` (above), with generic
+   station models and the colour fix; awaiting review and merge.
+6. **True scale for ships and stations:** ships and stations are now built in metres, so this is mostly one
+   constant (`Main.SHIP_METRES_TO_WORLD`, now ~4,500x real) and real station sizes (drop the compressed rings and
+   the altitude cap in `_station_display_scale`). Then check, at metre scale: arrival snaps, docking, engine glow,
+   picking, focus distances and the camera near plane.
 7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.
