@@ -100,12 +100,18 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
 
 ## Station money (step 17)
 
-- A station and its residents are one account: local production is free; residents pay for what they use up at
-  the station's **import cost** (`StationState::import_unit_cost`, deliveries averaged over about 30 days of use;
-  the reference price before any delivery), with money from the outside account (`Simulation::settle_local_economy`).
-- Faction treasuries tax station cash above 250k, top up stations below 25k by at most the upkeep of 30% of
-  their population per day, may **borrow** down to minus (50% of their fleet's hull value + 2 years of taxes),
-  pay 5%/yr interest on debt, and buy ships with cash plus credit (`open_economy.csv`).
+- Local production is free. Residents pay for what they use up at the station's **import cost**
+  (`StationState::import_unit_cost`, deliveries averaged over about 30 days of use; the reference price before any
+  delivery; `Simulation::settle_local_economy`). Since the economy overhaul they pay from their own account
+  (wages); before, from the outside account.
+- **Faction treasuries:**
+  - tax station cash above the ceiling (750k since the overhaul; 375k while the faction is in debt,
+    `station_credit_ceiling_in_debt`);
+  - top up stations below 25k, by at most the upkeep (and, with households, the wages) of 30% of their
+    population per day, or the whole gap at once for a station in the red;
+  - may **borrow** down to minus (50% of their fleet's hull value + 2 years of taxes) and pay 5%/yr
+    interest on debt;
+  - buy ships with cash plus credit (`open_economy.csv`).
 - A station budget gate (`affordability_days`, off) can scale what a station offers ships by what it can pay.
 - Details and the variants tried: `docs/plans/steps_14_17_log.md`.
 
@@ -143,6 +149,154 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
   with a rate per year and a duration range, drawn from a seeded generator (saved). They act only through the
   production step. `--no-events` switches them off.
 - Results and decisions: `docs/plans/steps_23_28_log.md`.
+
+## Economy overhaul (2026-10-23): real prices, background economies, households, labour
+
+Plan `docs/plans/economy_overhaul.md`; decisions and results `docs/plans/economy_overhaul_log.md`.
+Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
+
+- **Prices.** Base prices are Earth's surface price plus launch, at the ships' scale of 0.00078 cr/$
+  (`data/commodities/commodities.csv`; surface $/kg in `data/economy/surface_markets.csv`).
+  - Launch costs $100/kg up and $50/kg down at Earth; $40/$20 at Mars, $20/$10 at Luna, $5/$5 at Ceres
+    (`background_economies.csv`).
+  - Examples: food 8.4 cr per 100 kg, electronics 64 cr per 20 kg, platinum 249 cr per 10 kg.
+  - New goods: helium-3 (Luna, 2,340 cr/kg) and microgravity products (Earth orbit and Earth L1, 234 cr/kg),
+    both bought by Earth.
+- **Background economies** (`background_economies.csv`, `surface_markets.csv`): Earth's surface, the Mars and
+  Luna surfaces, and the belt miners at Ceres.
+  - Each has an account; Earth's is the old outside account.
+  - **Earth keeps its gateways stocked** (`surface_depth_units` of every good it sells, outside the station's
+    storage). There it is the curve's centre and its cap: Earth never sells dearer than its ask.
+  - **Earth buys only space goods** (platinum, deuterium, samples, helium-3, microgravity products), at a flat
+    bid, plus propellant for its own traffic at Low Earth Logistics (0.9 × ask, 100 u/day), which floors the
+    fuel price there. It does not buy ordinary goods: stations make them for free, so a bid would print money.
+  - **The colonies** sell a few goods up to a daily volume at their ask, and always while the station holds
+    less than 30 days of its own use. They buy imports at 1.2 × the gateway's reference price, while their
+    account is above minus their credit line. Earth invests in them yearly.
+- **Households** (`households.csv`): residents are an account of their own.
+  - The station pays wages: employed workers × the station's wage, the unemployed a benefit.
+  - Residents pay for the goods they use up at the station's import cost, and spend savings above a 90-day
+    buffer back at the station within about 2 days.
+  - Travellers pay from their own account: Earth's people from Earth's, a station's residents from their
+    savings above half the buffer. Settlers bring savings; emigrants take theirs.
+  - Residents' use of `consume` goods follows their wage (elasticity 1) and price (−1); upkeep goods barely
+    respond (−0.1). A supply response to price is built but off (`supply_price_elasticity` 0).
+- **Station incomes** (`station_incomes.csv`), paid by Earth:
+  - science budgets: Titan and Ganymede as science stations, Mercury, the Venus cloud base;
+  - relay services: Ganymede, Mercury, Earth L1;
+  - settlement: Mars, Ceres;
+  - tourism and survey: Luna.
+
+  Visitors also spend at the station during their stay.
+  - **Grants are need-based** (`need_based` 1: science and settlement): full while the station holds less
+    than half the credit ceiling, falling to nothing at it. Services (relay, tourism) are paid in full.
+  - **Science stations** (`science_station`: Titan, Ganymede) centre their import prices 50% above landed
+    cost (`science_price_premium`): Earth pays to keep them supplied.
+- **Crews:** ships pay their crews' wages and hazard pay to the home station's households.
+- **Output follows employment:** outputs and the inputs feeding them scale with jobs ÷ workers (at most 1;
+  `StationState::employed_share`, in half-percent steps); consumption follows residents.
+- **Local hiring:** the colonies have people (Mars 50,000, Luna 10,000, belt 5,000) with a lognormal wage.
+  - Up: those whose surface wage is low enough that the gateway's job, less hardship, repays the ascent over
+    a stay take its vacancies, without a ship.
+  - Down: the gateway's unemployed go down to work on the surface.
+  - Savings follow the people (`Simulation::step_colony_labour`).
+- **Shipyards:** a new ship pays its nearest yard (Mercury Sunward Yard or Low Earth Logistics) half its price.
+  The yard builds it from metals, machinery and electronics worth 20% of the price, out of its stock; what it
+  lacks comes from Earth. The rest of the price goes to Earth.
+- **Labour market** (`labour_market.csv`): every station off Earth has jobs and a wage per worker.
+  - Jobs grow 3%/yr while the station is supplied and above its floor. They are cut 5%/yr below 70% supply or
+    when its credits are below minus the floor.
+  - Wages follow the vacancy rate.
+  - **Settlers** come for vacancies (spread over 120 days). What each would pay is their gain: (station wage ×
+    (1 − hardship) − their Earth wage) × a 10-year stay, with Earth wages lognormal (median 0.107 cr/day,
+    σ 0.9). So a low-paid Earth worker may move where a well-paid one would not.
+  - **The unemployed** go home on an Earth wage's gain.
+  - **Visitors** travel when half a year's income covers the trip (lognormal, σ 1.2 on Earth).
+  - Settlers pay their own passage (sponsorship only without the labour market).
+- **Money:** the money-supply controller is off (`money_supply_days` 0); money enters and leaves through the
+  named flows.
+  - The faction credit band is 25k-750k, and 25k-375k while the faction is in debt. A faction covers its
+    stations' red days; with taxes only above 750k it was funding their cash piles on credit (Mars Corporation
+    and the Independent Consortium ended 8 years 0.4-0.9M and 3-6M in debt; now both near or above zero).
+  - While a faction borrows, its top-up of a station covers the core crew's goods and wages.
+  - A station in the red is covered within 2 days while its faction can borrow the gap.
+- **Audit:** the residents table shows each station's flows, its people, jobs and wage, and its days in the
+  red. `tools/benchmark.py` reports stations below the floor, in the red and the worst station's red days.
+
+## Colonies (2026-10-23)
+
+The small background economies (Mars surface, Luna surface, belt miners); switches and values are the `colony_*`
+keys in `households.csv`.
+
+- **The surface mines, the gateway trades.**
+  - Lunar Gateway (`lunar_port`) and Ceres (`belt_port`) no longer make metals, water, helium-3 or platinum.
+  - Their colonies sell them there (`surface_markets.csv`): Luna surface 24 metals, 35 water and 0.2 helium-3 a
+    day; the belt 50 metals, 40 water and 3 platinum a day.
+  - Earth-bound goods are priced at about 70% of Earth's price: helium-3 ask ≈ 1,640 cr, platinum ≈ 175 cr.
+  - The platinum seam event now doubles the belt's platinum sales at Ceres.
+- **Gateway prices.** A good the colony sells, and the station does not make, is centred at ask × 1.1
+  (`colony_centre_markup`). The station stocks 60 days of the colony's sales (`colony_stock_days`), so a ship can
+  collect a worthwhile lot.
+  - The colony sells part of its rate at the centre, all of it above 1.25 × ask, and only while the station has
+    room.
+- **Gateway orders for colony imports.** A good the colony buys is worth the colony's bid to its gateway
+  (`Simulation::order_ceiling`, kind `colony`), even where the station uses none itself. Mars Transfer uses no
+  reactor fuel, so its order had a ceiling of 0, sat at the floor (113 cr against 452) and was never delivered.
+- **People:** a colony's sales and imports scale with its people ÷ its data population (`colony_people_scaling`).
+- **Imports follow money:**
+  - affordability f = (account + credit line) ÷ (90 days of imports + credit line), clamped to 0-1;
+  - food and medicine buy at min(1, 2f), machinery and electronics at max(0, 2f − 1)
+    (`colony_import_buffer_days`, `colony_essentials`).
+  - A colony slows down as it runs short instead of stopping dead at its credit line.
+- **Welfare:**
+  - **Satisfaction:** the value it bought ÷ the value its people want (90-day average).
+  - **Growth:** native growth and recruiting × (2 × satisfaction − 1).
+  - **Wage median:** follows its income per head. It is the data wage × √(income ÷ base imports), clamped to
+    0.5-2, and relaxes over a year.
+- **Reports:** `--econ-audit` prints a Colonies section (satisfaction, affordability, income, base imports,
+  wage). The Statistics screen's Colonies tab shows colony welfare.
+
+## Money journal and statistics (2026-10-23)
+
+`src/simulation/MoneyJournal.{hpp,cpp}`, accounts and history in `Statistics.cpp`.
+
+- **What it does:** every money move books itself in the journal, next to the move and with the same amount. The
+  balances stay where they were; the journal only records. The game is byte-identical with and without it.
+- **Accounts,** in data order:
+  - Earth;
+  - each colony;
+  - each faction;
+  - each station;
+  - each station's residents;
+  - each faction's fleet (the sum of its ships' cash; ships are not kept one by one).
+- **Categories** (37), each named once and booked as an expense by the payer and as an income by the payee:
+  - trade: cargo, fuel, fuel bought back, provisions, refits and repairs;
+  - residents: goods, spending, passages recovered, wages, crew wages, hazard pay;
+  - Earth: grants by kind (science, settlement, relay, tourism, other), surface sales and purchases, colony
+    investment;
+  - travel: visitors' spending, fares (travellers, employers), migrants' savings, starting savings;
+  - owners: dividends, capital charges, sold ships' cash;
+  - factions: tax, top-ups, insolvency cover, money controller, liner top-ups, emergency premiums, interest;
+  - investment: hulls (Earth's share, yard's share), working capital, salvage.
+
+  The ids are in `MoneyJournal.cpp`.
+- **Identity:** each account's balance = its seed + what it received − what it paid
+  (`tests/economy_test.cpp`). Every category's total in equals its total out. A missed money move fails the test.
+- **Sectors:** a 6 × 6 matrix of money between account kinds (payer × payee), for "who pays whom".
+- **History:** every 30 game days, a sample of balances, the month's flows by account and category, the sector
+  matrix, each station's people, workers, jobs and wage, the colonies' people, and each station's lifetime
+  profit. It is saved with the game (save version 19).
+- **Profit definitions:**
+  - **Station:** cash gained + taxes − subsidies + the stock's value gain (`station_lifetime_profit`), that is,
+    before the faction's transfers. Its last year is the difference against the sample a year back.
+  - **Faction:** operating = everything except investment; investment = hulls, working capital and salvage.
+  - **Ship:** `lifetime_profit` as before (dividends and liner top-ups are owner transfers, not results).
+- **Reports:**
+  - `--econ-audit` prints an Accounts section: each account's balance, in, out and top three categories each way;
+    factions split into operating and investment, stations shown before the faction.
+  - `--stats-json <path>` writes the statistics JSON.
+  - The bridge writes the same JSON as `<snapshot>.stats` while the UI's Statistics screen is open: once a second,
+    and when a sample closes.
 
 ## Deferred Work
 

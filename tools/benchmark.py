@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 
-def run_one(binary, days, start, threads, extra):
+def run_one(binary, days, start, threads, extra, keep=None):
     env = dict(os.environ, SPACETRAINS_THREADS=str(threads))
     interval = max(1, days // 5)
     began = time.time()
@@ -29,8 +29,13 @@ def run_one(binary, days, start, threads, extra):
          "--start-day", str(start)] + extra,
         capture_output=True, text=True, env=env, check=False).stdout
     seconds = time.time() - began
+    if keep:
+        os.makedirs(keep, exist_ok=True)
+        with open(os.path.join(keep, f"run_{start:.0f}.out"), "w") as handle:
+            handle.write(output)
     result = {"start": start, "seconds": seconds}
     previous = (0.0, 0.0)
+    in_money_table = False
     for line in output.splitlines():
         m = re.search(r"Unmet demand: ([\d.]+)% of (\d+) cr consumed.*\((\d+) cr unmet", line)
         if m:
@@ -72,6 +77,43 @@ def run_one(binary, days, start, threads, extra):
         m = re.search(r"fleet holds now: (\d+) u", line)
         if m:
             result["holds"] = float(m.group(1))
+        # Economy overhaul: stations below their credit floor in the last residents table,
+        # passengers boarded and fares.
+        if re.search(r"\s+residents\s+wages\s+spending", line):
+            result["below_floor"] = 0
+            result["in_red"] = 0
+            result["red_days_max"] = 0.0
+        elif "below_floor" in result and re.search(r"\s{2}yes(, in the red -?\d+)?\s*$", line):
+            result["below_floor"] += 1
+            if "in the red" in line:
+                result["in_red"] = result.get("in_red", 0) + 1
+        # The share of the run the worst station spent in the red (days_in_red column).
+        m = re.search(r"\s(\d+)(\s+yes.*)?$", line) if "below_floor" in result and re.search(r"\d+\.\d\d\s+\d+(\s+yes.*)?$", line) else None
+        if m:
+            result["red_days_max"] = max(result.get("red_days_max", 0.0), float(m.group(1)))
+        m = re.search(r"Passengers: (\d+) cr in fares", line)
+        if m:
+            result["fares_m"] = float(m.group(1)) / 1e6
+            result["boarded"] = 0.0
+        m = re.search(r"^\s+(settlers|emigrants|rotation out|rotation home|visitors|visitors home)\s+posted \d+, boarded (\d+)", line)
+        if m and "boarded" in result:
+            result["boarded"] += float(m.group(2))
+        # Money journal: the poorest faction's treasury (k cr), and the worst station's profit before
+        # its faction's taxes and subsidies (k cr, the Money table's last column), in the last report.
+        m = re.search(r"Faction treasuries:\s+(.*) cr$", line)
+        if m:
+            values = [float(v) for v in re.findall(r"(-?\d+(?:\.\d+)?)", m.group(1))]
+            if values:
+                result["faction_min_k"] = min(values) / 1e3
+        if "Δstock" in line and "profit" in line:
+            result["station_profit_min_k"] = float("inf")
+            in_money_table = True
+        elif line.strip().startswith("Stations: residents paid"):
+            in_money_table = False
+        elif in_money_table:
+            m = re.search(r" cr\s.*\s([+-]\d+)\s*$", line)
+            if m:
+                result["station_profit_min_k"] = min(result["station_profit_min_k"], float(m.group(1)) / 1e3)
         m = re.search(r"flagged=\s*(\d+)", line)
         if m:
             result["flagged"] = result.get("flagged", 0) + int(m.group(1))
@@ -85,6 +127,7 @@ def main():
     parser.add_argument("--starts", default="0,90,180,270")
     parser.add_argument("--threads", type=int, default=0, help="per run (default: cores / runs)")
     parser.add_argument("--no-events", action="store_true", help="switch random events off (step 28)")
+    parser.add_argument("--keep", default=None, help="directory to keep each run's output in (run_<start>.out)")
     parser.add_argument("extra", nargs="*", help="more arguments for the binary")
     args = parser.parse_args()
     if args.no_events:
@@ -92,12 +135,14 @@ def main():
     starts = [float(x) for x in args.starts.split(",")]
     threads = args.threads or max(1, (os.cpu_count() or 4) // len(starts))
     with ThreadPoolExecutor(max_workers=len(starts)) as pool:
-        results = list(pool.map(lambda s: run_one(args.binary, args.days, s, threads, args.extra), starts))
+        results = list(pool.map(lambda s: run_one(args.binary, args.days, s, threads, args.extra, args.keep), starts))
 
     columns = [("unmet", "unmet %"), ("unmet_last", "last 1/5 %"), ("price", "price÷ref"), ("profitable", "profitable"), ("ships", "ships"),
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
                ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("ship_cash", "ship cash %"),
-               ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"), ("seconds", "run s")]
+               ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"),
+               ("below_floor", "below floor"), ("in_red", "in red"), ("red_days_max", "red days"), ("boarded", "boarded"), ("fares_m", "fares M"),
+               ("faction_min_k", "faction k"), ("station_profit_min_k", "stn profit k"), ("seconds", "run s")]
     print(f"{'start day':>10}" + "".join(f"{title:>12}" for _, title in columns))
     for result in results:
         print(f"{result['start']:>10.0f}" + "".join(

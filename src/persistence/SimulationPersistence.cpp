@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 17;  // 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
+constexpr int kSaveVersion = 20;  // 20: colony welfare (satisfaction, income, wage); 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -49,6 +49,127 @@ std::vector<double> numbers_from_json(const Json& json) {
         values.push_back(item.number());
     }
     return values;
+}
+
+// The money journal (MoneyJournal.hpp): flows by category id, only those that moved.
+Json flows_to_json(const CategoryFlows& flows) {
+    auto out = Json::object();
+    for (std::size_t c = 0; c < flows.size(); ++c) {
+        if (flows[c].in != 0.0 || flows[c].out != 0.0) {
+            auto pair = Json::array();
+            pair.push(flows[c].in);
+            pair.push(flows[c].out);
+            out.set(std::string(money_category_info(static_cast<MoneyCategory>(c)).id), std::move(pair));
+        }
+    }
+    return out;
+}
+
+CategoryFlows flows_from_json(const Json& json) {
+    CategoryFlows flows {};
+    for (const auto& [id, pair] : json.fields()) {
+        MoneyCategory category {};
+        if (!money_category_from_id(id, category)) {
+            throw std::runtime_error("save: unknown money category " + id);
+        }
+        flows[static_cast<std::size_t>(category)] = {.in = pair.items().at(0).number(), .out = pair.items().at(1).number()};
+    }
+    return flows;
+}
+
+Json journal_to_json(const MoneyJournal& journal) {
+    auto out = Json::object();
+    const auto& accounts = journal.accounts();
+    auto keys = Json::array();
+    auto seeds = Json::array();
+    auto lifetime = Json::array();
+    auto period = Json::array();
+    for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+        keys.push(accounts[static_cast<std::size_t>(i)].key());
+        seeds.push(journal.seed(i));
+        lifetime.push(flows_to_json(journal.lifetime(i)));
+        period.push(flows_to_json(journal.period(i)));
+    }
+    out.set("accounts", std::move(keys));
+    out.set("seeds", std::move(seeds));
+    out.set("lifetime", std::move(lifetime));
+    out.set("period", std::move(period));
+    out.set("next_close_day", journal.next_close_day());
+    out.set("lifetime_sectors", numbers_to_json({journal.lifetime_sectors().begin(), journal.lifetime_sectors().end()}));
+    out.set("period_sectors", numbers_to_json({journal.period_sectors().begin(), journal.period_sectors().end()}));
+    auto history = Json::array();
+    for (const auto& sample : journal.history()) {
+        auto item = Json::object();
+        item.set("day", sample.day);
+        item.set("balances", numbers_to_json(sample.balances));
+        auto flows = Json::array();
+        for (const auto& account_flows : sample.flows) {
+            flows.push(flows_to_json(account_flows));
+        }
+        item.set("flows", std::move(flows));
+        auto stations = Json::array();
+        for (const auto& people : sample.stations) {
+            stations.push(numbers_to_json({people.population, people.workers, people.jobs, people.wage_cr_per_day}));
+        }
+        item.set("stations", std::move(stations));
+        item.set("colony_people", numbers_to_json(sample.colony_people));
+        item.set("station_profit", numbers_to_json(sample.station_profit));
+        item.set("sectors", numbers_to_json({sample.sectors.begin(), sample.sectors.end()}));
+        history.push(std::move(item));
+    }
+    out.set("history", std::move(history));
+    return out;
+}
+
+// Restores into a journal whose accounts were set up from the same data (the data fingerprint).
+void journal_from_json(const Json& json, MoneyJournal& journal) {
+    const auto& keys = json.get("accounts").items();
+    if (keys.size() != journal.accounts().size()) {
+        throw std::runtime_error("save: the money journal's accounts differ from the data");
+    }
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        if (keys[i].string() != journal.accounts()[i].key()) {
+            throw std::runtime_error("save: the money journal's accounts differ from the data");
+        }
+    }
+    journal.seeds() = numbers_from_json(json.get("seeds"));
+    auto& lifetime = journal.lifetime_mutable();
+    auto& period = journal.period_mutable();
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        lifetime[i] = flows_from_json(json.get("lifetime").items().at(i));
+        period[i] = flows_from_json(json.get("period").items().at(i));
+    }
+    journal.set_next_close_day(json.get("next_close_day").number());
+    const auto matrix = [](const Json& j) {
+        SectorMatrix m {};
+        const auto values = numbers_from_json(j);
+        if (values.size() != m.size()) {
+            throw std::runtime_error("save: the money journal's sector matrix has the wrong size");
+        }
+        std::copy(values.begin(), values.end(), m.begin());
+        return m;
+    };
+    journal.lifetime_sectors_mutable() = matrix(json.get("lifetime_sectors"));
+    journal.period_sectors_mutable() = matrix(json.get("period_sectors"));
+    auto& history = journal.history_mutable();
+    history.clear();
+    for (const auto& item : json.get("history").items()) {
+        JournalSample sample;
+        sample.day = item.get("day").number();
+        sample.balances = numbers_from_json(item.get("balances"));
+        for (const auto& account_flows : item.get("flows").items()) {
+            sample.flows.push_back(flows_from_json(account_flows));
+        }
+        for (const auto& people : item.get("stations").items()) {
+            const auto values = numbers_from_json(people);
+            sample.stations.push_back({.population = values.at(0), .workers = values.at(1), .jobs = values.at(2),
+                .wage_cr_per_day = values.at(3)});
+        }
+        sample.colony_people = numbers_from_json(item.get("colony_people"));
+        sample.station_profit = numbers_from_json(item.get("station_profit"));
+        sample.sectors = matrix(item.get("sectors"));
+        history.push_back(std::move(sample));
+    }
 }
 
 // Flat [x0, y0, z0, x1, ...].
@@ -381,7 +502,25 @@ Json station_to_json(const domain::StationState& s) {
     ledger.set("taxes", s.ledger.taxes);
     ledger.set("passages_paid", s.ledger.passages_paid);
     ledger.set("passages_recovered", s.ledger.passages_recovered);
+    ledger.set("wages_paid", s.ledger.wages_paid);
+    ledger.set("household_spending", s.ledger.household_spending);
+    ledger.set("surface_bought", s.ledger.surface_bought);
+    ledger.set("surface_sold", s.ledger.surface_sold);
+    ledger.set("incomes", s.ledger.incomes);
+    ledger.set("visitor_spending", s.ledger.visitor_spending);
+    ledger.set("yard_sales", s.ledger.yard_sales);
+    ledger.set("ship_sales", s.ledger.ship_sales);
+    ledger.set("ship_purchases", s.ledger.ship_purchases);
+    ledger.set("days_in_red", s.ledger.days_in_red);
+    ledger.set("crew_wages", s.ledger.crew_wages);
+    ledger.set("hired_from_surface", s.ledger.hired_from_surface);
+    ledger.set("moved_to_surface", s.ledger.moved_to_surface);
     out.set("ledger", std::move(ledger));
+    out.set("household_credits", s.household_credits);
+    out.set("travel_budget_cr", s.travel_budget_cr);
+    out.set("jobs", s.jobs);
+    out.set("wage_cr_per_day", s.wage_cr_per_day);
+    out.set("employed_share", s.employed_share);
     out.set("ship_fuel_units_per_day", s.ship_fuel_units_per_day);
     out.set("import_units_per_day", goods_to_json(s.import_units_per_day));
     out.set("export_units_per_day", goods_to_json(s.export_units_per_day));
@@ -444,6 +583,24 @@ domain::StationState station_from_json(const Json& j) {
     s.ledger.taxes = ledger.get("taxes").number();
     s.ledger.passages_paid = ledger.get("passages_paid").number();
     s.ledger.passages_recovered = ledger.get("passages_recovered").number();
+    s.ledger.wages_paid = ledger.get("wages_paid").number();
+    s.ledger.household_spending = ledger.get("household_spending").number();
+    s.ledger.surface_bought = ledger.get("surface_bought").number();
+    s.ledger.surface_sold = ledger.get("surface_sold").number();
+    s.ledger.incomes = ledger.get("incomes").number();
+    s.ledger.visitor_spending = ledger.get("visitor_spending").number();
+    s.ledger.yard_sales = ledger.get("yard_sales").number();
+    s.ledger.ship_sales = ledger.get("ship_sales").number();
+    s.ledger.ship_purchases = ledger.get("ship_purchases").number();
+    s.ledger.days_in_red = ledger.get("days_in_red").number();
+    s.ledger.crew_wages = ledger.get("crew_wages").number();
+    s.ledger.hired_from_surface = ledger.get("hired_from_surface").number();
+    s.ledger.moved_to_surface = ledger.get("moved_to_surface").number();
+    s.household_credits = j.get("household_credits").number();
+    s.travel_budget_cr = j.get("travel_budget_cr").number();
+    s.jobs = j.get("jobs").number();
+    s.wage_cr_per_day = j.get("wage_cr_per_day").number();
+    s.employed_share = j.get("employed_share").number();
     s.ship_fuel_units_per_day = j.get("ship_fuel_units_per_day").number();
     s.import_units_per_day = goods_from_json(j.get("import_units_per_day"));
     s.export_units_per_day = goods_from_json(j.get("export_units_per_day"));
@@ -566,6 +723,46 @@ std::string Simulation::data_fingerprint() const {
     for (const auto& commodity : universe_.commodities) {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
+    {
+        // Economy overhaul: households, background economies and what they trade.
+        const auto& h = universe_.households;
+        mix(std::format("H{}|{}|{}|{}|{}|{}|{}|{}|{};", h.enabled, h.participation, h.savings_days, h.spend_days,
+            h.migrant_savings_cr, h.visitor_spend_cr_per_day, h.credits_per_usd, h.yard_share, h.surface_depth_units));
+        mix(std::format("Hc{}|{}|{}|{}|{}|{};", h.supply_price_elasticity, h.min_utilization, h.consume_income_elasticity,
+            h.consume_price_elasticity, h.upkeep_price_elasticity, h.yard_materials_share));
+        mix(std::format("Ht{}|{};", h.travel_share, h.science_price_premium));
+        const std::map<std::string, double> wages(h.wage_multiple.begin(), h.wage_multiple.end());
+        for (const auto& [station_id, multiple] : wages) {
+            mix(std::format("Hw{}|{};", station_id, multiple));
+        }
+        const auto& l = universe_.labour_market;
+        mix(std::format("L{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", l.enabled, l.earth_wage_median_cr_per_day, l.earth_wage_sigma,
+            l.station_wage_sigma, l.stay_years, l.hardship_share, l.wage_adjust_per_year, l.min_wage_multiple, l.vacancy_fill_days,
+            l.unemployed_leave_days, l.unemployment_benefit, l.visitor_budget_years, l.visitor_income_sigma));
+        for (const auto& yard : h.yards) {
+            mix("Hy" + yard + ";");
+        }
+        {
+            const std::map<std::string, double> factory_prices(universe_.fuel_supply.factory_price_cr.begin(),
+                universe_.fuel_supply.factory_price_cr.end());
+            for (const auto& [station_id, price] : factory_prices) {
+                mix(std::format("Fp{}|{};", station_id, price));
+            }
+        }
+        for (const auto& economy : universe_.background_economies) {
+            mix(std::format("B{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", economy.id, economy.launch_cr_per_kg, economy.landing_cr_per_kg,
+                economy.initial_credits, economy.income_cr_per_day, economy.population, economy.growth_per_year,
+                economy.wage_median_cr_per_day, economy.wage_sigma, economy.search_per_year));
+            mix(std::format("Bi{};", economy.immigration_share));
+        }
+        for (const auto& market : universe_.surface_markets) {
+            mix(std::format("S{}|{}|{}|{}|{}|{}|{}|{};", market.economy_id, market.station_id, market.commodity_id, market.ask_cr,
+                market.bid_cr, market.sell_units_per_day, market.buy_units_per_day, market.bid_share));
+        }
+        for (const auto& income : universe_.station_incomes) {
+            mix(std::format("I{}|{}|{}|{}|{};", income.station_id, income.kind, income.payer_id, income.cr_per_day, income.need_based));
+        }
+    }
     const auto& orders = universe_.orders;
     mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.safety_factor,
         orders.ema_deliveries, orders.extra_discount, orders.max_extra_days, orders.resale_margin, orders.keep_share, orders.life_value, orders.consume_value,
@@ -588,6 +785,22 @@ std::string Simulation::save_state_json() const {
     root.set("untimed_s", untimed_s_);
     root.set("timewarp_factor", timewarp_factor_);
     root.set("outside_economy_credits", outside_economy_credits_);
+    auto background = Json::object();
+    for (const auto& [economy_id, balance] : background_credits_) {
+        background.set(economy_id, balance);
+    }
+    root.set("background_credits", std::move(background));
+    auto colonists = Json::object();
+    for (const auto& [economy_id, people] : background_population_) {
+        colonists.set(economy_id, people);
+    }
+    root.set("background_population", std::move(colonists));
+    auto colony_states = Json::object();
+    for (const auto& [economy_id, state] : colony_state_) {
+        colony_states.set(economy_id, numbers_to_json({state.satisfaction, state.throttle, state.income_per_day,
+            state.base_imports_per_day, state.wage_median}));
+    }
+    root.set("colony_state", std::move(colony_states));
     auto treasuries = Json::object();
     for (const auto& [faction_id, balance] : faction_treasuries_) {
         treasuries.set(faction_id, balance);
@@ -695,6 +908,7 @@ std::string Simulation::save_state_json() const {
         trades.push(std::move(t));
     }
     root.set("recent_trades", std::move(trades));
+    root.set("money_journal", journal_to_json(journal_));
     return root.dump();
 }
 
@@ -712,6 +926,8 @@ void Simulation::load_state_json(const std::string& text) {
     for (const auto& item : root.get("stations").items()) {
         stations.push_back(station_from_json(item));
     }
+    MoneyJournal journal = journal_;   // same accounts (same data)
+    journal_from_json(root.get("money_journal"), journal);
     if (stations.size() != universe_.stations.size()) {
         throw std::runtime_error("save: station count does not match the data");
     }
@@ -815,6 +1031,20 @@ void Simulation::load_state_json(const std::string& text) {
     untimed_s_ = root.get("untimed_s").number();
     timewarp_factor_ = root.get("timewarp_factor").number();
     outside_economy_credits_ = root.get("outside_economy_credits").number();
+    background_credits_.clear();
+    for (const auto& [economy_id, balance] : root.get("background_credits").fields()) {
+        background_credits_[economy_id] = balance.number();
+    }
+    background_population_.clear();
+    for (const auto& [economy_id, people] : root.get("background_population").fields()) {
+        background_population_[economy_id] = people.number();
+    }
+    colony_state_.clear();
+    for (const auto& [economy_id, values] : root.get("colony_state").fields()) {
+        const auto v = numbers_from_json(values);
+        colony_state_[economy_id] = {.satisfaction = v.at(0), .throttle = v.at(1), .income_per_day = v.at(2),
+            .base_imports_per_day = v.at(3), .wage_median = v.at(4)};
+    }
     faction_treasuries_ = std::move(treasuries);
     faction_tax_per_day_ = std::move(tax_per_day);
     faction_interest_paid_ = root.get("faction_interest_paid").number();
@@ -835,7 +1065,9 @@ void Simulation::load_state_json(const std::string& text) {
     investment_ledger_.working_capital = investment.get("working_capital").number();
     investment_ledger_.salvage = investment.get("salvage").number();
     stations_ = std::move(stations);
+    journal_ = std::move(journal);
     for (const auto& station : stations_) {
+        economy_.set_employment(station.station_id, station.employed_share);
         economy_.set_population(station.station_id, station.population);
     }
     ships_ = std::move(ships);

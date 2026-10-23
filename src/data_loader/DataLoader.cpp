@@ -922,7 +922,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
     }
 
-    {
+    if (std::filesystem::exists(export_markets_path)) {
         const auto rows = read_csv_rows(export_markets_path);
         require_header(rows.front(), {"station_id", "commodity_id", "units_per_day"}, export_markets_path);
         for (std::size_t i = 1; i < rows.size(); ++i) {
@@ -938,13 +938,256 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         }
     }
 
+    // Economy overhaul: households, background economies, surface markets, station incomes
+    // (docs/plans/economy_overhaul.md). All optional; without households.csv the economy runs as before.
+    if (const auto households_path = root / "economy" / "households.csv"; std::filesystem::exists(households_path)) {
+        const auto rows = read_csv_rows(households_path);
+        require_header(rows.front(), {"key", "value"}, households_path);
+        auto& households = universe.households;
+        const std::unordered_map<std::string, double*> fields {
+            {"enabled", &households.enabled},
+            {"participation", &households.participation},
+            {"savings_days", &households.savings_days},
+            {"spend_days", &households.spend_days},
+            {"migrant_savings_cr", &households.migrant_savings_cr},
+            {"visitor_spend_cr_per_day", &households.visitor_spend_cr_per_day},
+            {"credits_per_usd", &households.credits_per_usd},
+            {"yard_share", &households.yard_share},
+            {"yard_materials_share", &households.yard_materials_share},
+            {"travel_share", &households.travel_share},
+            {"science_price_premium", &households.science_price_premium},
+            {"surface_depth_units", &households.surface_depth_units},
+            {"supply_price_elasticity", &households.supply_price_elasticity},
+            {"min_utilization", &households.min_utilization},
+            {"consume_income_elasticity", &households.consume_income_elasticity},
+            {"consume_price_elasticity", &households.consume_price_elasticity},
+            {"upkeep_price_elasticity", &households.upkeep_price_elasticity},
+            {"colony_centre_markup", &households.colony_centre_markup},
+            {"colony_stock_days", &households.colony_stock_days},
+            {"colony_import_buffer_days", &households.colony_import_buffer_days},
+            {"colony_satisfaction_days", &households.colony_satisfaction_days},
+            {"colony_people_scaling", &households.colony_people_scaling},
+            {"colony_growth_follows_satisfaction", &households.colony_growth_follows_satisfaction},
+            {"colony_wage_follows_income", &households.colony_wage_follows_income},
+            {"colony_wage_relaxation_days", &households.colony_wage_relaxation_days},
+        };
+        std::unordered_set<std::string> seen_keys;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, households_path, i + 1);
+            require_unique_id(row[0], seen_keys, households_path, i + 1);
+            if (row[0] == "colony_essentials") {
+                std::stringstream stream(row[1]);
+                std::string commodity_id;
+                while (std::getline(stream, commodity_id, '|')) {
+                    households.colony_essentials.push_back(commodity_id);
+                }
+                continue;
+            }
+            if (row[0] == "yards") {
+                std::stringstream stream(row[1]);
+                std::string station_id;
+                while (std::getline(stream, station_id, '|')) {
+                    require_station(station_id, households_path);
+                    households.yards.push_back(station_id);
+                }
+                continue;
+            }
+            const double value = parse_double(row[1], households_path, i + 1, row[0].c_str());
+            if (value < 0.0 && !row[0].ends_with("price_elasticity")) {
+                throw std::runtime_error("'" + row[0] + "' must not be negative in " + households_path.string());
+            }
+            if (row[0].starts_with("colony_stock_days.")) {
+                const auto commodity_id = row[0].substr(std::string("colony_stock_days.").size());
+                households.colony_stock_days_by_good[commodity_id] = value;
+                continue;
+            }
+            if (row[0].starts_with("wage_multiple.")) {
+                const auto station_id = row[0].substr(std::string("wage_multiple.").size());
+                require_station(station_id, households_path);
+                households.wage_multiple[station_id] = value;
+                continue;
+            }
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + households_path.string());
+            }
+            *field->second = value;
+        }
+        if (households.spend_days <= 0.0 || households.yard_share > 1.0) {
+            throw std::runtime_error("spend_days must be positive and yard_share at most 1 in " + households_path.string());
+        }
+    }
+    if (const auto labour_path = root / "economy" / "labour_market.csv"; std::filesystem::exists(labour_path)) {
+        const auto rows = read_csv_rows(labour_path);
+        require_header(rows.front(), {"key", "value"}, labour_path);
+        auto& labour = universe.labour_market;
+        const std::unordered_map<std::string, double*> fields {
+            {"enabled", &labour.enabled},
+            {"earth_wage_median_cr_per_day", &labour.earth_wage_median_cr_per_day},
+            {"earth_wage_sigma", &labour.earth_wage_sigma},
+            {"station_wage_sigma", &labour.station_wage_sigma},
+            {"stay_years", &labour.stay_years},
+            {"hardship_share", &labour.hardship_share},
+            {"wage_adjust_per_year", &labour.wage_adjust_per_year},
+            {"min_wage_multiple", &labour.min_wage_multiple},
+            {"vacancy_fill_days", &labour.vacancy_fill_days},
+            {"unemployed_leave_days", &labour.unemployed_leave_days},
+            {"unemployment_benefit", &labour.unemployment_benefit},
+            {"visitor_budget_years", &labour.visitor_budget_years},
+            {"visitor_income_sigma", &labour.visitor_income_sigma},
+        };
+        std::unordered_set<std::string> seen_keys;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 2, labour_path, i + 1);
+            require_unique_id(row[0], seen_keys, labour_path, i + 1);
+            const auto field = fields.find(row[0]);
+            if (field == fields.end()) {
+                throw std::runtime_error("Unknown key '" + row[0] + "' in " + labour_path.string());
+            }
+            *field->second = parse_double(row[1], labour_path, i + 1, row[0].c_str());
+            if (*field->second < 0.0) {
+                throw std::runtime_error("'" + row[0] + "' must not be negative in " + labour_path.string());
+            }
+        }
+        if (labour.vacancy_fill_days <= 0.0 || labour.unemployed_leave_days <= 0.0 || labour.stay_years <= 0.0
+            || labour.earth_wage_sigma <= 0.0 || labour.visitor_income_sigma <= 0.0) {
+            throw std::runtime_error("labour_market.csv: days, years and spreads must be positive");
+        }
+    }
+    if (const auto economies_path = root / "economy" / "background_economies.csv"; std::filesystem::exists(economies_path)) {
+        const auto rows = read_csv_rows(economies_path);
+        require_header(rows.front(),
+            {"id", "name", "gateways", "launch_usd_per_kg", "landing_usd_per_kg", "initial_credits", "income_cr_per_year",
+                "population", "growth_per_year", "wage_median_cr_per_day", "wage_sigma", "search_per_year", "immigration_share"},
+            economies_path);
+        std::unordered_set<std::string> seen_ids;
+        const double scale = universe.households.credits_per_usd;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 13, economies_path, i + 1);
+            require_unique_id(row[0], seen_ids, economies_path, i + 1);
+            domain::BackgroundEconomyDefinition economy {
+                .id = row[0],
+                .name = row[1],
+                .launch_cr_per_kg = parse_double(row[3], economies_path, i + 1, "launch_usd_per_kg") * scale,
+                .landing_cr_per_kg = parse_double(row[4], economies_path, i + 1, "landing_usd_per_kg") * scale,
+                .initial_credits = parse_double(row[5], economies_path, i + 1, "initial_credits"),
+                .income_cr_per_day = parse_double(row[6], economies_path, i + 1, "income_cr_per_year") / 365.25,
+                .population = parse_double(row[7], economies_path, i + 1, "population"),
+                .growth_per_year = parse_double(row[8], economies_path, i + 1, "growth_per_year"),
+                .wage_median_cr_per_day = parse_double(row[9], economies_path, i + 1, "wage_median_cr_per_day"),
+                .wage_sigma = parse_double(row[10], economies_path, i + 1, "wage_sigma"),
+                .search_per_year = parse_double(row[11], economies_path, i + 1, "search_per_year"),
+                .immigration_share = parse_double(row[12], economies_path, i + 1, "immigration_share"),
+            };
+            if (economy.population > 0.0 && (economy.wage_median_cr_per_day <= 0.0 || economy.wage_sigma <= 0.0)) {
+                throw std::runtime_error("A colony with people needs a wage median and spread in " + economies_path.string());
+            }
+            std::stringstream stream(row[2]);
+            std::string station_id;
+            while (std::getline(stream, station_id, '|')) {
+                require_station(station_id, economies_path);
+                economy.gateways.push_back(station_id);
+            }
+            if (economy.gateways.empty()) {
+                throw std::runtime_error("Background economy '" + row[0] + "' has no gateway in " + economies_path.string());
+            }
+            universe.background_economies.push_back(std::move(economy));
+        }
+    }
+    if (const auto markets_path = root / "economy" / "surface_markets.csv"; std::filesystem::exists(markets_path)) {
+        // Each row: what an economy trades at one gateway (station_id), or at all of them (empty).
+        // Ask = (surface + launch) x unit mass, bid = (surface - landing) x unit mass, in credits;
+        // a bid_share instead sets the bid from the station's reference price at run time.
+        const auto rows = read_csv_rows(markets_path);
+        require_header(rows.front(),
+            {"economy_id", "station_id", "commodity_id", "surface_usd_per_kg", "sells", "buys", "sell_units_per_day",
+                "buy_units_per_day", "bid_share"},
+            markets_path);
+        const double scale = universe.households.credits_per_usd;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 9, markets_path, i + 1);
+            const auto economy = std::find_if(universe.background_economies.begin(), universe.background_economies.end(),
+                [&](const domain::BackgroundEconomyDefinition& e) { return e.id == row[0]; });
+            if (economy == universe.background_economies.end()) {
+                throw std::runtime_error("Unknown background economy '" + row[0] + "' in " + markets_path.string());
+            }
+            require_commodity(row[2], markets_path);
+            const auto commodity = std::find_if(universe.commodities.begin(), universe.commodities.end(),
+                [&](const domain::CommodityDefinition& c) { return c.id == row[2]; });
+            const double surface = parse_double(row[3], markets_path, i + 1, "surface_usd_per_kg") * scale;
+            const bool sells = row[4] == "1";
+            const bool buys = row[5] == "1";
+            const double sell_units = parse_double(row[6], markets_path, i + 1, "sell_units_per_day");
+            const double buy_units = parse_double(row[7], markets_path, i + 1, "buy_units_per_day");
+            const double bid_share = parse_double(row[8], markets_path, i + 1, "bid_share");
+            std::vector<std::string> stations;
+            if (row[1].empty()) {
+                stations = economy->gateways;
+            } else {
+                require_station(row[1], markets_path);
+                stations.push_back(row[1]);
+            }
+            for (const auto& station_id : stations) {
+                domain::SurfaceMarketDefinition market {
+                    .economy_id = row[0],
+                    .station_id = station_id,
+                    .commodity_id = row[2],
+                    .ask_cr = sells ? (surface + economy->launch_cr_per_kg) * commodity->mass_per_unit_kg : 0.0,
+                    .bid_cr = buys && bid_share <= 0.0
+                        ? std::max(0.0, surface - economy->landing_cr_per_kg) * commodity->mass_per_unit_kg : 0.0,
+                    .sell_units_per_day = sell_units,
+                    .buy_units_per_day = buy_units,
+                    .bid_share = buys ? bid_share : 0.0,
+                };
+                if (buys && market.bid_cr <= 0.0 && market.bid_share <= 0.0) {
+                    throw std::runtime_error("A surface market that buys needs a positive bid in " + markets_path.string());
+                }
+                universe.surface_markets.push_back(std::move(market));
+            }
+        }
+    }
+    if (const auto incomes_path = root / "economy" / "station_incomes.csv"; std::filesystem::exists(incomes_path)) {
+        const auto rows = read_csv_rows(incomes_path);
+        require_header(rows.front(), {"station_id", "kind", "payer_id", "cr_per_year", "need_based"}, incomes_path);
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            const auto& row = rows[i];
+            require_field_count(row, 5, incomes_path, i + 1);
+            require_station(row[0], incomes_path);
+            const bool payer_known = std::any_of(universe.background_economies.begin(), universe.background_economies.end(),
+                [&](const domain::BackgroundEconomyDefinition& e) { return e.id == row[2]; });
+            if (!payer_known) {
+                throw std::runtime_error("Unknown payer '" + row[2] + "' in " + incomes_path.string());
+            }
+            universe.station_incomes.push_back({
+                .station_id = row[0],
+                .kind = row[1],
+                .payer_id = row[2],
+                .cr_per_day = parse_double(row[3], incomes_path, i + 1, "cr_per_year") / 365.25,
+                .need_based = row[4] == "1",
+            });
+        }
+    }
+
     {
         const auto rows = read_csv_rows(fuel_factories_path);
-        require_header(rows.front(), {"station_id", "output_units_per_day"}, fuel_factories_path);
+        // Optional third column: the factory's own price per unit (economy overhaul).
+        const bool priced = rows.front().size() >= 3;
+        require_header(rows.front(), priced ? std::vector<std::string> {"station_id", "output_units_per_day", "price_cr"}
+                                            : std::vector<std::string> {"station_id", "output_units_per_day"}, fuel_factories_path);
         std::unordered_set<std::string> seen_ids;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
-            require_field_count(row, 2, fuel_factories_path, i + 1);
+            require_field_count(row, priced ? 3 : 2, fuel_factories_path, i + 1);
+            if (priced) {
+                const double price = parse_double(row[2], fuel_factories_path, i + 1, "price_cr");
+                if (price > 0.0) {
+                    universe.fuel_supply.factory_price_cr[row[0]] = price;
+                }
+            }
             require_unique_id(row[0], seen_ids, fuel_factories_path, i + 1);
             const bool known = std::any_of(universe.stations.begin(), universe.stations.end(),
                 [&](const domain::StationDefinition& station) { return station.id == row[0]; });
@@ -967,6 +1210,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const std::unordered_map<std::string, double*> fields {
             {"station_credit_floor", &open_economy.station_credit_floor},
             {"station_credit_ceiling", &open_economy.station_credit_ceiling},
+            {"station_credit_ceiling_in_debt", &open_economy.station_credit_ceiling_in_debt},
             {"station_balance_days", &open_economy.station_balance_days},
             {"ship_cash_reserve", &open_economy.ship_cash_reserve},
             {"dividend_days", &open_economy.dividend_days},
@@ -1000,6 +1244,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         if (open_economy.station_credit_ceiling > 0.0
             && open_economy.station_credit_ceiling < open_economy.station_credit_floor) {
             throw std::runtime_error("station_credit_ceiling must not be below the floor in " + open_economy_path.string());
+        }
+        if (open_economy.station_credit_ceiling_in_debt > 0.0
+            && (open_economy.station_credit_ceiling_in_debt < open_economy.station_credit_floor
+                || (open_economy.station_credit_ceiling > 0.0
+                    && open_economy.station_credit_ceiling_in_debt > open_economy.station_credit_ceiling))) {
+            throw std::runtime_error("station_credit_ceiling_in_debt must lie between the floor and the ceiling in "
+                + open_economy_path.string());
         }
     }
 
@@ -1445,7 +1696,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                     return here && recipe.commodity_id == event.commodity_id
                         && (wants_output ? recipe.units_per_day > 0.0 : recipe.units_per_day < 0.0);
                 });
-                if (!has_recipe) {
+                // Or its colony mines it (a boom or outage then changes the colony's sales there).
+                const bool colony_sells = wants_output && std::any_of(universe.surface_markets.begin(), universe.surface_markets.end(),
+                    [&](const auto& market) {
+                        return market.station_id == station.id && market.commodity_id == event.commodity_id && market.ask_cr > 0.0
+                            && market.sell_units_per_day > 0.0;
+                    });
+                if (!has_recipe && !colony_sells) {
                     throw std::runtime_error("Event '" + event.id + "': " + event.station_id + (wants_output ? " makes" : " uses")
                         + " no " + event.commodity_id + " in " + events_path.string());
                 }

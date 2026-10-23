@@ -38,6 +38,25 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     for (const auto& market : universe_.export_markets) {
         export_markets_[market.station_id][market.commodity_id] = market.units_per_day;
         export_goods_.insert(market.commodity_id);
+        legacy_export_markets_ = true;
+    }
+    // A surface market that only buys (no ask) is an export market at its flat bid; planners
+    // see it as a consumer of its daily volume (EXPORT_PLANNING_UNITS where it takes any amount).
+    constexpr double EXPORT_PLANNING_UNITS = 10.0;
+    surface_depth_units_ = universe_.households.surface_depth_units;
+    for (const auto& income : universe_.station_incomes) {
+        if (income.kind == "science_station") {
+            science_stations_.insert(income.station_id);
+        }
+    }
+    for (const auto& market : universe_.surface_markets) {
+        surface_by_station_[market.station_id].push_back(&market);
+        if (market.ask_cr <= 0.0 && market.bid_cr > 0.0) {
+            export_markets_[market.station_id][market.commodity_id] =
+                market.buy_units_per_day > 0.0 ? market.buy_units_per_day : EXPORT_PLANNING_UNITS;
+            export_bids_[market.station_id][market.commodity_id] = market.bid_cr;
+            export_goods_.insert(market.commodity_id);
+        }
     }
     reference_prices_ = universe_.pricing.reference_prices;
     for (const auto& event : universe_.events) {
@@ -105,18 +124,67 @@ double EconomySystem::transfer_days(const domain::StationDefinition& a, const do
     return 3.14159265358979323846 * std::sqrt(axis * axis * axis / mu_sun) / 86400.0;
 }
 
-double EconomySystem::flat_price_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const {
+double EconomySystem::flat_price(const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const {
     if (!export_goods_.contains(commodity_id)) {
         return 0.0;
     }
     if (is_export_market(station, commodity_id)) {
-        return 1.0;
+        if (const auto station_it = export_bids_.find(station.id); station_it != export_bids_.end()) {
+            if (const auto it = station_it->second.find(commodity_id); it != station_it->second.end()) {
+                return it->second;
+            }
+        }
+        return base_price;
     }
-    // Made or used here (science samples at Lunar Gateway and Mars): priced on the curve.
+    // Made or used here (science samples at Lunar Gateway and Mars), or traded with a surface
+    // economy: priced on the curve.
     const auto& recipes = recipes_of(station);
     const bool traded_here = std::any_of(recipes.begin(), recipes.end(),
         [&](const domain::RecipeDefinition* recipe) { return recipe->commodity_id == commodity_id; });
-    return traded_here ? 0.0 : PRICE_MIN_MULTIPLIER;
+    return traded_here || surface_market(station, commodity_id) != nullptr ? 0.0 : PRICE_MIN_MULTIPLIER * base_price;
+}
+
+const std::vector<const domain::SurfaceMarketDefinition*>& EconomySystem::surface_markets_at(const std::string& station_id) const {
+    static const std::vector<const domain::SurfaceMarketDefinition*> none;
+    const auto it = surface_by_station_.find(station_id);
+    return it == surface_by_station_.end() ? none : it->second;
+}
+
+const domain::SurfaceMarketDefinition* EconomySystem::surface_market(
+    const domain::StationDefinition& station, const std::string& commodity_id) const {
+    for (const auto* market : surface_markets_at(station.id)) {
+        if (market->commodity_id == commodity_id) {
+            return market;
+        }
+    }
+    return nullptr;
+}
+
+bool EconomySystem::surface_supplied(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    const auto* market = surface_market(station, commodity_id);
+    return market != nullptr && market->ask_cr > 0.0 && market->sell_units_per_day <= 0.0;
+}
+
+double EconomySystem::surface_bid(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    const auto* market = surface_market(station, commodity_id);
+    if (market == nullptr) {
+        return 0.0;
+    }
+    if (market->bid_share > 0.0) {
+        return market->bid_share * reference_price(station, commodity_id);
+    }
+    return market->bid_cr;
+}
+
+double EconomySystem::price_floor_multiplier(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    // Where the surface buys the good, the station never pays less than the surface would.
+    if (const double bid = surface_bid(station, commodity_id); bid > 0.0) {
+        const double centre = reference_price(station, commodity_id);
+        if (centre > 0.0) {
+            return std::clamp(bid / centre, PRICE_MIN_MULTIPLIER, 1.0);
+        }
+    }
+    return PRICE_MIN_MULTIPLIER;
 }
 
 const std::vector<const domain::RecipeDefinition*>& EconomySystem::recipes_of(const domain::StationDefinition& station) const {
@@ -141,8 +209,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             continue;
         }
 
-        // Earth's economy takes everything delivered to its export markets.
-        if (const auto market_it = export_markets_.find(station.station_id); market_it != export_markets_.end()) {
+        // Earth's economy takes everything delivered to its export markets (surface markets
+        // are settled by the simulation, which pays for them).
+        if (const auto market_it = export_markets_.find(station.station_id);
+            legacy_export_markets_ && market_it != export_markets_.end()) {
             for (const auto& [commodity_id, units_per_day] : market_it->second) {
                 double& stock = station.inventory[commodity_id];
                 if (stock > 0.0) {
@@ -192,7 +262,7 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         // Production stops at 85% so the station keeps headroom to receive imports —
         // a producer that fills itself to the brim can no longer be resupplied at all.
         const double capacity = station_it->storage_capacity_units;
-        const bool storage_full = capacity > 0.0 && storage_used_units(station.inventory) >= capacity * 0.85;
+        const bool storage_full = capacity > 0.0 && storage_used_units(*station_it, station.inventory) >= capacity * 0.85;
         const double ceiling = storage_full ? 0.0 : upkeep;
 
         // Each output's run rate, and the input that limits it (for the unmet-demand count).
@@ -225,14 +295,28 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         station.output_limited_by.clear();
         for (auto& [commodity_id, run] : runs) {
             run.run = ceiling * run.limit;
+            // Phase C: plants run at what their price pays for.
+            if (const auto supply = station.supply_factor.find(commodity_id); supply != station.supply_factor.end()) {
+                run.run *= supply->second;
+            }
             station.output_factor[commodity_id] = run.run;
             if (run.limit < 1.0) {
                 station.output_limited_by[commodity_id] = run.limited_by;
             }
         }
 
+        const double employed = employment(station.station_id);
         for (const auto* recipe : recipes) {
-            const double units_per_day = recipe->units_per_day * factor * event_factor(station, *recipe);
+            double units_per_day = recipe->units_per_day * factor * event_factor(station, *recipe);
+            if (recipe->units_per_day > 0.0 || recipe->role == domain::RecipeRole::Input) {
+                units_per_day *= employed;   // plants run with the workers employed
+            }
+            // Phase C: residents use more or less of what they consume with its price and their income.
+            if (recipe->units_per_day < 0.0 && recipe->role != domain::RecipeRole::Input) {
+                if (const auto demand = station.demand_factor.find(recipe->commodity_id); demand != station.demand_factor.end()) {
+                    units_per_day *= demand->second;
+                }
+            }
             double rate = units_per_day;
             // Lost consumption that is a shortage, not a choice: the part of an input's use its own
             // stock-out took from the outputs it limits.
@@ -313,6 +397,22 @@ double EconomySystem::storage_used_units(const domain::Inventory& inventory) con
     return stored;
 }
 
+double EconomySystem::storage_used_units(const domain::StationDefinition& station, const domain::Inventory& inventory) const {
+    const auto& markets = surface_markets_at(station.id);
+    if (markets.empty()) {
+        return storage_used_units(inventory);
+    }
+    double stored = 0.0;
+    for (const auto& [commodity_id, units] : inventory) {
+        if (commodity_id == FUEL_ID || units <= 0.0) {
+            continue;
+        }
+        // The surface's stock at its gateway stands in its own warehouse (up to the depth).
+        stored += surface_supplied(station, commodity_id) ? std::max(0.0, units - surface_depth_units_) : units;
+    }
+    return stored;
+}
+
 double EconomySystem::fuel_factory_output(const domain::StationDefinition& station) const {
     const auto& outputs = universe_.fuel_supply.factory_output_units_per_day;
     const auto it = outputs.find(station.id);
@@ -348,6 +448,19 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
     }
     const auto rates = get_station_net_rates(station);
     const double net_rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
+    // A surface economy keeps it stocked at its depth, priced at its ask there.
+    if (surface_supplied(station, commodity_id)) {
+        return surface_depth_units_;
+    }
+    // A gateway stocks a few weeks of what its colony sells, so a ship can collect a worthwhile lot
+    // (platinum and helium-3 come a few units a day).
+    if (const auto* market = surface_market(station, commodity_id); market != nullptr && market->ask_cr > 0.0
+        && market->sell_units_per_day > 0.0 && universe_.households.colony_stock_days > 0.0 && !makes_itself(station, commodity_id)) {
+        const auto& by_good = universe_.households.colony_stock_days_by_good;
+        const auto days = by_good.find(commodity_id);
+        return std::max(market->sell_units_per_day * (days == by_good.end() ? universe_.households.colony_stock_days : days->second),
+            std::abs(net_rate) * 21.0);
+    }
     // A consumer buys under its orders (step 29); three weeks only places the curve.
     if (net_rate < 0.0) {
         return std::abs(net_rate) * 21.0;
@@ -360,12 +473,43 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
 
 double EconomySystem::curve_centre(
     const domain::StationDefinition& station, const std::string& commodity_id, double base_price) const {
+    if (const auto* market = surface_market(station, commodity_id); market != nullptr && market->ask_cr > 0.0
+        && market->sell_units_per_day <= 0.0) {
+        return market->ask_cr;
+    }
+    // A good its colony sells, and the station does not make itself: centred just above the colony's
+    // ask (the colony then sells part of its rate at the centre, all of it above 1.25 x ask).
+    if (const auto* market = surface_market(station, commodity_id); market != nullptr && market->ask_cr > 0.0
+        && universe_.households.colony_centre_markup > 0.0 && !makes_itself(station, commodity_id)) {
+        return market->ask_cr * universe_.households.colony_centre_markup;
+    }
+    // A fuel factory prices its fuel at its own cost.
+    if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
+        const auto& prices = universe_.fuel_supply.factory_price_cr;
+        if (const auto it = prices.find(station.id); it != prices.end()) {
+            return it->second;
+        }
+    }
     const auto station_it = reference_prices_.find(station.id);
     if (station_it == reference_prices_.end()) {
         return base_price;
     }
     const auto it = station_it->second.find(commodity_id);
-    return it == station_it->second.end() ? base_price : it->second;
+    if (it == station_it->second.end()) {
+        return base_price;
+    }
+    // A science station pays above the landed cost to be supplied (Earth's budget pays for it).
+    return science_stations_.contains(station.id) ? it->second * (1.0 + universe_.households.science_price_premium) : it->second;
+}
+
+bool EconomySystem::makes_itself(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
+        return true;
+    }
+    const auto& recipes = recipes_of(station);
+    return std::any_of(recipes.begin(), recipes.end(), [&](const domain::RecipeDefinition* recipe) {
+        return recipe->commodity_id == commodity_id && recipe->units_per_day > 0.0;
+    });
 }
 
 double EconomySystem::reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -383,7 +527,11 @@ bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const st
     });
 }
 
-double EconomySystem::price_cap(const domain::StationDefinition& /*station*/, const std::string& /*commodity_id*/) const {
+double EconomySystem::price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    // The surface sells it here in any amount: never dearer than its ask.
+    if (surface_supplied(station, commodity_id)) {
+        return 1.0;
+    }
     return universe_.pricing.price_cap;
 }
 
@@ -392,19 +540,22 @@ double EconomySystem::get_price(
     const std::string& commodity_id,
     double stock,
     double base_price) const {
-    if (const double flat = flat_price_multiplier(station, commodity_id); flat > 0.0) {
-        return base_price * flat;
+    if (const double flat = flat_price(station, commodity_id, base_price); flat > 0.0) {
+        return flat;
     }
     const double target = get_target_stock(station, commodity_id);
     const double ratio = target / std::max(stock, 0.5);
-    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), PRICE_MIN_MULTIPLIER, price_cap(station, commodity_id));
+    const double multiplier = std::clamp(std::pow(ratio, PRICE_ELASTICITY), price_floor_multiplier(station, commodity_id),
+        price_cap(station, commodity_id));
     return curve_centre(station, commodity_id, base_price) * multiplier;
 }
 
 double EconomySystem::production_cap_units(
     const domain::StationDefinition& station, const std::string& commodity_id, double units_per_day) const {
     const double days = export_goods_.contains(commodity_id) ? EXPORT_STOCKPILE_DAYS : PRODUCTION_CAP_DAYS;
-    return std::max(units_per_day * days, commodity_id == FUEL_ID ? fuel_buffer_units(station) : 0.0);
+    // Never below what a background economy keeps stocked here (the cap would throw its stock away).
+    const double surface_stock = surface_supplied(station, commodity_id) ? surface_depth_units_ : 0.0;
+    return std::max({units_per_day * days, commodity_id == FUEL_ID ? fuel_buffer_units(station) : 0.0, surface_stock});
 }
 
 double EconomySystem::get_trade_value(
@@ -413,8 +564,8 @@ double EconomySystem::get_trade_value(
     double stock_before,
     double units_into_station,
     double base_price) const {
-    if (const double flat = flat_price_multiplier(station, commodity_id); flat > 0.0) {
-        return base_price * flat * std::abs(units_into_station);
+    if (const double flat = flat_price(station, commodity_id, base_price); flat > 0.0) {
+        return flat * std::abs(units_into_station);
     }
     // Exact integral of get_price over the traded stock range. The multiplier is
     // (target / max(s, 0.5))^e clamped to [min, max]: constant below s = 0.5, at the
@@ -422,11 +573,12 @@ double EconomySystem::get_trade_value(
     const double target = get_target_stock(station, commodity_id);
     const double e = PRICE_ELASTICITY;
     const double cap = price_cap(station, commodity_id);
+    const double floor = price_floor_multiplier(station, commodity_id);
     const auto clamp_multiplier = [&](double stock) {
-        return std::clamp(std::pow(target / std::max(stock, 0.5), e), PRICE_MIN_MULTIPLIER, cap);
+        return std::clamp(std::pow(target / std::max(stock, 0.5), e), floor, cap);
     };
     const double s_hi = std::max(0.5, target * std::pow(cap, -1.0 / e));
-    const double s_lo = std::max(0.5, target * std::pow(PRICE_MIN_MULTIPLIER, -1.0 / e));
+    const double s_lo = std::max(0.5, target * std::pow(floor, -1.0 / e));
     const auto power_integral = [&](double a, double b) {  // ∫ (target/s)^e ds over [a, b]
         return std::pow(target, e) * (std::pow(b, 1.0 - e) - std::pow(a, 1.0 - e)) / (1.0 - e);
     };
@@ -441,7 +593,7 @@ double EconomySystem::get_trade_value(
             total += power_integral(s_hi, std::min(x, s_lo));
         }
         if (x > s_lo) {
-            total += PRICE_MIN_MULTIPLIER * (x - s_lo);
+            total += floor * (x - s_lo);
         }
         return total;
     };
@@ -465,6 +617,24 @@ void EconomySystem::set_population(const std::string& station_id, double populat
     }
 }
 
+void EconomySystem::set_employment(const std::string& station_id, double employed_share) {
+    const double share = std::clamp(employed_share, 0.0, 1.0);
+    if (const auto it = employment_.find(station_id); it != employment_.end() ? it->second == share : share == 1.0) {
+        return;
+    }
+    employment_[station_id] = share;
+    for (const auto& station : universe_.stations) {
+        if (station.id == station_id) {
+            net_rates_[station_id] = compute_net_rates(station);
+        }
+    }
+}
+
+double EconomySystem::employment(const std::string& station_id) const {
+    const auto it = employment_.find(station_id);
+    return it == employment_.end() ? 1.0 : it->second;
+}
+
 const std::unordered_map<std::string, double>& EconomySystem::get_station_net_rates(const domain::StationDefinition& station) const {
     if (const auto it = net_rates_.find(station.id); it != net_rates_.end()) {
         return it->second;
@@ -480,12 +650,26 @@ std::unordered_map<std::string, double> EconomySystem::compute_net_rates(const d
         rates[FUEL_ID] += output;
     }
     const double factor = population_factor(station);
+    const double employed = employment(station.id);
     for (const auto* recipe : recipes_of(station)) {
-        rates[recipe->commodity_id] += recipe->units_per_day * factor;
+        const bool plant = recipe->units_per_day > 0.0 || recipe->role == domain::RecipeRole::Input;
+        rates[recipe->commodity_id] += recipe->units_per_day * factor * (plant ? employed : 1.0);
     }
     if (const auto it = export_markets_.find(station.id); it != export_markets_.end()) {
         for (const auto& [commodity_id, units_per_day] : it->second) {
             rates[commodity_id] -= units_per_day;
+        }
+    }
+    // A small colony's trade at its gateway: what it sells adds to the station's supply, what
+    // it buys to its demand (Earth's unlimited trade is not a rate).
+    for (const auto* market : surface_markets_at(station.id)) {
+        if (market->ask_cr > 0.0 && market->sell_units_per_day > 0.0) {
+            rates[market->commodity_id] += market->sell_units_per_day;
+        }
+        const bool buys = market->bid_cr > 0.0 || market->bid_share > 0.0;
+        const bool export_market = market->ask_cr <= 0.0 && market->bid_cr > 0.0;   // counted above
+        if (buys && !export_market && market->buy_units_per_day > 0.0) {
+            rates[market->commodity_id] -= market->buy_units_per_day;
         }
     }
     return rates;

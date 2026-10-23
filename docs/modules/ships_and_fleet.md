@@ -114,12 +114,19 @@ berths, and those that left empty while people waited), and the legs flown in al
 - **What a group pays:** the reference fare adjusted for the trip's time and dose. When more wait than fit,
   everyone pays the fare that clears the berths (up to 4× the reference cost, the top demand band).
 - **Giving up:** groups give up as waiting uses up their budget.
-- **Who pays:** fares go to the ship from the outside account (emigrants, visitors) or from the work station
-  (rotation, and settlers with `settlers_sponsored`). A station recovers what it paid for passages
-  (`passage_debt_cr`) at 1/`passage_recovery_days` a day from outside money, at most `passage_max_markup` × its
-  residents' spending on goods. Its prices thus carry the passages.
-- **Settler demand** falls with the ticket's payback time T (reference generalized cost over a year's wage):
-  1 / (1 + (T / `settler_payback_half_years`)^`settler_payback_exponent`) of the growth rate.
+- **Who pays** (economy overhaul, households and labour market on):
+  - Earth's people pay from Earth's account;
+  - a station's residents pay from their savings, within their travel budget (3% of wages);
+  - the work station pays for rotation;
+  - a colony pays for the settlers it recruits.
+
+  Settlers pay their own passage out of what the job gains them, and visitors travel when half a year's
+  income covers the trip (`docs/modules/economy.md`, "Economy overhaul").
+- **Without the labour market:** fares come from the outside account (emigrants, visitors) or from the work
+  station (rotation, and settlers with `settlers_sponsored`). A station recovers what it paid for passages
+  (`passage_debt_cr`) at 1/`passage_recovery_days` a day, at most `passage_max_markup` × its residents'
+  spending on goods. Settler demand falls with the ticket's payback time T (reference generalized cost over a
+  year's wage): 1 / (1 + (T / `settler_payback_half_years`)^`settler_payback_exponent`) of the growth rate.
 
 **Ships.**
 - **Carriers:**
@@ -167,22 +174,28 @@ berths, and those that left empty while people waited), and the legs flown in al
 
 - **Dividends:** cash above `ship_cash_reserve` goes to the home station over `dividend_days`. These are internal
   transfers, outside `lifetime_profit`.
-- **The outside account** sits on the other side of every payment that leaves the simulated trade: residents,
-  hulls, salvage, export markets. The audit checks that stations + ships + outside equal the seeded money
-  (drift 0).
-- **The money-supply controller** pays or taxes stations per head to keep stations and ships near the target
-  over `money_supply_days`. The target grows by each new ship's working capital. It never pushes a station out
-  of the treasury band.
+- **The background economies** (Earth, the colonies) sit on the other side of every payment that leaves the
+  simulated trade (economy overhaul; Earth's account is the old outside account):
+  - hulls: the yard's share goes to a yard in space;
+  - salvage, interest, Earth's surface trade, station incomes;
+  - travellers from Earth.
+
+  The audit checks that stations + households + ships + treasuries + background accounts equal the seeded
+  money (drift 0). Ships pay their crews' wages to the home station's households.
+- **The money-supply controller** (off since the overhaul, `money_supply_days` 0) paid or taxed stations per
+  head to keep stations and ships near a target that grew by each new ship's working capital.
 
 ## Fuel supply and exports
 
-- **Fuel factories** (`fuel_factories.csv`) fill their depot up to `factory_buffer_days` of output. Other depots
+- **Fuel factories** (`fuel_factories.csv`) fill their depot up to `factory_buffer_days` of output, priced at
+  their own cost (`price_cr`, 2.5-3.5 cr per 100 kg since the overhaul, against Earth's 7.9). Other depots
   hold `depot_buffer_units` outside cargo storage and only gain what ships deliver, priced along the usual curve.
   Bulk Tanker and Plasma Bulk Tanker (2,000 units) are ordinary hulls for investment. Each station's ship fuel
   purchases (60-day average) count as demand when a fuel run is valued.
 - **Outer exports:**
   - Station recipes (`station_recipes.csv`): Ceres makes platinum; Ganymede and Titan make deuterium. These are
     light, valuable goods, stockpiled up to 720 days.
-  - Export markets (`export_markets.csv`): Low Earth Logistics and Earth L1 sell what is delivered on to Earth at
-    base price, in any amount. Planners see them as steady consumers, never as starving ones.
+  - Export markets: Low Earth Logistics and Earth L1 sell what is delivered on to Earth at Earth's bid
+    (`surface_markets.csv` since the economy overhaul; `export_markets.csv` before), in any amount. Planners
+    see them as steady consumers, never as starving ones.
   - Anywhere else, export goods price at the floor, so nobody hauls them elsewhere.

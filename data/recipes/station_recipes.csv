@@ -1,9 +1,6 @@
 station_id,commodity_id,units_per_day,role
-ceres_depot,platinum,0.5,
 ganymede_depot,deuterium,1,
 titan_works,deuterium,1,
-luna_base,metals,24,
-luna_base,water,30,
 titan_works,science_samples,0.26,
 titan_works,electronics,-0.026,input:science_samples
 ganymede_depot,science_samples,0.37,
@@ -14,3 +11,11 @@ mercury_yard,science_samples,0.66,
 mercury_yard,electronics,-0.066,input:science_samples
 luna_base,science_samples,-0.1,consume
 mars_transfer,science_samples,-0.1,consume
+earth_orbit,microgravity_products,2,
+earth_orbit,electronics,-0.2,input:microgravity_products
+earth_l1,microgravity_products,1,
+earth_l1,electronics,-0.1,input:microgravity_products
+venus_cloud,science_samples,0.2,
+venus_cloud,electronics,-0.02,input:science_samples
+venus_cloud,machinery,-0.1,consume
+titan_works,machinery,1.5,

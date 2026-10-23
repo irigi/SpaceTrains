@@ -61,7 +61,22 @@
   - Plasma ships' radiator wings glow in false colour while thrusting.
 - **Wheel:** zooms the map, except over the inspector, browser or market panel, which take it even at the
   end of their scroll.
-- **Keys:** F5 quick save, F9 quick load, M economy, F focus, Space pause, `,` `.` timewarp, F11 map debug.
+- **Statistics screen** (S, `ui/StatisticsPanel.gd`, charts `ui/LineChart.gd`): it reads the bridge's
+  `.stats` side file (the money journal, docs/modules/economy.md), which the bridge writes only while the screen
+  is open (`stats_open` in the command file).
+  - **Period switch:** since the start, last year, last 30 days.
+  - **Chart switch:** balances, or net flow per month.
+  - **Tabs:**
+    - Overview: money by sector, who pays whom, sector balances;
+    - Factions: treasury, credit, operating and investment results, their stations' and fleets' profit, flows by
+      category;
+    - Stations: cash, profit before the faction, top income and expense, red days; a station's and its
+      residents' flows;
+    - Residents: people, workers, open jobs, wage, savings, savings rate;
+    - Colonies & Earth: accounts against credit lines, wage p10/p50/p90, hiring up and down, Earth's flows;
+    - Fleet: by faction and class, the best and worst ships (click to select one).
+  - The station inspector shows its profit before the faction, since the start and over the last year.
+- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, F focus, Space pause, `,` `.` timewarp, F11 map debug.
 - **Dev:** `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
   `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves

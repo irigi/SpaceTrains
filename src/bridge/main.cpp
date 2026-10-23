@@ -131,6 +131,13 @@ int main(int argc, char** argv) {
     std::uint64_t paths_seq = 0;
     std::string designs_signature = "-";
     std::uint64_t designs_seq = 0;
+    // Statistics (the UI's Statistics screen): a side file, written only while the screen is open,
+    // at most once a second of real time and whenever a month's sample closes.
+    bool stats_open = false;
+    bool stats_due = false;
+    std::uint64_t stats_seq = 0;
+    std::size_t stats_samples = 0;
+    auto last_stats = std::chrono::steady_clock::now() - std::chrono::seconds(10);
     const auto write_snapshot = [&]() {
         const auto now = std::chrono::steady_clock::now();
         const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
@@ -147,6 +154,16 @@ int main(int argc, char** argv) {
             designs_signature = std::move(signature);
             write_text_file(config.snapshot_file + ".designs", simulation.build_bridge_designs_json());
             write_text_file(config.snapshot_file + ".designs.seq", std::to_string(designs_seq++));
+        }
+        if (stats_open) {
+            const auto samples = simulation.money_journal().history().size();
+            if (stats_due || samples != stats_samples || now - last_stats >= std::chrono::seconds(1)) {
+                write_text_file(config.snapshot_file + ".stats", simulation.build_stats_json());
+                write_text_file(config.snapshot_file + ".stats.seq", std::to_string(stats_seq++));
+                stats_samples = samples;
+                last_stats = now;
+                stats_due = false;
+            }
         }
         auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s, false);
         json.pop_back();  // the closing brace
@@ -179,6 +196,9 @@ int main(int argc, char** argv) {
             last_command_text = command_text;
             paused = parse_bool_flag(command_text, "paused", paused);
             timewarp = parse_number_flag(command_text, "timewarp_factor", timewarp);
+            const bool open = parse_bool_flag(command_text, "stats_open", false);
+            stats_due = stats_due || (open && !stats_open);
+            stats_open = open;
             simulation.set_timewarp(timewarp);
             changed = true;
             // Save and load requests carry a request number, so the same path can be used again.
@@ -198,6 +218,7 @@ int main(int argc, char** argv) {
                         simulation.load_state_json(text);
                         simulation.set_timewarp(timewarp);
                         ++epoch;
+                        stats_due = true;
                         command_status = std::format("Loaded day {:.1f}", simulation.game_time_s() / 86400.0);
                     } catch (const std::exception& error) {
                         command_status = std::string("Load failed: ") + error.what();

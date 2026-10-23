@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -271,6 +272,10 @@ void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
                                  "(+{:.1f}% on residents' goods), {:.0f} cr still to recover\n",
             paid, recovered, household > 0.0 ? 100.0 * recovered / household : 0.0, owed);
     }
+    if (audit.colony_recruits_landed > 0.0) {
+        std::cout << std::format("    Of the settlers landed, {:.0f} were recruited by a colony and went down to its surface\n",
+            audit.colony_recruits_landed);
+    }
     // Ships with berths, by hull and fit.
     std::map<std::string, int> carriers;
     for (const auto& ship : snap.ships) {
@@ -371,7 +376,8 @@ void print_economy_audit(
     const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::economy::EconomySystem& economy,
     double delivered_price_ratio,
-    const spacetrains::simulation::Simulation::RadiationAudit& radiation) {
+    const spacetrains::simulation::Simulation::RadiationAudit& radiation,
+    const std::function<double(const spacetrains::domain::StationState&)>& lifetime_profit) {
 
     // Collect all commodity IDs
     std::vector<std::string> commodity_ids;
@@ -633,8 +639,8 @@ void print_economy_audit(
         }
         return value;
     };
-    std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s}\n",
-        "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock");
+    std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s} {:>9s}\n",
+        "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock", "profit");
     spacetrains::domain::StationLedger stations_total;
     for (const auto& ss : snap.stations) {
         station_credits += ss.credits;
@@ -646,9 +652,12 @@ void print_economy_audit(
         stations_total.taxes += l.taxes;
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            std::cout << std::format("    {:30s}  {:>12.0f} cr  {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:+9.0f}\n",
+            // Stock gained since the start (which is the data files' stock raised to the order levels).
+            const double profit = lifetime_profit(ss);
+            const double stock_gain = profit - (ss.credits - sd.initial_credits + l.taxes - l.subsidies);
+            std::cout << std::format("    {:30s}  {:>12.0f} cr  {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:+9.0f} {:+9.0f}\n",
                 sd.name, ss.credits, l.household_sales, l.producer_purchases, l.dividends, l.subsidies, l.taxes,
-                stock_value(sd, ss.inventory) - stock_value(sd, sd.initial_inventory));
+                stock_gain, profit);
             break;
         }
     }
@@ -656,6 +665,47 @@ void print_economy_audit(
         "    Stations: residents paid {:.0f}, producers were paid {:.0f}, dividends {:.0f}, subsidies {:.0f}, taxes {:.0f}\n",
         stations_total.household_sales, stations_total.producer_purchases, stations_total.dividends,
         stations_total.subsidies, stations_total.taxes);
+    // Economy overhaul: residents' accounts, trade with the background economies, incomes.
+    double household_credits = 0.0;
+    if (universe.households.enabled != 0.0 || !universe.surface_markets.empty()) {
+        std::cout << std::format("    {:30s}  {:>10s} {:>9s} {:>9s} {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s} {:>9s} {:>7s} {:>7s} {:>6s}  {}\n", "",
+            "residents", "wages", "spending", "surf.buy", "surf.sell", "incomes", "visitors", "yard", "to ships", "from ship",
+            "people", "jobs", "wage", "red days, below floor");
+        for (const auto& ss : snap.stations) {
+            household_credits += ss.household_credits;
+            const auto& l = ss.ledger;
+            for (const auto& sd : universe.stations) {
+                if (sd.id != ss.station_id) continue;
+                std::cout << std::format("    {:30s}  {:>10.0f} {:9.0f} {:9.0f} {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:9.0f} {:9.0f} {:7.0f} {:7.0f} {:6.2f}  {}\n",
+                    sd.name, ss.household_credits, l.wages_paid, l.household_spending, l.surface_bought, l.surface_sold, l.incomes,
+                    l.visitor_spending, l.yard_sales, l.ship_sales, l.ship_purchases, ss.population,
+                    ss.jobs / std::max(1e-9, universe.households.participation),
+                    ss.wage_cr_per_day > 0.0 ? ss.wage_cr_per_day : universe.labour.reference_wage_cr_per_day,
+                    std::format("{:5.0f}{}", l.days_in_red, ss.credits < 0.0 ? std::format("  yes, in the red {:.0f}", ss.credits)
+                        : ss.credits < universe.open_economy.station_credit_floor ? std::string("  yes") : std::string()));
+                break;
+            }
+        }
+        std::cout << "    Background economies:";
+        std::cout << std::format("  Earth {:.0f}", snap.outside_economy_credits);
+        for (const auto& [economy_id, balance] : snap.background_credits) {
+            std::cout << std::format("  {} {:.0f}", economy_id, balance);
+        }
+        std::cout << " cr (negative: paid into the simulated economy)\n";
+        if (!snap.background_population.empty()) {
+            std::cout << "    Colonies' people:";
+            for (const auto& [economy_id, people] : snap.background_population) {
+                std::cout << std::format("  {} {:.0f}", economy_id, people);
+            }
+            double up = 0.0;
+            double down = 0.0;
+            for (const auto& ss : snap.stations) {
+                up += ss.ledger.hired_from_surface;
+                down += ss.ledger.moved_to_surface;
+            }
+            std::cout << std::format("  (hired up to their gateways {:.0f}, gone down {:.0f})\n", up, down);
+        }
+    }
     spacetrains::domain::ShipLedger fleet;
     int profitable = 0;
     struct DriveTally {
@@ -749,6 +799,7 @@ void print_economy_audit(
             ship.current_station_id, ship.active_mission.destination_station_id.empty() ? "docked"
                 : "to " + ship.active_mission.destination_station_id, ship.lifetime_profit, ship.ledger.subsidies);
     }
+    // The money-supply controller holds stations + ships; residents' savings are their own.
     const double internal_supply = station_credits + ship_credits;
     double treasuries = 0.0;
     std::cout << "    Faction treasuries:";
@@ -775,15 +826,20 @@ void print_economy_audit(
     std::cout << std::format("    Fleet investment: {} ships commissioned (hulls {:.0f}, working capital {:.0f}), {} sold (salvage {:.0f})\n",
         investment.ships_commissioned, investment.hulls_bought, investment.working_capital,
         investment.ships_sold, investment.salvage);
-    const double external = snap.outside_economy_credits + treasuries;
-    const double total_supply = internal_supply + external;
+    double background = 0.0;
+    for (const auto& [economy_id, balance] : snap.background_credits) {
+        background += balance;
+    }
+    const double external = snap.outside_economy_credits + treasuries + background;
+    const double total_supply = internal_supply + household_credits + external;
     // The target is the seeded money plus the working capital the treasuries gave new ships.
     const double target = snap.money_supply_target;
     std::cout << std::format("    Money supply: stations {:.0f} + ships {:.0f} = {:.0f} cr  (target {:.0f}, {:+.1f}%)\n",
         station_credits, ship_credits, internal_supply, target,
         target != 0.0 ? 100.0 * (internal_supply / target - 1.0) : 0.0);
-    std::cout << std::format("    External: residents and producers {:.0f} + treasuries {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
-        snap.outside_economy_credits, treasuries, total_supply, initial_supply, total_supply - initial_supply);
+    std::cout << std::format("    External: Earth {:.0f} + other economies {:.0f} + treasuries {:.0f} cr; residents {:.0f} cr.  Total {:.2f} cr  (initial {:.2f}, drift {:+.4f})\n",
+        snap.outside_economy_credits, background, treasuries, household_credits, total_supply, initial_supply,
+        total_supply - initial_supply);
 
     // Per-commodity price spread across stations.
     std::cout << "\n  [ECON AUDIT] Prices (min/avg/max across stations):\n";
@@ -1105,6 +1161,88 @@ std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep
 // fleet's. For each consumed good, the nearest producer by a rough transfer time (Hohmann
 // between the parent planets' orbits, a few days within one planet's system); a steady
 // supply needs rate x round trip units in holds (loaded out, empty back).
+// The money journal's accounts (MoneyJournal.hpp): balances, lifetime flows and the main sources
+// of income and expense, by sector; factions split into operating result and investment.
+void print_accounts_audit(const spacetrains::simulation::Simulation& sim) {
+    using spacetrains::simulation::AccountKind;
+    using spacetrains::simulation::MoneyCategory;
+    using spacetrains::simulation::kMoneyCategories;
+    using spacetrains::simulation::money_category_info;
+    const auto& journal = sim.money_journal();
+    const auto& accounts = journal.accounts();
+    const auto short_cr = [](double v) {
+        const double a = std::abs(v);
+        return a >= 1e6 ? std::format("{:.2f}M", v / 1e6) : a >= 1e3 ? std::format("{:.0f}k", v / 1e3) : std::format("{:.0f}", v);
+    };
+    const auto top = [&](const spacetrains::simulation::CategoryFlows& flows, bool income) {
+        std::vector<std::pair<double, std::size_t>> list;
+        for (std::size_t c = 0; c < kMoneyCategories; ++c) {
+            const double v = income ? flows[c].in : flows[c].out;
+            if (v > 0.0) {
+                list.push_back({v, c});
+            }
+        }
+        std::sort(list.begin(), list.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::string out;
+        for (std::size_t k = 0; k < std::min<std::size_t>(3, list.size()); ++k) {
+            out += std::format("{}{} {}", k > 0 ? ", " : "", money_category_info(static_cast<MoneyCategory>(list[k].second)).id,
+                short_cr(list[k].first));
+        }
+        return out;
+    };
+    const auto group_net = [](const spacetrains::simulation::CategoryFlows& flows, std::string_view group, bool inside) {
+        double net = 0.0;
+        for (std::size_t c = 0; c < kMoneyCategories; ++c) {
+            if ((money_category_info(static_cast<MoneyCategory>(c)).group == group) == inside) {
+                net += flows[c].in - flows[c].out;
+            }
+        }
+        return net;
+    };
+    // Colonies' welfare (docs/modules/economy.md, "Colonies").
+    std::cout << "\n  [ECON AUDIT] Colonies:\n";
+    for (const auto& economy : sim.universe().background_economies) {
+        const auto* state = sim.colony_state(economy.id);
+        if (state == nullptr) {
+            continue;
+        }
+        std::cout << std::format("    {:14s} satisfaction {:5.1f}%  throttle {:4.2f}  income {:>7.0f}/yr  base imports {:>7.0f}/yr  "
+            "wage {:.3f} (data {:.3f})  people factor {:.2f}\n", economy.id, 100.0 * state->satisfaction, state->throttle,
+            state->income_per_day * 365.25, state->base_imports_per_day * 365.25, sim.colony_wage_median(economy),
+            economy.wage_median_cr_per_day, sim.colony_people_factor(economy.id));
+    }
+    std::cout << "\n  [ECON AUDIT] Accounts (money journal, since the start):\n";
+    const std::pair<AccountKind, const char*> sectors[] = {{AccountKind::Earth, "Earth"}, {AccountKind::Colony, "Colonies"},
+        {AccountKind::Faction, "Factions"}, {AccountKind::Station, "Stations"}, {AccountKind::Households, "Residents"},
+        {AccountKind::Fleet, "Fleets"}};
+    for (const auto& [kind, title] : sectors) {
+        std::cout << std::format("    {}:\n", title);
+        for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+            const auto& info = accounts[static_cast<std::size_t>(i)];
+            if (info.kind != kind) {
+                continue;
+            }
+            const auto& flows = journal.lifetime(i);
+            double in = 0.0;
+            double out = 0.0;
+            for (const auto& f : flows) {
+                in += f.in;
+                out += f.out;
+            }
+            std::string extra;
+            if (kind == AccountKind::Faction) {
+                extra = std::format("  operating {} investment {}", short_cr(group_net(flows, "investment", false)),
+                    short_cr(group_net(flows, "investment", true)));
+            } else if (kind == AccountKind::Station) {
+                extra = std::format("  before the faction {}", short_cr(group_net(flows, "factions", false)));
+            }
+            std::cout << std::format("      {:34s} {:>9s}  in {:>8s} out {:>8s}{}\n", info.name, short_cr(sim.account_balance(i)),
+                short_cr(in), short_cr(out), extra);
+            std::cout << std::format("        in: {}\n        out: {}\n", top(flows, true), top(flows, false));
+        }
+    }
+}
+
 void print_capacity_balance(const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::economy::EconomySystem& economy, const spacetrains::domain::SimulationSnapshot& snap) {
     using namespace spacetrains;
@@ -1190,6 +1328,7 @@ int main(int argc, char** argv) {
     std::string save_path;
     double start_day = 0.0;
     std::string snapshot_json_path;
+    std::string stats_json_path;
     bool no_events = false;
     int save_at_day = -1;
     std::string write_reference_prices_path;
@@ -1210,6 +1349,8 @@ int main(int argc, char** argv) {
             econ_audit = true;
         } else if (args[i] == "--snapshot-json" && i + 1 < args.size()) {
             snapshot_json_path = args[++i];
+        } else if (args[i] == "--stats-json" && i + 1 < args.size()) {
+            stats_json_path = args[++i];
         } else if (args[i] == "--start-day" && i + 1 < args.size()) {
             start_day = std::stod(args[++i]);
         } else if (args[i] == "--load" && i + 1 < args.size()) {
@@ -1378,9 +1519,11 @@ int main(int argc, char** argv) {
             print_station_inventories(snap, sim.universe());
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
-                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
+                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit(),
+                    [&sim](const auto& station) { return sim.station_lifetime_profit(station); });
                 print_passenger_audit(snap, sim.universe(), sim.passenger_audit(), sim.rotation_tours());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
+                print_accounts_audit(sim);
             }
             if (!verbose) {
                 std::cout << "  Recent events:\n";
@@ -1449,6 +1592,11 @@ int main(int argc, char** argv) {
         paths << sim.build_bridge_paths_json();
         std::ofstream designs(snapshot_json_path + ".designs", std::ios::binary | std::ios::trunc);
         designs << sim.build_bridge_designs_json();
+    }
+
+    if (!stats_json_path.empty()) {
+        std::ofstream file(stats_json_path, std::ios::binary | std::ios::trunc);
+        file << sim.build_stats_json();
     }
 
     std::cout << "\n=== Final Report ===\n";

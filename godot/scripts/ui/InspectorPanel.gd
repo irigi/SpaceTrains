@@ -125,6 +125,46 @@ func _faction_color(detail: Dictionary, context: Dictionary) -> Color:
     var colors: Dictionary = context.get("faction_colors", {})
     return colors.get(String(detail.get("faction_id", "")), Color(0.5, 0.55, 0.6))
 
+# Economy overhaul: residents, wages and jobs, incomes paid from Earth, and what the surface
+# economy behind a gateway sells (at its ask) and buys (at its bid).
+func _add_station_economy_lines(detail: Dictionary) -> void:
+    if not detail.has("household_credits"):
+        return
+    var wage := float(detail.get("wage_cr_per_day", 0.0))
+    var workers := float(detail.get("workers", 0.0))
+    var jobs := float(detail.get("jobs", 0.0))
+    var labour := "%.0f workers" % workers
+    if bool(detail.get("labour_market", false)):
+        if jobs > workers + 0.5:
+            labour += " · %.0f jobs open" % (jobs - workers)
+        elif workers > jobs + 0.5:
+            labour += " · %.0f out of work" % (workers - jobs)
+    _add_label("Residents: %s · wage %.2f cr/day ($%.0fk/yr) · savings %s" % [labour, wage, wage * 365.0 / 0.00078 / 1000.0,
+        UiTheme.format_credits(float(detail.get("household_credits", 0.0)))], UiTheme.TEXT_DIM, 12)
+    if detail.has("lifetime_profit"):
+        var profit := float(detail.get("lifetime_profit", 0.0))
+        var last_year := float(detail.get("profit_last_year", profit))
+        _add_label("Profit before faction taxes and subsidies: %s since the start · %s last year (S: statistics)" % [
+            UiTheme.format_credits(profit), UiTheme.format_credits(last_year)],
+            UiTheme.GOOD if last_year >= 0.0 else UiTheme.ALERT, 12)
+    for income in detail.get("incomes", []):
+        _add_label("Income: %s, %s/yr from %s" % [String(income.get("kind", "")),
+            UiTheme.format_credits(float(income.get("cr_per_year", 0.0))), String(income.get("payer", ""))], UiTheme.GOOD, 12)
+    var sells: Array = []
+    var buys: Array = []
+    var economy_name := ""
+    for trade in detail.get("surface_trade", []):
+        economy_name = String(trade.get("economy", ""))
+        if float(trade.get("ask", 0.0)) > 0.0:
+            sells.append("%s %.1f" % [String(trade.get("good", "")), float(trade.get("ask", 0.0))])
+        if float(trade.get("bid", 0.0)) > 0.0:
+            buys.append("%s %.1f" % [String(trade.get("good", "")), float(trade.get("bid", 0.0))])
+    if not sells.is_empty():
+        _add_label("%s sells here: %s" % [economy_name, ", ".join(sells)], UiTheme.CREDITS, 11)
+    if not buys.is_empty():
+        _add_label("%s buys here: %s" % [economy_name, ", ".join(buys)], UiTheme.CREDITS, 11)
+
+
 func _build_station(detail: Dictionary, context: Dictionary) -> void:
     var faction := String(detail.get("faction_id", ""))
     _add_header(
@@ -156,6 +196,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
     var credits := float(detail.get("credits", 0.0))
     _add_label("Cash: " + UiTheme.format_credits(credits),
         UiTheme.CREDITS if credits >= 0.0 else UiTheme.ALERT)
+    _add_station_economy_lines(detail)
 
     # Emergency deliveries the faction pays for (step 14).
     for emergency in detail.get("emergencies", []):

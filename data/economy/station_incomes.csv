@@ -1,0 +1,11 @@
+station_id,kind,payer_id,cr_per_year,need_based
+titan_works,science_station,earth,800000,1
+ganymede_depot,science_station,earth,400000,1
+ganymede_depot,relay,earth,50000,0
+mercury_yard,science,earth,100000,1
+mercury_yard,relay,earth,50000,0
+venus_cloud,science,earth,100000,1
+earth_l1,relay,earth,30000,0
+mars_transfer,settlement,earth,700000,1
+ceres_depot,settlement,earth,300000,1
+luna_base,tourism_and_survey,earth,60000,0
