@@ -1,5 +1,7 @@
 # Planetary background economies (plan, 2026-10-22)
 
+> **Status (2026-10-23):** built as part of the economy overhaul, in a simpler form. The plan as built is `economy_overhaul.md`, the decisions are in `economy_overhaul_log.md`, and the module doc is `docs/modules/economy.md`. Not built: per-occupation wages, surface price relaxation, family and business visits.
+
 ## Why
 
 The simulated stations are small (5,000-22,000 people). Behind them, a few bodies have economies the game does

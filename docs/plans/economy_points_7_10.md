@@ -1,5 +1,7 @@
 # Station economies: producers, budgets, demand and wages (plan, 2026-10-22)
 
+> **Status (2026-10-23):** built as part of the economy overhaul, except industries as accounts of their own. Wages, households, linear-expenditure-like demand and supply following price (off) are built; capacity investment is not. See `economy_overhaul.md` and `economy_overhaul_log.md`.
+
 ## Why
 
 This covers points 7-10 of the 2026-10-22 economy review (scores 1, 2, 1, 1 of 5). They are solved here inside the
