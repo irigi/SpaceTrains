@@ -298,3 +298,52 @@ Two starts (0, 180) × 2,920 days, final state:
 - station money ~6.5M cr, steady from year 4;
 - Sol Federation saves ~8.5-8.9M (the fleet cap stops its purchases); Independent Consortium borrows
   ~5M at interest from Earth.
+
+## Statistics: accounts after 8 years (money journal, 2026-10-23)
+
+Start day 0, 2,920 days (`--econ-audit` Accounts section; start 180 agrees within ~10%). Amounts in cr.
+
+**Factions**
+
+| Faction | Treasury | Taxes in | Operating result | Investment (hulls, working capital, salvage) | Its stations' profit before the faction |
+|---|---|---|---|---|---|
+| Sol Federation | +8.90M | 21.12M | +20.87M | −11.97M | +23.9M (Low Earth 13.0M, Luna 6.3M, L1 4.7M) |
+| Independent Consortium | −5.12M | 5.39M | +2.16M (interest −1.57M) | −7.28M | +8.5M |
+| Mars Corporation | +0.04M | 0.10M | −0.06M (insolvency cover 0.15M) | +0.10M | −0.5M |
+
+**Stations**
+- Every station lives mainly on its residents' spending, and its main cost is their wages.
+- Next come cargo bought from ships and dividends from the ships it owns.
+- The Earth-side hubs and Mercury pay most of the faction tax (Low Earth 12.0M, Luna 5.4M, Mercury 3.9M, L1 3.8M).
+
+**Residents**
+- Wages are 92-96% of their income; the rest is crew wages and starting savings.
+- They spend 75-98% on services and 3-20% on goods, and save the rest.
+
+**Colonies**
+
+| Colony | Account | Bought at gateway | Sold at gateway | Earth investment |
+|---|---|---|---|---|
+| Mars surface | +35k | 2.74M | 0.68M | 2.40M |
+| Luna surface | −150k (at its line) | 0.75M | 0.29M | 0.32M |
+| Belt miners | −100k (at its line) | 0.55M | 0.19M | 0.32M |
+
+Luna and the belt buy about 2.6-2.9× what they sell, and Earth's investment does not cover the gap. This is the
+next fix.
+
+**Earth**
+- It paid 29.5M into space and received 16.3M: −13.2M over 8 years.
+- Out:
+  - space goods it buys (surface trade 8.75M);
+  - grants (settlement 4.7M, science, relay);
+  - travellers' fares (3.8M);
+  - colony investment.
+- In:
+  - Earth's share of new hulls (8.4M);
+  - goods it sells to space (6.1M);
+  - faction interest (1.8M).
+
+**Fleets**
+- Sol Federation: cargo in 15.3M, fares 3.7M.
+- Independent Consortium: cargo in 14.3M, fares 0.7M.
+- Both send most of it home as dividends (8.6M and 8.3M), and pay capital charges, cargo, fuel and crews.
