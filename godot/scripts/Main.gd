@@ -1580,7 +1580,9 @@ func _update_ship_lod(node: Node3D, data: Dictionary) -> void:
     var design: Dictionary = bridge_designs.get(key, {})
     if design.is_empty():
         design = ShipModelsScript.fallback_design(String(data.get("propulsion_type", "nuclear_thermal")))
-    ShipModelsScript.ensure(node, key, design, want)
+    # The detailed mesh is built in the background; the coarse one stays until it's ready.
+    if ShipModelsScript.request(key, design, want):
+        ShipModelsScript.ensure(node, key, design, want)
 
 # A model's size in world units: its bounding radius for ships (built in metres), the
 # container scale for unit-size models (bodies, stations).

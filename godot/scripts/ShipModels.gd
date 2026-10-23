@@ -25,6 +25,12 @@ const DETAIL := 1
 const HAB_RADIUS_M := ShipLayout.HAB_DIAMETER_M * 0.5
 
 static var _cache := {}
+# Detailed meshes take ~25 ms to build, so they are built on worker threads: cache key ->
+# WorkerThreadPool task id, and the finished arrays (under _mutex) until the main thread
+# turns them into meshes.
+static var _pending := {}
+static var _finished := {}
+static var _mutex := Mutex.new()
 static var _plume_meshes := {}
 static var _cargo_mesh: BoxMesh
 
@@ -34,11 +40,38 @@ static var _cargo_mesh: BoxMesh
 static func model_info(key: String, design: Dictionary, lod: int) -> Dictionary:
     var cache_key := "%s|%d" % [key, lod]
     if not _cache.has(cache_key):
-        _cache[cache_key] = _build(design, lod)
+        _cache[cache_key] = _finish(_build_arrays(design, lod))
     return _cache[cache_key]
 
 static func is_cached(key: String, lod: int) -> bool:
     return _cache.has("%s|%d" % [key, lod])
+
+# True once the model is ready; otherwise starts (or keeps waiting for) a background build.
+static func request(key: String, design: Dictionary, lod: int) -> bool:
+    var cache_key := "%s|%d" % [key, lod]
+    if _cache.has(cache_key):
+        return true
+    if _pending.has(cache_key):
+        var task: int = _pending[cache_key]
+        if not WorkerThreadPool.is_task_completed(task):
+            return false
+        WorkerThreadPool.wait_for_task_completion(task)
+        _pending.erase(cache_key)
+        _mutex.lock()
+        var arrays: Dictionary = _finished.get(cache_key, {})
+        _finished.erase(cache_key)
+        _mutex.unlock()
+        if arrays.is_empty():
+            return false
+        _cache[cache_key] = _finish(arrays)
+        return true
+    var copy := design.duplicate(true)
+    _pending[cache_key] = WorkerThreadPool.add_task(func() -> void:
+        var arrays := _build_arrays(copy, lod)
+        _mutex.lock()
+        _finished[cache_key] = arrays
+        _mutex.unlock())
+    return false
 
 # A stand-in design until the designs file has been read: a habitat, hold, tanks and an
 # engine of a typical freighter (with radiators for a plasma ship).
@@ -57,7 +90,16 @@ static func fallback_design(propulsion: String) -> Dictionary:
 
 # --- Building ---------------------------------------------------------------------
 
-static func _build(design: Dictionary, lod: int) -> Dictionary:
+static func _finish(arrays: Dictionary) -> Dictionary:
+    var info := arrays.duplicate()
+    var built := MeshBuilder.to_mesh(arrays["built"])
+    info.erase("built")
+    info["mesh"] = built["mesh"]
+    info["slots"] = built["slots"]
+    return info
+
+# Everything but the engine resources (safe on a worker thread).
+static func _build_arrays(design: Dictionary, lod: int) -> Dictionary:
     var layout := ShipLayout.layout(design)
     var components: Dictionary = layout["components"]
     var b := MeshBuilder.new()
@@ -119,12 +161,12 @@ static func _build(design: Dictionary, lod: int) -> Dictionary:
                     nozzle_r = _thermal_engine(b, z0, z1, detail)
             "wing":
                 _wing(b, r, mid, detail)
-    var built := b.commit()
+    var built := b.commit_arrays()
     var aabb: AABB = built["aabb"]
     var radius := 0.0
     for i in range(8):
         radius = maxf(radius, aabb.get_endpoint(i).length())
-    return {"mesh": built["mesh"], "slots": built["slots"], "radius_m": radius, "length_m": ship_end,
+    return {"built": built, "radius_m": radius, "length_m": ship_end,
         "stern_z": ship_end - mid, "nozzle_r": nozzle_r, "plasma": bool(layout["plasma"]), "hold": hold_info}
 
 static func _at(x: float, y: float, z: float) -> Transform3D:
@@ -366,7 +408,7 @@ static func ensure(container: Node3D, key: String, design: Dictionary, lod: int)
     container.set_meta("stern_z", info["stern_z"])
     container.set_meta("nozzle_r", info["nozzle_r"])
     container.set_meta("hold", info["hold"])
-    container.set_meta("live_sig", "")
+    container.set_meta("live_sig", -1)
     var glow := container.get_node_or_null("engine_glow") as Node3D
     if glow != null:
         glow.position = Vector3(0.0, 0.0, float(info["stern_z"]) + 2.0)
@@ -388,8 +430,8 @@ static func update_live(container: Node3D, data: Dictionary, engine_on: bool, pl
     var lod := int(container.get_meta("lod", COARSE))
     var temperature := float(data.get("radiator_temperature_k", 0.0))
     var lost := 1.0 - float(data.get("radiator_condition", 1.0))
-    var sig := "%d|%d|%d|%.0f|%.2f" % [int(engine_on), int(plasma), lod, temperature, lost]
-    if String(container.get_meta("live_sig", "")) != sig:
+    var sig := int(engine_on) | (int(plasma) << 1) | (lod << 2) | (int(temperature) << 4) | (int(lost * 100.0) << 24)
+    if int(container.get_meta("live_sig", -1)) != sig:
         container.set_meta("live_sig", sig)
         var own := instance_materials(container)
         Materials.set_radiator(own["radiator"], engine_on and plasma, temperature, lost)

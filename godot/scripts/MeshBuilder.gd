@@ -170,11 +170,22 @@ func torus(slot: String, z: float, big: float, small: float, xf := Transform3D.I
             tri(slot, pts[0], pts[1], pts[2], nrm[0], nrm[1], nrm[2])
             tri(slot, pts[0], pts[2], pts[3], nrm[0], nrm[2], nrm[3])
 
-func commit() -> Dictionary:
-    var mesh := ArrayMesh.new()
+# The surfaces as plain arrays (safe on a worker thread: no engine resources are made).
+func commit_arrays() -> Dictionary:
+    var surfaces: Array = []
     var slots: Array[String] = []
     for slot in _order:
         var st: SurfaceTool = _tools[slot]
-        st.commit(mesh)
+        surfaces.append(st.commit_to_arrays())
         slots.append(slot)
-    return {"mesh": mesh, "slots": slots, "aabb": _aabb}
+    return {"surfaces": surfaces, "slots": slots, "aabb": _aabb}
+
+# Turns commit_arrays() output into {mesh, slots, aabb} (main thread).
+static func to_mesh(arrays: Dictionary) -> Dictionary:
+    var mesh := ArrayMesh.new()
+    for surface in arrays["surfaces"]:
+        mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface)
+    return {"mesh": mesh, "slots": arrays["slots"], "aabb": arrays["aabb"]}
+
+func commit() -> Dictionary:
+    return to_mesh(commit_arrays())

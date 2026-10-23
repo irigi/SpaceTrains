@@ -143,6 +143,8 @@ func _run() -> void:
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot(stop["name"])
+        if OS.get_cmdline_user_args().has("--shot-fps"):
+            await _report_fps(stop["name"])
         if OS.get_cmdline_user_args().has("--shot-big-meshes"):
             _report_big_meshes(main.get_tree().root, stop["name"])
     # A ship in flight, if any.
@@ -343,6 +345,20 @@ func _close_zoom_shots(rig: Node3D) -> void:
         print("[ShotTour] close station: camera %.6f from Earth's centre, radius %.6f, near %.10f" % [
             camera.global_position.distance_to(earth.global_position), earth.scale.x, camera.near])
         await _shoot("close_station_blocked")
+
+# Frame rate at the current view: mean and worst frame over two seconds.
+func _report_fps(stop_name: String) -> void:
+    var frames := 0
+    var worst := 0.0
+    var started := Time.get_ticks_usec()
+    var last := started
+    while Time.get_ticks_usec() - started < 2000000:
+        await get_tree().process_frame
+        var now := Time.get_ticks_usec()
+        worst = maxf(worst, float(now - last) / 1000.0)
+        last = now
+        frames += 1
+    print("[ShotTour] fps at %s: %.1f (worst frame %.1f ms)" % [stop_name, frames / (float(Time.get_ticks_usec() - started) / 1.0e6), worst])
 
 func _find_schematic(node: Node) -> Control:
     for child in node.get_children():
