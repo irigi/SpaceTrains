@@ -73,17 +73,17 @@ func _update_transform() -> void:
     for obstacle in obstacles:
         surface_gap = minf(surface_gap, eye.distance_to(obstacle[0]) - float(obstacle[1]))
     var offset := eye - pivot
-    if offset.length() < 1.0e-12:
+    if offset.length() < 1.0e-15:
         offset = direction * distance
     global_position = pivot
     rotation = Vector3.ZERO
     # Build the basis from the normalized offset: look_at() rejects tiny
     # (ship-scale) offsets because its alignment check is not scale-invariant.
     camera.transform = Transform3D(Basis.looking_at(-offset.normalized(), Vector3.UP), offset)
-    # Ship/station meshes are ~1e-6 world units; shrink the near plane as we zoom in so
+    # Ship meshes are ~1e-8 world units at true scale; shrink the near plane as we zoom in so
     # they stay drawn however close the camera is (reverse-Z keeps depth precision fine),
     # and keep it short of the nearest planet's surface so the planet is never sliced open.
-    var near := clampf(offset.length() * 0.02, 1.0e-9, 0.1)
+    var near := clampf(offset.length() * 0.02, 1.0e-14, 0.1)
     if surface_gap < INF:
-        near = minf(near, maxf(surface_gap * 0.5, 1.0e-9))
+        near = minf(near, maxf(surface_gap * 0.5, 1.0e-14))
     camera.near = near
