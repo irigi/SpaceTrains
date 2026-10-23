@@ -105,7 +105,8 @@ UniverseDefinition recipes + StationState inventories -> EconomySystem -> update
   delivery; `Simulation::settle_local_economy`). Since the economy overhaul they pay from their own account
   (wages); before, from the outside account.
 - **Faction treasuries:**
-  - tax station cash above the ceiling (750k since the overhaul);
+  - tax station cash above the ceiling (750k since the overhaul; 375k while the faction is in debt,
+    `station_credit_ceiling_in_debt`);
   - top up stations below 25k, by at most the upkeep (and, with households, the wages) of 30% of their
     population per day, or the whole gap at once for a station in the red;
   - may **borrow** down to minus (50% of their fleet's hull value + 2 years of taxes) and pay 5%/yr
@@ -214,7 +215,9 @@ Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
   - Settlers pay their own passage (sponsorship only without the labour market).
 - **Money:** the money-supply controller is off (`money_supply_days` 0); money enters and leaves through the
   named flows.
-  - The faction credit band is 25k-750k.
+  - The faction credit band is 25k-750k, and 25k-375k while the faction is in debt. A faction covers its
+    stations' red days; with taxes only above 750k it was funding their cash piles on credit (Mars Corporation
+    and the Independent Consortium ended 8 years 0.4-0.9M and 3-6M in debt; now both near or above zero).
   - While a faction borrows, its top-up of a station covers the core crew's goods and wages.
   - A station in the red is covered within 2 days while its faction can borrow the gap.
 - **Audit:** the residents table shows each station's flows, its people, jobs and wage, and its days in the
@@ -228,7 +231,7 @@ keys in `households.csv`.
 - **The surface mines, the gateway trades.**
   - Lunar Gateway (`lunar_port`) and Ceres (`belt_port`) no longer make metals, water, helium-3 or platinum.
   - Their colonies sell them there (`surface_markets.csv`): Luna surface 24 metals, 35 water and 0.2 helium-3 a
-    day; the belt 50 metals, 40 water and 2.5 platinum a day.
+    day; the belt 50 metals, 40 water and 3 platinum a day.
   - Earth-bound goods are priced at about 70% of Earth's price: helium-3 ask ≈ 1,640 cr, platinum ≈ 175 cr.
   - The platinum seam event now doubles the belt's platinum sales at Ceres.
 - **Gateway prices.** A good the colony sells, and the station does not make, is centred at ask × 1.1
@@ -236,6 +239,9 @@ keys in `households.csv`.
   collect a worthwhile lot.
   - The colony sells part of its rate at the centre, all of it above 1.25 × ask, and only while the station has
     room.
+- **Gateway orders for colony imports.** A good the colony buys is worth the colony's bid to its gateway
+  (`Simulation::order_ceiling`, kind `colony`), even where the station uses none itself. Mars Transfer uses no
+  reactor fuel, so its order had a ceiling of 0, sat at the floor (113 cr against 452) and was never delivered.
 - **People:** a colony's sales and imports scale with its people ÷ its data population (`colony_people_scaling`).
 - **Imports follow money:**
   - affordability f = (account + credit line) ÷ (90 days of imports + credit line), clamped to 0-1;

@@ -249,6 +249,7 @@ struct FuelSupplyDefinition {
 struct OpenEconomyDefinition {
     double station_credit_floor {0.0};     // subsidies close the gap below this
     double station_credit_ceiling {0.0};   // taxes take the excess above this; 0 = no taxes
+    double station_credit_ceiling_in_debt {0.0};   // the ceiling while the faction is in debt; 0 = the same
     double station_balance_days {90.0};    // time to close a subsidy or tax gap
     double ship_cash_reserve {0.0};        // dividends take the excess above this; 0 = no dividends
     double dividend_days {30.0};

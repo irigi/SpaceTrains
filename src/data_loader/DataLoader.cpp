@@ -1210,6 +1210,7 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const std::unordered_map<std::string, double*> fields {
             {"station_credit_floor", &open_economy.station_credit_floor},
             {"station_credit_ceiling", &open_economy.station_credit_ceiling},
+            {"station_credit_ceiling_in_debt", &open_economy.station_credit_ceiling_in_debt},
             {"station_balance_days", &open_economy.station_balance_days},
             {"ship_cash_reserve", &open_economy.ship_cash_reserve},
             {"dividend_days", &open_economy.dividend_days},
@@ -1243,6 +1244,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         if (open_economy.station_credit_ceiling > 0.0
             && open_economy.station_credit_ceiling < open_economy.station_credit_floor) {
             throw std::runtime_error("station_credit_ceiling must not be below the floor in " + open_economy_path.string());
+        }
+        if (open_economy.station_credit_ceiling_in_debt > 0.0
+            && (open_economy.station_credit_ceiling_in_debt < open_economy.station_credit_floor
+                || (open_economy.station_credit_ceiling > 0.0
+                    && open_economy.station_credit_ceiling_in_debt > open_economy.station_credit_ceiling))) {
+            throw std::runtime_error("station_credit_ceiling_in_debt must lie between the floor and the ceiling in "
+                + open_economy_path.string());
         }
     }
 

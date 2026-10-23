@@ -405,11 +405,54 @@ days). Lunar Gateway (+6.8-7.2M) and Ceres (+1.7-2.0M) stay profitable before th
 
 **Open**
 - **Mars surface meets only 42% of its imports.** The cause is not money: Mars Transfer Port has never received
-  reactor fuel, which is about 45% of Mars surface's imports by value.
-  - Its order at the 452 reference price leaves ships about 23 cr a unit on a 400-day round trip.
-  - This predates the colony work.
-  - A gateway could order its colony's imports at the colony's bid. Not done here; next.
+  reactor fuel, which is about 45% of Mars surface's imports by value. This predates the colony work. Fixed
+  below ("Mars reactor fuel and faction debt"); the thin-margin explanation first given here was wrong.
 - **The belt still shrinks** (5,000 → 3,850) as miners take Ceres jobs at 2.5× their wage. This is the labour
   market working; the belt's wage now follows its income.
 - **Luna surface accumulates money** (+0.85M in 8 years, from helium-3). It could import more as it gets richer
   (income-elastic colony demand), later.
+
+## Mars reactor fuel and faction debt (2026-10-23)
+
+**Causes** (order trace `SPACETRAINS_TRACE_ORDER=mars_transfer:reactor_fuel`, 4-year accounts):
+- **Reactor fuel:** Mars Transfer uses none itself (`frontier_hub` has no reactor-fuel recipe); only its colony
+  buys it. `order_ceiling` valued a good by the station's own recipes, so V = 0 and the order was capped at the
+  floor, 113 cr against a reference of 452. No ship came. The 1,459 units of starting stock lasted about 4.5
+  years. It was the only order with V = 0.
+- **Faction debt:** the band covers a station in the red but taxes only above 750k. Mars Transfer swung between
+  the red and ~700k: over 4 years Mars Corporation paid 381k of cover and got 36k of taxes back, borrowing to fund
+  its station's cash pile. The Independent Consortium did the same (covers to Ceres and Ganymede ~0.9M).
+
+**Decisions**
+- **A gateway values its colony's imports at the colony's bid** (1.2 × reference, kind `colony`). The order then
+  bids up to 543 cr, and the competitive ask sets the price. Reactor fuel now reaches Mars Transfer all run.
+- **A faction in debt taxes its stations above 375k** instead of 750k (`station_credit_ceiling_in_debt` in
+  `open_economy.csv`; 0 = off). No new state, no save change.
+
+**Benchmark (4 starts × 1,460 days)**
+
+| Step | Unmet | Profitable | Worst red days | Poorest faction | Worst station profit | Run s |
+|---|---|---|---|---|---|---|
+| Before | 0.2% | 84.5 ± 5.3% | 10.8 ± 1.7 | −4.84M | −526k | 159 |
+| Colony bid for imports | 0.2% | 88.0 ± 5.2% | 13.8 ± 6.2 | −4.89M | −364k | 150 |
+| + lower ceiling in debt | 0.2% | 87.0 ± 4.2% | 17.2 ± 4.6 | −0.86M | −19k | 153 |
+
+Station + ship money falls from 84% to 55% of the seeded amount: the cash moves to the factions.
+
+**8 years, 4 starts** (satisfaction is a 90-day average read on the last day)
+
+| | Mars surface | Belt | Luna | Mars Corporation | Independent Consortium | Sol Federation |
+|---|---|---|---|---|---|---|
+| Colony bid only | 62-75% (mean 70) | 67-77% (72) | 100% | −0.44 to −0.87M | −2.8 to −5.8M | 8.4-10.3M |
+| + lower ceiling | 51-76% (69) | 36-81% (62) | 100% | −33k to +65k | +0.42 to +1.38M | 9.1-10.2M |
+
+- Mars surface was at 42% before both. It is now limited by money: it affords 83-86% of its full imports.
+- The belt's low run (36%, start 0) sold 649k over 8 years against ~810k in the others (slower platinum offtake).
+  I found no link to the tax ceiling and read it as noise.
+- Interest paid to Earth over 8 years: ~1.8-1.9M → ~0.3M.
+- Save/load 300 + 300 is identical to 600; the tests pass.
+
+**Open**
+- Worst red streak 17 days against 11-14: stations hold less cash while their faction is in debt. If it matters,
+  the in-debt ceiling can go to 500k.
+- Mars surface could afford all its imports with Earth's investment at about 450k (now 400k). Not changed.

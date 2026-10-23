@@ -8,3 +8,4 @@ money_supply_days,0
 core_crew_fraction,0.3
 faction_loan_to_value,0.5
 faction_tax_years,2
+station_credit_ceiling_in_debt,375000

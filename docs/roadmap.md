@@ -61,9 +61,11 @@ An 8-year run holds at 0.1% unmet.
   belt sell metals, water, helium-3 and platinum at their gateways. Imports follow money and people; growth and
   wages follow welfare. Luna surface: all imports met, account +0.8M. Belt: 65-82% of imports met, off its line.
   Log: `economy_overhaul_log.md`, "Colonies fixed".
-- **Next: Mars surface's reactor fuel.** Mars Transfer Port never gets reactor fuel (thin margin at its order
-  price), so Mars surface meets only 42% of its imports. Have gateways order their colony's imports at the
-  colony's bid. Also open: Mars Corporation in slight debt (−0.4 to −0.9M); Luna surface's money piles up.
+- **Mars fixed** (2026-10-23, same branch): gateways order their colony's imports at the colony's bid (Mars
+  Transfer's reactor fuel was capped at the floor and never delivered), and a faction in debt taxes its stations
+  above 375k. Mars surface 42% → ~70% of imports met; Mars Corporation and the Independent Consortium end 8 years
+  near or above zero. Log: `economy_overhaul_log.md`, "Mars reactor fuel and faction debt". Still open: Luna
+  surface's money piles up (later: imports that rise with income).
 - **Merge** `feature/economy_overhaul` after the review (one push with the statistics and the colony fix).
 - **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person (Luna Ferry study,
   `passenger_routes.md`). Its other open points were closed after the overhaul (same file, "Re-evaluated

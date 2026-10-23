@@ -269,6 +269,10 @@ public:
     [[nodiscard]] double labour_migrants_per_day(const domain::StationState& station) const;
     [[nodiscard]] double labour_emigrants_per_day(const domain::StationState& station) const;
     [[nodiscard]] double settler_gain_tail(const domain::StationState& destination, double gain_cr) const;
+    // The order derived from the observations, the stock and the contracts on their way.
+    [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
+    // The cash above which a station pays its faction tax: lower while the faction is in debt.
+    [[nodiscard]] static double station_tax_ceiling(const domain::OpenEconomyDefinition& open, double treasury);
     [[nodiscard]] double returner_gain_tail(double gain_cr) const;
     [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
 
@@ -420,8 +424,6 @@ private:
     void update_market_prices();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
-    // The order derived from the observations, the stock and the contracts on their way.
-    [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
     // V: what a unit is worth to the station (see the plan's section 4); `station_ceiling` is
     // the part from its own output, before the faction tops up a life-critical good.
     [[nodiscard]] double order_ceiling(const domain::StationState& state, const std::string& commodity_id,

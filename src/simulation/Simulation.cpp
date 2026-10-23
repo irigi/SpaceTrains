@@ -1235,6 +1235,18 @@ double Simulation::order_ceiling(const domain::StationState& state, const std::s
             found = true;
         }
     }
+    // A gateway's colony import is worth what the colony pays for it (Mars Transfer uses no reactor
+    // fuel itself, so its order sat at the floor and no ship ever came).
+    for (const auto* market : economy_.surface_markets_at(definition.id)) {
+        if (market->commodity_id == commodity_id && market->buy_units_per_day > 0.0) {
+            const double bid = economy_.surface_bid(definition, commodity_id);
+            if (!found || bid > best) {
+                best = bid;
+                kind = "colony";
+                found = true;
+            }
+        }
+    }
     station_ceiling = best;
     if (universe_.emergency_goods.contains(commodity_id) && economy_.is_upkeep(definition, commodity_id)) {
         kind = "life";
@@ -4901,8 +4913,9 @@ void Simulation::step_treasuries(double dt_s) {
                             savings));
                 }
             }
-        } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
-            transfer = -(station.credits - open.station_credit_ceiling) * band_share;
+        } else if (const double ceiling = station_tax_ceiling(open, faction_treasuries_[definition.faction_id]);
+                   ceiling > 0.0 && station.credits > ceiling) {
+            transfer = -(station.credits - ceiling) * band_share;
             band_category = MoneyCategory::FactionTax;
         }
         const double band_transfer = transfer;
@@ -4911,8 +4924,8 @@ void Simulation::step_treasuries(double dt_s) {
         const double controller = per_capita * station.population;
         if (controller < 0.0) {
             transfer -= std::min(-controller, std::max(0.0, after_band - open.station_credit_floor));
-        } else if (open.station_credit_ceiling > 0.0) {
-            transfer += std::min(controller, std::max(0.0, open.station_credit_ceiling - after_band));
+        } else if (const double ceiling = station_tax_ceiling(open, faction_treasuries_[definition.faction_id]); ceiling > 0.0) {
+            transfer += std::min(controller, std::max(0.0, ceiling - after_band));
         } else {
             transfer += controller;
         }
@@ -4977,6 +4990,13 @@ double Simulation::faction_credit_limit(const std::string& faction_id) const {
     const auto tax = faction_tax_per_day_.find(faction_id);
     return open.faction_loan_to_value * (fleet_value + stock_value)
         + open.faction_tax_years * 365.0 * (tax == faction_tax_per_day_.end() ? 0.0 : tax->second);
+}
+
+double Simulation::station_tax_ceiling(const domain::OpenEconomyDefinition& open, double treasury) {
+    // A faction in debt draws its stations' cash earlier: it covered their red days, and with taxes
+    // only above the full ceiling a station's cash pile stayed borrowed money (Mars Corporation).
+    return treasury < 0.0 && open.station_credit_ceiling_in_debt > 0.0 ? open.station_credit_ceiling_in_debt
+                                                                        : open.station_credit_ceiling;
 }
 
 double Simulation::faction_spendable(const std::string& faction_id) const {

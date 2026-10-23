@@ -560,10 +560,30 @@ int main() {
         require(Sim::colony_import_share(0.5, true) == 1.0 && Sim::colony_import_share(0.5, false) == 0.0
                 && Sim::colony_import_share(0.75, false) == 0.5 && Sim::colony_import_share(1.0, false) == 1.0,
             "food and medicine keep coming while machinery and electronics are cut");
+        // A faction in debt taxes its stations above the lower ceiling.
+        {
+            const auto& open = full.open_economy;
+            require(open.station_credit_ceiling_in_debt > open.station_credit_floor
+                    && open.station_credit_ceiling_in_debt < open.station_credit_ceiling,
+                "open_economy.csv must set a lower ceiling for factions in debt");
+            require(Sim::station_tax_ceiling(open, 1.0) == open.station_credit_ceiling
+                    && Sim::station_tax_ceiling(open, -1.0) == open.station_credit_ceiling_in_debt,
+                "the tax ceiling drops while the faction is in debt");
+        }
 
         auto sim = spacetrains::simulation::Simulation::from_data_root("data");
         sim.set_timewarp(86400.0);
         const auto start = sim.snapshot();
+        // A gateway orders its colony's imports at the colony's bid, though it uses none itself
+        // (Mars Transfer's reactor fuel sat at the floor price for want of a recipe).
+        {
+            const auto& port = *std::find_if(start.stations.begin(), start.stations.end(),
+                [](const auto& s) { return s.station_id == "mars_transfer"; });
+            const auto view = sim.order_view(port, "reactor_fuel");
+            require(view.ceiling_kind == "colony", "Mars Transfer values reactor fuel by its colony");
+            require_near(view.ceiling, overhaul.surface_bid(mars, "reactor_fuel"), 1e-9,
+                "a colony import is worth the colony's bid to its gateway");
+        }
         // Distributions: the share of Earth's job seekers gaining at least g falls with g.
         const auto& titan = *std::find_if(start.stations.begin(), start.stations.end(),
             [](const auto& s) { return s.station_id == "titan_works"; });
