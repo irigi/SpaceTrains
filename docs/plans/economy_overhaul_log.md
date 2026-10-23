@@ -218,3 +218,24 @@ Benchmark (4 starts × 1,460 days):
 
 The passenger test now checks that settlers are posted and passengers board, pay and land. Settlers
 come only for vacancies, which are few early in a game.
+
+## The 14 points of a realistic economy, re-scored (2026-10-23)
+
+The user's question of 2026-10-22: scores before → after the overhaul (0-5).
+
+| # | Point | Before | After | Why |
+|---|---|---|---|---|
+| 1 | Money is conserved | 5 | 5 | Every account named (Earth, colonies, households, stations, ships, factions); drift 0 |
+| 2 | Prices from real costs | 4 | 5 | Goods at Earth's real prices plus launch; local propellant at local cost |
+| 3 | Prices clear lasting shortages and gluts | 3 | 3.5 | Earth's ask and bid bound the gateways, colonies supply when the station pays; producers' gluts still only fill storage |
+| 4 | Price gaps ≈ carriage | 4 | 4.5 | Landed cost at the reference, Earth caps the gateways |
+| 5 | Supply follows price | 1 | 2 | Output follows employment; colonies sell more when the station pays more; price-driven output built but off |
+| 6 | Transport follows profit | 4 | 4 | Purchases valued at landed cost; estimates ~1.6× earned |
+| 7 | Producers earn from sales | 1 | 2.5 | A station pays wages for its output; industries are still not accounts of their own |
+| 8 | Buyers spend what they earn | 2 | 4 | Residents live on wages, travel on a budget; colonies on their trade and Earth's investment; Earth itself unlimited |
+| 9 | Demand follows income and price | 1 | 3.5 | `consume` goods follow wages and prices; travellers from income and gain distributions |
+| 10 | Wages follow scarcity, pull workers | 1 | 4 | Wages from vacancies; lognormal gains; local hiring; recruiting; remote stations pay more |
+| 11 | Failure is costly | 2 | 3 | Job cuts cost output; the unemployed leave; stations are bailed out by their faction |
+| 12 | Forecasts and risk | 3 | 3 | Unchanged |
+| 13 | Capital is costly and lasts | 3 | 3.5 | Yards in space build hulls from goods; factions borrow from Earth at interest |
+| 14 | Few hard limits | 2 | 2.5 | Grants taper, jobs stop when unfilled; the fleet cap and price clamps remain |
