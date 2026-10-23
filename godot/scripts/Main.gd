@@ -161,6 +161,7 @@ const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
 const EventTickerPanel := preload("res://scripts/ui/EventTicker.gd")
 const MarketPanelScript := preload("res://scripts/ui/MarketPanel.gd")
 const HelpPanelScript := preload("res://scripts/ui/HelpPanel.gd")
+const StatisticsPanelScript := preload("res://scripts/ui/StatisticsPanel.gd")
 
 var ui_root: Control
 var top_bar: PanelContainer
@@ -169,6 +170,7 @@ var inspector_panel: PanelContainer
 var event_ticker: PanelContainer
 var market_panel: PanelContainer
 var help_panel: PanelContainer
+var stats_panel: PanelContainer
 var status_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 var price_history: Array[Dictionary] = []
@@ -271,6 +273,18 @@ func _setup_ui() -> void:
     help_panel = HelpPanelScript.new()
     help_panel.name = "HelpPanel"
     help_center.add_child(help_panel)
+
+    var stats_center := CenterContainer.new()
+    stats_center.name = "StatsCenter"
+    stats_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    stats_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+    ui_root.add_child(stats_center)
+    stats_panel = StatisticsPanelScript.new()
+    stats_panel.name = "StatisticsPanel"
+    stats_panel.ship_selected.connect(func(ship_id: String) -> void: select_entity(ship_id, "ship", true))
+    # The bridge writes its statistics file only while the screen is open.
+    stats_panel.visibility_toggled.connect(func(_open: bool) -> void: _write_bridge_commands())
+    stats_center.add_child(stats_panel)
 
     status_label = Label.new()
     status_label.name = "Status"
@@ -377,12 +391,16 @@ func _unhandled_input(event: InputEvent) -> void:
                 market_panel.update_market(bridge_state)
         elif event.keycode == KEY_H:
             help_panel.toggle()
+        elif event.keycode == KEY_S:
+            stats_panel.toggle()
         elif event.keycode == KEY_ESCAPE:
             # Close the topmost open panel.
             if help_panel.visible:
                 help_panel.hide()
             elif market_panel.visible:
                 market_panel.hide()
+            elif stats_panel.visible:
+                stats_panel.toggle()
         elif event.keycode == KEY_F5:
             _request_save_or_load(true)
         elif event.keycode == KEY_F9:
@@ -463,6 +481,7 @@ func _write_bridge_commands() -> void:
         "request": command_request,
         "save_path": command_save_path,
         "load_path": command_load_path,
+        "stats_open": stats_panel != null and stats_panel.visible,
     }
     file.store_string(JSON.stringify(payload))
 
@@ -498,9 +517,25 @@ func _read_designs() -> void:
     bridge_designs = json.data.get("designs", {})
     jet_power_by_class.clear()
 
+# The statistics side file (money journal), written by the bridge while the Statistics screen is open.
+var stats_seq := -1
+
+func _read_stats() -> void:
+    if stats_panel == null or not stats_panel.visible:
+        return
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".stats.seq")
+    if seq_text == "" or int(seq_text) == stats_seq:
+        return
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".stats")) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return
+    stats_seq = int(seq_text)
+    stats_panel.update_stats(json.data)
+
 func _read_snapshot() -> void:
     _read_paths()
     _read_designs()
+    _read_stats()
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
     if seq_text != "" and int(seq_text) == current_snapshot_seq:

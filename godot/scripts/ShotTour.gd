@@ -260,6 +260,14 @@ func _run() -> void:
     await get_tree().create_timer(0.6).timeout
     await _shoot("market_panel")
     main.market_panel.toggle()
+    # The Statistics screen, every tab (the bridge writes its file once the screen is open).
+    main.stats_panel.toggle()
+    await get_tree().create_timer(2.5).timeout
+    for tab in range(6):
+        main.stats_panel.set_tab(tab)
+        await get_tree().create_timer(0.8).timeout
+        await _shoot("stats_%d" % tab)
+    main.stats_panel.toggle()
     main.help_panel.toggle()
     await get_tree().create_timer(0.3).timeout
     await _shoot("help_panel")

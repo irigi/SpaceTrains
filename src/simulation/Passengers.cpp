@@ -826,11 +826,12 @@ void Simulation::board_passengers(domain::ShipState& ship, domain::StationState&
             auto& employer = get_station_state(group.work_station_id);
             employer.credits -= fares;
             employer.ledger.passages_paid += fares;
+            journal_.record(account_station(employer), account_fleet(ship.faction_id), MoneyCategory::FaresEmployer, fares);
             if (universe_.passengers.passage_recovery_days > 0.0) {
                 employer.passage_debt_cr += fares;
             }
         } else {
-            pay_traveller_fare(origin, group, fares);
+            pay_traveller_fare(origin, group, fares, account_fleet(ship.faction_id));
         }
         ship.credits += fares;
         ship.lifetime_profit += fares;
@@ -841,6 +842,7 @@ void Simulation::board_passengers(domain::ShipState& ship, domain::StationState&
                 const double savings = count * per_capita_savings(origin);
                 origin.household_credits -= savings;
                 outside_economy_credits_ += savings;
+                journal_.record(account_households(origin), account_earth(), MoneyCategory::MigrantSavings, savings);
             }
             origin.population = std::max(0.0, origin.population - count);
             economy_.set_population(origin.station_id, origin.population);
@@ -910,6 +912,7 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
             const double savings = lot.count * universe_.households.migrant_savings_cr;
             outside_economy_credits_ -= savings;
             economy_account(economy_id) += savings;
+            journal_.record(account_earth(), account_economy(economy_id), MoneyCategory::MigrantSavings, savings);
             continue;
         }
         if (lot.kind == domain::PassengerKind::Migrant && households_on() && is_earth_gateway(lot.origin_id)) {
@@ -917,6 +920,7 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
             const double savings = lot.count * universe_.households.migrant_savings_cr;
             outside_economy_credits_ -= savings;
             destination.household_credits += savings;
+            journal_.record(account_earth(), account_households(destination), MoneyCategory::MigrantSavings, savings);
         }
         if (lot.kind == domain::PassengerKind::Migrant || lot.kind == domain::PassengerKind::RotationOut) {
             destination.population += lot.count;

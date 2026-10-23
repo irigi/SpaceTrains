@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 18;  // 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
+constexpr int kSaveVersion = 19;  // 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -49,6 +49,127 @@ std::vector<double> numbers_from_json(const Json& json) {
         values.push_back(item.number());
     }
     return values;
+}
+
+// The money journal (MoneyJournal.hpp): flows by category id, only those that moved.
+Json flows_to_json(const CategoryFlows& flows) {
+    auto out = Json::object();
+    for (std::size_t c = 0; c < flows.size(); ++c) {
+        if (flows[c].in != 0.0 || flows[c].out != 0.0) {
+            auto pair = Json::array();
+            pair.push(flows[c].in);
+            pair.push(flows[c].out);
+            out.set(std::string(money_category_info(static_cast<MoneyCategory>(c)).id), std::move(pair));
+        }
+    }
+    return out;
+}
+
+CategoryFlows flows_from_json(const Json& json) {
+    CategoryFlows flows {};
+    for (const auto& [id, pair] : json.fields()) {
+        MoneyCategory category {};
+        if (!money_category_from_id(id, category)) {
+            throw std::runtime_error("save: unknown money category " + id);
+        }
+        flows[static_cast<std::size_t>(category)] = {.in = pair.items().at(0).number(), .out = pair.items().at(1).number()};
+    }
+    return flows;
+}
+
+Json journal_to_json(const MoneyJournal& journal) {
+    auto out = Json::object();
+    const auto& accounts = journal.accounts();
+    auto keys = Json::array();
+    auto seeds = Json::array();
+    auto lifetime = Json::array();
+    auto period = Json::array();
+    for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+        keys.push(accounts[static_cast<std::size_t>(i)].key());
+        seeds.push(journal.seed(i));
+        lifetime.push(flows_to_json(journal.lifetime(i)));
+        period.push(flows_to_json(journal.period(i)));
+    }
+    out.set("accounts", std::move(keys));
+    out.set("seeds", std::move(seeds));
+    out.set("lifetime", std::move(lifetime));
+    out.set("period", std::move(period));
+    out.set("next_close_day", journal.next_close_day());
+    out.set("lifetime_sectors", numbers_to_json({journal.lifetime_sectors().begin(), journal.lifetime_sectors().end()}));
+    out.set("period_sectors", numbers_to_json({journal.period_sectors().begin(), journal.period_sectors().end()}));
+    auto history = Json::array();
+    for (const auto& sample : journal.history()) {
+        auto item = Json::object();
+        item.set("day", sample.day);
+        item.set("balances", numbers_to_json(sample.balances));
+        auto flows = Json::array();
+        for (const auto& account_flows : sample.flows) {
+            flows.push(flows_to_json(account_flows));
+        }
+        item.set("flows", std::move(flows));
+        auto stations = Json::array();
+        for (const auto& people : sample.stations) {
+            stations.push(numbers_to_json({people.population, people.workers, people.jobs, people.wage_cr_per_day}));
+        }
+        item.set("stations", std::move(stations));
+        item.set("colony_people", numbers_to_json(sample.colony_people));
+        item.set("station_profit", numbers_to_json(sample.station_profit));
+        item.set("sectors", numbers_to_json({sample.sectors.begin(), sample.sectors.end()}));
+        history.push(std::move(item));
+    }
+    out.set("history", std::move(history));
+    return out;
+}
+
+// Restores into a journal whose accounts were set up from the same data (the data fingerprint).
+void journal_from_json(const Json& json, MoneyJournal& journal) {
+    const auto& keys = json.get("accounts").items();
+    if (keys.size() != journal.accounts().size()) {
+        throw std::runtime_error("save: the money journal's accounts differ from the data");
+    }
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        if (keys[i].string() != journal.accounts()[i].key()) {
+            throw std::runtime_error("save: the money journal's accounts differ from the data");
+        }
+    }
+    journal.seeds() = numbers_from_json(json.get("seeds"));
+    auto& lifetime = journal.lifetime_mutable();
+    auto& period = journal.period_mutable();
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        lifetime[i] = flows_from_json(json.get("lifetime").items().at(i));
+        period[i] = flows_from_json(json.get("period").items().at(i));
+    }
+    journal.set_next_close_day(json.get("next_close_day").number());
+    const auto matrix = [](const Json& j) {
+        SectorMatrix m {};
+        const auto values = numbers_from_json(j);
+        if (values.size() != m.size()) {
+            throw std::runtime_error("save: the money journal's sector matrix has the wrong size");
+        }
+        std::copy(values.begin(), values.end(), m.begin());
+        return m;
+    };
+    journal.lifetime_sectors_mutable() = matrix(json.get("lifetime_sectors"));
+    journal.period_sectors_mutable() = matrix(json.get("period_sectors"));
+    auto& history = journal.history_mutable();
+    history.clear();
+    for (const auto& item : json.get("history").items()) {
+        JournalSample sample;
+        sample.day = item.get("day").number();
+        sample.balances = numbers_from_json(item.get("balances"));
+        for (const auto& account_flows : item.get("flows").items()) {
+            sample.flows.push_back(flows_from_json(account_flows));
+        }
+        for (const auto& people : item.get("stations").items()) {
+            const auto values = numbers_from_json(people);
+            sample.stations.push_back({.population = values.at(0), .workers = values.at(1), .jobs = values.at(2),
+                .wage_cr_per_day = values.at(3)});
+        }
+        sample.colony_people = numbers_from_json(item.get("colony_people"));
+        sample.station_profit = numbers_from_json(item.get("station_profit"));
+        sample.sectors = matrix(item.get("sectors"));
+        history.push_back(std::move(sample));
+    }
 }
 
 // Flat [x0, y0, z0, x1, ...].
@@ -781,6 +902,7 @@ std::string Simulation::save_state_json() const {
         trades.push(std::move(t));
     }
     root.set("recent_trades", std::move(trades));
+    root.set("money_journal", journal_to_json(journal_));
     return root.dump();
 }
 
@@ -798,6 +920,8 @@ void Simulation::load_state_json(const std::string& text) {
     for (const auto& item : root.get("stations").items()) {
         stations.push_back(station_from_json(item));
     }
+    MoneyJournal journal = journal_;   // same accounts (same data)
+    journal_from_json(root.get("money_journal"), journal);
     if (stations.size() != universe_.stations.size()) {
         throw std::runtime_error("save: station count does not match the data");
     }
@@ -929,6 +1053,7 @@ void Simulation::load_state_json(const std::string& text) {
     investment_ledger_.working_capital = investment.get("working_capital").number();
     investment_ledger_.salvage = investment.get("salvage").number();
     stations_ = std::move(stations);
+    journal_ = std::move(journal);
     for (const auto& station : stations_) {
         economy_.set_employment(station.station_id, station.employed_share);
         economy_.set_population(station.station_id, station.population);

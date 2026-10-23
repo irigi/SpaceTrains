@@ -250,6 +250,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             background_population_[economy.id] = economy.population;
         }
     }
+    setup_money_journal();
     // Residents start with their savings buffer, brought from Earth (economy overhaul).
     if (households_on()) {
         for (auto& station : stations_) {
@@ -264,6 +265,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
             const double savings = universe_.households.savings_days * resident_wages_per_day(station);
             station.household_credits += savings;
             outside_economy_credits_ -= savings;
+            journal_.record(account_earth(), account_households(station), MoneyCategory::SavingsEndowment, savings);
         }
     }
     seeded_money_supply_ = internal_money_supply();
@@ -363,6 +365,7 @@ void Simulation::start_at(double time_s) {
     event_rng_.seed(universe_.event_seed ^ static_cast<std::uint64_t>(time_s));
     environment_rng_.seed((universe_.event_seed + 1) ^ static_cast<std::uint64_t>(time_s));
     next_investment_review_s_ = time_s;
+    journal_.set_next_close_day(time_s / 86400.0 + MoneyJournal::kPeriodDays);
     for (auto& ship : ships_) {
         ship.next_review_s = time_s;
         ship.idle_since_s = time_s;
@@ -1798,6 +1801,7 @@ void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& m
         ship.credits -= bill;
         ship.lifetime_profit -= bill;
         ship.ledger.provisions += bill;
+        journal_.record(account_fleet(ship.faction_id), account_station(market), MoneyCategory::Provisions, bill);
         record_trade({
             .time_s = game_time_s_,
             .ship_id = ship.id,
@@ -1883,7 +1887,7 @@ void Simulation::accrue_radiation(domain::ShipState& ship, const domain::ShipCla
     ship.leg_dose_msv += dose;
     const double pay = design.crew_size * dose * env.hazard_cr_per_msv;
     if (pay > 0.0) {
-        pay_crew(ship, pay);
+        pay_crew(ship, pay, MoneyCategory::HazardPay);
         ship.ledger.wages += pay;
     }
     radiation_audit_.crew_dose_msv += design.crew_size * dose;
@@ -2065,6 +2069,7 @@ bool Simulation::consider_repair(domain::ShipState& ship) {
     ship.ledger.refits += cost;
     yard.credits += cost;
     yard.ledger.ship_sales += cost;
+    journal_.record(account_fleet(ship.faction_id), account_station(yard), MoneyCategory::RefitsRepairs, cost);
     radiation_audit_.repair_bills_cr += cost;
     radiation_audit_.repair_spares_cr += spares_cr;
     radiation_audit_.repair_labour_cr += bill.labour_cr;
@@ -2183,7 +2188,7 @@ void Simulation::step_particle_events(double dt_s) {
         ship.leg_dose_msv += dose;
         const double pay = design.crew_size * dose * env.hazard_cr_per_msv;
         if (pay > 0.0) {
-            pay_crew(ship, pay);
+            pay_crew(ship, pay, MoneyCategory::HazardPay);
             ship.ledger.wages += pay;
         }
         radiation_audit_.crew_dose_msv += design.crew_size * dose;
@@ -2202,11 +2207,11 @@ void Simulation::step_particle_events(double dt_s) {
         worst > 0.0 ? std::format(", worst {} with {:.0f} mSv", worst_ship, worst) : std::string()), "news");
 }
 
-void Simulation::pay_crew(domain::ShipState& ship, double amount) {
+void Simulation::pay_crew(domain::ShipState& ship, double amount, MoneyCategory category) {
     // The crew are residents of the home station: with households on (economy overhaul) their pay
     // goes to its households, who spend it there; before, to the station itself.
     if (!households_on()) {
-        pay_home_station(ship, amount);
+        pay_home_station(ship, amount, category);
         return;
     }
     ship.credits -= amount;
@@ -2214,12 +2219,15 @@ void Simulation::pay_crew(domain::ShipState& ship, double amount) {
     auto& home = get_station_state(ship.home_station_id);
     home.household_credits += amount;
     home.ledger.crew_wages += amount;
+    journal_.record(account_fleet(ship.faction_id), account_households(home), category, amount);
 }
 
-void Simulation::pay_home_station(domain::ShipState& ship, double amount) {
+void Simulation::pay_home_station(domain::ShipState& ship, double amount, MoneyCategory category) {
     ship.credits -= amount;
     ship.lifetime_profit -= amount;
-    get_station_state(ship.home_station_id).credits += amount;
+    auto& home = get_station_state(ship.home_station_id);
+    home.credits += amount;
+    journal_.record(account_fleet(ship.faction_id), account_station(home), category, amount);
 }
 
 void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
@@ -2239,14 +2247,14 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
     accrue_wear(ship, ship_class, days);
     // Capital (interest + amortisation) is owed whatever the ship does.
     const double capital = daily_capital_cost(ship_class) * days;
-    pay_home_station(ship, capital);
+    pay_home_station(ship, capital, MoneyCategory::CapitalCharge);
     ship.ledger.capital += capital;
     if (ship.phase == domain::ShipMissionPhase::LaidUp || ship.phase == domain::ShipMissionPhase::Refitting) {
         return;  // crew discharged: no wages, no life support
     }
 
     const double wages = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day * days;
-    pay_crew(ship, wages);
+    pay_crew(ship, wages, MoneyCategory::CrewWages);
     ship.ledger.wages += wages;
     accrue_radiation(ship, ship_class, days);
 
@@ -2331,6 +2339,7 @@ void Simulation::buy_propellant(domain::ShipState& ship, double kg) {
     ship.ledger.fuel += fuel_bill;
     station.credits += fuel_bill;
     station.ledger.ship_sales += fuel_bill;
+    journal_.record(account_fleet(ship.faction_id), account_station(station), MoneyCategory::Fuel, fuel_bill);
     record_trade({
         .time_s = game_time_s_,
         .ship_id = ship.id,
@@ -3777,6 +3786,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         ship.ledger.cargo_purchases += cost;
         origin_state.credits += cost;
         origin_state.ledger.ship_sales += cost;
+        journal_.record(account_fleet(ship.faction_id), account_station(origin_state), MoneyCategory::Cargo, cost);
         purchase_cost += cost;
         record_trade({
             .time_s = game_time_s_,
@@ -3940,6 +3950,7 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
         ship.credits += value;
         ship.lifetime_profit += value;
         ship.ledger.fuel -= value;
+        journal_.record(account_station(yard), account_fleet(ship.faction_id), MoneyCategory::FuelBuyback, value);
         record_trade({
             .time_s = game_time_s_,
             .ship_id = ship.id,
@@ -3957,6 +3968,7 @@ bool Simulation::consider_refit(domain::ShipState& ship, const MissionChoice& cu
     ship.ledger.refits += bill;
     yard.credits += bill;
     yard.ledger.ship_sales += bill;
+    journal_.record(account_fleet(ship.faction_id), account_station(yard), MoneyCategory::RefitsRepairs, bill);
     ship.refit_class_id = best_option->class_id;
     ship.refit_fit = best_option->fit;
     ship.refit_done_s = game_time_s_ + refit_days * 86400.0;
@@ -4122,6 +4134,11 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             destination.credits -= revenue - faction_share;
             destination.ledger.ship_purchases += revenue - faction_share;
             ship.credits += revenue;
+            journal_.record(account_station(destination), account_fleet(ship.faction_id), MoneyCategory::Cargo, revenue - faction_share);
+            if (faction_share > 0.0) {
+                journal_.record(account_faction(destination_def.faction_id), account_fleet(ship.faction_id),
+                    MoneyCategory::EmergencyPremium, faction_share);
+            }
             ship.lifetime_profit += revenue;
             ship.ledger.cargo_revenue += revenue;
             total_revenue += revenue;
@@ -4259,6 +4276,10 @@ void Simulation::tick() {
             "aboard_flying {:.0f} aboard_waiting {:.0f} contracts {}\n", game_time_s_ / 86400.0, ships_.size(), hold, loaded,
             hold_loaded, empty, hold_empty, waiting, docked, aboard_flying, aboard_waiting, contracted);
     }
+    // The money journal's monthly sample (statistics).
+    if (game_time_s_ / 86400.0 + 1e-6 >= journal_.next_close_day()) {
+        close_journal_period();
+    }
 }
 
 void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stocks_before, double dt_s) {
@@ -4287,6 +4308,8 @@ void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stoc
             station.credits += value;
             station.ledger.household_sales += value;
             (households_on() ? station.household_credits : outside_economy_credits_) -= value;
+            journal_.record(households_on() ? account_households(station) : account_earth(), account_station(station),
+                MoneyCategory::HouseholdGoods, value);
             spent += value;
         }
         // Passages the station paid (passengers) come back through its prices: a markup on what
@@ -4299,6 +4322,8 @@ void Simulation::settle_local_economy(const std::vector<domain::Inventory>& stoc
             station.ledger.passages_recovered += recovered;
             station.passage_debt_cr -= recovered;
             (households_on() ? station.household_credits : outside_economy_credits_) -= recovered;
+            journal_.record(households_on() ? account_households(station) : account_earth(), account_station(station),
+                MoneyCategory::PassageRecovery, recovered);
         }
     }
 }
@@ -4805,6 +4830,7 @@ void Simulation::step_treasuries(double dt_s) {
             ship.ledger.dividends += dividend;
             home.credits += dividend;
             home.ledger.dividends += dividend;
+            journal_.record(account_fleet(ship.faction_id), account_station(home), MoneyCategory::Dividends, dividend);
         }
     }
 
@@ -4816,6 +4842,7 @@ void Simulation::step_treasuries(double dt_s) {
             ship.credits += top_up;
             ship.ledger.subsidies += top_up;
             faction_treasuries_[ship.faction_id] -= top_up;
+            journal_.record(account_faction(ship.faction_id), account_fleet(ship.faction_id), MoneyCategory::LinerTopup, top_up);
         }
     }
 
@@ -4845,6 +4872,7 @@ void Simulation::step_treasuries(double dt_s) {
     for (auto& station : stations_) {
         const auto& definition = get_station_definition(station.station_id);
         double transfer = 0.0;
+        MoneyCategory band_category = MoneyCategory::FactionTopup;
         if (station.credits < open.station_credit_floor) {
             transfer = (open.station_credit_floor - station.credits) * band_share;
             if (open.core_crew_fraction > 0.0) {
@@ -4862,6 +4890,7 @@ void Simulation::step_treasuries(double dt_s) {
                 const bool insolvent = households_on() && station.credits < 0.0
                     && faction_spendable(definition.faction_id) > open.station_credit_floor - station.credits;
                 if (insolvent) {
+                    band_category = MoneyCategory::InsolvencyCover;
                     transfer = (open.station_credit_floor - station.credits) * std::min(1.0, dt_days / INSOLVENCY_COVER_DAYS);
                 } else {
                     transfer = std::min(transfer,
@@ -4871,7 +4900,9 @@ void Simulation::step_treasuries(double dt_s) {
             }
         } else if (open.station_credit_ceiling > 0.0 && station.credits > open.station_credit_ceiling) {
             transfer = -(station.credits - open.station_credit_ceiling) * band_share;
+            band_category = MoneyCategory::FactionTax;
         }
+        const double band_transfer = transfer;
         // The controller never pushes a station out of the band, or it would fight the band.
         const double after_band = station.credits + transfer;
         const double controller = per_capita * station.population;
@@ -4884,6 +4915,9 @@ void Simulation::step_treasuries(double dt_s) {
         }
         station.credits += transfer;
         faction_treasuries_[definition.faction_id] -= transfer;
+        journal_.record(account_faction(definition.faction_id), account_station(station), band_category, band_transfer);
+        journal_.record(account_faction(definition.faction_id), account_station(station), MoneyCategory::MoneyController,
+            transfer - band_transfer);
         if (transfer > 0.0) {
             station.ledger.subsidies += transfer;
         } else {
@@ -4899,6 +4933,7 @@ void Simulation::step_treasuries(double dt_s) {
             const double interest = -balance * rate * dt_days / 365.0;
             balance -= interest;
             outside_economy_credits_ += interest;
+            journal_.record(account_faction(faction_id), account_earth(), MoneyCategory::Interest, interest);
             faction_interest_paid_ += interest;
         }
     }
@@ -5006,11 +5041,13 @@ void Simulation::sell_ship(std::size_t index) {
     const double salvage = universe_.fleet_investment.salvage_fraction * ship_class.ship_value_cr;
     outside_economy_credits_ -= salvage;
     faction_treasuries_[ship.faction_id] += salvage;
+    journal_.record(account_earth(), account_faction(ship.faction_id), MoneyCategory::Salvage, salvage);
     investment_ledger_.salvage += salvage;
     ++investment_ledger_.ships_sold;
     auto& home = get_station_state(ship.home_station_id);
     home.credits += ship.credits;
     home.ledger.dividends += ship.credits;
+    journal_.record(account_fleet(ship.faction_id), account_station(home), MoneyCategory::ShipSaleCash, ship.credits);
     ship.ledger.dividends += ship.credits;
     ship.credits = 0.0;
     add_event(std::format("{} sold for salvage at {} ({:.0f} cr) after {:.0f} days laid up",
@@ -5654,9 +5691,12 @@ Simulation::CommissionStep Simulation::commission_step() {
         yard_part = std::max(0.0, yard_part);
         yard_state.credits += yard_part;
         yard_state.ledger.yard_sales += yard_part;
+        journal_.record(account_faction(investor), account_station(yard_state), MoneyCategory::HullYard, yard_part);
         earth_part -= yard_part;
     }
     outside_economy_credits_ += earth_part;
+    journal_.record(account_faction(investor), account_earth(), MoneyCategory::HullEarth, earth_part);
+    journal_.record(account_faction(investor), account_fleet(investor), MoneyCategory::WorkingCapital, investment.working_capital);
     seeded_money_supply_ += investment.working_capital;
     investment_ledger_.hulls_bought += best_class->ship_value_cr;
     investment_ledger_.working_capital += investment.working_capital;

@@ -220,6 +220,47 @@ Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
 - **Audit:** the residents table shows each station's flows, its people, jobs and wage, and its days in the
   red. `tools/benchmark.py` reports stations below the floor, in the red and the worst station's red days.
 
+## Money journal and statistics (2026-10-23)
+
+`src/simulation/MoneyJournal.{hpp,cpp}`, accounts and history in `Statistics.cpp`.
+
+- **What it does:** every money move books itself in the journal, next to the move and with the same amount. The
+  balances stay where they were; the journal only records. The game is byte-identical with and without it.
+- **Accounts,** in data order:
+  - Earth;
+  - each colony;
+  - each faction;
+  - each station;
+  - each station's residents;
+  - each faction's fleet (the sum of its ships' cash; ships are not kept one by one).
+- **Categories** (37), each named once and booked as an expense by the payer and as an income by the payee:
+  - trade: cargo, fuel, fuel bought back, provisions, refits and repairs;
+  - residents: goods, spending, passages recovered, wages, crew wages, hazard pay;
+  - Earth: grants by kind (science, settlement, relay, tourism, other), surface trade, colony investment;
+  - travel: visitors' spending, fares (travellers, employers), migrants' savings, starting savings;
+  - owners: dividends, capital charges, sold ships' cash;
+  - factions: tax, top-ups, insolvency cover, money controller, liner top-ups, emergency premiums, interest;
+  - investment: hulls (Earth's share, yard's share), working capital, salvage.
+
+  The ids are in `MoneyJournal.cpp`.
+- **Identity:** each account's balance = its seed + what it received − what it paid
+  (`tests/economy_test.cpp`). Every category's total in equals its total out. A missed money move fails the test.
+- **Sectors:** a 6 × 6 matrix of money between account kinds (payer × payee), for "who pays whom".
+- **History:** every 30 game days, a sample of balances, the month's flows by account and category, the sector
+  matrix, each station's people, workers, jobs and wage, the colonies' people, and each station's lifetime
+  profit. It is saved with the game (save version 19).
+- **Profit definitions:**
+  - **Station:** cash gained + taxes − subsidies + the stock's value gain (`station_lifetime_profit`), that is,
+    before the faction's transfers. Its last year is the difference against the sample a year back.
+  - **Faction:** operating = everything except investment; investment = hulls, working capital and salvage.
+  - **Ship:** `lifetime_profit` as before (dividends and liner top-ups are owner transfers, not results).
+- **Reports:**
+  - `--econ-audit` prints an Accounts section: each account's balance, in, out and top three categories each way;
+    factions split into operating and investment, stations shown before the faction.
+  - `--stats-json <path>` writes the statistics JSON.
+  - The bridge writes the same JSON as `<snapshot>.stats` while the UI's Statistics screen is open: once a second,
+    and when a sample closes.
+
 ## Deferred Work
 
 - More detailed production chains

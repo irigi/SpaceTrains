@@ -16,6 +16,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/Types.hpp"
 #include "economy/EconomySystem.hpp"
+#include "simulation/MoneyJournal.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
@@ -159,10 +160,19 @@ public:
     };
     [[nodiscard]] const PassengerAudit& passenger_audit() const { return passenger_audit_; }
     [[nodiscard]] static const char* passenger_kind_name(domain::PassengerKind kind);
-    // Audit: deliveries with a reference price since start (or load), paid vs reference.
     // A station's profit since the start, before the faction's taxes and subsidies: its cash gained
     // + taxes paid - subsidies received + the value its stock gained (at its price curves).
     [[nodiscard]] double station_lifetime_profit(const domain::StationState& station) const;
+    // The same over the last 12 monthly samples of the money journal (since the start until there are 12).
+    [[nodiscard]] double station_profit_last_year(const domain::StationState& station) const;
+    // The money journal (MoneyJournal.hpp): every transfer by account and category, and its history.
+    [[nodiscard]] const MoneyJournal& money_journal() const { return journal_; }
+    // The real balance of a journal account (Earth, a colony, a faction, a station, its residents,
+    // or a faction's fleet: the sum of its ships' cash).
+    [[nodiscard]] double account_balance(int account) const;
+    // Statistics (bridge side file and headless --stats-json): accounts, flows, history, people, fleet.
+    [[nodiscard]] std::string build_stats_json() const;
+    // Audit: deliveries with a reference price since start (or load), paid vs reference.
     [[nodiscard]] double delivered_price_ratio() const {
         return delivered_reference_cr_ > 0.0 ? delivered_paid_cr_ / delivered_reference_cr_ : 0.0;
     }
@@ -263,7 +273,7 @@ public:
 private:
     // Economy overhaul (Households.cpp): the steps and the payments they make.
     double& economy_account(const std::string& economy_id);
-    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares);
+    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares, int payee);
     void step_households(double dt_s);
     void step_surface_markets(double dt_s);
     void step_labour(double dt_s);
@@ -437,8 +447,8 @@ private:
     [[nodiscard]] double provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const;
     void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
-    void pay_home_station(domain::ShipState& ship, double amount);
-    void pay_crew(domain::ShipState& ship, double amount);
+    void pay_home_station(domain::ShipState& ship, double amount, MoneyCategory category);
+    void pay_crew(domain::ShipState& ship, double amount, MoneyCategory category);
     // Open economy: residents pay their station for the goods the economy step used up, at what
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.
@@ -698,6 +708,23 @@ private:
     // The colonies' people (labour market), by economy id.
     std::map<std::string, double> background_population_;
     std::map<std::string, double> faction_treasuries_;
+    // The money journal and its account indices (MoneyJournal.hpp).
+    MoneyJournal journal_;
+    std::unordered_map<std::string, int> colony_accounts_;
+    std::unordered_map<std::string, int> faction_accounts_;
+    std::unordered_map<std::string, int> fleet_accounts_;
+    int first_station_account_ {0};
+    int first_household_account_ {0};
+    void setup_money_journal();
+    void close_journal_period();
+    [[nodiscard]] static constexpr int account_earth() { return 0; }
+    [[nodiscard]] int account_economy(const std::string& economy_id) const;   // Earth or a colony
+    [[nodiscard]] int account_faction(const std::string& faction_id) const;
+    [[nodiscard]] int account_fleet(const std::string& faction_id) const;
+    [[nodiscard]] int account_station(const domain::StationState& station) const;
+    [[nodiscard]] int account_households(const domain::StationState& station) const;
+    [[nodiscard]] int account_station(const std::string& station_id) const;
+    [[nodiscard]] int account_households(const std::string& station_id) const;
     double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
     double next_investment_review_s_ {0.0};
     int investment_purchases_left_ {0};   // of the current review, one per tick

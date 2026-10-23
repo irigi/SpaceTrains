@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <format>
 #include <random>
 #include <cmath>
 #include <iostream>
@@ -590,6 +591,53 @@ int main() {
             require(s.station_id == "earth_orbit" || s.station_id == "earth_l1" || s.jobs > 0.0,
                 "every station off Earth has jobs");
         }
+    }
+
+    {
+        // --- Money journal (MoneyJournal.hpp): every move is booked on both sides. ---
+        using spacetrains::simulation::MoneyCategory;
+        auto sim = spacetrains::simulation::Simulation::from_data_root("data");
+        sim.set_timewarp(86400.0);
+        for (int day = 0; day < 400; ++day) {
+            sim.step(1.0);
+        }
+        const auto& journal = sim.money_journal();
+        const auto& accounts = journal.accounts();
+        require(accounts.size() > 20, "the journal has an account for Earth, colonies, factions, stations, residents, fleets");
+        for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+            const double balance = sim.account_balance(i);
+            if (std::abs(journal.journal_balance(i) - balance) > 1e-6 * std::max(1.0e3, std::abs(balance))) {
+                throw std::runtime_error("journal balance differs from the account: " + accounts[static_cast<std::size_t>(i)].key()
+                    + std::format(" journal {:.3f} real {:.3f}", journal.journal_balance(i), balance));
+            }
+        }
+        for (std::size_t c = 0; c < spacetrains::simulation::kMoneyCategories; ++c) {
+            double in = 0.0;
+            double out = 0.0;
+            for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+                in += journal.lifetime(i)[c].in;
+                out += journal.lifetime(i)[c].out;
+            }
+            require_near(in, out, 1e-6 * std::max(1.0, in), "every category is paid by someone and received by someone");
+        }
+        // Monthly samples: each period's flows explain the change in balances between samples.
+        const auto& history = journal.history();
+        require(history.size() >= 13, "a sample every 30 days");
+        for (std::size_t k = 1; k < history.size(); ++k) {
+            for (std::size_t i = 0; i < accounts.size(); ++i) {
+                double net = 0.0;
+                for (const auto& flow : history[k].flows[i]) {
+                    net += flow.in - flow.out;
+                }
+                const double change = history[k].balances[i] - history[k - 1].balances[i];
+                require_near(change, net, 1e-6 * std::max(1.0e3, std::abs(history[k].balances[i])),
+                    "a period's flows add up to the change in balance");
+            }
+        }
+        // Wages, cargo and taxes are all booked.
+        const int earth_orbit = journal.find(spacetrains::simulation::AccountKind::Station, "earth_orbit");
+        require(journal.lifetime(earth_orbit)[static_cast<std::size_t>(MoneyCategory::Wages)].out > 0.0, "stations pay wages");
+        require(journal.lifetime(earth_orbit)[static_cast<std::size_t>(MoneyCategory::Cargo)].in > 0.0, "ships buy cargo");
     }
 
     std::cout << "All economy tests passed.\n";

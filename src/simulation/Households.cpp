@@ -30,6 +30,23 @@ constexpr double VACANCY_GROWTH_LIMIT = 0.05;
 constexpr double COLONY_FILL_DAYS = 30.0;
 // What a station paid per unit is averaged over about this many days of its use (as in Simulation.cpp).
 constexpr double IMPORT_COST_DAYS = 30.0;
+
+// The journal category of a station income, by its kind in station_incomes.csv.
+MoneyCategory grant_category(const std::string& kind) {
+    if (kind == "science" || kind == "science_station") {
+        return MoneyCategory::GrantScience;
+    }
+    if (kind == "settlement") {
+        return MoneyCategory::GrantSettlement;
+    }
+    if (kind == "relay") {
+        return MoneyCategory::GrantRelay;
+    }
+    if (kind.starts_with("tourism")) {
+        return MoneyCategory::GrantTourism;
+    }
+    return MoneyCategory::GrantOther;
+}
 }  // namespace
 
 double& Simulation::economy_account(const std::string& economy_id) {
@@ -73,24 +90,29 @@ double Simulation::per_capita_savings(const domain::StationState& station) const
     return station.population > 0.0 ? std::max(0.0, station.household_credits) / station.population : 0.0;
 }
 
-void Simulation::pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares) {
+void Simulation::pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares, int payee) {
     // A visitor going home pays from home; everyone else from where they board. Travellers from
     // an Earth gateway are Earth's people (Earth's account); a station's residents pay from
     // their households (the outside account before households existed).
     if (colony_employer(group.work_station_id)) {
-        economy_account(group.work_station_id.substr(std::string("colony:").size())) -= fares;   // a colony's recruits
+        const auto economy_id = group.work_station_id.substr(std::string("colony:").size());
+        economy_account(economy_id) -= fares;   // a colony's recruits
+        journal_.record(account_economy(economy_id), payee, MoneyCategory::FaresTraveller, fares);
         return;
     }
     if (!households_on()) {
         outside_economy_credits_ -= fares;
+        journal_.record(account_earth(), payee, MoneyCategory::FaresTraveller, fares);
         return;
     }
     const std::string& home = group.kind == domain::PassengerKind::VisitorHome ? group.destination_id : origin.station_id;
     if (is_earth_gateway(home)) {
         outside_economy_credits_ -= fares;
+        journal_.record(account_earth(), payee, MoneyCategory::FaresTraveller, fares);
     } else {
         auto& home_state = get_station_state(home);
         home_state.household_credits -= fares;
+        journal_.record(account_households(home_state), payee, MoneyCategory::FaresTraveller, fares);
         home_state.travel_budget_cr = std::max(0.0, home_state.travel_budget_cr - fares);
     }
 }
@@ -121,6 +143,7 @@ void Simulation::step_households(double dt_s) {
         station.credits -= wages;
         station.household_credits += wages;
         station.ledger.wages_paid += wages;
+        journal_.record(account_station(station), account_households(station), MoneyCategory::Wages, wages);
         // A share of it is put aside for long trips (a year's worth at most).
         if (households.travel_share > 0.0) {
             station.travel_budget_cr = std::min(station.travel_budget_cr + households.travel_share * wages,
@@ -134,18 +157,22 @@ void Simulation::step_households(double dt_s) {
             station.household_credits -= spend;
             station.credits += spend;
             station.ledger.household_spending += spend;
+            journal_.record(account_households(station), account_station(station), MoneyCategory::HouseholdSpending, spend);
         }
         // Visitors spend during their stay, out of their home's account.
         if (households.visitor_spend_cr_per_day > 0.0) {
             for (const auto& stay : station.visiting) {
                 const double spend = stay.count * households.visitor_spend_cr_per_day * dt_days;
+                int payer = account_earth();
                 if (is_earth_gateway(stay.destination_id)) {
                     outside_economy_credits_ -= spend;
                 } else {
                     get_station_state(stay.destination_id).household_credits -= spend;
+                    payer = account_households(stay.destination_id);
                 }
                 station.credits += spend;
                 station.ledger.visitor_spending += spend;
+                journal_.record(payer, account_station(station), MoneyCategory::VisitorSpending, spend);
             }
         }
     }
@@ -155,6 +182,7 @@ void Simulation::step_households(double dt_s) {
             const double amount = economy.income_cr_per_day * dt_days;
             outside_economy_credits_ -= amount;
             economy_account(economy.id) += amount;
+            journal_.record(account_earth(), account_economy(economy.id), MoneyCategory::ColonyInvestment, amount);
         }
     }
     // Incomes from the background economies: science budgets, services, subsidies.
@@ -171,6 +199,7 @@ void Simulation::step_households(double dt_s) {
         economy_account(income.payer_id) -= amount;
         station.credits += amount;
         station.ledger.incomes += amount;
+        journal_.record(account_economy(income.payer_id), account_station(station), grant_category(income.kind), amount);
     }
 }
 
@@ -220,6 +249,7 @@ void Simulation::step_surface_markets(double dt_s) {
                     station.credits -= paid;
                     account += paid;
                     station.ledger.surface_bought += paid;
+                    journal_.record(account_station(station), account_economy(market->economy_id), MoneyCategory::SurfaceTrade, paid);
                     // Residents pay what the station paid for it (its import cost).
                     const auto& rates = economy_.get_station_net_rates(definition);
                     const auto rate = rates.find(commodity_id);
@@ -254,6 +284,7 @@ void Simulation::step_surface_markets(double dt_s) {
                     account -= paid;
                     station.credits += paid;
                     station.ledger.surface_sold += paid;
+                    journal_.record(account_economy(market->economy_id), account_station(station), MoneyCategory::SurfaceTrade, paid);
                     station.market_sold_units[commodity_id] += units;
                     stock -= units;
                 }
@@ -499,10 +530,10 @@ std::string Simulation::station_economy_json(const domain::StationState& station
     surface += "]";
     const double workers = station_workers(station);
     return std::format("\"household_credits\":{:.0f},\"wage_cr_per_day\":{:.3f},\"workers\":{:.0f},\"jobs\":{:.0f},"
-        "\"labour_market\":{},\"incomes\":{},\"surface_trade\":{},\"days_in_red\":{:.0f},\"lifetime_profit\":{:.0f},",
+        "\"labour_market\":{},\"incomes\":{},\"surface_trade\":{},\"days_in_red\":{:.0f},\"lifetime_profit\":{:.0f},\"profit_last_year\":{:.0f},",
         station.household_credits, station_wage_cr_per_day(station), workers,
         in_labour_market(station) ? station.jobs : workers, in_labour_market(station) ? "true" : "false", incomes, surface,
-        station.ledger.days_in_red, station_lifetime_profit(station));
+        station.ledger.days_in_red, station_lifetime_profit(station), station_profit_last_year(station));
 }
 
 void Simulation::step_colony_labour(double dt_s) {
@@ -555,6 +586,7 @@ void Simulation::step_colony_labour(double dt_s) {
             const double taken = down * per_capita_savings(station);
             economy_account(economy.id) -= brought - taken;
             station.household_credits += brought - taken;
+            journal_.record(account_economy(economy.id), account_households(station), MoneyCategory::MigrantSavings, brought - taken);
             colonists += down - hires;
             station.population += hires - down;
             station.ledger.hired_from_surface += hires;

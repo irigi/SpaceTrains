@@ -1161,6 +1161,76 @@ std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep
 // fleet's. For each consumed good, the nearest producer by a rough transfer time (Hohmann
 // between the parent planets' orbits, a few days within one planet's system); a steady
 // supply needs rate x round trip units in holds (loaded out, empty back).
+// The money journal's accounts (MoneyJournal.hpp): balances, lifetime flows and the main sources
+// of income and expense, by sector; factions split into operating result and investment.
+void print_accounts_audit(const spacetrains::simulation::Simulation& sim) {
+    using spacetrains::simulation::AccountKind;
+    using spacetrains::simulation::MoneyCategory;
+    using spacetrains::simulation::kMoneyCategories;
+    using spacetrains::simulation::money_category_info;
+    const auto& journal = sim.money_journal();
+    const auto& accounts = journal.accounts();
+    const auto short_cr = [](double v) {
+        const double a = std::abs(v);
+        return a >= 1e6 ? std::format("{:.2f}M", v / 1e6) : a >= 1e3 ? std::format("{:.0f}k", v / 1e3) : std::format("{:.0f}", v);
+    };
+    const auto top = [&](const spacetrains::simulation::CategoryFlows& flows, bool income) {
+        std::vector<std::pair<double, std::size_t>> list;
+        for (std::size_t c = 0; c < kMoneyCategories; ++c) {
+            const double v = income ? flows[c].in : flows[c].out;
+            if (v > 0.0) {
+                list.push_back({v, c});
+            }
+        }
+        std::sort(list.begin(), list.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::string out;
+        for (std::size_t k = 0; k < std::min<std::size_t>(3, list.size()); ++k) {
+            out += std::format("{}{} {}", k > 0 ? ", " : "", money_category_info(static_cast<MoneyCategory>(list[k].second)).id,
+                short_cr(list[k].first));
+        }
+        return out;
+    };
+    const auto group_net = [](const spacetrains::simulation::CategoryFlows& flows, std::string_view group, bool inside) {
+        double net = 0.0;
+        for (std::size_t c = 0; c < kMoneyCategories; ++c) {
+            if ((money_category_info(static_cast<MoneyCategory>(c)).group == group) == inside) {
+                net += flows[c].in - flows[c].out;
+            }
+        }
+        return net;
+    };
+    std::cout << "\n  [ECON AUDIT] Accounts (money journal, since the start):\n";
+    const std::pair<AccountKind, const char*> sectors[] = {{AccountKind::Earth, "Earth"}, {AccountKind::Colony, "Colonies"},
+        {AccountKind::Faction, "Factions"}, {AccountKind::Station, "Stations"}, {AccountKind::Households, "Residents"},
+        {AccountKind::Fleet, "Fleets"}};
+    for (const auto& [kind, title] : sectors) {
+        std::cout << std::format("    {}:\n", title);
+        for (int i = 0; i < static_cast<int>(accounts.size()); ++i) {
+            const auto& info = accounts[static_cast<std::size_t>(i)];
+            if (info.kind != kind) {
+                continue;
+            }
+            const auto& flows = journal.lifetime(i);
+            double in = 0.0;
+            double out = 0.0;
+            for (const auto& f : flows) {
+                in += f.in;
+                out += f.out;
+            }
+            std::string extra;
+            if (kind == AccountKind::Faction) {
+                extra = std::format("  operating {} investment {}", short_cr(group_net(flows, "investment", false)),
+                    short_cr(group_net(flows, "investment", true)));
+            } else if (kind == AccountKind::Station) {
+                extra = std::format("  before the faction {}", short_cr(group_net(flows, "factions", false)));
+            }
+            std::cout << std::format("      {:34s} {:>9s}  in {:>8s} out {:>8s}{}\n", info.name, short_cr(sim.account_balance(i)),
+                short_cr(in), short_cr(out), extra);
+            std::cout << std::format("        in: {}\n        out: {}\n", top(flows, true), top(flows, false));
+        }
+    }
+}
+
 void print_capacity_balance(const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::economy::EconomySystem& economy, const spacetrains::domain::SimulationSnapshot& snap) {
     using namespace spacetrains;
@@ -1246,6 +1316,7 @@ int main(int argc, char** argv) {
     std::string save_path;
     double start_day = 0.0;
     std::string snapshot_json_path;
+    std::string stats_json_path;
     bool no_events = false;
     int save_at_day = -1;
     std::string write_reference_prices_path;
@@ -1266,6 +1337,8 @@ int main(int argc, char** argv) {
             econ_audit = true;
         } else if (args[i] == "--snapshot-json" && i + 1 < args.size()) {
             snapshot_json_path = args[++i];
+        } else if (args[i] == "--stats-json" && i + 1 < args.size()) {
+            stats_json_path = args[++i];
         } else if (args[i] == "--start-day" && i + 1 < args.size()) {
             start_day = std::stod(args[++i]);
         } else if (args[i] == "--load" && i + 1 < args.size()) {
@@ -1438,6 +1511,7 @@ int main(int argc, char** argv) {
                     [&sim](const auto& station) { return sim.station_lifetime_profit(station); });
                 print_passenger_audit(snap, sim.universe(), sim.passenger_audit(), sim.rotation_tours());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
+                print_accounts_audit(sim);
             }
             if (!verbose) {
                 std::cout << "  Recent events:\n";
@@ -1506,6 +1580,11 @@ int main(int argc, char** argv) {
         paths << sim.build_bridge_paths_json();
         std::ofstream designs(snapshot_json_path + ".designs", std::ios::binary | std::ios::trunc);
         designs << sim.build_bridge_designs_json();
+    }
+
+    if (!stats_json_path.empty()) {
+        std::ofstream file(stats_json_path, std::ios::binary | std::ios::trunc);
+        file << sim.build_stats_json();
     }
 
     std::cout << "\n=== Final Report ===\n";
