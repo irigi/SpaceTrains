@@ -3,6 +3,29 @@
 Plan: `economy_overhaul.md`. Decisions taken without the user (they are asleep) are marked **Decision** with
 their reason.
 
+## Morning summary (for the user)
+
+All goals are met and committed on `feature/economy_overhaul` (not pushed). Read the decisions below and change
+any you dislike. The main calls taken overnight:
+- goods repriced to Earth's real prices plus launch;
+- Earth buys only space goods;
+- incomes sized to need, with tapering grants;
+- purchase valuations capped at the landed cost;
+- the money-supply controller off;
+- a 3% travel budget;
+- colonies with people;
+- local fuel at 2.5-3.5 cr per 100 kg;
+- Titan makes its own machinery.
+
+| | Before (main) | After |
+|---|---|---|
+| Unmet demand, 4 starts × 4 years | 1.1% (last fifth 2.1%) | 0.2% (last fifth 0.0%) |
+| Ships profitable | 76% | 69-72% (76% over 8 years) |
+| Stations in the red at the end | (not tracked) | none; worst ~12 days in 4 years |
+| Boardings, 4 years | ~16,000 | ~4,500 (mostly cislunar) |
+| Speed, slowest 20-day stretch | 5.1 days/s | 6.0 days/s |
+| Money drift, save/load, TSan | 0, identical, clean | 0, identical, clean |
+
 ## Goal checklist (updated as work goes)
 
 | Goal | State (2026-10-23 02:20) |
@@ -261,3 +284,17 @@ The user's question of 2026-10-22: scores before → after the overhaul (0-5).
 
 Benchmark (4 starts × 1,460 days): unmet 0.2%, last fifth 0.0%, 88.8 of 129 ships profitable (69%), worst
 station 12 days in the red, 4,500 boardings.
+
+## Final check: 8 years (2026-10-23, 02:50)
+
+Two starts (0, 180) × 2,920 days, final state:
+- unmet demand 0.1% over the whole run, last fifth 0.0-0.1%;
+- 117.5 of 154 ships profitable (76%);
+- no station below its floor or in the red at the end; worst station 17 days in the red over 8 years;
+- 12,700 boardings, 6.4M cr fares;
+- Earth exports 11.8M cr; helium-3 ~200 kg sold to Earth;
+- colonies: Mars surface 59,000-60,000, Luna 10,500-11,000, belt 3,900 (its miners move up to Ceres jobs);
+  3,300-4,000 people went up to gateways and 1,500-2,300 down;
+- station money ~6.5M cr, steady from year 4;
+- Sol Federation saves ~8.5-8.9M (the fleet cap stops its purchases); Independent Consortium borrows
+  ~5M at interest from Earth.
