@@ -16,41 +16,51 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-22) — start here
+## Current Plan (updated 2026-10-23) — start here
 
-**Status.** `main` holds everything up to passengers (PR #18, merged 2026-10-22): settlers, crew rotation and
-visitors travel by ship in cabin modules and liners, with shielded cabins for Titan; **on in the data**
-(`data/economy/passengers.csv` `passengers,1`). Plan `docs/plans/passengers.md`; decisions and results
-`docs/plans/passengers_log.md`. Also merged: the VariableISP planner's fuel-check fix and the passenger speed
-work. Work now continues on `feature/passenger_routes` (plan `docs/plans/passenger_routes.md`).
+**Status.** `main` holds everything up to passengers, passenger routes and the low-κ atlas (PRs #18-20). The
+**economy overhaul** is on branch `feature/economy_overhaul` (2026-10-23, overnight, not merged). Plan
+`docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
+`docs/modules/economy.md` ("Economy overhaul"). It brings:
+- real prices: Earth surface price + $100/kg launch at the Earth stations;
+- Earth and colony surface markets with their own accounts;
+- residents paid wages, with travel and savings from their own accounts;
+- ships paying their crews;
+- a labour market with lognormal wage distributions, local hiring between colonies and their gateways,
+  and colony recruiting on Earth;
+- station incomes from Earth (need-based science and settlement grants, relay, tourism, yards in space,
+  microgravity products, helium-3, low-orbit propellant from Luna);
+- Venus Orbital Exchange.
 
-Benchmark, passengers on, cap 130, 4 starts × 1,460 days (2026-10-22): unmet demand 1.1 ± 0.3%, last fifth
-2.1 ± 1.0%, 145 ships (76% profitable), money −20 ± 7% against target, drift 0; ~45 ms per simulated day, the
-slowest 20-day stretch 5.1 days/s or better (16-thread machine).
+Benchmark, 4 starts × 1,460 days (2026-10-23):
+- unmet demand 0.2 ± 0.1%, last fifth 0.0%;
+- 92 of 129 ships profitable (71%);
+- no station in the red at the end (worst ~12 days in the red per 4 years);
+- ~4,600 boardings (mostly cislunar);
+- drift 0; 54.6 ms per simulated day, slowest 20-day stretch 6.0 days/s.
+
+An 8-year run holds at 0.1% unmet.
 
 **Open for the user:**
-- **Mercury gap filled (2026-10-22, branch `feature/atlas_fill`):** the atlas has 14 new κ levels below 0.1,
-  solved with the C++ general solver (`tools/atlas_fill`); plan failures 55,871 → 3,410 per 730 days, fares for
-  all 72 pairs, unmet 1.55 → 1.11%, speed kept by a looser refinement tolerance. Filling the old grid's holes too
-  was measured and left out (12% slower). `docs/plans/visp_general_solver_log.md`, "Atlas extension to low κ".
-- **Earth ↔ Luna passengers:** about 60% of the people who give up wait for this 5-day hop. Its reference fare
-  is 86-93 cr (a 200-berth plasma liner's cost), and every design's probe values a Luna passenger run below
-  the hurdle (the nuclear Passenger Shuttle −48%/yr at 1.9 passengers/day), so no yard buys for it. The probes'
-  Earth → Luna times (14-22 days for plasma ships, 16 for the shuttle, some over 150) also look long for the
-  hop. Look at the fare and the shuttle's economics before more fleet.
-- **Earth ↔ Luna trip times fixed (2026-10-22):** no Moon wait for low-orbit stations, purchase probes plan
-  passenger legs with the riders' time and a full tank, contract loops may wait in port. Benchmark same within
-  noise (`docs/plans/passenger_routes.md`, "A2 fixes built"). Luna passengers still limited by the fare.
-- **Fuel at real prices (option A) and a Luna Ferry (2026-10-22):** fares follow port fuel prices; Luna
-  passengers board (give-ups about halved) but passenger carriers take ~45 of ~145 hulls and unmet cargo rises
-  0.86 → 1.5-1.8% (Mars fuel). Contracts kept (off doubles unmet). `passenger_routes.md`.
-- **Passenger purchases no longer overvalued (2026-10-22):** valuations counted a route's whole flow and
-  their own clearing fare (expected 154%/yr, earned 37%; Large Liners 68% → 7%). Now valued on the flow other
-  ships leave open; estimate ~2× the result, as for cargo. 8 starts: unmet 1.55%, last fifth 1.96%, 63 passenger
-  buys instead of 95 (`passenger_routes.md`, "Overvaluation fix built").
-- Fleet cap settled at 130 (user, 2026-10-22; passengers_log, "Cap findings checked").
-
-The passenger UI was checked in the game by the user (2026-10-22).
+- **Review the economy overhaul** (the log's decisions; all taken overnight without the user). The main
+  calls:
+  - goods repriced to Earth's real prices plus launch (bulk goods 3-7× cheaper, platinum 12× cheaper);
+  - Earth buys only space-sourced goods;
+  - station incomes sized from the stations' trade deficits;
+  - purchase valuations capped at the landed cost; carrier margin 1.5;
+  - the money-supply controller off, a 750k credit ceiling, factions covering stations in the red within
+    2 days;
+  - a 3% travel budget (passengers ~5,000 in 4 years, down from ~16,000);
+  - Titan makes its own machinery.
+- **Merge** `feature/economy_overhaul` after the review.
+- **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person (Luna Ferry study,
+  `passenger_routes.md`). Its other open points were closed after the overhaul (same file, "Re-evaluated
+  after the economy overhaul").
+- **Supply that follows price** is built but off (`households.csv` `supply_price_elasticity`): production
+  is 8-10× use, so it idles plants and cut jobs everywhere. It needs capacity sized to use first (see the
+  population-composition item below).
+- Fleet cap stays 130 (user, 2026-10-22). With the cap reached, faction treasuries pile up unspent money
+  (Sol Federation ~9M by year 8).
 
 ### Decisions so far
 
@@ -81,11 +91,10 @@ The passenger UI was checked in the game by the user (2026-10-22).
 
 ### Next steps, in order
 
-1. **Merge passengers** (UI checked 2026-10-22).
-2. **Passenger routes** (`docs/plans/passenger_routes.md`): route data and a plan covering why fares don't
-   rise with long queues, a tech review of the Luna shuttle, a large liner for Luna, the interplanetary routes
-   with few legs, and the Titan return leg.
-3. ~~**Mercury passengers**~~: done (atlas extension, above).
+1. ~~**Merge passengers**~~, ~~**passenger routes**~~, ~~**Mercury passengers**~~: done (PRs #18-20); the
+   routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
+2. **Economy overhaul review and merge** (above).
+3. (free)
 4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
 5. **Better 3D ship models** (user, 2026-10-20): the map models follow the inspector schematic (same parts and
    proportions, from `ship_components.csv`), with more detail only when the camera is near (the far view keeps
@@ -104,13 +113,10 @@ The passenger UI was checked in the game by the user (2026-10-22).
    step-by-step narrative goes, git history keeps it).
 
 Later (user, 2026-10-22):
-- **Earth's surface economy as a market:** Earth's surface has a bustling economy, so anything can be bought at
-  the Earth stations for its surface price plus the launch cost per kg from the surface.
-- **Planetary background economies** (`docs/plans/background_economies.md`) and **station economies: producers,
-  budgets, demand and wages** (`docs/plans/economy_points_7_10.md`): plans written 2026-10-22, not started.
-  Earth imports and exports will change every balance, so some stations need new income (to be chosen by the
-  user). After the overhaul, revisit the open passenger points (`docs/plans/passenger_routes.md`: Luna fares, light
-  cabins, scheduled liners, large liners below the hurdle) and check they still make sense.
+- ~~**Earth's surface economy as a market**~~, ~~**planetary background economies**~~ and ~~**station economies**~~
+  (`background_economies.md`, `economy_points_7_10.md`): built as the economy overhaul (2026-10-23, above),
+  except industries as accounts of their own and supply following price (built, off). The passenger points were
+  revisited (`passenger_routes.md`, "Re-evaluated after the economy overhaul").
 - **Population composition in the style of Europa Universalis 2:** stations and ships hold people of different
   kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from EU2). To be designed
   in detail together when we get there; the user wants help with the concept.
@@ -140,6 +146,7 @@ Deferred (user, 2026-10-08):
 - Ship structures: tier 1 parts and schematic (2026-10-11), tier 2 modules, radiation, boil-off and wear (PR #17;
   `docs/plans/ship_structures_log.md`, `tier2_log.md`). Wobbly outer-moon paths fixed (cubic Hermite, 2026-10-11).
 - Passengers (PR #18), passenger routes (PR #19), atlas extension to low κ for Mercury (PR #20).
+- Economy overhaul (branch `feature/economy_overhaul`, 2026-10-23): `docs/plans/economy_overhaul_log.md`.
 
 Checks after each step: the test suites (`ctest`), `tools/benchmark.py` (four starting dates, mean and spread;
 one run is too noisy to judge a change) and `--trajectory-audit`; for speed, `--profile` runs one after another
