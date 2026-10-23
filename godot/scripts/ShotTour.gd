@@ -24,6 +24,8 @@ const STOPS := [
     # (Mercury) and far from it (Titan) for the colour check.
     # "size": the distance in model sizes (the model's world radius), whatever the model scale.
     {"name": "station_leo_close", "id": "earth_orbit", "kind": "station", "size": 3.0},
+    {"name": "station_leo_inside", "id": "earth_orbit", "kind": "station", "size": 1.1},
+    {"name": "station_leo_core", "id": "earth_orbit", "kind": "station", "size": 0.3},
     {"name": "station_l1_close", "id": "earth_l1", "kind": "station", "size": 3.0},
     {"name": "station_luna_close", "id": "luna_base", "kind": "station", "size": 3.0},
     {"name": "station_mercury_close", "id": "mercury_yard", "kind": "station", "size": 3.0},

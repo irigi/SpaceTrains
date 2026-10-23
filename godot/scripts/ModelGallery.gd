@@ -88,6 +88,11 @@ func _frame(radius: float, view: String, length := 0.0) -> void:
     var distance := radius / sin(deg_to_rad(_camera.fov * 0.5)) * 1.05
     _camera.transform = Transform3D(Basis.looking_at(-direction, up), direction * distance)
 
+# From a direction at a distance, looking at a point.
+func _frame_at(target: Vector3, distance: float, direction: Vector3) -> void:
+    direction = direction.normalized()
+    _camera.transform = Transform3D(Basis.looking_at(-direction, Vector3.UP), target + direction * distance)
+
 # Close on the cargo hold, from above one side.
 func _frame_hold(hold: Dictionary, direction := Vector3(0.8, 0.6, 0.35)) -> void:
     direction = direction.normalized()
@@ -194,7 +199,7 @@ func _run() -> void:
         for station in json.data.get("stations", []):
             var container := Node3D.new()
             _stage.add_child(container)
-            StationModels.ensure(container, station)
+            StationModels.ensure(container, station, StationModels.DETAIL)
             Materials.set_band(Materials.instance_materials(container)["band"], Color(0.3, 0.55, 0.9))
             # A few docked ships, as the map places them.
             var berths: Array = container.get_meta("berths")
@@ -211,9 +216,18 @@ func _run() -> void:
             var name := "station_%s" % String(station.get("id", ""))
             _frame(radius * 1.1, "three_quarter")
             tiles.append(await _shoot(out.path_join(name + ".png")))
+            # A stretch of the ring, filling the frame (about the core's distance from it).
+            _frame_at(Vector3(0.0, 0.0, float(container.get_meta("radius_m", 100.0)) * 0.91), 220.0, Vector3(0.55, 0.45, 0.7))
+            await _shoot(out.path_join(name + "_ring.png"))
             # The docking core with its ships (the ring is ~1 km out).
             _frame(float(container.get_meta("core_radius_m", radius * 0.6)) * 1.1, "three_quarter")
             await _shoot(out.path_join(name + "_close.png"))
+            # A docking hub with its berths (the spine's +Z end is up).
+            var hub_y := 0.0
+            for berth in berths:
+                hub_y = maxf(hub_y, (container.transform * (berth["pos"] as Vector3)).y)
+            _frame_at(Vector3(0.0, hub_y, 0.0), 260.0, Vector3(0.7, 0.35, 0.6))
+            await _shoot(out.path_join(name + "_hub.png"))
             container.queue_free()
             await process_frame
             print("[Gallery] %s (%s): radius %.0f m" % [String(station.get("id", "")), String(station.get("economy_profile_id", "")), radius])

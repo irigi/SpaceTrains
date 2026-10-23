@@ -11,10 +11,15 @@ const BODY_MIN_MODEL_SCALE := 1.0e-9
 # The user arg --model-scale=N overrides it.
 const MODEL_SIZE_EXAGGERATION := 1.0
 var ship_metres_to_world := POSITION_SCALE * MODEL_SIZE_EXAGGERATION
+var _print_status := false  # the shot tour logs status messages
 # A ship's detailed model replaces the coarse one above this on-screen radius (pixels),
-# and goes back below the lower one.
-const SHIP_DETAIL_PX := 150.0
-const SHIP_COARSE_PX := 110.0
+# and goes back below the lower one: a docked ship stays detailed until its station
+# (~20x its size) is well away.
+const SHIP_DETAIL_PX := 6.0
+const SHIP_COARSE_PX := 4.0
+# The same for stations (their radius includes the ring).
+const STATION_DETAIL_PX := 90.0
+const STATION_COARSE_PX := 60.0
 const BRIDGE_STEP_SECONDS := 0.1
 # The simulation advances in ticks of 0.1 day (Simulation::TICK_S). Between snapshots the
 # display clock runs on at the timewarp rate, at most this far ahead of the last snapshot.
@@ -212,6 +217,8 @@ func _ready() -> void:
     if "--debug-map" in OS.get_cmdline_user_args():
         debug_map_enabled = true
     for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-tour="):
+            _print_status = true
         if arg.begins_with("--model-scale="):
             ship_metres_to_world = POSITION_SCALE * maxf(float(arg.trim_prefix("--model-scale=")), 1.0e-3)
         if arg.begins_with("--shot-tour="):
@@ -319,6 +326,8 @@ func _setup_ui() -> void:
     ui_root.add_child(thermal_label)
 
 func _set_status(text: String) -> void:
+    if _print_status and status_label != null and text != status_label.text and text != "":
+        print("[status] ", text)
     if status_label != null:
         status_label.text = text
         status_label.visible = text != ""
@@ -750,6 +759,7 @@ func _update_nodes(delta: float) -> void:
         var kind: String = entity_kinds.get(entity_id, "")
         node.position = _to_render(_entity_m(entity_id))
         if kind == "station":
+            _update_station_lod(node, entity_details.get(entity_id, {}))
             StationModelsScript.spin_rings(node, spin_time)
         elif kind == "ship":
             var detail: Dictionary = entity_details.get(entity_id, {})
@@ -1688,6 +1698,18 @@ func _update_ship_lod(node: Node3D, data: Dictionary) -> void:
     # The detailed mesh is built in the background; the coarse one stays until it's ready.
     if ShipModelsScript.request(key, design, want):
         ShipModelsScript.ensure(node, key, design, want)
+
+# A station's detailed model close up (built in the background), coarse otherwise.
+func _update_station_lod(node: Node3D, data: Dictionary) -> void:
+    if data.is_empty() or not node.has_meta("model_key"):
+        return
+    var lod := int(node.get_meta("lod", StationModelsScript.COARSE))
+    var pixels := _projected_model_pixels(node)
+    if lod == StationModelsScript.COARSE and pixels > STATION_DETAIL_PX:
+        if StationModelsScript.request_detail(data):
+            StationModelsScript.ensure(node, data, StationModelsScript.DETAIL)
+    elif lod == StationModelsScript.DETAIL and pixels < STATION_COARSE_PX:
+        StationModelsScript.ensure(node, data, StationModelsScript.COARSE)
 
 # A model's size in world units: its bounding radius for ships (built in metres), the
 # container scale for unit-size models (bodies, stations).

@@ -41,13 +41,15 @@
   49 m light freighter is 6e-9 world units long next to a 12,742 km Earth. Ships and stations share the factor,
   so their size ratios are real at any setting; the user arg `--model-scale=N` overrides it (testing, or a
   fallback if true scale ever proves awkward). The camera's near plane goes down to 1e-14 world units (~8 cm)
-  and the focus zoom limit follows the model's size.
+  and the focus zoom limit follows the model's size. The 3D view uses 4x MSAA (`project.godot`): without it the
+  stations' sub-pixel windows sparkled as the rings turned.
   - Picking: near its icon the nearest entity wins; up close a ship or station is also hit anywhere within its
     projected radius, and then the smallest model wins (a docked ship before its station).
   - Two levels of detail, each one cached mesh per design (`MeshBuilder.gd` merges the parts into one surface per
     material slot, so a ship is a few draw calls):
     - coarse (mid zoom, ~1,000 triangles);
-    - detailed (on-screen radius above 150 px, back below 110 px, ~8,500 triangles): truss lattice, domed habitat
+    - detailed (on-screen radius above 6 px, back below 4 px, so a docked ship stays detailed until its station is
+      well away; ~8,500 triangles): truss lattice, domed habitat
       with windows, docking port, antenna and RCS, open cargo bay, tank clusters, the tier 2 modules, shadow
       shield, reactor and bell nozzle, or plasma drive, field coils and radiator wings on booms.
   - Detailed meshes take ~25 ms each, so they are built on worker threads; the coarse model stays until the
@@ -81,15 +83,24 @@
     in flight blends between its path (which ends at the station's centre) and its berth, by distance (full within
     1.3 station radii, none beyond 4), so it docks without a jump and passes over the ring, not through it. In
     practice ships arrive at speed (burns are impulsive), ~30 km per frame even at 600x, so this is rarely seen.
-  - One habitat ring, two counter-rotating ones side by side from 15,000 people.
+  - One habitat ring, two counter-rotating ones from 15,000 people, a tube diameter apart (the Stanford ratio of
+    tube to ring, 130 m across a 1.8 km ring, is kept; two rings that nearly touched read as one fat drum).
+  - Two levels of detail (station radius above 90 px on screen, back below 60 px):
+    - coarse: a plain torus with two window strips, a plain spine, beams for arms and masts;
+    - detailed (~0.3 M triangles a ring, ~50 k the core; built on a worker thread in ~0.4 s, coarse until then):
+      the ring is cut into sectors (~100 m of rim, 6-10 between spokes) in four variants (spoke junction, two
+      home variants, greenhouse), each built once and drawn as a MultiMesh round the ring. Round the tube: the
+      faction band at the rim, rows of windows (some lit) or greenhouse glazing either side, shield panels with
+      seams top and bottom, Stanford-style sunlight windows on the inner shoulder, service lines inside, radiator
+      fins underneath, frames round the tube, airlocks, antennas, equipment and beacons. Spokes with frames and
+      elevator rails, a spinning hub collar with windows. The core: lattice spine, pressurized modules with
+      frames, windows and cupolas, hubs with windows, antennas and beacons, lattice berthing arms with propellant
+      lines and cradles (clamps, floodlights), banded tanks with feed lines, paneled solar arrays and radiators.
   - The real sizes need no altitude cap (stations orbit at least 200 km up); `_station_display_scale` keeps one
     (60% of the altitude) only for large `--model-scale` values.
   - Storage tanks by capacity, solar arrays, radiators.
   - A flavour by economy profile (`economy_profile_id` in the snapshot): greenhouses, fabrication blocks, sphere
     tank farm (also at fuel factories), solar furnace, container stacks, ore bins, shuttle pads, extraction rigs.
-  - A station is never drawn reaching more than 60% of the way down to its planet. Low Earth Logistics (500 km up)
-    and the Lunar Gateway (200 km) are therefore smaller than the ships' scale, and their docked ships look large;
-    true scale (roadmap) removes this.
 - **Paint** (`ModelMaterials.gd`): muted and matte, nothing self-lit except windows, hot nozzles, plumes and
   radiators while a drive runs:
   - white and gold insulation blankets;
@@ -148,7 +159,8 @@
     [--only=id,prefix*] [--stations=<snapshot.json>] [--thermal]`. It renders every base class and one design per
     module, coarse and detailed, from several views (plus the cargo bay close and from the side), with the engine
     running and cargo aboard; plasma ships also in the thermal view; the bulk carriers and the light freighter
-    half-full and empty; every station with docked ships; and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
+    half-full and empty; every station (detailed) whole, a stretch of ring, the core and a docking hub with
+    docked ships; and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
 
 ## Data Flow
 
