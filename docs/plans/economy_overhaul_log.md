@@ -247,6 +247,7 @@ The user's question of 2026-10-22: scores before → after the overhaul (0-5).
 - **Tests:** the five ctest suites pass. The economy tests add: Earth's ask and bid at a gateway, Earth's
   stock outside storage, the colony rates, a Monte Carlo check of the settlers' gain distribution, and a day's
   wages, goods and incomes.
+- **ThreadSanitizer:** 800 days (RelWithDebInfo, `setarch -R`), no warnings, drift 0.
 - **In the game** (shot tour): the station inspector shows residents, wage, jobs, incomes and what the
   surface sells and buys. The economy panel shows residents' savings and the background economies'
   accounts and people.
