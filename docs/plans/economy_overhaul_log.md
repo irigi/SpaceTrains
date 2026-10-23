@@ -251,3 +251,13 @@ The user's question of 2026-10-22: scores before → after the overhaul (0-5).
 - **In the game** (shot tour): the station inspector shows residents, wage, jobs, incomes and what the
   surface sells and buys. The economy panel shows residents' savings and the background economies'
   accounts and people.
+
+### Science stations' staffing (2026-10-23, 02:40)
+
+- **Decision:** science stations (Titan, Ganymede) keep the crew their research needs: their jobs do not grow
+  (they can still be cut). The user: they "would probably keep only crew that is needed for research +
+  suppliers". Their wages hold at the starting level (1.0 and 1.5 cr/day).
+- **New test** (economy tests, 180 days): no station spends 30 days in the red.
+
+Benchmark (4 starts × 1,460 days): unmet 0.2%, last fifth 0.0%, 88.8 of 129 ships profitable (69%), worst
+station 12 days in the red, 4,500 boardings.
