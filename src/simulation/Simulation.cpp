@@ -6159,6 +6159,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"name\":\"" << json_escape(station.name) << "\","
                << "\"faction_id\":\"" << json_escape(station.faction_id) << "\","
                << "\"parent_body_id\":\"" << json_escape(station.parent_body_id) << "\","
+               << "\"economy_profile_id\":\"" << json_escape(station.economy_profile_id) << "\","
                << "\"altitude_m\":" << station.altitude_m << ","
                << "\"theta_rad\":" << station.theta_rad << ","
                << "\"population\":" << std::llround(get_station_state(station.id).population) << ","

@@ -357,14 +357,8 @@ static func ensure(container: Node3D, key: String, design: Dictionary, lod: int)
     if model == null:
         model = MeshInstance3D.new()
         model.name = "model"
-        model.layers = Materials.MODEL_LAYERS
         container.add_child(model)
-    model.mesh = info["mesh"]
-    var own := instance_materials(container)
-    var slots: Array = info["slots"]
-    for i in range(slots.size()):
-        var slot := String(slots[i])
-        model.set_surface_override_material(i, own[slot] if own.has(slot) else Materials.shared(slot))
+    Materials.apply_mesh(model, info, container)
     container.set_meta("model_key", key)
     container.set_meta("lod", lod)
     container.set_meta("radius_m", info["radius_m"])
@@ -386,13 +380,7 @@ static func ensure(container: Node3D, key: String, design: Dictionary, lod: int)
     container.set_meta("cargo_sig", "")
 
 static func instance_materials(container: Node3D) -> Dictionary:
-    if container.has_meta("materials"):
-        return container.get_meta("materials")
-    var own := {}
-    for slot in Materials.PER_INSTANCE:
-        own[slot] = Materials.per_instance(slot)
-    container.set_meta("materials", own)
-    return own
+    return Materials.instance_materials(container)
 
 # Live state, every frame (cheap: materials are only touched when something changed).
 # engine_on: burning (thermal) or thrusting (plasma); plume_m: plume length in metres.

@@ -1,10 +1,12 @@
 # Procedural entity meshes: bodies, stations and ships. All entities are Node3D
-# containers; Main.gd scales the container. Bodies and stations are unit-scale; ships are
-# built in metres from their design (ShipModels.gd, nose at -Z so look_at() orients them
-# along their velocity) and their container scale converts metres to world units.
+# containers; Main.gd scales the container. Bodies are unit spheres; stations
+# (StationModels.gd) and ships (ShipModels.gd, built from their design, nose at -Z so
+# look_at() orients them along their velocity) are built in metres, and their container
+# scale converts metres to world units.
 extends RefCounted
 
 const ShipModels := preload("res://scripts/ShipModels.gd")
+const StationModels := preload("res://scripts/StationModels.gd")
 const Materials := preload("res://scripts/ModelMaterials.gd")
 
 static var _glow_texture: ImageTexture
@@ -16,7 +18,7 @@ static func make_entity(kind: String, data: Dictionary) -> Node3D:
             # Dense enough for a smooth limb when a planet fills the screen.
             container.add_child(_named(_sphere(1.0, 128, 64), "hull"))
         "station":
-            _build_station(container)
+            StationModels.ensure(container, data)
         "ship":
             # The model itself comes from ShipModels.ensure() once the design is known.
             var glow := _make_engine_glow()
@@ -36,55 +38,6 @@ static func _sphere(radius: float, radial := 12, rings := 6) -> MeshInstance3D:
     var instance := MeshInstance3D.new()
     instance.mesh = mesh
     return instance
-
-static func _box(size: Vector3) -> MeshInstance3D:
-    var mesh := BoxMesh.new()
-    mesh.size = size
-    var instance := MeshInstance3D.new()
-    instance.mesh = mesh
-    return instance
-
-static func _cylinder(top_radius: float, bottom_radius: float, height: float, segments := 10) -> MeshInstance3D:
-    var mesh := CylinderMesh.new()
-    mesh.top_radius = top_radius
-    mesh.bottom_radius = bottom_radius
-    mesh.height = height
-    mesh.radial_segments = segments
-    var instance := MeshInstance3D.new()
-    instance.mesh = mesh
-    return instance
-
-static func _capsule(radius: float, height: float) -> MeshInstance3D:
-    var mesh := CapsuleMesh.new()
-    mesh.radius = radius
-    mesh.height = height
-    mesh.radial_segments = 12
-    var instance := MeshInstance3D.new()
-    instance.mesh = mesh
-    return instance
-
-# --- Stations: ring habitat with spokes and a docking hub ---------------------
-
-static func _build_station(container: Node3D) -> void:
-    var torus := TorusMesh.new()
-    torus.inner_radius = 0.72
-    torus.outer_radius = 1.0
-    torus.rings = 24
-    torus.ring_segments = 8
-    var ring := MeshInstance3D.new()
-    ring.mesh = torus
-    container.add_child(_named(ring, "accent"))
-
-    for i in range(4):
-        var spoke := _cylinder(0.05, 0.05, 1.7, 6)
-        spoke.rotation.z = PI * 0.5
-        spoke.rotation.y = PI * 0.25 * float(i) * 2.0
-        container.add_child(_named(spoke, "hull"))
-
-    var hub := _sphere(0.3, 12, 8)
-    container.add_child(_named(hub, "hull"))
-    var mast := _cylinder(0.06, 0.06, 1.2, 6)
-    container.add_child(_named(mast, "hull"))
 
 # --- Materials & phase tinting ------------------------------------------------
 
@@ -136,8 +89,9 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
             else:
                 materials["hull"] = _standard(body_color(body_id), 0.82)
     elif kind == "station":
-        materials["hull"] = _standard(Color(0.62, 0.66, 0.72), 0.45, Color.BLACK, 0.0, 0.4)
-        materials["accent"] = _standard(faction_color, 0.4, faction_color * 0.5, 0.6)
+        # The faction band on the habitat ring(s); the rest is ModelMaterials' shared paint.
+        Materials.set_band(Materials.instance_materials(container)["band"], faction_color)
+        return
     else:
         # Ships: the faction band, red when stranded; the rest is ShipModels' shared paint.
         var stranded := String(data.get("phase", "idle")) == "stranded"

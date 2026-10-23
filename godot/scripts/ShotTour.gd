@@ -20,6 +20,12 @@ const STOPS := [
     {"name": "station_leo", "id": "earth_orbit", "kind": "station", "distance": 0.002},
     {"name": "station_l1", "id": "earth_l1", "kind": "station", "distance": 0.004},
     {"name": "station_mars", "id": "mars_transfer", "kind": "station", "distance": 0.004},
+    # Close-ups: the station models with docked ships, and the same paint near the Sun
+    # (Mercury) and far from it (Titan) for the colour check.
+    {"name": "station_leo_close", "id": "earth_orbit", "kind": "station", "distance": 0.0004},
+    {"name": "station_l1_close", "id": "earth_l1", "kind": "station", "distance": 0.0004},
+    {"name": "station_mercury_close", "id": "mercury_yard", "kind": "station", "distance": 0.0003},
+    {"name": "station_titan_close", "id": "titan_works", "kind": "station", "distance": 0.0003},
 ]
 
 func _ready() -> void:

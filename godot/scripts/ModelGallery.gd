@@ -10,6 +10,7 @@ extends SceneTree
 
 const ShipModels := preload("res://scripts/ShipModels.gd")
 const Materials := preload("res://scripts/ModelMaterials.gd")
+const StationModels := preload("res://scripts/StationModels.gd")
 
 const SHOT := Vector2i(640, 400)
 
@@ -155,6 +156,37 @@ func _run() -> void:
             container.queue_free()
             await process_frame
         print("[Gallery] %s: radius %.1f m" % [key, float(ShipModels.model_info(key, design, ShipModels.DETAIL)["radius_m"])])
+    var stations_path := _arg("stations")
+    if stations_path != "" and json.parse(FileAccess.get_file_as_string(stations_path)) == OK:
+        var ships: Array = []
+        for key in ["light_freighter", "plasma_bulk_tanker", "deep_space_freighter", "luna_ferry"]:
+            if designs.has(key):
+                ships.append([key, designs[key]])
+        for station in json.data.get("stations", []):
+            var container := Node3D.new()
+            _stage.add_child(container)
+            StationModels.ensure(container, station)
+            Materials.set_band(Materials.instance_materials(container)["band"], Color(0.3, 0.55, 0.9))
+            # A few docked ships, as the map places them.
+            var berths: Array = container.get_meta("berths")
+            for i in range(mini(ships.size() * 2, berths.size())):
+                var pick: Array = ships[i % ships.size()]
+                var ship := Node3D.new()
+                container.add_child(ship)
+                ShipModels.ensure(ship, String(pick[0]), pick[1], ShipModels.DETAIL)
+                var berth: Dictionary = berths[i]
+                var dir: Vector3 = berth["dir"]
+                ship.transform = Transform3D(Basis.looking_at(-dir, Vector3(0, 0, 1)),
+                    (berth["pos"] as Vector3) + dir * (float(ship.get_meta("length_m", 50.0)) * 0.5 + 3.0))
+            var radius := float(container.get_meta("radius_m", 100.0))
+            var name := "station_%s" % String(station.get("id", ""))
+            _frame(radius * 1.1, "three_quarter")
+            tiles.append(await _shoot(out.path_join(name + ".png")))
+            _frame(radius * 0.6, "three_quarter")
+            await _shoot(out.path_join(name + "_close.png"))
+            container.queue_free()
+            await process_frame
+            print("[Gallery] %s (%s): radius %.0f m" % [String(station.get("id", "")), String(station.get("economy_profile_id", "")), radius])
     _contact_sheet(tiles, out.path_join("contact_sheet.png"))
     quit()
 
@@ -167,6 +199,7 @@ func _contact_sheet(tiles: Array[Image], path: String) -> void:
     var h := int(SHOT.y * scale)
     var rows := int(ceil(float(tiles.size()) / float(columns)))
     var sheet := Image.create(w * columns, h * rows, false, Image.FORMAT_RGBA8)
+    sheet.fill(Color(0.01, 0.012, 0.025, 1.0))
     for i in range(tiles.size()):
         var tile: Image = tiles[i].duplicate()
         tile.convert(Image.FORMAT_RGBA8)

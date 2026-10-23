@@ -16,7 +16,7 @@ const PER_INSTANCE := ["band", "radiator", "nozzle_hot"]
 # lights layer 2 only.
 const FILL_LAYER := 2
 const MODEL_LAYERS := 3
-const FILL_ENERGY := 0.35
+const FILL_ENERGY := 0.25
 
 static var _shared := {}
 static var _radiator_shader: Shader
@@ -35,7 +35,7 @@ static func shared(slot: String) -> Material:
     var m: StandardMaterial3D
     match slot:
         "blanket":  # white beta-cloth insulation
-            m = _standard(Color(0.56, 0.56, 0.55), 0.9)
+            m = _standard(Color(0.48, 0.48, 0.47), 0.9)
         "foil":  # gold-coloured MLI (Kapton), on reactors and drives
             m = _standard(Color(0.6, 0.5, 0.32), 0.55, 0.25)
         "silver":  # aluminised sunshades
@@ -87,6 +87,28 @@ static func per_instance(slot: String) -> Material:
             m.emission_energy_multiplier = 0.0
             return m
     return shared(slot)
+
+# The container's own band, radiator and nozzle materials (made once, kept across LOD
+# and model changes).
+static func instance_materials(container: Node3D) -> Dictionary:
+    if container.has_meta("materials"):
+        return container.get_meta("materials")
+    var own := {}
+    for slot in PER_INSTANCE:
+        own[slot] = per_instance(slot)
+    container.set_meta("materials", own)
+    return own
+
+# Puts a MeshBuilder result on a MeshInstance3D: shared materials per slot, the
+# container's own where it has one; on the layers the fill light reaches.
+static func apply_mesh(instance: MeshInstance3D, built: Dictionary, container: Node3D) -> void:
+    instance.mesh = built["mesh"]
+    instance.layers = MODEL_LAYERS
+    var own := instance_materials(container)
+    var slots: Array = built["slots"]
+    for i in range(slots.size()):
+        var slot := String(slots[i])
+        instance.set_surface_override_material(i, own[slot] if own.has(slot) else shared(slot))
 
 static func set_band(material: Material, color: Color) -> void:
     if material is StandardMaterial3D:
