@@ -203,6 +203,20 @@ func _flow_table(title: String, flows: Dictionary) -> VBoxContainer:
     box.add_child(_table(["Category", "In", "Out", "Net", "Share"], rows, [150.0, 82.0, 82.0, 82.0, 74.0]))
     return box
 
+# Side-by-side tables that wrap onto the next line when the screen is too narrow.
+func _flow_row() -> HFlowContainer:
+    var row := HFlowContainer.new()
+    row.add_theme_constant_override("h_separation", 24)
+    row.add_theme_constant_override("v_separation", 12)
+    row.custom_minimum_size.x = custom_minimum_size.x - 40.0
+    return row
+
+func _station_name(station_id: String) -> String:
+    for station in stats.get("stations", []):
+        if String(station.get("id", "")) == station_id:
+            return String(station.get("name", station_id))
+    return station_id
+
 func _accounts(kind: String) -> Array:
     var out: Array = []
     for account in stats.get("accounts", []):
@@ -377,8 +391,7 @@ func _build_factions() -> void:
     _note("Operating: taxes and salvage in; top-ups, insolvency cover, liner top-ups, emergency premiums and interest out. "
         + "Investment: hulls and new ships' working capital. Stations' profit is before the faction's taxes and subsidies "
         + "(last year, or since the start). Fleet profit is every ship's lifetime result, sold ones too.")
-    var tables := HBoxContainer.new()
-    tables.add_theme_constant_override("separation", 18)
+    var tables := _flow_row()
     for faction in factions:
         tables.add_child(_flow_table(String(faction.get("name", "")), _flows(_account("faction:" + String(faction.get("id", ""))))))
     _content.add_child(tables)
@@ -421,8 +434,7 @@ func _build_stations() -> void:
     _note("Profit: before the faction's taxes and subsidies, with the stock's value gain (since the start, or over the "
         + "last year for the shorter periods).")
     if _selected_station != "":
-        var row := HBoxContainer.new()
-        row.add_theme_constant_override("separation", 18)
+        var row := _flow_row()
         row.add_child(_flow_table("Station account", _flows(_account("station:" + _selected_station))))
         row.add_child(_flow_table("Its residents", _flows(_account("households:" + _selected_station))))
         _content.add_child(row)
@@ -467,7 +479,7 @@ func _build_residents() -> void:
     _note("Income: wages, crew wages, hazard pay and the savings migrants bring. Spending: goods, services, fares, "
         + "visits and the savings emigrants take. Earth's stations have no labour market (everyone works).")
     if _selected_station != "":
-        _content.add_child(_flow_table("Residents of " + _selected_station, _flows(_account("households:" + _selected_station))))
+        _content.add_child(_flow_table("Residents of " + _station_name(_selected_station), _flows(_account("households:" + _selected_station))))
     _chart("Residents' savings", chart_series)
 
 func _build_colonies() -> void:
@@ -498,8 +510,7 @@ func _build_colonies() -> void:
     _note("A colony buys at its gateway only while its account is above minus its credit line; at the line it stops "
         + "buying. Wages are lognormal: p10, median and p90 in cr per day. Hired up: colonists who took the gateway's "
         + "jobs; gone down: its unemployed who moved to the surface (since the start).")
-    var tables := HBoxContainer.new()
-    tables.add_theme_constant_override("separation", 18)
+    var tables := _flow_row()
     for colony in colonies:
         tables.add_child(_flow_table(String(colony.get("name", "")), _flows(_account("colony:" + String(colony.get("id", ""))))))
     _content.add_child(tables)
@@ -549,8 +560,7 @@ func _build_fleet() -> void:
             box.add_child(_ship_button(ship))
         ranked.add_child(box)
     _content.add_child(ranked)
-    var tables := HBoxContainer.new()
-    tables.add_theme_constant_override("separation", 18)
+    var tables := _flow_row()
     var chart_series: Array = []
     var factions: Array = stats.get("factions", [])
     for i in range(factions.size()):

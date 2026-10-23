@@ -52,7 +52,14 @@ An 8-year run holds at 0.1% unmet.
     2 days;
   - a 3% travel budget (passengers ~5,000 in 4 years, down from ~16,000);
   - Titan makes its own machinery.
-- **Merge** `feature/economy_overhaul` after the review.
+- **Economy statistics** (built 2026-10-23 on the same branch): a money journal books every transfer by account
+  and category, keeps a monthly history and is saved with the game (save version 19). It gives the
+  `--econ-audit` Accounts tables, `--stats-json`, and the in-game Statistics screen (S): overview and who pays
+  whom, factions, stations, residents, colonies & Earth, fleet. Docs: `docs/modules/economy.md` ("Money
+  journal"), `docs/modules/ui_observer.md`.
+- **Next: fix the Luna and belt colonies.** Both sit at their credit lines (the belt from year 1, Luna from
+  year 6): they buy more at their gateways than they sell. Use the Statistics screen's Colonies tab.
+- **Merge** `feature/economy_overhaul` after the review (one push with the statistics and the colony fix).
 - **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person (Luna Ferry study,
   `passenger_routes.md`). Its other open points were closed after the overhaul (same file, "Re-evaluated
   after the economy overhaul").

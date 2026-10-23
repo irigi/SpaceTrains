@@ -67,14 +67,17 @@ func _draw() -> void:
             area.position.y + (hi - value) / (hi - lo) * area.size.y)
     # Grid: zero line, top and bottom labels.
     draw_rect(area, Color(0.35, 0.85, 0.95, 0.15), false, 1.0)
-    for value in [hi - margin, 0.0, lo + margin]:
+    var zero_y: float = to_point.call(d0, 0.0).y
+    for value in [0.0, hi - margin, lo + margin]:
         var y: float = to_point.call(d0, value).y
+        if value != 0.0 and abs(y - zero_y) < 14.0:
+            continue   # too close to the zero line's label
         draw_line(Vector2(area.position.x, y), Vector2(area.end.x, y), Color(0.55, 0.63, 0.72, 0.35 if value == 0.0 else 0.15), 1.0)
         draw_string(font, Vector2(4, y + 4), UiTheme.format_credits(value), HORIZONTAL_ALIGNMENT_LEFT, PAD_LEFT - 8, 10, UiTheme.TEXT_DIM)
     draw_string(font, Vector2(area.position.x, size.y - 5), "day %.0f" % d0, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UiTheme.TEXT_DIM)
     draw_string(font, Vector2(area.end.x - 70, size.y - 5), "day %.0f" % d1, HORIZONTAL_ALIGNMENT_RIGHT, 70, 10, UiTheme.TEXT_DIM)
     # Series and legend.
-    var legend_x := 160.0
+    var legend_x := 24.0 + font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
     for s in series:
         var values: Array = s.get("values", [])
         var color: Color = s.get("color", UiTheme.ACCENT)

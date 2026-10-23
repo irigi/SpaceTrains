@@ -35,6 +35,7 @@ def run_one(binary, days, start, threads, extra, keep=None):
             handle.write(output)
     result = {"start": start, "seconds": seconds}
     previous = (0.0, 0.0)
+    in_money_table = False
     for line in output.splitlines():
         m = re.search(r"Unmet demand: ([\d.]+)% of (\d+) cr consumed.*\((\d+) cr unmet", line)
         if m:
@@ -97,6 +98,22 @@ def run_one(binary, days, start, threads, extra, keep=None):
         m = re.search(r"^\s+(settlers|emigrants|rotation out|rotation home|visitors|visitors home)\s+posted \d+, boarded (\d+)", line)
         if m and "boarded" in result:
             result["boarded"] += float(m.group(2))
+        # Money journal: the poorest faction's treasury (k cr), and the worst station's profit before
+        # its faction's taxes and subsidies (k cr, the Money table's last column), in the last report.
+        m = re.search(r"Faction treasuries:\s+(.*) cr$", line)
+        if m:
+            values = [float(v) for v in re.findall(r"(-?\d+(?:\.\d+)?)", m.group(1))]
+            if values:
+                result["faction_min_k"] = min(values) / 1e3
+        if "Δstock" in line and "profit" in line:
+            result["station_profit_min_k"] = float("inf")
+            in_money_table = True
+        elif line.strip().startswith("Stations: residents paid"):
+            in_money_table = False
+        elif in_money_table:
+            m = re.search(r" cr\s.*\s([+-]\d+)\s*$", line)
+            if m:
+                result["station_profit_min_k"] = min(result["station_profit_min_k"], float(m.group(1)) / 1e3)
         m = re.search(r"flagged=\s*(\d+)", line)
         if m:
             result["flagged"] = result.get("flagged", 0) + int(m.group(1))
@@ -124,7 +141,8 @@ def main():
                ("holds", "holds u"), ("money", "money %"), ("exports", "exports"), ("flagged", "traj flags"),
                ("emergencies", "emergencies"), ("emergency_cr", "emerg. cr"), ("ship_cash", "ship cash %"),
                ("interest", "interest"), ("over_limit", "over limit"), ("events", "events"),
-               ("below_floor", "below floor"), ("in_red", "in red"), ("red_days_max", "red days"), ("boarded", "boarded"), ("fares_m", "fares M"), ("seconds", "run s")]
+               ("below_floor", "below floor"), ("in_red", "in red"), ("red_days_max", "red days"), ("boarded", "boarded"), ("fares_m", "fares M"),
+               ("faction_min_k", "faction k"), ("station_profit_min_k", "stn profit k"), ("seconds", "run s")]
     print(f"{'start day':>10}" + "".join(f"{title:>12}" for _, title in columns))
     for result in results:
         print(f"{result['start']:>10.0f}" + "".join(
