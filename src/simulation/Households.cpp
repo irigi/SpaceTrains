@@ -449,6 +449,21 @@ void Simulation::update_market_responses() {
     }
 }
 
+double Simulation::station_lifetime_profit(const domain::StationState& station) const {
+    const auto& definition = get_station_definition(station.station_id);
+    const auto stock_value = [&](const domain::Inventory& inventory) {
+        double value = 0.0;
+        for (const auto& commodity : universe_.commodities) {
+            const auto it = inventory.find(commodity.id);
+            const double stock = it == inventory.end() ? 0.0 : std::max(0.0, it->second);
+            value += economy_.get_trade_value(definition, commodity.id, 0.0, stock, commodity.base_price);
+        }
+        return value;
+    };
+    return station.credits - definition.initial_credits + station.ledger.taxes - station.ledger.subsidies
+        + stock_value(station.inventory) - stock_value(starting_inventory(definition));
+}
+
 std::string Simulation::station_economy_json(const domain::StationState& station) const {
     if (!households_on()) {
         return {};
@@ -484,10 +499,10 @@ std::string Simulation::station_economy_json(const domain::StationState& station
     surface += "]";
     const double workers = station_workers(station);
     return std::format("\"household_credits\":{:.0f},\"wage_cr_per_day\":{:.3f},\"workers\":{:.0f},\"jobs\":{:.0f},"
-        "\"labour_market\":{},\"incomes\":{},\"surface_trade\":{},\"days_in_red\":{:.0f},",
+        "\"labour_market\":{},\"incomes\":{},\"surface_trade\":{},\"days_in_red\":{:.0f},\"lifetime_profit\":{:.0f},",
         station.household_credits, station_wage_cr_per_day(station), workers,
         in_labour_market(station) ? station.jobs : workers, in_labour_market(station) ? "true" : "false", incomes, surface,
-        station.ledger.days_in_red);
+        station.ledger.days_in_red, station_lifetime_profit(station));
 }
 
 void Simulation::step_colony_labour(double dt_s) {

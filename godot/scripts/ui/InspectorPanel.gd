@@ -141,6 +141,10 @@ func _add_station_economy_lines(detail: Dictionary) -> void:
             labour += " · %.0f out of work" % (workers - jobs)
     _add_label("Residents: %s · wage %.2f cr/day ($%.0fk/yr) · savings %s" % [labour, wage, wage * 365.0 / 0.00078 / 1000.0,
         UiTheme.format_credits(float(detail.get("household_credits", 0.0)))], UiTheme.TEXT_DIM, 12)
+    if detail.has("lifetime_profit"):
+        var profit := float(detail.get("lifetime_profit", 0.0))
+        _add_label("Lifetime profit (before faction taxes and subsidies): %s" % UiTheme.format_credits(profit),
+            UiTheme.GOOD if profit >= 0.0 else UiTheme.ALERT, 12)
     for income in detail.get("incomes", []):
         _add_label("Income: %s, %s/yr from %s" % [String(income.get("kind", "")),
             UiTheme.format_credits(float(income.get("cr_per_year", 0.0))), String(income.get("payer", ""))], UiTheme.GOOD, 12)

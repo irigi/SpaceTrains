@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -375,7 +376,8 @@ void print_economy_audit(
     const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::economy::EconomySystem& economy,
     double delivered_price_ratio,
-    const spacetrains::simulation::Simulation::RadiationAudit& radiation) {
+    const spacetrains::simulation::Simulation::RadiationAudit& radiation,
+    const std::function<double(const spacetrains::domain::StationState&)>& lifetime_profit) {
 
     // Collect all commodity IDs
     std::vector<std::string> commodity_ids;
@@ -637,8 +639,8 @@ void print_economy_audit(
         }
         return value;
     };
-    std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s}\n",
-        "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock");
+    std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s} {:>9s}\n",
+        "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock", "profit");
     spacetrains::domain::StationLedger stations_total;
     for (const auto& ss : snap.stations) {
         station_credits += ss.credits;
@@ -650,9 +652,12 @@ void print_economy_audit(
         stations_total.taxes += l.taxes;
         for (const auto& sd : universe.stations) {
             if (sd.id != ss.station_id) continue;
-            std::cout << std::format("    {:30s}  {:>12.0f} cr  {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:+9.0f}\n",
+            // Stock gained since the start (which is the data files' stock raised to the order levels).
+            const double profit = lifetime_profit(ss);
+            const double stock_gain = profit - (ss.credits - sd.initial_credits + l.taxes - l.subsidies);
+            std::cout << std::format("    {:30s}  {:>12.0f} cr  {:9.0f} {:9.0f} {:8.0f} {:8.0f} {:8.0f} {:+9.0f} {:+9.0f}\n",
                 sd.name, ss.credits, l.household_sales, l.producer_purchases, l.dividends, l.subsidies, l.taxes,
-                stock_value(sd, ss.inventory) - stock_value(sd, sd.initial_inventory));
+                stock_gain, profit);
             break;
         }
     }
@@ -1429,7 +1434,8 @@ int main(int argc, char** argv) {
             print_station_inventories(snap, sim.universe());
             print_ship_phases(snap, sim.universe());
             if (econ_audit) {
-                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit());
+                print_economy_audit(snap, sim.universe(), sim.economy_system(), sim.delivered_price_ratio(), sim.radiation_audit(),
+                    [&sim](const auto& station) { return sim.station_lifetime_profit(station); });
                 print_passenger_audit(snap, sim.universe(), sim.passenger_audit(), sim.rotation_tours());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
             }

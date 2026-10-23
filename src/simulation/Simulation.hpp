@@ -160,6 +160,9 @@ public:
     [[nodiscard]] const PassengerAudit& passenger_audit() const { return passenger_audit_; }
     [[nodiscard]] static const char* passenger_kind_name(domain::PassengerKind kind);
     // Audit: deliveries with a reference price since start (or load), paid vs reference.
+    // A station's profit since the start, before the faction's taxes and subsidies: its cash gained
+    // + taxes paid - subsidies received + the value its stock gained (at its price curves).
+    [[nodiscard]] double station_lifetime_profit(const domain::StationState& station) const;
     [[nodiscard]] double delivered_price_ratio() const {
         return delivered_reference_cr_ > 0.0 ? delivered_paid_cr_ / delivered_reference_cr_ : 0.0;
     }
