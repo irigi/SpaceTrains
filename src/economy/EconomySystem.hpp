@@ -33,6 +33,8 @@ public:
     // Labour market (economy overhaul): plants run with the workers employed, so outputs and the
     // inputs that feed them scale with employed workers / workers (at most 1; 1 until set).
     void set_employment(const std::string& station_id, double employed_share);
+    // Stations whose budget is science (station_incomes kind science_station).
+    [[nodiscard]] bool science_station(const std::string& station_id) const { return science_stations_.contains(station_id); }
     [[nodiscard]] double employment(const std::string& station_id) const;
 
     // Units that count against a station's storage capacity (depot fuel does not, nor what a

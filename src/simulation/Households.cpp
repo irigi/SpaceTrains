@@ -385,8 +385,9 @@ void Simulation::step_labour(double dt_s) {
         // New jobs only while the ones open get filled (under VACANCY_GROWTH_LIMIT unfilled).
         const double open_share = (station.jobs - station_workers(station)) / std::max(1.0, station_workers(station));
         double rate = 0.0;
+        // A science station keeps the crew its research needs: its jobs do not grow.
         if (station.supply_index >= growth.grow_above && station.credits >= floor_credits && utilization >= 0.8
-            && open_share < VACANCY_GROWTH_LIMIT) {
+            && open_share < VACANCY_GROWTH_LIMIT && !economy_.science_station(station.station_id)) {
             rate = growth.growth_per_year;
         } else if (station.supply_index < growth.decline_below || station.credits < -floor_credits || utilization < 0.5) {
             rate = -growth.decline_per_year;

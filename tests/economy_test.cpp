@@ -394,6 +394,12 @@ int main() {
             "the faction treasuries' balance must equal taxes minus subsidies, their ship trade and emergency premiums");
         require_near(stations_ledger.dividends, ship_dividends, 1.0e-3,
             "dividends paid by ships must equal dividends received by stations");
+        // Economy overhaul: no station spends long in the red (factions cover it within days).
+        if (sim.universe().households.enabled != 0.0) {
+            for (const auto& station : snap.stations) {
+                require(station.ledger.days_in_red < 30.0, "no station should spend a month of 180 days in the red");
+            }
+        }
         // The fleet stays within its hold cap (step 21).
         double fleet_hold = 0.0;
         for (const auto& ship : snap.ships) {
