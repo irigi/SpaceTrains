@@ -324,3 +324,25 @@ is a separate question). Large Liners still earn below the 30% hurdle.
 
 Tools: `--econ-audit` (route lines), `SPACETRAINS_TRACE_INVESTMENT=1` (every purchase candidate's valuation),
 `tools/benchmark.py` (4 starts) for any change to the economy.
+
+## Re-evaluated after the economy overhaul (2026-10-23)
+
+The overhaul (`economy_overhaul.md`, log `economy_overhaul_log.md`) replaced the demand behind these points.
+Travellers' budgets now come from incomes and gains, not from multiples of the reference fare:
+- settlers come for a station's vacancies and pay from what the job gains them;
+- visitors travel when half a year's income covers the trip (lognormal);
+- a station's residents spend at most 3% of their wages on trips;
+- colonies recruit on Earth and pay passages;
+- the unemployed at a colony's gateway go down to the surface instead of home.
+
+About 5,000 people board in 4 years (was ~16,000), most on cislunar trips, and passenger purchases expect
+~2× what they earn, as cargo did before.
+
+| Point | Status |
+|---|---|
+| 1. Fares do not rise with queues | **Closed, obsolete.** The 86 cr budget was the reference-fare band. Budgets now come from incomes; a long queue of people who cannot pay is now real. |
+| 2. Luna shuttle tech review | **Closed.** Luna is the main passenger market now, and the Luna Ferry is bought and earns (~13%/yr). Reopen only if more cislunar traffic is wanted. |
+| 3. A larger liner for Luna | **Closed** (checked 2026-10-22: does not pay; still true at the lower demand). |
+| 4. Scheduled liners Earth ↔ Mars, Venus (B, C) | **Closed, not needed.** A few hundred settlers a year go to each and colony recruits are modest; spot carriers serve them. Reopen if migration grows. |
+| 5. Mercury fares | **Done** (atlas extension, PR #20). |
+| Light short-hop cabins (Luna Ferry study) | **Open, optional.** Still the big lever on cislunar cost per person; a mass assumption for the user. |
