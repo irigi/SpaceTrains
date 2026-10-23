@@ -178,3 +178,26 @@ Benchmark (4 starts × 1,460 days):
 - no station in the red or below its floor at the end; worst station 15 days in the red;
 - 5,100 boardings, 2.6M cr fares; about 2,000 people hired up and 1,300 gone down per run;
 - 0.5 trajectory flags per run (the low-κ Mercury spirals).
+
+### Jobs and propellant (2026-10-23, 01:45-02:15)
+
+- **Decision:** a station adds jobs only while fewer than 5% stand open. In the 8-year run Titan kept adding
+  jobs nobody came to fill; its wage climbed from 1.5 to 3.75 cr/day.
+- **Decision:** fuel factories price their propellant at local cost (`fuel_factories.csv` `price_cr`):
+  - Luna and Ceres 2.5, Venus, Titan and Ganymede 3.0, Mercury 3.5 cr per 100 kg;
+  - Earth's launched price is 7.9;
+  - depots' reference prices start from the factory's price.
+
+  At Earth's price, propellant from Luna earned nothing in low orbit (Earth's traffic buys at 0.9 × ask), and
+  ships paid Earth prices everywhere. Now Luna's propellant is a low-orbit business: 85,000 units (674k cr)
+  sold to Earth's traffic in 4 years. That is the case for space mining, and an income the user chose.
+
+Benchmark (4 starts × 1,460 days):
+- unmet 0.2%, last fifth 0.0%;
+- 99 of 137 ships profitable (72%, was 63%);
+- worst station 6 days in the red; no station in the red at the end;
+- Earth exports 6.0M cr (was 5.3M); 5,100 boardings, 2.4M cr fares.
+
+An 8-year run (start 90, before the propellant change) was stable: 0.1% unmet over the whole run, station
+money steady at ~6.6M cr, the colonies grew (Mars surface 59,000) while sending ~3,500 people up to their
+gateways.
