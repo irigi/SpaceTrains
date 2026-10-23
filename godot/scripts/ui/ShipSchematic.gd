@@ -1,25 +1,15 @@
 extends Control
 
-# To-scale top view of a ship, laid out from its design's components (the bridge's
-# .designs file; tier 1 of docs/plans/ship_internals.md), with live state from the
-# snapshot: tank and hold fill, crew, false-colour temperatures of the radiators and the
-# reactor, and the engine plume. Below it, a bar of the ship's current mass by part.
-# Hovering a part (or a bar segment) highlights both and shows its spec line.
-#
-# Layout rules, bow on the left, all sizes in metres from the components:
-# - habitat: a 4.5 m cylinder (NASA's Deep Space Habitat module) as long as its
-#   pressurized volume needs; its rooms and systems are bands sized by mass;
-# - hold: a box of its volume (1 m³ per cargo unit);
-# - tanks: a cylinder of the propellant volume (LH2 is 14x bulkier than water);
-# - thermal ships: a shadow shield, then reactor and nozzle; plasma ships: drive and
-#   magnetic nozzle, with two radiator wings (2.5:1) of the panel area at mid-ship.
+# To-scale top view of a ship, laid out from its design's components (ShipLayout.gd, shared
+# with the map models), with live state from the snapshot: tank and hold fill, crew,
+# false-colour temperatures of the radiators and the reactor, and the engine plume. Below
+# it, a bar of the ship's current mass by part. Hovering a part (or a bar segment)
+# highlights both and shows its spec line.
 
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 const Thermal := preload("res://scripts/ThermalPalette.gd")
+const ShipLayout := preload("res://scripts/ShipLayout.gd")
 
-const HAB_DIAMETER_M := 4.5
-const GAP_M := 1.0
-const WING_OFFSET_M := 2.5
 const SHIP_H := 150.0
 const FOOTER_H := 20.0
 const BAR_H := 16.0
@@ -40,10 +30,7 @@ const PART_COLORS := {
     "module": Color(0.68, 0.55, 0.92),
     "cabin": Color(0.93, 0.8, 0.62),
 }
-const CABIN_KEYS := ["cabins", "module.cabin", "module.shielded_cabin"]
-# Habitat parts drawn as bands inside the hull; the hull and shielding are its frame.
-const HABITAT_BANDS := ["habitat.crew_quarters", "habitat.common_rooms", "habitat.life_support",
-    "habitat.thermal_control", "habitat.power_avionics", "habitat.airlock_eva"]
+const HABITAT_BANDS := ShipLayout.HABITAT_BANDS
 const HABITAT_FRAME := ["habitat.pressure_hull", "habitat.shielding"]
 const BAND_SHADES := [Color(0.95, 0.86, 0.66), Color(0.86, 0.9, 0.82), Color(0.72, 0.82, 0.86),
     Color(0.8, 0.78, 0.9), Color(0.86, 0.84, 0.72), Color(0.7, 0.72, 0.76)]
@@ -71,9 +58,7 @@ func _init() -> void:
 func set_ship(design: Dictionary, ship: Dictionary) -> void:
     _design = design
     _ship = ship
-    _components.clear()
-    for component in design.get("components", []):
-        _components[String(component.get("id", ""))] = component
+    _components = ShipLayout.components_of(design)
     _layout()
     _build_mass_bar()
     queue_redraw()
@@ -93,102 +78,16 @@ func _notification(what: int) -> void:
 func _f(component: Dictionary, key: String) -> float:
     return float(component.get(key, 0.0))
 
-# --- Layout (metres) -------------------------------------------------------------
-
-func _add_shape(key: String, kind: String, rect: Rect2) -> void:
-    _shapes.append({"key": key, "kind": kind, "rect": rect, "comp": _components.get(key, {})})
+# --- Layout (metres, ShipLayout.gd) ----------------------------------------------
 
 func _layout() -> void:
-    _shapes.clear()
-    _plasma = _components.has("radiators")
-    var x := 0.0
-    var habitat: Dictionary = _components.get("habitat", {})
-    if not habitat.is_empty():
-        var radius := HAB_DIAMETER_M * 0.5
-        var length := maxf(_f(habitat, "volume_m3") / (PI * radius * radius), HAB_DIAMETER_M)
-        _add_shape("habitat", "habitat", Rect2(x, -radius, length, HAB_DIAMETER_M))
-        # Bands by mass, inset so the hull and shielding show as the frame around them.
-        var inner := Rect2(x + radius * 0.45, -radius * 0.62, length - radius * 0.9, HAB_DIAMETER_M * 0.62)
-        var total := 0.0
-        for key in HABITAT_BANDS:
-            total += _f(_components.get(key, {}), "mass_kg")
-        var bx := inner.position.x
-        for key in HABITAT_BANDS:
-            var share := _f(_components.get(key, {}), "mass_kg") / maxf(total, 1.0)
-            if share <= 0.0:
-                continue
-            _add_shape(key, "band", Rect2(bx, inner.position.y, inner.size.x * share, inner.size.y))
-            bx += inner.size.x * share
-        # Storm shelter (tier 2): a water-walled refuge at the front of the habitat.
-        var shelter: Dictionary = _components.get("module.storm_shelter", {})
-        if not shelter.is_empty():
-            var depth := clampf(_f(shelter, "volume_m3") / (HAB_DIAMETER_M * HAB_DIAMETER_M * 0.4), 0.8, length * 0.3)
-            _add_shape("module.storm_shelter", "shelter", Rect2(x + radius * 0.15, -radius * 0.75, depth, HAB_DIAMETER_M * 0.75))
-        x += length + GAP_M
-    # Passenger cabins (a liner's own, or a cabin module): a block sized by volume, the water
-    # round it (a wall, or the propellant tanks wrapped round it) drawn as its jacket.
-    for key in CABIN_KEYS:
-        var cabin: Dictionary = _components.get(key, {})
-        if cabin.is_empty():
-            continue
-        var cabin_volume := maxf(_f(cabin, "volume_m3"), 1.0)
-        var cabin_width := clampf(pow(cabin_volume, 1.0 / 3.0) * 0.9, HAB_DIAMETER_M, 14.0)
-        var cabin_length := maxf(cabin_volume / (PI * cabin_width * cabin_width * 0.25), cabin_width)
-        var cabin_rect := Rect2(x, -cabin_width * 0.5, cabin_length, cabin_width)
-        if _components.has("module.tank_wrap"):
-            _add_shape("module.tank_wrap", "tank_jacket", cabin_rect.grow(1.2))
-        if _components.has("module.cabin_water_wall"):
-            _add_shape("module.cabin_water_wall", "cabin_wall", cabin_rect.grow(0.6))
-        _add_shape(key, "cabin", cabin_rect)
-        x += cabin_length + GAP_M
-        break
-    var hold: Dictionary = _components.get("hold", {})
-    if not hold.is_empty():
-        var volume := maxf(_f(hold, "volume_m3"), 1.0)
-        var width := clampf(pow(volume, 1.0 / 3.0) * 1.2, 3.0, 12.0)
-        _add_shape("hold", "hold", Rect2(x, -width * 0.5, volume / (width * width), width))
-        if _components.has("module.cold_hold"):
-            _add_shape("module.cold_hold", "liner", Rect2(x, -width * 0.5, volume / (width * width), width).grow(0.35))
-        x += volume / (width * width) + GAP_M
-    var tank: Dictionary = _components.get("tanks", {})
-    var tank_width := 3.0
-    if not tank.is_empty():
-        var volume := maxf(_f(tank, "volume_m3"), 1.0)
-        tank_width = clampf(pow(volume, 1.0 / 3.0) * 0.7, 2.0, 10.0)
-        var length := maxf(volume / (PI * tank_width * tank_width * 0.25), tank_width)
-        _add_shape("tanks", "tank", Rect2(x, -tank_width * 0.5, length, tank_width))
-        for key in ["module.boiloff_shield", "module.zbo_cryocooler"]:
-            if _components.has(key):
-                _add_shape(key, "tank_cooling", Rect2(x, -tank_width * 0.5, length, tank_width).grow(0.4))
-        x += length + GAP_M
-    if not _plasma:
-        var shield := maxf(3.0, tank_width * 0.6)
-        _add_shape("shield", "shield", Rect2(x, -shield * 0.5, 0.6, shield))
-        x += 0.6 + GAP_M
-    var engine: Dictionary = _components.get("engine", {})
-    var engine_length := maxf(2.0, pow(_f(engine, "mass_kg") / 1000.0, 1.0 / 3.0) * 2.2)
-    _engine_rect = Rect2(x, -engine_length * 0.4, engine_length, engine_length * 0.8)
-    _add_shape("engine", "engine", _engine_rect)
-    var ship_end := x + engine_length
-    # The truss runs the whole length, under everything.
-    _shapes.push_front({"key": "structure", "kind": "structure", "rect": Rect2(0.0, -0.35, ship_end, 0.7),
-        "comp": _components.get("structure", {})})
-    _bounds = Rect2(0.0, -HAB_DIAMETER_M * 0.5, ship_end, HAB_DIAMETER_M)
-    for shape in _shapes:
-        _bounds = _bounds.merge(shape["rect"])
-    if _plasma:
-        var area := _f(_components["radiators"], "area_m2")
-        var span := sqrt(area / 2.0 / 2.5)
-        var wing_length := 2.5 * span
-        var middle := ship_end * 0.5
-        for side in [-1.0, 1.0]:
-            var y: float = WING_OFFSET_M if side > 0.0 else -WING_OFFSET_M - span
-            var wing := {"key": "radiators", "kind": "wing", "rect": Rect2(middle - wing_length * 0.5, y, wing_length, span),
-                "comp": _components["radiators"]}
-            _shapes.push_front(wing)
-            _bounds = _bounds.merge(wing["rect"])
+    var layout := ShipLayout.layout(_design)
+    _shapes = layout["shapes"]
+    _plasma = layout["plasma"]
+    _engine_rect = layout["engine_rect"]
+    var engine_length: float = _engine_rect.size.x
     # Room for the plume, so the scale doesn't jump when the engine lights.
-    _bounds = _bounds.merge(Rect2(ship_end, -1.0, engine_length * 1.6, 2.0))
+    _bounds = (layout["bounds"] as Rect2).merge(Rect2(float(layout["ship_end"]), -1.0, engine_length * 1.6, 2.0))
 
 # --- Mass bar --------------------------------------------------------------------
 
