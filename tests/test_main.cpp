@@ -1287,8 +1287,18 @@ int main() {
             const auto& audit = straight.passenger_audit();
             const auto migrant = static_cast<std::size_t>(spacetrains::domain::PassengerKind::Migrant);
             const auto emigrant = static_cast<std::size_t>(spacetrains::domain::PassengerKind::Emigrant);
-            require(audit.boarded[migrant] >= 1.0 && audit.landed[migrant] >= 1.0, "the liner should carry settlers out of Earth");
-            require(audit.fares_cr[migrant] > 0.0, "settlers should pay fares");
+            // With the labour market, settlers are posted only for vacancies (few early in a game), so
+            // the check is that they are posted and that people board, pay and land.
+            double boarded = 0.0;
+            double landed = 0.0;
+            double fares_paid = 0.0;
+            for (std::size_t k = 0; k < audit.boarded.size(); ++k) {
+                boarded += audit.boarded[k];
+                landed += audit.landed[k];
+                fares_paid += audit.fares_cr[k];
+            }
+            require(audit.posted[migrant] > 0.0, "settlers should be posted (for vacancies or by colonies)");
+            require(boarded >= 1.0 && landed >= 1.0 && fares_paid > 0.0, "passengers should board, pay and land");
             // What stations paid for passages is recovered through their prices or still owed.
             double passages = 0.0;
             for (const auto& station : after.stations) {
