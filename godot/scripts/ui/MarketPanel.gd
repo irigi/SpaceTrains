@@ -97,8 +97,11 @@ func _economy_summary(state: Dictionary, commodities: Array, stations: Array) ->
     var treasuries := 0.0
     for value in (state.get("faction_treasuries", {}) as Dictionary).values():
         treasuries += float(value)
-    lines.append("Money in stations and ships %s (%+.1f%% of target) · treasuries %s · exported to Earth's economy %s" % [
-        UiTheme.format_credits(money), 100.0 * (money / target - 1.0) if target > 0.0 else 0.0,
+    # With the economy overhaul the money-supply controller is off: no target to compare with.
+    var against_target := "" if economy.has("background_economies") or target <= 0.0 \
+        else " (%+.1f%% of target)" % (100.0 * (money / target - 1.0))
+    lines.append("Money in stations and ships %s%s · treasuries %s · exported to Earth's economy %s" % [
+        UiTheme.format_credits(money), against_target,
         UiTheme.format_credits(treasuries), UiTheme.format_credits(float(economy.get("exports_value", 0.0)))])
     # Economy overhaul: residents' savings, and the background economies' accounts (negative: what
     # they paid into the simulated economy) and people.
