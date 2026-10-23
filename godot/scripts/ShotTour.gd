@@ -266,6 +266,16 @@ func _run() -> void:
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot("ship_detail_" + hull)
+        # Plasma ships again in the thermal view (T), through the real key handler.
+        if String(ship.get("propulsion_type", "")) == "variable_isp":
+            for on in [true, false]:
+                var key := InputEventKey.new()
+                key.keycode = KEY_T
+                key.pressed = true
+                Input.parse_input_event(key)
+                await get_tree().create_timer(0.3).timeout
+                if on:
+                    await _shoot("ship_detail_%s_thermal" % hull)
     main._on_pause_toggled()
     # The economy overview.
     main.market_panel.toggle()

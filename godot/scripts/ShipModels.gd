@@ -12,8 +12,9 @@ extends RefCounted
 # - DETAIL (close up): truss lattice, domed habitat with windows, docking port, antenna
 #   and RCS, open hold frame with cargo, tank clusters, shadow shield, reactor and bell
 #   nozzle, or plasma drive with magnetic-nozzle coils and radiator wings on booms.
-# Live state per ship: radiators in false colour while thrusting and dark where worn, a hot
-# nozzle and a plume while the engine runs, and cargo containers in the hold (DETAIL).
+# Live state per ship: radiator heat pipes glowing while thrusting (false colour in the
+# thermal view, T) and dark tips where worn, a hot nozzle and a plume while the engine runs,
+# and cargo containers packed in the hold by commodity (DETAIL).
 
 const MeshBuilder := preload("res://scripts/MeshBuilder.gd")
 const ShipLayout := preload("res://scripts/ShipLayout.gd")
@@ -23,6 +24,11 @@ const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 const COARSE := 0
 const DETAIL := 1
 const HAB_RADIUS_M := ShipLayout.HAB_DIAMETER_M * 0.5
+# Which container shape each commodity travels in.
+const CARGO_SHAPES := {
+    "water": "tank", "oxygen": "tank", "fuel": "tank", "deuterium": "tank", "helium_3": "tank",
+    "metals": "bin", "platinum": "bin",
+}
 
 static var _cache := {}
 # Detailed meshes take ~25 ms to build, so they are built on worker threads: cache key ->
@@ -32,7 +38,7 @@ static var _pending := {}
 static var _finished := {}
 static var _mutex := Mutex.new()
 static var _plume_meshes := {}
-static var _cargo_mesh: BoxMesh
+static var _cargo_meshes := {}
 
 # --- Cached meshes ----------------------------------------------------------------
 
@@ -110,9 +116,13 @@ static func _build_arrays(design: Dictionary, lod: int) -> Dictionary:
     var nozzle_r := 1.0
     var jacketed := components.has("module.tank_wrap") or components.has("module.cabin_water_wall")
     var crew_band := Rect2()
+    # The truss stops at the hold's bulkheads (the bay frame carries the load there).
+    var truss_gap := Vector2.ZERO
     for shape in layout["shapes"]:
         if String(shape["key"]) == "habitat.crew_quarters":
             crew_band = shape["rect"]
+        if String(shape["kind"]) == "hold":
+            truss_gap = Vector2((shape["rect"] as Rect2).position.x - mid, (shape["rect"] as Rect2).end.x - mid)
     for shape in layout["shapes"]:
         var r: Rect2 = shape["rect"]
         var comp: Dictionary = shape["comp"]
@@ -122,7 +132,10 @@ static func _build_arrays(design: Dictionary, lod: int) -> Dictionary:
         var width := r.size.y
         match String(shape["kind"]):
             "structure":
-                if detail:
+                if detail and truss_gap != Vector2.ZERO and truss_gap.x > z0 and truss_gap.y < z1:
+                    _truss(b, z0, truss_gap.x)
+                    _truss(b, truss_gap.y, z1)
+                elif detail:
                     _truss(b, z0, z1)
                 else:
                     b.box("truss", Vector3(0.7, 0.7, z1 - z0), _at(0.0, 0.0, (z0 + z1) * 0.5))
@@ -251,11 +264,14 @@ static func _cabin(b: MeshBuilder, z0: float, z1: float, radius: float, detail: 
                 var z := lerpf(z0 + dome + 0.7, z1 - dome - 0.7, (float(i) + 0.5) / float(rows)) if rows > 1 else (z0 + z1) * 0.5
                 b.box("window", Vector3(0.05, 0.45, 0.7), Transform3D(basis, Vector3(cos(a), sin(a), 0.0) * (radius + 0.01) + Vector3(0.0, 0.0, z)))
 
-# Open frame: four longerons, a square frame at every bay and a diagonal on each side.
+# An open cargo bay: four longerons with a frame at every container row and thin
+# diagonals, a floor plate with ribs and a latch pair under every floor slot, and silver
+# sills and corner gussets at both ends, so it reads as a bay when empty.
 static func _hold_frame(b: MeshBuilder, z0: float, z1: float, width: float) -> void:
     var h := width * 0.5
-    var t := clampf(width * 0.03, 0.1, 0.3)
-    var bays := maxi(1, int(round((z1 - z0) / maxf(width * 0.8, 2.0))))
+    var grid := _hold_grid(z0, z1, width)
+    var t: float = grid["t"]
+    var bays: int = grid["along"]
     var corners := [Vector2(h, h), Vector2(-h, h), Vector2(-h, -h), Vector2(h, -h)]
     for c in corners:
         b.beam("truss", Vector3(c.x, c.y, z0), Vector3(c.x, c.y, z1), t)
@@ -265,11 +281,33 @@ static func _hold_frame(b: MeshBuilder, z0: float, z1: float, width: float) -> v
             var c0: Vector2 = corners[i]
             var c1: Vector2 = corners[(i + 1) % 4]
             b.beam("truss", Vector3(c0.x, c0.y, z), Vector3(c1.x, c1.y, z), t)
-            if j < bays:
+            # Diagonals on the open sides (not on the floor).
+            if j < bays and i != 2:
                 var zn := lerpf(z0, z1, float(j + 1) / float(bays))
                 var from := c0 if j % 2 == 0 else c1
                 var to := c1 if j % 2 == 0 else c0
-                b.beam("truss", Vector3(from.x, from.y, z), Vector3(to.x, to.y, zn), t * 0.6)
+                b.beam("truss", Vector3(from.x, from.y, z), Vector3(to.x, to.y, zn), t * 0.4)
+        # A rib under the floor at every row boundary.
+        b.box("steel", Vector3(width, t * 1.6, t * 1.4), _at(0.0, -h - t * 1.1, z))
+    var plate := maxf(t * 0.6, 0.08)
+    b.box("blanket", Vector3(width, plate, z1 - z0), _at(0.0, -h - plate * 0.5, (z0 + z1) * 0.5))
+    var across: int = grid["across"]
+    var cell: float = grid["cell"]
+    var step: float = grid["step"]
+    var half: float = float(grid["inner"]) * 0.5
+    var latch := Vector3(minf(cell * 0.12, 0.4), minf(cell * 0.06, 0.18), minf(cell * 0.12, 0.4))
+    for row in range(bays):
+        for i in range(across):
+            var x := -half + cell * (float(i) + 0.5)
+            for end in [-0.42, 0.42]:
+                b.box("metal", latch, _at(x, -h + latch.y * 0.5, z0 + step * (float(row) + 0.5 + end)))
+    # Open end frames with a low sill (solid bulkheads would hide the cargo when the
+    # camera looks along the ship).
+    var sill := width * 0.22
+    for z in [z0, z1]:
+        b.box("silver", Vector3(width - t, sill, 0.08), _at(0.0, -h + sill * 0.5, z))
+        for c in corners:
+            b.box("silver", Vector3(t * 2.2, t * 2.2, 0.1), _at(c.x * 0.97, c.y * 0.97, z))
 
 # Propellant tanks: one vessel, or for a wide one a cluster of three of the same total
 # cross-section (the volume is kept; the cluster is about 25% wider than the schematic).
@@ -430,7 +468,7 @@ static func update_live(container: Node3D, data: Dictionary, engine_on: bool, pl
     var lod := int(container.get_meta("lod", COARSE))
     var temperature := float(data.get("radiator_temperature_k", 0.0))
     var lost := 1.0 - float(data.get("radiator_condition", 1.0))
-    var sig := int(engine_on) | (int(plasma) << 1) | (lod << 2) | (int(temperature) << 4) | (int(lost * 100.0) << 24)
+    var sig := int(engine_on) | (int(plasma) << 1) | (lod << 2) | (int(temperature) << 4) | (int(lost * 100.0) << 24) | (int(Materials.thermal_view) << 32)
     if int(container.get_meta("live_sig", -1)) != sig:
         container.set_meta("live_sig", sig)
         var own := instance_materials(container)
@@ -481,8 +519,70 @@ static func _update_plume(container: Node3D, show: bool, plasma: bool, length_m:
     plume.scale = Vector3(radius, radius, maxf(length_m, 1.0))
     plume.visible = true
 
-# Cargo containers in the hold, one colour per lot, filling it in the same proportion as
-# the schematic (lots in order from the bow). Hidden behind a cold-hold liner.
+# The hold's container slots: `across` x `across` square cells in the cross-section
+# (inside the longerons), `along` rows of about 6 m. Shared by the frame's latches and the
+# cargo, so containers sit on the latches.
+static func _hold_grid(z0: float, z1: float, width: float) -> Dictionary:
+    var t := clampf(width * 0.03, 0.1, 0.3)
+    var inner := width - 2.0 * t
+    var across := clampi(int(round(inner / 2.4)), 1, 4)
+    var along := maxi(1, int(ceil((z1 - z0) / 6.5)))
+    return {"across": across, "along": along, "cell": inner / float(across), "step": (z1 - z0) / float(along),
+        "inner": inner, "t": t}
+
+# Unit containers (1 x 1 x 1, centred, long along Z, floor at -Y). Surfaces: cargo_body
+# (light grey), cargo_mark (tinted by the instance colour: box doors and stripe, tank
+# shell, bin rim) and cargo_ore.
+static func _cargo_mesh(shape: String) -> ArrayMesh:
+    if _cargo_meshes.has(shape):
+        return _cargo_meshes[shape]
+    var b := MeshBuilder.new()
+    match shape:
+        "tank":
+            # An ISO tank: a cylinder in a square frame.
+            for c in [Vector2(0.47, 0.47), Vector2(-0.47, 0.47), Vector2(-0.47, -0.47), Vector2(0.47, -0.47)]:
+                b.box("cargo_body", Vector3(0.06, 0.06, 1.0), _at(c.x, c.y, 0.0))
+            for z in [-0.47, 0.47]:
+                b.box("cargo_body", Vector3(1.0, 0.06, 0.06), _at(0.0, 0.47, z))
+                b.box("cargo_body", Vector3(1.0, 0.06, 0.06), _at(0.0, -0.47, z))
+                b.box("cargo_body", Vector3(0.06, 1.0, 0.06), _at(0.47, 0.0, z))
+                b.box("cargo_body", Vector3(0.06, 1.0, 0.06), _at(-0.47, 0.0, z))
+            b.vessel("cargo_mark", -0.46, 0.46, 0.42, 0.12, 14)
+        "bin":
+            # An open-top ore bin with a heap.
+            b.box("cargo_body", Vector3(1.0, 0.06, 1.0), _at(0.0, -0.47, 0.0))
+            b.box("cargo_body", Vector3(0.06, 0.8, 1.0), _at(0.47, -0.07, 0.0))
+            b.box("cargo_body", Vector3(0.06, 0.8, 1.0), _at(-0.47, -0.07, 0.0))
+            b.box("cargo_body", Vector3(0.88, 0.8, 0.06), _at(0.0, -0.07, 0.47))
+            b.box("cargo_body", Vector3(0.88, 0.8, 0.06), _at(0.0, -0.07, -0.47))
+            b.box("cargo_mark", Vector3(1.02, 0.08, 1.02), _at(0.0, 0.33, 0.0))
+            b.box("cargo_ore", Vector3(0.88, 0.62, 0.88), _at(0.0, -0.13, 0.0))
+            b.box("cargo_ore", Vector3(0.62, 0.2, 0.66), _at(0.0, 0.25, 0.0))
+            b.box("cargo_ore", Vector3(0.3, 0.12, 0.36), _at(0.05, 0.38, -0.05))
+        _:
+            # A box container: ribbed sides, coloured end doors and a stripe.
+            b.box("cargo_body", Vector3(0.96, 0.96, 1.0))
+            for k in range(7):
+                var z := lerpf(-0.42, 0.42, float(k) / 6.0)
+                b.box("cargo_body", Vector3(1.0, 0.9, 0.025), _at(0.0, 0.0, z))
+            b.box("cargo_mark", Vector3(0.86, 0.86, 1.01))
+            b.box("cargo_mark", Vector3(1.005, 0.12, 0.9), _at(0.0, 0.26, 0.0))
+    var built := b.commit()
+    var mesh: ArrayMesh = built["mesh"]
+    var slots: Array = built["slots"]
+    for i in range(slots.size()):
+        mesh.surface_set_material(i, Materials.shared(String(slots[i])))
+    _cargo_meshes[shape] = mesh
+    return mesh
+
+# The commodity colour as paint on the container marks.
+static func _cargo_paint(commodity: String) -> Color:
+    var c := UiTheme.commodity_color(commodity)
+    return Color.from_hsv(c.h, minf(c.s, 0.6), minf(c.v, 0.75))
+
+# Cargo containers in the hold, one colour per lot, the same share of the slots as of the
+# capacity. Rows fill from the bow, and each row from the floor and the middle out, so a
+# part load is a solid block. Hidden behind a cold-hold liner.
 static func _update_cargo(container: Node3D, data: Dictionary) -> void:
     var hold: Dictionary = container.get_meta("hold", {})
     var lots: Array = data.get("cargo", [])
@@ -493,53 +593,65 @@ static func _update_cargo(container: Node3D, data: Dictionary) -> void:
     if String(container.get_meta("cargo_sig", "")) == sig and container.has_node("cargo") == (sig != ""):
         return
     container.set_meta("cargo_sig", sig)
-    var node := container.get_node_or_null("cargo") as MultiMeshInstance3D
+    var node := container.get_node_or_null("cargo") as Node3D
+    if node != null:
+        node.queue_free()
+        container.remove_child(node)
     if hold.is_empty() or bool(hold.get("enclosed", false)) or sig == "":
-        if node != null:
-            node.queue_free()
-            container.remove_child(node)
         return
-    if node == null:
-        node = MultiMeshInstance3D.new()
-        node.name = "cargo"
-        node.layers = Materials.MODEL_LAYERS
-        node.material_override = Materials.shared("cargo")
-        container.add_child(node)
-    if _cargo_mesh == null:
-        _cargo_mesh = BoxMesh.new()
-        _cargo_mesh.size = Vector3.ONE
     var z0 := float(hold["z0"])
     var z1 := float(hold["z1"])
-    var width := float(hold["width"])
-    # A 2 x 2 grid of containers across the hold, as many as fit along it.
-    var cell := width * 0.42
-    var box_len := clampf(width * 0.6, 2.0, 6.0)
-    var along := maxi(1, int((z1 - z0) / (box_len * 1.05)))
-    var slots := along * 4
-    var colors: Array[Color] = []
+    var grid := _hold_grid(z0, z1, float(hold["width"]))
+    var across: int = grid["across"]
+    var cell: float = grid["cell"]
+    var step: float = grid["step"]
+    var half: float = float(grid["inner"]) * 0.5
+    # Slot order within a row: floor first, then from the middle out.
+    var row_order: Array[Vector2i] = []
+    for j in range(across):
+        for i in range(across):
+            row_order.append(Vector2i(i, j))
+    var mid := float(across - 1) * 0.5
+    row_order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+        if a.y != b.y:
+            return a.y < b.y
+        return absf(float(a.x) - mid) < absf(float(b.x) - mid))
+    var slots := row_order.size() * int(grid["along"])
+    var picks: Array = []  # [shape, colour] per slot, in fill order
     for lot in lots:
-        var count := int(round(float(lot.get("units", 0.0)) / capacity * float(slots)))
-        if float(lot.get("units", 0.0)) > 0.0:
-            count = maxi(count, 1)
-        var color := UiTheme.commodity_color(String(lot.get("commodity_id", "")))
-        # The UI's pastel as paint: less saturated and darker.
-        var grey := color.get_luminance()
-        color = color.lerp(Color(grey, grey, grey), 0.3) * 0.5
-        for i in range(count):
-            if colors.size() < slots:
-                colors.append(color)
-    var mm := MultiMesh.new()
-    mm.transform_format = MultiMesh.TRANSFORM_3D
-    mm.use_colors = true
-    mm.mesh = _cargo_mesh
-    mm.instance_count = colors.size()
-    var step := (z1 - z0) / float(along)
-    for i in range(colors.size()):
-        var k := i / 4
-        var q := i % 4
-        var x := (-0.5 if q % 2 == 0 else 0.5) * width * 0.46
-        var y := (-0.5 if q < 2 else 0.5) * width * 0.46
-        var xf := Transform3D(Basis.from_scale(Vector3(cell, cell, step * 0.92)), Vector3(x, y, z0 + step * (float(k) + 0.5)))
-        mm.set_instance_transform(i, xf)
-        mm.set_instance_color(i, colors[i])
-    node.multimesh = mm
+        var units := float(lot.get("units", 0.0))
+        if units <= 0.0:
+            continue
+        var count := maxi(1, int(round(units / capacity * float(slots))))
+        var id := String(lot.get("commodity_id", ""))
+        for k in range(count):
+            if picks.size() < slots:
+                picks.append([String(CARGO_SHAPES.get(id, "box")), _cargo_paint(id)])
+    node = Node3D.new()
+    node.name = "cargo"
+    container.add_child(node)
+    var by_shape := {}
+    for n in range(picks.size()):
+        var slot: Vector2i = row_order[n % row_order.size()]
+        var row := n / row_order.size()
+        var size := Vector3(cell * 0.92, cell * 0.92, step * 0.94)
+        var pos := Vector3(-half + cell * (float(slot.x) + 0.5), -half + cell * (float(slot.y) + 0.5),
+            z0 + step * (float(row) + 0.5))
+        var shape: String = picks[n][0]
+        if not by_shape.has(shape):
+            by_shape[shape] = []
+        by_shape[shape].append([Transform3D(Basis.from_scale(size), pos), picks[n][1]])
+    for shape in by_shape.keys():
+        var items: Array = by_shape[shape]
+        var mm := MultiMesh.new()
+        mm.transform_format = MultiMesh.TRANSFORM_3D
+        mm.use_colors = true
+        mm.mesh = _cargo_mesh(shape)
+        mm.instance_count = items.size()
+        for i in range(items.size()):
+            mm.set_instance_transform(i, items[i][0])
+            mm.set_instance_color(i, items[i][1])
+        var instance := MultiMeshInstance3D.new()
+        instance.multimesh = mm
+        instance.layers = Materials.MODEL_LAYERS
+        node.add_child(instance)

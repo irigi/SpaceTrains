@@ -178,6 +178,7 @@ var market_panel: PanelContainer
 var help_panel: PanelContainer
 var stats_panel: PanelContainer
 var status_label: Label
+var thermal_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 var price_history: Array[Dictionary] = []
 const PRICE_HISTORY_MAX_SAMPLES := 600
@@ -299,6 +300,19 @@ func _setup_ui() -> void:
     status_label.add_theme_color_override("font_color", UiTheme.WARN)
     ui_root.add_child(status_label)
 
+    thermal_label = Label.new()
+    thermal_label.name = "ThermalView"
+    thermal_label.text = "Thermal view (T)"
+    thermal_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+    thermal_label.offset_top = -64.0
+    thermal_label.offset_bottom = -40.0
+    thermal_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    thermal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    thermal_label.add_theme_color_override("font_color", UiTheme.WARN)
+    thermal_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    thermal_label.visible = false
+    ui_root.add_child(thermal_label)
+
 func _set_status(text: String) -> void:
     if status_label != null:
         status_label.text = text
@@ -395,6 +409,9 @@ func _unhandled_input(event: InputEvent) -> void:
             market_panel.toggle()
             if market_panel.visible:
                 market_panel.update_market(bridge_state)
+        elif event.keycode == KEY_T:
+            ModelMaterialsScript.set_thermal_view(not ModelMaterialsScript.thermal_view)
+            thermal_label.visible = ModelMaterialsScript.thermal_view
         elif event.keycode == KEY_H:
             help_panel.toggle()
         elif event.keycode == KEY_S:

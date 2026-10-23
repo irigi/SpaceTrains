@@ -43,14 +43,24 @@
     material slot, so a ship is a few draw calls):
     - coarse (mid zoom, ~1,000 triangles);
     - detailed (on-screen radius above 150 px, back below 110 px, ~8,500 triangles): truss lattice, domed habitat
-      with windows, docking port, antenna and RCS, open hold frame, tank clusters, the tier 2 modules, shadow
+      with windows, docking port, antenna and RCS, open cargo bay, tank clusters, the tier 2 modules, shadow
       shield, reactor and bell nozzle, or plasma drive, field coils and radiator wings on booms.
   - Detailed meshes take ~25 ms each, so they are built on worker threads; the coarse model stays until the
     detailed one is ready.
   - Live state per ship:
-    - radiators in false colour (`ThermalPalette.gd`) while thrusting, dark where worn;
+    - radiators: dark grey panels with a silver root manifold; while thrusting the heat pipes and manifold glow a
+      faint dull orange (594 K panels would not glow to the eye, so this is only a hint); worn tips are dark;
+    - the thermal view (T, label at the bottom) shows the radiators in false colour (`ThermalPalette.gd`, as in
+      the schematic) at their temperature while running, the scale's cold end otherwise;
     - the nozzle glows and a plume shows (close up) while the engine runs;
-    - cargo containers in the hold, in the commodity colours;
+    - cargo (close up): standard containers on a grid of about 2.4 m cells, up to 4 x 4 across, in rows of about
+      6 m. Rows fill from the bow, each from the floor and the middle out, so a part load is a solid block. The
+      share of slots per lot is its share of the capacity. Shape by commodity: ISO tanks for water, oxygen, fuel,
+      deuterium and helium-3, ore bins for metals and platinum, ribbed boxes for the rest. Light grey, with the
+      commodity colour on the doors, stripe, tank shell or bin rim. A cold-hold liner hides them;
+    - the empty cargo bay still reads as one: a floor plate with ribs and a latch pair per slot, low sills and
+      corner gussets at the ends (no solid bulkheads, which hid the cargo when looking along the ship); the
+      truss stops at the bay;
     - the faction band, red when stranded.
   - Far out, the billboard engine glow marks a running engine (`EntityVisuals.update_engine_glow`: thermal ships
     for `engine_burn_s` after departure and before arrival, plasma ships the whole transit, sized by jet power).
@@ -85,7 +95,7 @@
   on the left, sizes in metres. The habitat is a 4.5 m cylinder of its pressurized volume, with its rooms and systems
   as bands by mass. The hold is a box of its volume, the tanks a cylinder of the propellant volume. Thermal ships
   get a shadow shield, reactor and nozzle; plasma ships a drive, magnetic nozzle and two radiator wings (2.5:1) of
-  the panel area.
+  the panel area, with their roots clear of the widest part beside them (a wide hold or tank cluster).
   - Live state: tank fill (LH2 frost white, water blue), hold lots by commodity colour, crew dots, and the plume
     while the engine burns or thrusts.
   - Temperatures in false colour (inferno scale, `ThermalPalette.gd`, 200-6000 K, with a legend and a tick at
@@ -111,16 +121,18 @@
     - Colonies & Earth: accounts against credit lines, wage p10/p50/p90, hiring up and down, Earth's flows;
     - Fleet: by faction and class, the best and worst ships (click to select one).
   - The station inspector shows its profit before the faction, since the start and over the last year.
-- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, F focus, Space pause, `,` `.` timewarp, F11 map debug.
+- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, F focus, T thermal view, Space pause, `,` `.`
+  timewarp, F11 map debug.
 - **Dev:** `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
   `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
-  the map alone; it shoots each flying hull at mid zoom and close up, and station close-ups; `--shot-fps` prints the
-  frame rate at each stop); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
+  the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
+  pressing T), and station close-ups; `--shot-fps` prints the frame rate at each stop); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
   - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>
-    [--only=id,prefix*] [--stations=<snapshot.json>]`. It renders every base class and one design per module,
-    coarse and detailed, from several views, with the engine running and cargo aboard, plus every station with
-    docked ships, and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
+    [--only=id,prefix*] [--stations=<snapshot.json>] [--thermal]`. It renders every base class and one design per
+    module, coarse and detailed, from several views (plus the cargo bay close and from the side), with the engine
+    running and cargo aboard; plasma ships also in the thermal view; the bulk carriers and the light freighter
+    half-full and empty; every station with docked ships; and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
 
 ## Data Flow
 

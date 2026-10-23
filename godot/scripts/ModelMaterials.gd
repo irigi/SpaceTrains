@@ -19,6 +19,8 @@ const MODEL_LAYERS := 3
 const FILL_ENERGY := 0.25
 
 static var _shared := {}
+# Thermal view (T): radiators in false colour (ThermalPalette) instead of their paint.
+static var thermal_view := false
 static var _radiator_shader: Shader
 static var _plume_shader: Shader
 
@@ -59,9 +61,13 @@ static func shared(slot: String) -> Material:
             m.emission_enabled = true
             m.emission = Color(1.0, 0.86, 0.62)
             m.emission_energy_multiplier = 0.6
-        "cargo":
-            m = _standard(Color.WHITE, 0.75)
+        "cargo_body":  # container walls and frames
+            m = _standard(Color(0.42, 0.42, 0.41), 0.8)
+        "cargo_mark":  # doors, stripes and tank shells, tinted per container (MultiMesh colour)
+            m = _standard(Color.WHITE, 0.7)
             m.vertex_color_use_as_albedo = true
+        "cargo_ore":
+            m = _standard(Color(0.24, 0.22, 0.2), 0.95)
         _:
             m = _standard(Color(0.6, 0.6, 0.6), 0.7)
     _shared[slot] = m
@@ -114,20 +120,23 @@ static func set_band(material: Material, color: Color) -> void:
     if material is StandardMaterial3D:
         (material as StandardMaterial3D).albedo_color = faction_paint(color)
 
-# Radiator panels: dark when the drive is off; in false colour (ThermalPalette) at the
-# radiator temperature while it runs. lost: the share of each panel lost to meteoroid wear
-# (tier 2), dark at the tips.
-static func set_radiator(material: Material, hot: bool, temperature_k: float, lost: float) -> void:
+# Radiator panels: grey with a silver root manifold and heat-pipe ribs. While the drive
+# runs, the pipes and manifold glow a faint dull orange (594 K panels would not glow to
+# the eye; this is a hint, kept below the bloom threshold). In the thermal view the panels
+# show the radiator temperature in false colour while running and the scale's cold end
+# otherwise. lost: the share of each panel lost to meteoroid wear (tier 2), dark at the tips.
+static func set_radiator(material: Material, running: bool, temperature_k: float, lost: float) -> void:
     var m := material as ShaderMaterial
     if m == null:
         return
-    if hot and temperature_k > 0.0:
-        m.set_shader_parameter("hot_color", Thermal.color(temperature_k))
-        m.set_shader_parameter("hot_energy", 0.3)
-    else:
-        m.set_shader_parameter("hot_color", Color.BLACK)
-        m.set_shader_parameter("hot_energy", 0.0)
+    var hot := running and temperature_k > 0.0
+    m.set_shader_parameter("running", 1.0 if hot else 0.0)
+    m.set_shader_parameter("thermal", 1.0 if thermal_view else 0.0)
+    m.set_shader_parameter("thermal_color", Thermal.color(temperature_k) if hot else Thermal.at(0.15))
     m.set_shader_parameter("lost_fraction", clampf(lost, 0.0, 1.0))
+
+static func set_thermal_view(on: bool) -> void:
+    thermal_view = on
 
 static func set_nozzle(material: Material, color: Color, energy: float) -> void:
     var m := material as StandardMaterial3D
@@ -144,31 +153,40 @@ static func _radiator() -> Shader:
     _radiator_shader.code = """
 shader_type spatial;
 render_mode cull_disabled;
-uniform vec3 base_color : source_color = vec3(0.13, 0.14, 0.16);
-uniform vec3 hot_color : source_color = vec3(0.0);
-uniform float hot_energy = 0.0;
+uniform vec3 base_color : source_color = vec3(0.12, 0.125, 0.13);
+uniform vec3 pipe_glow : source_color = vec3(1.0, 0.35, 0.1);
+uniform vec3 thermal_color : source_color = vec3(0.0);
+uniform float running = 0.0;
+uniform float thermal = 0.0;
 uniform float lost_fraction = 0.0;
 uniform float panels = 6.0;
-uniform float pipes = 18.0;
+uniform float pipes = 10.0;
 
-float grid_line(float x, float count) {
+float grid_line(float x, float count, float width_px) {
     float f = fract(x * count);
     float d = min(f, 1.0 - f) / count;
     float w = max(fwidth(x), 1e-5);
-    return 1.0 - smoothstep(0.5 * w, 1.5 * w, d);
+    return 1.0 - smoothstep(width_px * 0.5 * w, width_px * 1.5 * w, d);
 }
 
 void fragment() {
     float lost = step(1.0 - lost_fraction, UV.x) * step(0.001, lost_fraction);
-    float seam = grid_line(UV.x, panels);
-    float pipe = grid_line(UV.y, pipes) * 0.5;
-    vec3 albedo = mix(base_color, hot_color * 0.2, step(0.001, hot_energy));
-    albedo = mix(albedo, vec3(0.06, 0.06, 0.07), max(seam, pipe) * 0.7);
-    albedo = mix(albedo, vec3(0.04, 0.04, 0.05), lost);
-    ALBEDO = albedo;
+    float seam = grid_line(UV.x, panels, 1.0);
+    float pipe = grid_line(UV.y, pipes, 1.0);
+    float manifold = 1.0 - smoothstep(0.03, 0.045, UV.x);
+    vec3 albedo = base_color;
+    albedo = mix(albedo, vec3(0.06, 0.06, 0.065), seam * 0.8);
+    albedo = mix(albedo, vec3(0.2, 0.2, 0.21), pipe * 0.5);
+    albedo = mix(albedo, vec3(0.45, 0.47, 0.5), manifold);
+    vec3 emission = pipe_glow * running * (0.1 * pipe + 0.35 * manifold) * (1.0 - lost);
+    if (thermal > 0.5) {
+        albedo = mix(thermal_color * 0.2, vec3(0.06, 0.06, 0.07), seam * 0.7);
+        emission = thermal_color * 0.3 * running * (1.0 - 0.5 * seam);
+    }
+    ALBEDO = mix(albedo, vec3(0.04, 0.04, 0.05), lost);
     ROUGHNESS = 0.55;
     METALLIC = 0.2;
-    EMISSION = hot_color * hot_energy * (1.0 - lost) * (1.0 - 0.5 * seam);
+    EMISSION = emission * (1.0 - lost);
 }
 """
     return _radiator_shader

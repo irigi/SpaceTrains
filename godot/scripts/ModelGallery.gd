@@ -5,7 +5,9 @@
 # Run (needs a designs file, e.g. from `spacetrains_headless --snapshot-json <file>`, which
 # writes <file>.designs next to it):
 #   godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<file.designs> --out=<dir>
-# Options: --only=<id,id,prefix*> (just these designs), --stations=<snapshot.json>.
+# Options: --only=<id,id,prefix*> (just these designs), --stations=<snapshot.json>,
+# --thermal (everything in the thermal view). Plasma ships also get a thermal-view shot,
+# and the bulk carriers and the light freighter half-full and empty shots.
 extends SceneTree
 
 const ShipModels := preload("res://scripts/ShipModels.gd")
@@ -86,6 +88,13 @@ func _frame(radius: float, view: String, length := 0.0) -> void:
     var distance := radius / sin(deg_to_rad(_camera.fov * 0.5)) * 1.05
     _camera.transform = Transform3D(Basis.looking_at(-direction, up), direction * distance)
 
+# Close on the cargo hold, from above one side.
+func _frame_hold(hold: Dictionary, direction := Vector3(0.8, 0.6, 0.35)) -> void:
+    direction = direction.normalized()
+    var target := Vector3(0.0, 0.0, (float(hold["z0"]) + float(hold["z1"])) * 0.5)
+    var size := maxf(float(hold["width"]), float(hold["z1"]) - float(hold["z0"]))
+    _camera.transform = Transform3D(Basis.looking_at(-direction, Vector3.UP), target + direction * size * 2.2)
+
 func _shoot(path: String) -> Image:
     await RenderingServer.frame_post_draw
     await RenderingServer.frame_post_draw
@@ -93,20 +102,22 @@ func _shoot(path: String) -> Image:
     image.save_png(path)
     return image
 
-func _ship_data(design: Dictionary) -> Dictionary:
+# fill: the share of the hold in use (metals, water and electronics at 35/25/15 of 75%).
+func _ship_data(design: Dictionary, fill := 1.0) -> Dictionary:
     var temperature := 0.0
     for c in design.get("components", []):
         if String(c.get("kind", "")) == "radiator":
             temperature = float(c.get("temperature_k", 0.0))
     var capacity := float(design.get("cargo_capacity_units", 100.0))
     return {"radiator_temperature_k": temperature, "radiator_condition": 0.8, "cargo_capacity_units": capacity,
-        "cargo": [{"commodity_id": "metals", "units": capacity * 0.35}, {"commodity_id": "food", "units": capacity * 0.25},
-            {"commodity_id": "electronics", "units": capacity * 0.15}]}
+        "cargo": [{"commodity_id": "metals", "units": capacity * 0.35 * fill}, {"commodity_id": "water", "units": capacity * 0.25 * fill},
+            {"commodity_id": "electronics", "units": capacity * 0.15 * fill}]}
 
 func _run() -> void:
     var out := _arg("out", "/tmp/gallery")
     DirAccess.make_dir_recursive_absolute(out)
     _setup()
+    Materials.set_thermal_view(_arg("thermal", "") != "" or OS.get_cmdline_user_args().has("--thermal"))
     var json := JSON.new()
     if json.parse(FileAccess.get_file_as_string(_arg("designs"))) != OK:
         print("[Gallery] cannot read --designs")
@@ -153,6 +164,24 @@ func _run() -> void:
                 await _shoot(out.path_join(name + "_stern.png"))
                 _frame(radius, "bow", float(container.get_meta("length_m", 40.0)))
                 await _shoot(out.path_join(name + "_bow.png"))
+                var hold: Dictionary = container.get_meta("hold", {})
+                if not hold.is_empty():
+                    _frame_hold(hold)
+                    await _shoot(out.path_join(name + "_hold.png"))
+                    _frame_hold(hold, Vector3(1.0, 0.05, 0.02))
+                    await _shoot(out.path_join(name + "_hold_side.png"))
+                if key in ["bulk_tanker", "plasma_bulk_tanker", "light_freighter"] and not hold.is_empty():
+                    for fill in [0.5, 0.0]:
+                        ShipModels.update_live(container, _ship_data(design, fill), true, plasma, 18.0 if not plasma else 26.0)
+                        _frame_hold(hold)
+                        await _shoot(out.path_join("%s_hold%02d.png" % [name, int(fill * 100.0)]))
+                    ShipModels.update_live(container, data, true, plasma, 18.0 if not plasma else 26.0)
+                if plasma and not Materials.thermal_view:
+                    Materials.set_thermal_view(true)
+                    ShipModels.update_live(container, data, true, plasma, 26.0)
+                    _frame(radius, "three_quarter")
+                    await _shoot(out.path_join(name + "_thermal.png"))
+                    Materials.set_thermal_view(false)
             container.queue_free()
             await process_frame
         print("[Gallery] %s: radius %.1f m" % [key, float(ShipModels.model_info(key, design, ShipModels.DETAIL)["radius_m"])])

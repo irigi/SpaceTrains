@@ -119,8 +119,19 @@ static func layout(design: Dictionary) -> Dictionary:
         var span := sqrt(area / 2.0 / 2.5)
         var wing_length := 2.5 * span
         var middle := ship_end * 0.5
+        # The wing roots clear the widest part beside them (a wide hold or a tank cluster,
+        # which the 3D model draws about 25% wider than its rect), so they never cut through it.
+        var offset := WING_OFFSET_M
+        for shape in shapes:
+            var r: Rect2 = shape["rect"]
+            if r.end.x < middle - wing_length * 0.5 or r.position.x > middle + wing_length * 0.5:
+                continue
+            var half := maxf(absf(r.position.y), absf(r.end.y))
+            if String(shape["kind"]) == "tank":
+                half *= 1.25
+            offset = maxf(offset, half + 0.5)
         for side in [-1.0, 1.0]:
-            var y: float = WING_OFFSET_M if side > 0.0 else -WING_OFFSET_M - span
+            var y: float = offset if side > 0.0 else -offset - span
             var wing := {"key": "radiators", "kind": "wing", "rect": Rect2(middle - wing_length * 0.5, y, wing_length, span),
                 "comp": components["radiators"]}
             shapes.push_front(wing)
