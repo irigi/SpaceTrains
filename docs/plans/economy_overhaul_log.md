@@ -239,3 +239,14 @@ The user's question of 2026-10-22: scores before → after the overhaul (0-5).
 | 12 | Forecasts and risk | 3 | 3 | Unchanged |
 | 13 | Capital is costly and lasts | 3 | 3.5 | Yards in space build hulls from goods; factions borrow from Earth at interest |
 | 14 | Few hard limits | 2 | 2.5 | Grants taper, jobs stop when unfilled; the fleet cap and price clamps remain |
+
+## Verification (2026-10-23)
+
+- **Save/load:** a game saved at day 300, loaded and run to day 600 saves byte-identical to one run straight
+  to day 600 (476 KB, every new account, wage, job count, travel budget and colony population included).
+- **Tests:** the five ctest suites pass. The economy tests add: Earth's ask and bid at a gateway, Earth's
+  stock outside storage, the colony rates, a Monte Carlo check of the settlers' gain distribution, and a day's
+  wages, goods and incomes.
+- **In the game** (shot tour): the station inspector shows residents, wage, jobs, incomes and what the
+  surface sells and buys. The economy panel shows residents' savings and the background economies'
+  accounts and people.
