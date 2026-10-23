@@ -210,9 +210,8 @@ int main() {
         };
         const auto& ceres = station_by_id("ceres_depot");
         const auto& ganymede = station_by_id("ganymede_depot");
-        require(economy.get_station_net_rates(ceres).contains("platinum")
-                && economy.get_station_net_rates(ceres).at("platinum") > 0.0,
-            "Ceres must mine platinum");
+        // The belt miners mine platinum and sell it at Ceres (colonies, below); Ceres itself does not.
+        require(!economy.get_station_net_rates(ceres).contains("platinum"), "Ceres is a port: its colony mines the platinum");
         require(!economy.get_station_net_rates(ganymede).contains("platinum"),
             "a station recipe must not reach other stations of the same profile");
         const auto& leo = station_by_id("earth_orbit");
@@ -540,6 +539,27 @@ int main() {
         const auto& mars = station("mars_transfer");
         require(overhaul.surface_market(mars, "fuel") != nullptr && overhaul.get_station_net_rates(mars).at("fuel") > 0.0,
             "the Mars surface sells propellant at Mars Transfer Port");
+        // Colonies: the surface mines, the gateway trades (docs/modules/economy.md, "Colonies").
+        const auto& ceres_full = *std::find_if(full.stations.begin(), full.stations.end(), [](const auto& s) { return s.id == "ceres_depot"; });
+        const auto& luna_full = *std::find_if(full.stations.begin(), full.stations.end(), [](const auto& s) { return s.id == "luna_base"; });
+        const auto* belt_platinum = overhaul.surface_market(ceres_full, "platinum");
+        require(belt_platinum != nullptr && belt_platinum->ask_cr > 0.6 * commodity("platinum").base_price
+                && belt_platinum->ask_cr < 0.8 * commodity("platinum").base_price,
+            "the belt sells platinum at Ceres at about 70% of Earth's price");
+        require(!overhaul.makes_itself(ceres_full, "platinum") && !overhaul.makes_itself(luna_full, "helium_3"),
+            "the gateways no longer mine");
+        require_near(overhaul.reference_price(ceres_full, "platinum"), belt_platinum->ask_cr * full.households.colony_centre_markup,
+            1e-9, "a colony good is centred just above the colony's ask");
+        // A colony slows its imports as it runs down, essentials last; it never stops dead above its line.
+        using Sim = spacetrains::simulation::Simulation;
+        require_near(Sim::colony_affordability(-100000.0, 100000.0, 50000.0), 0.0, 1e-12, "nothing at the credit line");
+        require_near(Sim::colony_affordability(60000.0, 100000.0, 50000.0), 1.0, 1e-12, "in full above the buffer");
+        require_near(Sim::colony_affordability(-25000.0, 100000.0, 50000.0), 0.5, 1e-12, "half way between line and buffer");
+        require(Sim::colony_affordability(0.0, 100000.0, 0.0) == 1.0 && Sim::colony_affordability(-100001.0, 100000.0, 0.0) == 0.0,
+            "without a buffer, the old hard stop");
+        require(Sim::colony_import_share(0.5, true) == 1.0 && Sim::colony_import_share(0.5, false) == 0.0
+                && Sim::colony_import_share(0.75, false) == 0.5 && Sim::colony_import_share(1.0, false) == 1.0,
+            "food and medicine keep coming while machinery and electronics are cut");
 
         auto sim = spacetrains::simulation::Simulation::from_data_root("data");
         sim.set_timewarp(86400.0);

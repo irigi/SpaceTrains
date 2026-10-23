@@ -117,6 +117,20 @@ void Simulation::pay_traveller_fare(domain::StationState& origin, const domain::
     }
 }
 
+double Simulation::colony_sales_factor(const domain::StationState& station, const std::string& commodity_id) const {
+    // A boom (a rich seam) or an outage at the gateway changes what its colony mines (events.csv).
+    double factor = 1.0;
+    for (const auto& active : station.events) {
+        const auto event = std::find_if(universe_.events.begin(), universe_.events.end(),
+            [&](const auto& e) { return e.id == active.event_id; });
+        if (event != universe_.events.end() && event->commodity_id == commodity_id
+            && (event->kind == domain::EventKind::Boom || event->kind == domain::EventKind::Outage)) {
+            factor *= event->magnitude;
+        }
+    }
+    return factor;
+}
+
 double Simulation::household_travel_budget(const std::string& home_id, double window_days) const {
     // What a station's residents may spend on trips over the next window_days (households on).
     const auto& home = get_station_state(home_id);
@@ -203,12 +217,79 @@ void Simulation::step_households(double dt_s) {
     }
 }
 
+double Simulation::colony_people_factor(const std::string& economy_id) const {
+    if (universe_.households.colony_people_scaling <= 0.0) {
+        return 1.0;
+    }
+    for (const auto& economy : universe_.background_economies) {
+        if (economy.id == economy_id && economy.population > 0.0) {
+            const auto people = background_population_.find(economy_id);
+            return people == background_population_.end() ? 1.0 : people->second / economy.population;
+        }
+    }
+    return 1.0;
+}
+
+double Simulation::colony_wage_median(const domain::BackgroundEconomyDefinition& economy) const {
+    const auto* state = colony_state(economy.id);
+    return state != nullptr && universe_.households.colony_wage_follows_income > 0.0 && state->wage_median > 0.0
+        ? state->wage_median : economy.wage_median_cr_per_day;
+}
+
+double Simulation::colony_affordability(double account, double credit_line, double buffer) {
+    if (buffer <= 0.0) {
+        return account > -credit_line ? 1.0 : 0.0;   // the old hard stop at the line
+    }
+    return std::clamp((account + credit_line) / (buffer + credit_line), 0.0, 1.0);
+}
+
+double Simulation::colony_import_share(double affordability, bool essential) {
+    // A colony short of money keeps buying food and medicine, and drops machinery and electronics first.
+    return essential ? std::min(1.0, 2.0 * affordability) : std::max(0.0, 2.0 * affordability - 1.0);
+}
+
+double Simulation::colony_growth_factor(const std::string& economy_id) const {
+    const auto* state = colony_state(economy_id);
+    if (state == nullptr || universe_.households.colony_growth_follows_satisfaction <= 0.0) {
+        return 1.0;
+    }
+    return 2.0 * state->satisfaction - 1.0;
+}
+
+double Simulation::colony_import_value_per_day(const std::string& economy_id) const {
+    // A colony's base imports (people-scaled) at its gateways' bids.
+    double value = 0.0;
+    for (const auto& market : universe_.surface_markets) {
+        if (market.economy_id == economy_id && market.buy_units_per_day > 0.0 && !market.station_id.empty()) {
+            value += market.buy_units_per_day * colony_people_factor(economy_id)
+                * economy_.surface_bid(get_station_definition(market.station_id), market.commodity_id);
+        }
+    }
+    return value;
+}
+
 void Simulation::step_surface_markets(double dt_s) {
     if (universe_.surface_markets.empty()) {
         return;
     }
     const double dt_days = dt_s / 86400.0;
     const double depth = economy_.surface_depth_units();
+    // Colonies (docs/modules/economy.md, "Colonies"): what each can afford this tick; what it buys and sells.
+    const auto& households = universe_.households;
+    const bool colony_budgets = households.colony_import_buffer_days > 0.0;
+    struct ColonyTick {
+        double base {0.0};     // its base imports' value this tick
+        double bought {0.0};
+        double sold {0.0};
+    };
+    std::map<std::string, ColonyTick> colony_tick;
+    if (colony_budgets) {
+        for (auto& [economy_id, state] : colony_state_) {
+            state.base_imports_per_day = colony_import_value_per_day(economy_id);
+            state.throttle = colony_affordability(economy_balance(economy_id), economy_credit_line(economy_id),
+                households.colony_import_buffer_days * state.base_imports_per_day);
+        }
+    }
     for (auto& station : stations_) {
         const auto& definition = get_station_definition(station.station_id);
         const auto& markets = economy_.surface_markets_at(station.station_id);
@@ -242,14 +323,19 @@ void Simulation::step_surface_markets(double dt_s) {
                         ? 1.0
                         : std::clamp((price / market->ask_cr - 1.0) / (SURFACE_SUPPLY_FULL_PRICE - 1.0), 0.0, 1.0);
                     const bool room = capacity <= 0.0 || economy_.storage_used_units(definition, station.inventory) < 0.85 * capacity;
-                    units = room ? market->sell_units_per_day * eagerness * dt_days : 0.0;
+                    units = room ? market->sell_units_per_day * colony_people_factor(market->economy_id)
+                            * colony_sales_factor(station, commodity_id) * eagerness * dt_days
+                        : 0.0;
                 }
                 if (units > 0.0) {
                     const double paid = units * market->ask_cr;
                     station.credits -= paid;
                     account += paid;
                     station.ledger.surface_bought += paid;
-                    journal_.record(account_station(station), account_economy(market->economy_id), MoneyCategory::SurfaceTrade, paid);
+                    if (market->sell_units_per_day > 0.0) {
+                        colony_tick[market->economy_id].sold += paid;
+                    }
+                    journal_.record(account_station(station), account_economy(market->economy_id), MoneyCategory::SurfaceSales, paid);
                     // Residents pay what the station paid for it (its import cost).
                     const auto& rates = economy_.get_station_net_rates(definition);
                     const auto rate = rates.find(commodity_id);
@@ -262,7 +348,19 @@ void Simulation::step_surface_markets(double dt_s) {
             }
             // The surface buys.
             const double bid = economy_.surface_bid(definition, commodity_id);
-            if (bid > 0.0 && can_pay && stock > 0.0) {
+            // A colony's imports: its people's base rate, scaled by what it can afford (essentials first).
+            const auto colony = colony_budgets && market->buy_units_per_day > 0.0 ? colony_state_.find(market->economy_id)
+                                                                                  : colony_state_.end();
+            const bool budgeted = colony != colony_state_.end();
+            double import_rate = market->buy_units_per_day;
+            if (budgeted && bid > 0.0) {
+                const double base_rate = import_rate * colony_people_factor(market->economy_id);
+                const bool essential = std::find(households.colony_essentials.begin(), households.colony_essentials.end(),
+                    commodity_id) != households.colony_essentials.end();
+                import_rate = base_rate * colony_import_share(colony->second.throttle, essential);
+                colony_tick[market->economy_id].base += base_rate * dt_days * bid;
+            }
+            if (bid > 0.0 && (budgeted || can_pay) && stock > 0.0) {
                 double units = 0.0;
                 if (market->ask_cr <= 0.0 && market->bid_share <= 0.0 && market->buy_units_per_day <= 0.0) {
                     units = stock;   // an export market takes it all
@@ -277,18 +375,38 @@ void Simulation::step_surface_markets(double dt_s) {
                     const double reserve = std::max(own_use * SURFACE_RESERVE_DAYS,
                         economy_.surface_supplied(definition, commodity_id) ? depth : 0.0);
                     units = std::clamp(stock - reserve, 0.0,
-                        market->buy_units_per_day > 0.0 ? market->buy_units_per_day * dt_days : stock);
+                        market->buy_units_per_day > 0.0 ? import_rate * dt_days : stock);
                 }
                 if (units > 0.0) {
                     const double paid = units * bid;
                     account -= paid;
                     station.credits += paid;
                     station.ledger.surface_sold += paid;
-                    journal_.record(account_economy(market->economy_id), account_station(station), MoneyCategory::SurfaceTrade, paid);
+                    if (budgeted) {
+                        colony_tick[market->economy_id].bought += paid;
+                    }
+                    journal_.record(account_economy(market->economy_id), account_station(station), MoneyCategory::SurfacePurchases, paid);
                     station.market_sold_units[commodity_id] += units;
                     stock -= units;
                 }
             }
+        }
+    }
+    // A colony's welfare: the share of its base imports it bought, and its income (sales and Earth's investment).
+    if (colony_budgets) {
+        const double blend = std::min(1.0, dt_days / std::max(1.0, households.colony_satisfaction_days));
+        for (const auto& economy : universe_.background_economies) {
+            const auto state = colony_state_.find(economy.id);
+            if (state == colony_state_.end()) {
+                continue;
+            }
+            const auto& tick = colony_tick[economy.id];
+            if (tick.base > 0.0) {
+                state->second.satisfaction += (tick.bought / tick.base - state->second.satisfaction) * blend;
+            }
+            const double income = tick.sold / dt_days + economy.income_cr_per_day;
+            state->second.income_per_day = state->second.income_per_day <= 0.0
+                ? income : state->second.income_per_day + (income - state->second.income_per_day) * blend;
         }
     }
 }
@@ -552,8 +670,19 @@ void Simulation::step_colony_labour(double dt_s) {
             continue;
         }
         double& colonists = colony->second;
-        // Natural growth; the rest of its growth it recruits on Earth (they come by ship).
-        colonists *= std::exp((1.0 - economy.immigration_share) * economy.growth_per_year * dt_days / 365.25);
+        // Natural growth; the rest of its growth it recruits on Earth (they come by ship). A colony
+        // short of its imports grows slower, and shrinks below half of them.
+        colonists *= std::exp((1.0 - economy.immigration_share) * economy.growth_per_year * colony_growth_factor(economy.id)
+            * dt_days / 365.25);
+        // Its wage median follows its income per head (relative to the imports it was sized for).
+        if (const auto state = colony_state_.find(economy.id);
+            state != colony_state_.end() && universe_.households.colony_wage_follows_income > 0.0
+            && state->second.base_imports_per_day > 0.0) {
+            const double ratio = std::clamp(state->second.income_per_day / state->second.base_imports_per_day, 0.5, 2.0);
+            const double target = economy.wage_median_cr_per_day * std::sqrt(ratio);
+            state->second.wage_median += (target - state->second.wage_median)
+                * std::min(1.0, dt_days / std::max(1.0, universe_.households.colony_wage_relaxation_days));
+        }
         if (const double recruits = colony_recruits_per_day(economy) * dt_days; recruits > 0.0 && !economy.gateways.empty()) {
             const auto& gateway = economy.gateways.front();
             post_travellers(get_station_state(gateway_for(gateway, true)), domain::PassengerKind::Migrant, gateway,
@@ -571,7 +700,7 @@ void Simulation::step_colony_labour(double dt_s) {
             const double ceiling = station_wage_cr_per_day(station) * (1.0 - labour.hardship_share)
                 - ascent_cr / (365.25 * labour.stay_years);
             const double share = ceiling > 0.0
-                ? 0.5 * std::erfc(-std::log(ceiling / economy.wage_median_cr_per_day) / economy.wage_sigma / std::sqrt(2.0)) : 0.0;
+                ? 0.5 * std::erfc(-std::log(ceiling / colony_wage_median(economy)) / economy.wage_sigma / std::sqrt(2.0)) : 0.0;
             const double needed = std::max(0.0, station.jobs - workers) / participation;
             const double hires = std::min({needed * std::min(1.0, dt_days / COLONY_FILL_DAYS),
                 colonists * economy.search_per_year * share * dt_days / 365.25, colonists});

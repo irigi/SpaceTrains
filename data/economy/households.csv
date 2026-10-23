@@ -23,3 +23,14 @@ upkeep_price_elasticity,-0.1
 yard_materials_share,0.2
 travel_share,0.03
 science_price_premium,0.5
+colony_centre_markup,1.1
+colony_stock_days,60
+colony_import_buffer_days,90
+colony_essentials,food|medicine
+colony_people_scaling,1
+colony_growth_follows_satisfaction,1
+colony_wage_follows_income,1
+colony_wage_relaxation_days,365
+colony_satisfaction_days,90
+colony_stock_days.platinum,365
+colony_stock_days.helium_3,365

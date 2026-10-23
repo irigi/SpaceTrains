@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 19;  // 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
+constexpr int kSaveVersion = 20;  // 20: colony welfare (satisfaction, income, wage); 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -795,6 +795,12 @@ std::string Simulation::save_state_json() const {
         colonists.set(economy_id, people);
     }
     root.set("background_population", std::move(colonists));
+    auto colony_states = Json::object();
+    for (const auto& [economy_id, state] : colony_state_) {
+        colony_states.set(economy_id, numbers_to_json({state.satisfaction, state.throttle, state.income_per_day,
+            state.base_imports_per_day, state.wage_median}));
+    }
+    root.set("colony_state", std::move(colony_states));
     auto treasuries = Json::object();
     for (const auto& [faction_id, balance] : faction_treasuries_) {
         treasuries.set(faction_id, balance);
@@ -1032,6 +1038,12 @@ void Simulation::load_state_json(const std::string& text) {
     background_population_.clear();
     for (const auto& [economy_id, people] : root.get("background_population").fields()) {
         background_population_[economy_id] = people.number();
+    }
+    colony_state_.clear();
+    for (const auto& [economy_id, values] : root.get("colony_state").fields()) {
+        const auto v = numbers_from_json(values);
+        colony_state_[economy_id] = {.satisfaction = v.at(0), .throttle = v.at(1), .income_per_day = v.at(2),
+            .base_imports_per_day = v.at(3), .wage_median = v.at(4)};
     }
     faction_treasuries_ = std::move(treasuries);
     faction_tax_per_day_ = std::move(tax_per_day);

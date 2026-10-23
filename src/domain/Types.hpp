@@ -550,6 +550,17 @@ struct HouseholdDefinition {
     double consume_income_elasticity {0.0};  // residents' use of `consume` goods: (wage / starting wage)^e...
     double consume_price_elasticity {0.0};   // ...x (price / reference)^e
     double upkeep_price_elasticity {0.0};    // life support and upkeep goods: (price / reference)^e
+    // Colonies (the small background economies; docs/modules/economy.md, "Colonies"). 0: off.
+    double colony_centre_markup {0.0};       // a gateway centres a good its colony sells (and it does not make) at ask x this
+    double colony_stock_days {0.0};          // ...and stocks this many days of the colony's sales (0: 14 days of its net rate)
+    std::unordered_map<std::string, double> colony_stock_days_by_good;   // per good (small, valuable lots: a year)
+    double colony_import_buffer_days {0.0};  // a colony buys in full above this many days of its imports in hand
+    double colony_satisfaction_days {90.0};  // its import satisfaction is averaged over this many days
+    double colony_people_scaling {0.0};      // 1: its sales and imports scale with its people
+    double colony_growth_follows_satisfaction {0.0};   // 1: growth x (2 x satisfaction - 1)
+    double colony_wage_follows_income {0.0};           // 1: its wage median follows its income per head
+    double colony_wage_relaxation_days {365.0};
+    std::vector<std::string> colony_essentials;  // goods a short colony keeps buying first (food, medicine)
 };
 
 // Labour market (docs/plans/economy_overhaul.md, phase B; data/economy/labour_market.csv).

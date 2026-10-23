@@ -51,6 +51,8 @@ public:
     // The surface keeps this good stocked here in any amount (Earth).
     [[nodiscard]] bool surface_supplied(const domain::StationDefinition& station, const std::string& commodity_id) const;
     // What the surface pays for it here (0: it does not buy).
+    // The station makes this good itself (a recipe output, or its fuel factory).
+    [[nodiscard]] bool makes_itself(const domain::StationDefinition& station, const std::string& commodity_id) const;
     [[nodiscard]] double surface_bid(const domain::StationDefinition& station, const std::string& commodity_id) const;
     [[nodiscard]] double surface_depth_units() const { return surface_depth_units_; }
 

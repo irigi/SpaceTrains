@@ -486,6 +486,7 @@ func _build_colonies() -> void:
     _heading("Colonies (background economies)")
     var colonies: Array = stats.get("colonies", [])
     var rows: Array = []
+    var welfare_rows: Array = []
     var chart_series: Array = []
     for i in range(colonies.size()):
         var colony: Dictionary = colonies[i]
@@ -499,6 +500,12 @@ func _build_colonies() -> void:
             "%.2f / %.2f / %.2f" % [float(colony.get("wage_p10", 0.0)), float(colony.get("wage_p50", 0.0)), float(colony.get("wage_p90", 0.0))],
             "%.0f" % float(colony.get("hired_up", 0.0)), "%.0f" % float(colony.get("gone_down", 0.0)),
             _cr(float(colony.get("earth_investment_per_year", 0.0)))])
+        var satisfaction := float(colony.get("satisfaction", 1.0))
+        welfare_rows.append([String(colony.get("name", id)),
+            ["%.0f%%" % (100.0 * satisfaction), UiTheme.GOOD if satisfaction >= 0.8 else (UiTheme.WARN if satisfaction >= 0.5 else UiTheme.ALERT)],
+            "%.2f" % float(colony.get("throttle", 1.0)), _cr(float(colony.get("income_per_year", 0.0))),
+            _cr(float(colony.get("imports_per_year", 0.0))),
+            "%.2f (data %.2f)" % [float(colony.get("wage_p50", 0.0)), float(colony.get("wage_data", 0.0))]])
         chart_series.append({"name": String(colony.get("name", id)), "color": SERIES_COLORS[i + 1], "values": _series("colony:" + id)})
         if not _monthly:
             var limit: Array = []
@@ -507,9 +514,15 @@ func _build_colonies() -> void:
             chart_series.append({"name": "limit", "color": SERIES_COLORS[i + 1].darkened(0.35), "values": limit, "dashed": true})
     _content.add_child(_table(["Colony", "Gateway", "Account", "Credit line", "Headroom", "People", "Wage p10/p50/p90",
         "Hired up", "Gone down", "Earth invests/yr"], rows, [130.0, 110.0, 90.0, 80.0, 80.0, 70.0, 130.0, 70.0, 70.0, 100.0]))
-    _note("A colony buys at its gateway only while its account is above minus its credit line; at the line it stops "
-        + "buying. Wages are lognormal: p10, median and p90 in cr per day. Hired up: colonists who took the gateway's "
+    _note("Wages are lognormal: p10, median and p90 in cr per day. Hired up: colonists who took the gateway's "
         + "jobs; gone down: its unemployed who moved to the surface (since the start).")
+    _heading("Colony welfare")
+    _content.add_child(_table(["Colony", "Imports met", "Can afford", "Income/yr", "Imports wanted/yr", "Wage median"],
+        welfare_rows, [130.0, 90.0, 90.0, 100.0, 120.0, 130.0]))
+    _note("The surface mines and sells at its gateway; it buys its imports from what it earns and Earth invests. "
+        + "Short of money, it keeps buying food and medicine and cuts machinery and electronics first (can afford: "
+        + "1 = in full, 0 = at its credit line). Imports met: the share of what its people want that it bought "
+        + "(90-day average); growth follows it. Its wage median follows its income per head.")
     var tables := _flow_row()
     for colony in colonies:
         tables.add_child(_flow_table(String(colony.get("name", "")), _flows(_account("colony:" + String(colony.get("id", ""))))))

@@ -1199,6 +1199,18 @@ void print_accounts_audit(const spacetrains::simulation::Simulation& sim) {
         }
         return net;
     };
+    // Colonies' welfare (docs/modules/economy.md, "Colonies").
+    std::cout << "\n  [ECON AUDIT] Colonies:\n";
+    for (const auto& economy : sim.universe().background_economies) {
+        const auto* state = sim.colony_state(economy.id);
+        if (state == nullptr) {
+            continue;
+        }
+        std::cout << std::format("    {:14s} satisfaction {:5.1f}%  throttle {:4.2f}  income {:>7.0f}/yr  base imports {:>7.0f}/yr  "
+            "wage {:.3f} (data {:.3f})  people factor {:.2f}\n", economy.id, 100.0 * state->satisfaction, state->throttle,
+            state->income_per_day * 365.25, state->base_imports_per_day * 365.25, sim.colony_wage_median(economy),
+            economy.wage_median_cr_per_day, sim.colony_people_factor(economy.id));
+    }
     std::cout << "\n  [ECON AUDIT] Accounts (money journal, since the start):\n";
     const std::pair<AccountKind, const char*> sectors[] = {{AccountKind::Earth, "Earth"}, {AccountKind::Colony, "Colonies"},
         {AccountKind::Faction, "Factions"}, {AccountKind::Station, "Stations"}, {AccountKind::Households, "Residents"},

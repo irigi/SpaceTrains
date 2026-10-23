@@ -347,3 +347,69 @@ next fix.
 - Sol Federation: cargo in 15.3M, fares 3.7M.
 - Independent Consortium: cargo in 14.3M, fares 0.7M.
 - Both send most of it home as dividends (8.6M and 8.3M), and pay capital charges, cargo, fuel and crews.
+
+## Colonies fixed: the surface mines (2026-10-23)
+
+Plan agreed with the user: the surface mines, the gateways trade; Earth-bound goods earn the colony about 70% of
+Earth's price. Mechanics: `docs/modules/economy.md`, "Colonies".
+
+**Decisions and why**
+- **Extraction moved to the colonies.** Lunar Gateway (new profile `lunar_port`) and Ceres (`belt_port`) no
+  longer make metals, water, helium-3 or platinum; Luna surface and the belt sell them at the gateway. Before,
+  the stations made them for free, so the colonies almost never sold.
+- **Colony goods are centred at ask × 1.1** at a gateway that doesn't make them. They were centred at the base
+  price, which left ships no margin on Luna metals or Ceres platinum.
+- **Gateway stock of colony goods.**
+  - It was 14 days of net rate: 7 platinum units, too few for a ship to collect, so the price sat at the floor
+    and the belt sold only 17k in 4 years.
+  - Now 60 days, and a year for platinum and helium-3. Ceres holds about 800 platinum for ships to take home.
+- **Belt platinum 0.5 → 3 units a day** (30 kg/day, about 11 t a year).
+  - The belt's only real export: nobody needs Ceres' metals or water (the outer stations make their own, and
+    Earth sells metals).
+  - At 0.5 a day the belt could never pay for its imports.
+- **Imports follow money and people:** affordability from the account between the credit line and a 90-day
+  buffer, essentials (food, medicine) first. A colony no longer pins at its line.
+- **Welfare:** growth × (2 × satisfaction − 1); the wage median follows income per head (√, clamped 0.5-2, one
+  year).
+- **Mars investment 300k → 400k cr/yr.**
+  - The new price centre cut Mars surface's fuel income: the station had been paying 15 cr for fuel the
+    colony sells at 3.35, and its account ran toward the line.
+  - The extra 100k replaces that hidden subsidy, now as an open one.
+- **Surface trade split** into surface sales and purchases in the money journal (save version 20).
+
+**Steps (4 starts × 1,460 days)**
+
+| Step | Unmet | Profitable | Red days (worst) | Belt / Luna / Mars surface account at day 1,460 |
+|---|---|---|---|---|
+| Before | 0.2% | 71% | ~12-18 | −100k (line) / −105k / −210k |
+| Surface mines, ask × 1.1 | 0.1% | 71% | 8.5 | −100k / −105k / −320k |
+| + 60-day gateway stock | 0.1% | 71% | 8.2 | −100k / +300k / −400k |
+| + belt platinum 2.5, imports follow money | 0.3% | 67% | 10.0 | −24k / +290k / +16k |
+| + growth and wages | 0.2% | 66% | 10.8 | −17k / +250k / +8k |
+| + a year's stock of platinum and helium-3 | 0.2% | 68% | 14.8 | belt meets 64-78% of its imports |
+
+**8 years, starts 0 and 180** (final data: Mars investment 400k, belt platinum 3/day)
+
+| Colony | Account | Imports met | Income/yr | Wanted/yr | Wage (data) | People (start) |
+|---|---|---|---|---|---|---|
+| Luna surface | +0.82-0.85M | 100% | 230k | 115-120k | 0.35 (0.25) | 11,800-12,400 (10,000) |
+| Belt miners | 0 to +18k | 65-82% | 110-180k | 130k | 0.33-0.36 (0.35) | 3,800-3,900 (5,000) |
+| Mars surface | +10-26k | 42% | 470k | 437k | 0.31 (0.30) | 50,000-50,400 (50,000) |
+
+Unmet 0.2-0.3%, 77-85% of ships profitable (76% before), drift 0, every station solvent (worst red streak 14
+days). Lunar Gateway (+6.8-7.2M) and Ceres (+1.7-2.0M) stay profitable before their factions. Factions:
+- Sol Federation +9.0-9.4M;
+- Independent Consortium −3.9 to −5.3M (was −5.1M);
+- Mars Corporation −0.4 to −0.9M (was ~0): Mars Transfer Port earns less on fuel now that Mars fuel sells near
+  the colony's cost.
+
+**Open**
+- **Mars surface meets only 42% of its imports.** The cause is not money: Mars Transfer Port has never received
+  reactor fuel, which is about 45% of Mars surface's imports by value.
+  - Its order at the 452 reference price leaves ships about 23 cr a unit on a 400-day round trip.
+  - This predates the colony work.
+  - A gateway could order its colony's imports at the colony's bid. Not done here; next.
+- **The belt still shrinks** (5,000 → 3,850) as miners take Ceres jobs at 2.5× their wage. This is the labour
+  market working; the belt's wage now follows its income.
+- **Luna surface accumulates money** (+0.85M in 8 years, from helium-3). It could import more as it gets richer
+  (income-elastic colony demand), later.

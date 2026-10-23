@@ -249,6 +249,9 @@ Simulation::Simulation(domain::UniverseDefinition universe)
         if (economy.population > 0.0) {
             background_population_[economy.id] = economy.population;
         }
+        if (economy.id != "earth") {
+            colony_state_[economy.id] = {.wage_median = economy.wage_median_cr_per_day};
+        }
     }
     setup_money_journal();
     // Residents start with their savings buffer, brought from Earth (economy overhaul).

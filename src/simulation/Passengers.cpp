@@ -264,7 +264,8 @@ double Simulation::colony_recruits_per_day(const domain::BackgroundEconomyDefini
     if (colony == background_population_.end() || economy_balance(economy.id) <= 0.0) {
         return 0.0;   // it pays passages out of savings
     }
-    return colony->second * economy.growth_per_year * economy.immigration_share / 365.25;
+    return colony->second * economy.growth_per_year * economy.immigration_share * std::max(0.0, colony_growth_factor(economy.id))
+        / 365.25;
 }
 
 void Simulation::compute_rotation_tours() {

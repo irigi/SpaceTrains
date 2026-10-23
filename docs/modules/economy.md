@@ -220,6 +220,36 @@ Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
 - **Audit:** the residents table shows each station's flows, its people, jobs and wage, and its days in the
   red. `tools/benchmark.py` reports stations below the floor, in the red and the worst station's red days.
 
+## Colonies (2026-10-23)
+
+The small background economies (Mars surface, Luna surface, belt miners); switches and values are the `colony_*`
+keys in `households.csv`.
+
+- **The surface mines, the gateway trades.**
+  - Lunar Gateway (`lunar_port`) and Ceres (`belt_port`) no longer make metals, water, helium-3 or platinum.
+  - Their colonies sell them there (`surface_markets.csv`): Luna surface 24 metals, 35 water and 0.2 helium-3 a
+    day; the belt 50 metals, 40 water and 2.5 platinum a day.
+  - Earth-bound goods are priced at about 70% of Earth's price: helium-3 ask ≈ 1,640 cr, platinum ≈ 175 cr.
+  - The platinum seam event now doubles the belt's platinum sales at Ceres.
+- **Gateway prices.** A good the colony sells, and the station does not make, is centred at ask × 1.1
+  (`colony_centre_markup`). The station stocks 60 days of the colony's sales (`colony_stock_days`), so a ship can
+  collect a worthwhile lot.
+  - The colony sells part of its rate at the centre, all of it above 1.25 × ask, and only while the station has
+    room.
+- **People:** a colony's sales and imports scale with its people ÷ its data population (`colony_people_scaling`).
+- **Imports follow money:**
+  - affordability f = (account + credit line) ÷ (90 days of imports + credit line), clamped to 0-1;
+  - food and medicine buy at min(1, 2f), machinery and electronics at max(0, 2f − 1)
+    (`colony_import_buffer_days`, `colony_essentials`).
+  - A colony slows down as it runs short instead of stopping dead at its credit line.
+- **Welfare:**
+  - **Satisfaction:** the value it bought ÷ the value its people want (90-day average).
+  - **Growth:** native growth and recruiting × (2 × satisfaction − 1).
+  - **Wage median:** follows its income per head. It is the data wage × √(income ÷ base imports), clamped to
+    0.5-2, and relaxes over a year.
+- **Reports:** `--econ-audit` prints a Colonies section (satisfaction, affordability, income, base imports,
+  wage). The Statistics screen's Colonies tab shows colony welfare.
+
 ## Money journal and statistics (2026-10-23)
 
 `src/simulation/MoneyJournal.{hpp,cpp}`, accounts and history in `Statistics.cpp`.
@@ -236,7 +266,8 @@ Code: `src/simulation/Households.cpp`, surface markets in `EconomySystem`.
 - **Categories** (37), each named once and booked as an expense by the payer and as an income by the payee:
   - trade: cargo, fuel, fuel bought back, provisions, refits and repairs;
   - residents: goods, spending, passages recovered, wages, crew wages, hazard pay;
-  - Earth: grants by kind (science, settlement, relay, tourism, other), surface trade, colony investment;
+  - Earth: grants by kind (science, settlement, relay, tourism, other), surface sales and purchases, colony
+    investment;
   - travel: visitors' spending, fares (travellers, employers), migrants' savings, starting savings;
   - owners: dividends, capital charges, sold ships' cash;
   - factions: tax, top-ups, insolvency cover, money controller, liner top-ups, emergency premiums, interest;

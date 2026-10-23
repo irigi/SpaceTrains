@@ -962,12 +962,28 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             {"consume_income_elasticity", &households.consume_income_elasticity},
             {"consume_price_elasticity", &households.consume_price_elasticity},
             {"upkeep_price_elasticity", &households.upkeep_price_elasticity},
+            {"colony_centre_markup", &households.colony_centre_markup},
+            {"colony_stock_days", &households.colony_stock_days},
+            {"colony_import_buffer_days", &households.colony_import_buffer_days},
+            {"colony_satisfaction_days", &households.colony_satisfaction_days},
+            {"colony_people_scaling", &households.colony_people_scaling},
+            {"colony_growth_follows_satisfaction", &households.colony_growth_follows_satisfaction},
+            {"colony_wage_follows_income", &households.colony_wage_follows_income},
+            {"colony_wage_relaxation_days", &households.colony_wage_relaxation_days},
         };
         std::unordered_set<std::string> seen_keys;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
             require_field_count(row, 2, households_path, i + 1);
             require_unique_id(row[0], seen_keys, households_path, i + 1);
+            if (row[0] == "colony_essentials") {
+                std::stringstream stream(row[1]);
+                std::string commodity_id;
+                while (std::getline(stream, commodity_id, '|')) {
+                    households.colony_essentials.push_back(commodity_id);
+                }
+                continue;
+            }
             if (row[0] == "yards") {
                 std::stringstream stream(row[1]);
                 std::string station_id;
@@ -980,6 +996,11 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
             const double value = parse_double(row[1], households_path, i + 1, row[0].c_str());
             if (value < 0.0 && !row[0].ends_with("price_elasticity")) {
                 throw std::runtime_error("'" + row[0] + "' must not be negative in " + households_path.string());
+            }
+            if (row[0].starts_with("colony_stock_days.")) {
+                const auto commodity_id = row[0].substr(std::string("colony_stock_days.").size());
+                households.colony_stock_days_by_good[commodity_id] = value;
+                continue;
             }
             if (row[0].starts_with("wage_multiple.")) {
                 const auto station_id = row[0].substr(std::string("wage_multiple.").size());
@@ -1667,7 +1688,13 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
                     return here && recipe.commodity_id == event.commodity_id
                         && (wants_output ? recipe.units_per_day > 0.0 : recipe.units_per_day < 0.0);
                 });
-                if (!has_recipe) {
+                // Or its colony mines it (a boom or outage then changes the colony's sales there).
+                const bool colony_sells = wants_output && std::any_of(universe.surface_markets.begin(), universe.surface_markets.end(),
+                    [&](const auto& market) {
+                        return market.station_id == station.id && market.commodity_id == event.commodity_id && market.ask_cr > 0.0
+                            && market.sell_units_per_day > 0.0;
+                    });
+                if (!has_recipe && !colony_sells) {
                     throw std::runtime_error("Event '" + event.id + "': " + event.station_id + (wants_output ? " makes" : " uses")
                         + " no " + event.commodity_id + " in " + events_path.string());
                 }

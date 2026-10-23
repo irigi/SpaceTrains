@@ -43,3 +43,17 @@ extractor_hub,electronics,-1.25,upkeep
 extractor_hub,machinery,-1.25,upkeep
 extractor_hub,medicine,-0.75,upkeep
 extractor_hub,reactor_fuel,2,
+lunar_port,food,-2.5,upkeep
+lunar_port,oxygen,-1.25,upkeep
+lunar_port,fuel,-5,upkeep
+lunar_port,electronics,-1.75,consume
+lunar_port,machinery,-0.75,upkeep
+lunar_port,metals,-2.5,consume
+lunar_port,medicine,-0.5,upkeep
+belt_port,food,-2.5,upkeep
+belt_port,oxygen,-2.5,upkeep
+belt_port,fuel,-5,upkeep
+belt_port,electronics,-1.25,upkeep
+belt_port,machinery,-1.25,upkeep
+belt_port,medicine,-0.75,upkeep
+belt_port,reactor_fuel,2,

@@ -334,15 +334,20 @@ std::string Simulation::build_stats_json() const {
                 ? sample.colony_people[static_cast<std::size_t>(colony_index)] : 0.0);
         }
         constexpr double Z90 = 1.2815515655446004;
+        const double wage = colony_wage_median(economy);
+        const auto* state = colony_state(economy.id);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"gateways\":\"{}\",\"credits\":{},\"credit_line\":{},\"people\":{},"
             "\"wage_p10\":{:.3f},\"wage_p50\":{:.3f},\"wage_p90\":{:.3f},\"hired_up\":{},\"gone_down\":{},\"earth_investment_per_year\":{},"
-            "\"people_history\":{}}}",
+            "\"people_history\":{},\"wage_data\":{:.3f},\"satisfaction\":{:.3f},\"throttle\":{:.3f},\"income_per_year\":{},"
+            "\"imports_per_year\":{}}}",
             first_colony ? "" : ",", escape_json(economy.id), escape_json(economy.name),
             escape_json(economy.gateways.empty() ? std::string() : economy.gateways.front()), number(economy_balance(economy.id)),
             number(economy_credit_line(economy.id)), number(people == background_population_.end() ? 0.0 : people->second),
-            economy.wage_median_cr_per_day * std::exp(-Z90 * economy.wage_sigma), economy.wage_median_cr_per_day,
-            economy.wage_median_cr_per_day * std::exp(Z90 * economy.wage_sigma), number(hired_up), number(gone_down),
-            number(economy.income_cr_per_day * 365.25), numbers_json(people_series));
+            wage * std::exp(-Z90 * economy.wage_sigma), wage, wage * std::exp(Z90 * economy.wage_sigma), number(hired_up),
+            number(gone_down), number(economy.income_cr_per_day * 365.25), numbers_json(people_series), economy.wage_median_cr_per_day,
+            state == nullptr ? 1.0 : state->satisfaction, state == nullptr ? 1.0 : state->throttle,
+            number(state == nullptr ? 0.0 : state->income_per_day * 365.25),
+            number(state == nullptr ? 0.0 : state->base_imports_per_day * 365.25));
         first_colony = false;
     }
     out += "],";

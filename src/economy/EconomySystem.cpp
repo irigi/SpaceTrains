@@ -452,6 +452,15 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
     if (surface_supplied(station, commodity_id)) {
         return surface_depth_units_;
     }
+    // A gateway stocks a few weeks of what its colony sells, so a ship can collect a worthwhile lot
+    // (platinum and helium-3 come a few units a day).
+    if (const auto* market = surface_market(station, commodity_id); market != nullptr && market->ask_cr > 0.0
+        && market->sell_units_per_day > 0.0 && universe_.households.colony_stock_days > 0.0 && !makes_itself(station, commodity_id)) {
+        const auto& by_good = universe_.households.colony_stock_days_by_good;
+        const auto days = by_good.find(commodity_id);
+        return std::max(market->sell_units_per_day * (days == by_good.end() ? universe_.households.colony_stock_days : days->second),
+            std::abs(net_rate) * 21.0);
+    }
     // A consumer buys under its orders (step 29); three weeks only places the curve.
     if (net_rate < 0.0) {
         return std::abs(net_rate) * 21.0;
@@ -467,6 +476,12 @@ double EconomySystem::curve_centre(
     if (const auto* market = surface_market(station, commodity_id); market != nullptr && market->ask_cr > 0.0
         && market->sell_units_per_day <= 0.0) {
         return market->ask_cr;
+    }
+    // A good its colony sells, and the station does not make itself: centred just above the colony's
+    // ask (the colony then sells part of its rate at the centre, all of it above 1.25 x ask).
+    if (const auto* market = surface_market(station, commodity_id); market != nullptr && market->ask_cr > 0.0
+        && universe_.households.colony_centre_markup > 0.0 && !makes_itself(station, commodity_id)) {
+        return market->ask_cr * universe_.households.colony_centre_markup;
     }
     // A fuel factory prices its fuel at its own cost.
     if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
@@ -485,6 +500,16 @@ double EconomySystem::curve_centre(
     }
     // A science station pays above the landed cost to be supplied (Earth's budget pays for it).
     return science_stations_.contains(station.id) ? it->second * (1.0 + universe_.households.science_price_premium) : it->second;
+}
+
+bool EconomySystem::makes_itself(const domain::StationDefinition& station, const std::string& commodity_id) const {
+    if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
+        return true;
+    }
+    const auto& recipes = recipes_of(station);
+    return std::any_of(recipes.begin(), recipes.end(), [&](const domain::RecipeDefinition* recipe) {
+        return recipe->commodity_id == commodity_id && recipe->units_per_day > 0.0;
+    });
 }
 
 double EconomySystem::reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const {

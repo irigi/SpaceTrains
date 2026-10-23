@@ -30,7 +30,8 @@ enum class MoneyCategory : std::uint8_t {
     GrantRelay,
     GrantTourism,
     GrantOther,
-    SurfaceTrade,        // stations buy from and sell to Earth and the colonies
+    SurfaceSales,        // Earth or a colony sells goods to a station (its exports)
+    SurfacePurchases,    // Earth or a colony buys goods from a station (its imports)
     VisitorSpending,     // visitors spend during their stay, out of their home's account
     FaresTraveller,      // travellers pay ships their fares
     FaresEmployer,       // a station pays its staff's or settlers' passages

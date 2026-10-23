@@ -257,6 +257,8 @@ public:
     [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
     [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
     [[nodiscard]] double per_capita_savings(const domain::StationState& station) const;
+    // A boom or outage at a gateway scales what its colony sells there (events.csv).
+    [[nodiscard]] double colony_sales_factor(const domain::StationState& station, const std::string& commodity_id) const;
     [[nodiscard]] double household_travel_budget(const std::string& home_id, double window_days) const;
     [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
     // Labour market (phase B, Households.cpp).
@@ -571,6 +573,31 @@ private:
     // Settlers a colony recruits on Earth (labour market): their employer id is "colony:<economy id>".
     [[nodiscard]] static bool colony_employer(const std::string& work_station_id) { return work_station_id.starts_with("colony:"); }
     [[nodiscard]] double colony_recruits_per_day(const domain::BackgroundEconomyDefinition& economy) const;
+public:
+    // A colony's welfare (docs/modules/economy.md, "Colonies"), by economy id.
+    struct ColonyState {
+        double satisfaction {1.0};         // imports bought / its base imports (value), averaged
+        double throttle {1.0};             // its affordability now (1: buys in full)
+        double income_per_day {0.0};       // its sales and Earth's investment, averaged
+        double base_imports_per_day {0.0};   // its base imports' value (people-scaled) at the bid
+        double wage_median {0.0};          // its wage median now (cr per day)
+    };
+    // Colonies: their people against the data population (sales and imports scale with it when
+    // colony_people_scaling is on), their wage median now, and their welfare state.
+    [[nodiscard]] double colony_people_factor(const std::string& economy_id) const;
+    [[nodiscard]] double colony_wage_median(const domain::BackgroundEconomyDefinition& economy) const;
+    [[nodiscard]] const ColonyState* colony_state(const std::string& economy_id) const {
+        const auto it = colony_state_.find(economy_id);
+        return it == colony_state_.end() ? nullptr : &it->second;
+    }
+    // Affordability: 1 above the buffer, falling to 0 at minus the credit line (or the old hard stop).
+    [[nodiscard]] static double colony_affordability(double account, double credit_line, double buffer);
+    // The share of a good's base imports a colony buys at affordability f (essentials first).
+    [[nodiscard]] static double colony_import_share(double affordability, bool essential);
+    // Growth multiple from its import satisfaction (1 when off): 2 x satisfaction - 1.
+    [[nodiscard]] double colony_growth_factor(const std::string& economy_id) const;
+    [[nodiscard]] double colony_import_value_per_day(const std::string& economy_id) const;
+private:
     void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
         const std::string& work_station_id, double count, bool fixed = false);
     void compute_rotation_tours();
@@ -707,6 +734,7 @@ private:
     std::map<std::string, double> background_credits_;
     // The colonies' people (labour market), by economy id.
     std::map<std::string, double> background_population_;
+    std::map<std::string, ColonyState> colony_state_;
     std::map<std::string, double> faction_treasuries_;
     // The money journal and its account indices (MoneyJournal.hpp).
     MoneyJournal journal_;
