@@ -3,11 +3,16 @@ extends Node3D
 const POSITION_SCALE := 1.0 / 8_000_000_000.0
 # Bodies are drawn at their true radius (a map icon stands in when they are a few pixels
 # across, as in Kerbal Space Program's map view). Ships and stations are tiny next to a
-# planet; their models are a few tens of kilometres, shown only up close, icons otherwise.
+# planet; their models are a few hundred kilometres, shown only up close, icons otherwise.
 const BODY_MIN_MODEL_SCALE := 1.0e-9
-const SHIP_MIN_MODEL_SCALE := 0.000004
+# Ship models are built in metres (ShipModels.gd) and drawn ~4,500x real size (1 world unit
+# is 8e9 m): a 49 m light freighter is ~220 km. Proportions between ships are real.
+const SHIP_METRES_TO_WORLD := 5.6e-7
+# A ship's detailed model replaces the coarse one above this on-screen radius (pixels),
+# and goes back below the lower one.
+const SHIP_DETAIL_PX := 150.0
+const SHIP_COARSE_PX := 110.0
 const STATION_MIN_MODEL_SCALE := 0.000006
-const SHIP_MASS_SCALE := 0.000006
 const STATION_POPULATION_SCALE := 0.000008
 const BRIDGE_STEP_SECONDS := 0.1
 # The simulation advances in ticks of 0.1 day (Simulation::TICK_S). Between snapshots the
@@ -155,6 +160,8 @@ var last_ui_refresh_s := -1000.0
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 const SpaceEnvironmentScript := preload("res://scripts/SpaceEnvironment.gd")
 const EntityVisualsScript := preload("res://scripts/EntityVisuals.gd")
+const ShipModelsScript := preload("res://scripts/ShipModels.gd")
+const ModelMaterialsScript := preload("res://scripts/ModelMaterials.gd")
 const TopBarPanel := preload("res://scripts/ui/TopBar.gd")
 const EntityBrowserPanel := preload("res://scripts/ui/EntityBrowser.gd")
 const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
@@ -686,6 +693,8 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         if entity_id == "saturn":
             container.add_child(SpaceEnvironmentScript.make_planet_ring())
 
+    if kind == "ship":
+        _ensure_ship_model(entity_nodes[entity_id], data)
     var visual_signature := _visual_signature(kind, data)
     if entity_visual_signatures.get(entity_id, "") != visual_signature:
         EntityVisualsScript.apply_visuals(entity_nodes[entity_id], kind, data, faction_colors)
@@ -721,6 +730,7 @@ func _update_nodes(delta: float) -> void:
             if String(detail.get("phase", "idle")) != "in_transit":
                 node.position += _docked_ship_offset(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
+            _update_ship_lod(node, detail)
             EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0),
                 _jet_power_w(String(detail.get("design_id", detail.get("class_id", "")))))
     _update_camera_obstacles()
@@ -1124,10 +1134,10 @@ func _abs_render(p: PackedFloat64Array) -> Vector3:
 
 # Docked ships sit in a small ring around their station, so several stay pickable.
 func _docked_ship_offset(ship_id: String) -> Vector3:
-    var detail: Dictionary = entity_details.get(ship_id, {})
     var index: int = abs(ship_id.hash()) % 7
     var angle := float(index) * 0.8975979
-    var spacing := _ship_display_scale(detail) * 6.0
+    var node: Node3D = entity_nodes.get(ship_id)
+    var spacing := (_model_world_size(node) if node != null else 2.0e-5) * 6.0
     return Vector3(cos(angle), 0.15 + float(index % 3) * 0.08, sin(angle)).normalized() * spacing
 
 # --- Orbit rings near the focus -----------------------------------------------
@@ -1495,9 +1505,46 @@ func _body_display_scale(body_id: String) -> float:
     var detail: Dictionary = entity_details.get(body_id, {})
     return _body_scale_from_radius(float(detail.get("radius_m", 0.0)))
 
-func _ship_display_scale(data: Dictionary) -> float:
-    var mass_kg: float = max(float(data.get("current_mass_kg", data.get("initial_mass_kg", 10000.0))), 1.0)
-    return max(pow(mass_kg / 10000.0, 1.0 / 3.0) * SHIP_MASS_SCALE, SHIP_MIN_MODEL_SCALE)
+func _ship_display_scale(_data: Dictionary) -> float:
+    return SHIP_METRES_TO_WORLD
+
+# The ship's model for its design (a stand-in until the designs file has it), rebuilt when
+# the design changes (a refit, worn radiators).
+func _ensure_ship_model(node: Node3D, data: Dictionary) -> void:
+    var key := String(data.get("design_id", data.get("class_id", "")))
+    var design: Dictionary = bridge_designs.get(key, {})
+    if design.is_empty():
+        var propulsion := String(data.get("propulsion_type", "nuclear_thermal"))
+        key = "fallback:" + propulsion
+        design = ShipModelsScript.fallback_design(propulsion)
+    if String(node.get_meta("model_key", "")) != key:
+        ShipModelsScript.ensure(node, key, design, int(node.get_meta("lod", ShipModelsScript.COARSE)))
+
+# Detailed model close up, coarse otherwise (with hysteresis).
+func _update_ship_lod(node: Node3D, data: Dictionary) -> void:
+    if not node.has_meta("model_key"):
+        return
+    var lod := int(node.get_meta("lod", ShipModelsScript.COARSE))
+    var pixels := _projected_model_pixels(node)
+    var want := lod
+    if lod == ShipModelsScript.COARSE and pixels > SHIP_DETAIL_PX:
+        want = ShipModelsScript.DETAIL
+    elif lod == ShipModelsScript.DETAIL and pixels < SHIP_COARSE_PX:
+        want = ShipModelsScript.COARSE
+    if want == lod:
+        return
+    var key := String(node.get_meta("model_key"))
+    var design: Dictionary = bridge_designs.get(key, {})
+    if design.is_empty():
+        design = ShipModelsScript.fallback_design(String(data.get("propulsion_type", "nuclear_thermal")))
+    ShipModelsScript.ensure(node, key, design, want)
+
+# A model's size in world units: its bounding radius for ships (built in metres), the
+# container scale for unit-size models (bodies, stations).
+func _model_world_size(node: Node3D) -> float:
+    if node.has_meta("radius_m"):
+        return float(node.get_meta("radius_m")) * node.scale.x
+    return node.scale.x
 
 func _station_display_scale(data: Dictionary) -> float:
     var population: float = max(float(data.get("population", 0.0)), 1.0)
@@ -1717,6 +1764,16 @@ func _setup_scene_lighting() -> void:
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
+    # A weak light from the camera for ships and stations only (render layer 2, see
+    # ModelMaterials.MODEL_LAYERS): their night sides stay readable without glowing, and
+    # planets keep their dark sides.
+    var fill := DirectionalLight3D.new()
+    fill.name = "ModelFillLight"
+    fill.light_cull_mask = ModelMaterialsScript.FILL_LAYER
+    fill.light_energy = ModelMaterialsScript.FILL_ENERGY
+    fill.light_color = Color(0.85, 0.9, 1.0)
+    fill.shadow_enabled = false
+    camera.add_child(fill)
     RenderingServer.set_default_clear_color(Color(0.01, 0.012, 0.025, 1.0))
 
     var env := Environment.new()
@@ -1852,7 +1909,7 @@ func _attach_map_icon(entity_id: String, kind: String, data: Dictionary) -> void
 func _projected_model_pixels(node: Node3D) -> float:
     var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
     var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-9)
-    return node.scale.x / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
+    return _model_world_size(node) / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
 
 # Inverse of the above: the world size that projects to target_pixels at the
 # node's current camera distance.
@@ -2236,12 +2293,12 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
     focused_id = entity_id
     focused_kind = entity_kind
     # Zoom stops outside the focused body (bodies are drawn at true size now); a ship or
-    # station can be zoomed until it fills most of the view (its models are ~2.5 units long).
+    # station can be zoomed until it fills most of the view.
     var min_distance := 1.0e-6
     if entity_kind == "body":
         min_distance = maxf(min_distance, _body_display_scale(entity_id) * 1.6)
     elif entity_nodes.has(entity_id):
-        min_distance = maxf(min_distance, (entity_nodes[entity_id] as Node3D).scale.x * 2.5)
+        min_distance = maxf(min_distance, _model_world_size(entity_nodes[entity_id]) * (1.6 if entity_kind == "ship" else 2.5))
     camera_rig.set("min_distance", min_distance)
     camera_rig.set("distance", maxf(float(camera_rig.get("distance")), min_distance))
     if entity_nodes.has(entity_id):

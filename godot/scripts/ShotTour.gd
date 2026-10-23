@@ -253,6 +253,11 @@ func _run() -> void:
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot("ship_model_" + hull)
+        # Close enough for the detailed model.
+        rig.set("distance", maxf(main._model_world_size(main.entity_nodes[ship_id]) * 3.0, float(rig.get("min_distance"))))
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        await _shoot("ship_detail_" + hull)
     main._on_pause_toggled()
     # The economy overview.
     main.market_panel.toggle()
