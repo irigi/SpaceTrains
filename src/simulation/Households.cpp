@@ -548,6 +548,20 @@ void Simulation::step_colony_labour(double dt_s) {
     }
 }
 
+std::string Simulation::background_economies_json() const {
+    double savings = 0.0;
+    for (const auto& station : stations_) {
+        savings += station.household_credits;
+    }
+    std::string list = "[";
+    for (const auto& economy : universe_.background_economies) {
+        const auto people = background_population_.find(economy.id);
+        list += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"credits\":{:.0f},\"population\":{:.0f}}}", list.size() > 1 ? "," : "",
+            economy.id, economy.name, economy_balance(economy.id), people == background_population_.end() ? 0.0 : people->second);
+    }
+    return std::format("\"residents_savings\":{:.0f},\"background_economies\":{}]", savings, list);
+}
+
 const domain::StationDefinition* Simulation::yard_station_for(const domain::StationDefinition& home) const {
     const domain::StationDefinition* best = nullptr;
     double best_days = std::numeric_limits<double>::infinity();

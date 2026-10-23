@@ -100,6 +100,17 @@ func _economy_summary(state: Dictionary, commodities: Array, stations: Array) ->
     lines.append("Money in stations and ships %s (%+.1f%% of target) · treasuries %s · exported to Earth's economy %s" % [
         UiTheme.format_credits(money), 100.0 * (money / target - 1.0) if target > 0.0 else 0.0,
         UiTheme.format_credits(treasuries), UiTheme.format_credits(float(economy.get("exports_value", 0.0)))])
+    # Economy overhaul: residents' savings, and the background economies' accounts (negative: what
+    # they paid into the simulated economy) and people.
+    if economy.has("background_economies"):
+        var parts: Array[String] = []
+        for entry in economy.get("background_economies", []):
+            var text := "%s %s" % [String(entry.get("name", "")), UiTheme.format_credits(float(entry.get("credits", 0.0)))]
+            if float(entry.get("population", 0.0)) > 0.0:
+                text += " (%s people)" % str(int(entry.get("population", 0.0)))
+            parts.append(text)
+        lines.append("Residents' savings %s · %s" % [UiTheme.format_credits(float(economy.get("residents_savings", 0.0))),
+            " · ".join(parts)])
     # Faction debt against what each may borrow (step 17), and emergencies (step 14).
     var limits: Dictionary = state.get("faction_credit_limits", {})
     var debts: Array[String] = []

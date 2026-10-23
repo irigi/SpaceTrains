@@ -6428,7 +6428,8 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"ships_sold\":" << investment_ledger_.ships_sold << ","
                << "\"emergencies_opened\":" << emergencies_opened_ << ","
                << "\"emergency_paid\":" << emergency_paid_ << ","
-               << "\"faction_interest_paid\":" << faction_interest_paid_
+               << "\"faction_interest_paid\":" << faction_interest_paid_ << ","
+               << background_economies_json()
                << "},";
     }
     output << "\"recent_events\":[";
