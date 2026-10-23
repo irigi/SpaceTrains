@@ -128,7 +128,8 @@ An 8-year run holds at 0.1% unmet.
    station models and the colour fix; awaiting review and merge.
 6. **True scale for ships and stations:** ships and stations are now built in metres, so this is mostly one
    constant (`Main.SHIP_METRES_TO_WORLD`, now ~4,500x real) and real station sizes (drop the compressed rings and
-   the altitude cap in `_station_display_scale`). Then check, at metre scale: arrival snaps, docking, engine glow,
+   the altitude cap in `_station_display_scale`, which today shrinks Low Earth Logistics and the Lunar Gateway).
+   Real size ratios for everything: ships, stations, docked ships (user, 2026-10-23). Then check, at metre scale: arrival snaps, docking, engine glow,
    picking, focus distances and the camera near plane.
 7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
