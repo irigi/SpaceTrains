@@ -281,7 +281,12 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
                 continue;
             }
             for (const auto& output : recipe->feeds) {
-                auto& run = runs[output];
+                // Only outputs the station makes (the loader checks that inputs feed one).
+                const auto found = runs.find(output);
+                if (found == runs.end()) {
+                    continue;
+                }
+                auto& run = found->second;
                 const double available = availability[recipe->commodity_id];
                 if (available < run.limit) {
                     run.limit = available;
@@ -326,7 +331,11 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
                 // A plant that is not running uses no feedstock.
                 double mean_run = 0.0;
                 for (const auto& output : recipe->feeds) {
-                    const auto& run = runs[output];
+                    const auto found = runs.find(output);
+                    if (found == runs.end()) {
+                        continue;
+                    }
+                    const auto& run = found->second;
                     mean_run += run.run;
                     if (run.limited_by == recipe->commodity_id) {
                         input_shortfall_per_day += ceiling * (1.0 - run.limit);
@@ -378,9 +387,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         }
 
         // Machinery wear: independent of recipes, represents physical deterioration.
-        auto& machinery_stock = station.inventory["machinery"];
-        if (machinery_stock > 0.0) {
-            machinery_stock *= std::max(0.0, 1.0 - MACHINERY_WEAR_PER_DAY * dt_days);
+        // (A lookup, not inventory["machinery"], which gave every station a zero entry.)
+        if (const auto machinery = station.inventory.find("machinery");
+            machinery != station.inventory.end() && machinery->second > 0.0) {
+            machinery->second *= std::max(0.0, 1.0 - MACHINERY_WEAR_PER_DAY * dt_days);
         }
     }
 }
