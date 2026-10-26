@@ -1157,6 +1157,23 @@ int main() {
         }
         require(rejected, "a save of an unknown version should be rejected");
         require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
+        // A save broken in a field read late (after the simulation has started to change) is
+        // rejected too, and the game it was loaded into is restored whole.
+        {
+            auto broken = saved;
+            const auto key = broken.find("\"faction_interest_paid\"");
+            require(key != std::string::npos, "the save should have faction_interest_paid");
+            broken.replace(key, std::string("\"faction_interest_paid\"").size(), "\"faction_interest_lost\"");
+            bool late_rejected = false;
+            try {
+                resumed.load_state_json(broken);
+            } catch (const std::exception&) {
+                late_rejected = true;
+            }
+            require(late_rejected, "a save missing a late field should be rejected");
+            require(resumed.save_state_json() == straight.save_state_json(),
+                "a load rejected late should restore the game as it was");
+        }
         std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
             saved.size() / 1024, kHalfDays, kHalfDays);
 

@@ -658,6 +658,8 @@ private:
     [[nodiscard]] MissionChoice choose_mission_pass(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
         bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans, std::string& trace_text);
+    // load_state_json without the restore on failure.
+    void read_state_json(const std::string& text);
     class MissionPass;       // MissionPlanning.cpp
     class InvestmentReview;  // FleetInvestment.cpp
     // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
