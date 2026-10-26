@@ -1,7 +1,9 @@
 # Tier 3: Station Structures (concept, 2026-10-26)
 
-Status: concept only, no code. The user asked for a concept that fits the current economy where it can, and a list
-of the places where it cannot fit self-consistently. The decisions at the end are open for the user.
+Status: **shelved after the concept** (user, 2026-10-26). The structures would mean recalibrating most of the
+economy, and growth by building has no economic basis today (tensions 9 and 10). Only a read-only **light view**
+is built: see "Light view (built instead)" at the end. The concept and its tensions stay here for a later
+revisit; the decisions listed are not needed now.
 
 Tier 1 and tier 2 (ships) are in `ship_internals.md`, `ship_structures_tier2.md` and `tier2_log.md`. The sketch
 this replaces is the "Tier 3: Stations (sketch)" section of `ship_internals.md`.
@@ -363,3 +365,100 @@ Each step from 3c on is checked with `tools/benchmark.py`, 4 starts × 1,460 day
    recalibrate to physics?
 6. **Job split between lines** (tension 1): by output value (recommended), or by labour intensity?
 7. Are docks cosmetic and is one fuel good acceptable for tier 3 (tensions 7 and 8)?
+
+## Light view (built instead, 2026-10-26)
+
+A read-only "Station systems" section in the station inspector. It shows what a station is made of, derived from the
+numbers the economy already has. **The simulation does not change:** the snapshot gains fields, and a 365-day
+`--econ-audit` stays byte-identical.
+
+It is designed as the seam for the Victoria 2 style populations (roadmap "Later"). Nothing it shows should have to
+be withdrawn when populations arrive. Their model replaces the typical figures with simulated ones.
+
+### Victoria 2, and what to borrow
+
+In Victoria 2:
+- **Pops** are groups of people of one type (farmers, labourers, craftsmen, clerks, and so on), culture and
+  province. Each has a size, cash and an employer.
+- **Pops buy their needs in three tiers:** life, everyday and luxury. How well they are met drives growth,
+  promotion and migration.
+- **Workplaces have job slots by type.** Resource gatherers (farms, mines) employ farmers and labourers.
+  Factories employ craftsmen, and clerks raise their output.
+- **Wages and unemployment are per type,** and pops promote, demote and migrate toward better pay and needs.
+
+What SpaceTrains already has, in that language:
+
+| Victoria 2 | SpaceTrains today |
+|---|---|
+| a pop | one household per station (residents), plus ship crews paid to their home station, visitors, and the colonies' people (lognormal wages) |
+| pop size, cash | `population`, `household_credits` |
+| life needs | upkeep goods the residents use (food, water, oxygen, medicine): price-inelastic (−0.1) |
+| everyday needs | `consume` goods: follow wage (+1) and price (−1) |
+| luxury needs | travel (3% of wages), visits |
+| workplaces | one pool of jobs per station; every output runs on min(1, jobs ÷ workers) |
+| promotion and migration | settlers come for vacancies on their wage gain; the unemployed go home |
+
+### Pop kinds, tuned to space (proposal for the population work)
+
+- **Labourers:** miners, farm and dock hands.
+- **Technicians:** plant operators, life support, maintenance (Victoria 2's craftsmen).
+- **Engineers:** fabs, yards, reactors; they raise a works' output (Victoria 2's clerks).
+- **Scientists:** labs.
+- **Service and administration:** shops, schools, clinics, the port, governance.
+- **Spacers:** ship crews. They live aboard and are paid to their home station (already modelled).
+- **Dependants:** children and the retired. Today they are the 40% of residents outside the workforce
+  (participation 0.6).
+
+Later dimensions, not in the view:
+- **Origin:** Earth-born or station-born. Station-born people have no Earth wage to go back to, so they stay
+  longer and accept more hardship. The settler-gain formula already uses Earth's wage distribution.
+- **Wages by kind,** where today there is one wage per station.
+
+### What the view shows
+
+1. **People** (exact today):
+   - residents against housing (housing = the growth cap, `max_population_factor` × the seed);
+   - workers employed and out of work;
+   - dependants;
+   - spacers based here (the crews of ships whose home is this station);
+   - visitors, and passengers waiting.
+2. **Works:** one per output line, grouped by name (for example, farms make food and oxygen). For each works:
+   - capacity, today's output and what limits it;
+   - its inputs;
+   - its jobs.
+
+   The station's jobs are split:
+   - a services share (life support, port, administration) of 40%;
+   - the rest between the works, by output value at base price × a labour share for the works' kind.
+
+   Each works' jobs are split by kind with a **typical staffing** mix. This is a decomposition, like the
+   ship habitat split of tier 1: the kinds add up exactly to the jobs. The population work later fills these slots
+   with real pops.
+3. **Needs, in Victoria 2's tiers:**
+   - **Life needs** (food, water, oxygen, medicine): the residents' use against a reference need per person.
+     For food, water and oxygen this gives the share their own farms and recycling cover (tension 2: shown as
+     fixed, never built).
+   - **Station upkeep** (machinery, electronics, reactor consumables, fuel): availability.
+   - **Everyday goods** (`consume`): use and availability.
+4. **Site:**
+   - where the habitat is (orbit, surface, underground or aerostat; tension 5, as data only);
+   - its gravity (spin rings at 1 g in orbit, the body's surface gravity on the ground);
+   - its shielding (`station_radiation.csv`).
+5. **Storage and depot:** the warehouse fill, the fuel stock against the factory's 30-day buffer.
+
+Data: `data/stations/works.csv` (works names, kinds, labour shares and the typical staffing), and
+`data/stations/station_systems.csv` (the services share, the reference needs, the need tiers). A `site` column is
+added to `station_radiation.csv`.
+
+**Reference needs:** NASA's Baseline Values and Assumptions Document (BVAD, 2018), rounded:
+- food 0.62 kg dry per person per day;
+- oxygen 0.82 kg;
+- drinking and food water 2.5 kg (hygiene excluded).
+
+**Decisions taken without the user** (to review):
+- the 40% services share;
+- the labour shares by kind;
+- the staffing mixes;
+- the pop kind names.
+
+All are display-only.

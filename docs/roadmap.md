@@ -19,9 +19,10 @@
 ## Current Plan (updated 2026-10-26) — start here
 
 **Status.** `main` holds everything up to the 3D ship and station models at true scale (roadmap steps 5-6, merged as
-PR #22, 2026-10-23; the user approved the models on 2026-10-26). **Next: Tier 3 ship structures, stations** (step 4):
-concept and its tensions with the economy in `docs/plans/station_structures.md`, on branch
-`feature/station_structures`; awaiting the user's decisions before any code. The economy overhaul (plan
+PR #22, 2026-10-23; the user approved the models on 2026-10-26). **Tier 3 (station structures) is shelved after its concept** (user, 2026-10-26;
+`docs/plans/station_structures.md`). Instead, a read-only **station systems view** (people, works and jobs by kind,
+needs by tier, site), designed as the seam for the Victoria 2 style populations, is being built on branch
+`feature/station_structures` (same doc, "Light view"). The economy overhaul (plan
 `docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
 `docs/modules/economy.md` ("Economy overhaul")) brought:
 - real prices: Earth surface price + $100/kg launch at the Earth stations;
@@ -121,8 +122,9 @@ An 8-year run holds at 0.1% unmet.
    routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
 2. ~~**Economy overhaul merge**~~ (PR #21); its review is still open (above).
 3. (free)
-4. **Tier 3 ship structures: stations** (concept 2026-10-26: `docs/plans/station_structures.md`; the sketch in
-   `docs/plans/ship_internals.md`). Concept and tensions written, decisions open for the user, no code yet.
+4. ~~**Tier 3 ship structures: stations**~~: shelved after the concept (user, 2026-10-26); the tensions with the
+   economy are in `docs/plans/station_structures.md`. Built instead: a read-only station systems view (same doc,
+   "Light view").
 5. ~~**Better 3D ship models**~~ (user, 2026-10-20): with generic station models and the colour fix; merged
    (PR #22), approved 2026-10-26.
 6. ~~**True scale for ships and stations**~~ (2026-10-23, on `feature/ship_models_3d`): ships and stations at real
@@ -138,6 +140,20 @@ An 8-year run holds at 0.1% unmet.
    (`/code-review`, `/simplify`), delete obsolete plans, and rewrite the module docs and the plans that stay so they
    describe the current design, not the history of how we got there (decisions with their reasons may stay; the
    step-by-step narrative goes, git history keeps it).
+
+Later (user, 2026-10-26):
+- **More views in the statistics decomposition.** First, **flows of goods from station to station**: an N × N
+  table (from × to), in units or value, for one good or all, over a month, a year or since the start.
+  Recommended with it, when we get there:
+  - Earth and the colonies as rows and columns, so the gateways' surface trade shows in the same table;
+  - the same table for passengers (settlers, crew rotation, visitors) and for money between accounts (a drill-down
+    of today's 6 × 6 "who pays whom");
+  - a per-station goods balance: made, used, imported, exported, stock change;
+  - transport work per lane (tonne-days and propellant), to see which lanes are costly;
+  - the flows drawn on the map as lines between stations, thickness by flow.
+
+  It needs a delivery record (from, to, good, units, value, day), booked like the money journal and sampled into
+  its monthly history.
 
 Later (user, 2026-10-22):
 - ~~**Earth's surface economy as a market**~~, ~~**planetary background economies**~~ and ~~**station economies**~~
