@@ -462,9 +462,12 @@ void load_ship_environment(const std::filesystem::path& root, domain::UniverseDe
     if (std::filesystem::exists(stations_radiation_path)) {
         const auto rows = read_csv_rows(stations_radiation_path);
         require_header(rows.front(), {"station_id", "location_factor", "shield_g_cm2", "site", "note"}, stations_radiation_path);
+        std::unordered_set<std::string> seen_stations;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto& row = rows[i];
             require_field_count(row, 5, stations_radiation_path, i + 1);
+            require_station(universe, row[0], stations_radiation_path);
+            require_unique_id(row[0], seen_stations, stations_radiation_path, i + 1);
             if (row[3] != "orbit" && row[3] != "surface" && row[3] != "underground" && row[3] != "aerostat") {
                 throw std::runtime_error("Unknown site '" + row[3] + "' in " + stations_radiation_path.string());
             }

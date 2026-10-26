@@ -160,6 +160,11 @@ std::string number(double value) {
     return std::isfinite(value) ? std::format("{:.2f}", value) : "0";
 }
 
+// Rates and shares, with three decimals; a non-finite value is written as 0 (valid JSON).
+std::string fine(double value) {
+    return std::isfinite(value) ? std::format("{:.3f}", value) : "0";
+}
+
 // {"cat":[in,out],...} for the categories that moved.
 std::string flows_json(const CategoryFlows& flows) {
     std::string out = "{";
@@ -295,11 +300,11 @@ std::string Simulation::build_stats_json() const {
         const auto& definition = get_station_definition(station.station_id);
         const double profit = station_lifetime_profit(station);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"credits\":{},\"profit\":{},\"profit_last_year\":{},"
-            "\"red_days\":{},\"population\":{},\"workers\":{},\"jobs\":{},\"wage\":{:.3f},\"labour_market\":{},\"household_credits\":{}}}",
+            "\"red_days\":{},\"population\":{},\"workers\":{},\"jobs\":{},\"wage\":{},\"labour_market\":{},\"household_credits\":{}}}",
             s > 0 ? "," : "", json_escape(station.station_id), json_escape(definition.name), json_escape(definition.faction_id),
             number(station.credits), number(profit), number(station_profit_last_year(station)), number(station.ledger.days_in_red),
             number(station.population), number(station_workers(station)),
-            number(in_labour_market(station) ? station.jobs : station_workers(station)), station_wage_cr_per_day(station),
+            number(in_labour_market(station) ? station.jobs : station_workers(station)), fine(station_wage_cr_per_day(station)),
             in_labour_market(station) ? "true" : "false", number(station.household_credits));
     }
     out += "],";
@@ -329,15 +334,16 @@ std::string Simulation::build_stats_json() const {
         const double wage = colony_wage_median(economy);
         const auto* state = colony_state(economy.id);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"gateways\":\"{}\",\"credits\":{},\"credit_line\":{},\"people\":{},"
-            "\"wage_p10\":{:.3f},\"wage_p50\":{:.3f},\"wage_p90\":{:.3f},\"hired_up\":{},\"gone_down\":{},\"earth_investment_per_year\":{},"
-            "\"people_history\":{},\"wage_data\":{:.3f},\"satisfaction\":{:.3f},\"throttle\":{:.3f},\"income_per_year\":{},"
+            "\"wage_p10\":{},\"wage_p50\":{},\"wage_p90\":{},\"hired_up\":{},\"gone_down\":{},\"earth_investment_per_year\":{},"
+            "\"people_history\":{},\"wage_data\":{},\"satisfaction\":{},\"throttle\":{},\"income_per_year\":{},"
             "\"imports_per_year\":{}}}",
             first_colony ? "" : ",", json_escape(economy.id), json_escape(economy.name),
             json_escape(economy.gateways.empty() ? std::string() : economy.gateways.front()), number(economy_balance(economy.id)),
             number(economy_credit_line(economy.id)), number(people == background_population_.end() ? 0.0 : people->second),
-            wage * std::exp(-Z90 * economy.wage_sigma), wage, wage * std::exp(Z90 * economy.wage_sigma), number(hired_up),
-            number(gone_down), number(economy.income_cr_per_day * 365.25), numbers_json(people_series), economy.wage_median_cr_per_day,
-            state == nullptr ? 1.0 : state->satisfaction, state == nullptr ? 1.0 : state->throttle,
+            fine(wage * std::exp(-Z90 * economy.wage_sigma)), fine(wage), fine(wage * std::exp(Z90 * economy.wage_sigma)),
+            number(hired_up), number(gone_down), number(economy.income_cr_per_day * 365.25), numbers_json(people_series),
+            fine(economy.wage_median_cr_per_day), fine(state == nullptr ? 1.0 : state->satisfaction),
+            fine(state == nullptr ? 1.0 : state->throttle),
             number(state == nullptr ? 0.0 : state->income_per_day * 365.25),
             number(state == nullptr ? 0.0 : state->base_imports_per_day * 365.25));
         first_colony = false;

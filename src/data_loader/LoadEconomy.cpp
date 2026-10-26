@@ -120,6 +120,7 @@ void load_households(const std::filesystem::path& root, domain::UniverseDefiniti
                 std::stringstream stream(row[1]);
                 std::string commodity_id;
                 while (std::getline(stream, commodity_id, '|')) {
+                    require_commodity(universe, commodity_id, households_path);
                     households.colony_essentials.push_back(commodity_id);
                 }
                 continue;
@@ -139,6 +140,7 @@ void load_households(const std::filesystem::path& root, domain::UniverseDefiniti
             }
             if (row[0].starts_with("colony_stock_days.")) {
                 const auto commodity_id = row[0].substr(std::string("colony_stock_days.").size());
+                require_commodity(universe, commodity_id, households_path);
                 households.colony_stock_days_by_good[commodity_id] = value;
                 continue;
             }
