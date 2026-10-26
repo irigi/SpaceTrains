@@ -1,4 +1,5 @@
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
+#include "trajectory/OrbitMath.hpp"
 
 #include "trajectory/PathSampling.hpp"
 #include "variable_isp/GeneralTransfer.hpp"
@@ -17,8 +18,6 @@ namespace spacetrains::trajectory {
 
 namespace {
 
-constexpr double TAU = 6.28318530717958647692;
-
 // Returns angle in (-pi, pi].
 double normalize_angle(double angle_rad) {
     constexpr double PI = 3.14159265358979323846;
@@ -31,37 +30,6 @@ double normalize_angle(double angle_rad) {
     return angle_rad;
 }
 
-// Modulo that always returns a non-negative value.
-double positive_mod(double value, double modulus) {
-    if (modulus <= 0.0) {
-        return 0.0;
-    }
-    value = std::fmod(value, modulus);
-    if (value < 0.0) {
-        value += modulus;
-    }
-    return value;
-}
-
-// Heliocentric angular rate for a body: walks the parent chain until finding a
-// direct child of root_id, then returns TAU / that body's orbital period.
-// Matches the same helper in TrajectoryPlanner.cpp — needed so moon-station routes
-// use the parent planet's heliocentric rate, not the moon's shorter local rate.
-double heliocentric_orbital_rate_rad_s(
-    const domain::CelestialBodyDefinition& body,
-    const std::string& root_id,
-    const std::unordered_map<std::string, const domain::CelestialBodyDefinition*>& bodies_by_id) {
-    const domain::CelestialBodyDefinition* current = &body;
-    while (!current->orbit.parent_id.empty() && current->orbit.parent_id != root_id) {
-        const auto it = bodies_by_id.find(current->orbit.parent_id);
-        if (it == bodies_by_id.end()) {
-            break;
-        }
-        current = it->second;
-    }
-    return current->orbit.orbital_period_s > 0.0 ? TAU / current->orbit.orbital_period_s : 0.0;
-}
-
 // Canonical kappa scale factor: (1 AU)^2.5 / mu_sun^1.5
 // Precomputed constant (the atlas generator's KAPPA_SCALE_FACTOR).
 double kappa_scale_factor() {
@@ -69,15 +37,6 @@ double kappa_scale_factor() {
     const double au = VI::kAstronomicalUnitM;
     const double mu = VI::kMuSunSI;
     return std::pow(au, 2.5) / std::pow(mu, 1.5);
-}
-
-// Binary search on a sorted vector; returns the lower grid index for interpolation.
-std::size_t lower_grid_idx(const std::vector<double>& grid, double value) {
-    if (value <= grid.front()) return 0;
-    if (value >= grid.back()) return grid.size() - 2;
-    const auto upper = std::lower_bound(grid.begin(), grid.end(), value);
-    const auto idx = static_cast<std::size_t>(std::distance(grid.begin(), upper));
-    return (*upper == value) ? std::min(idx, grid.size() - 2) : idx - 1;
 }
 
 }  // namespace
@@ -238,14 +197,14 @@ domain::TrajectoryPlan VariableIspTrajectoryPlanner::plan_transfer(
 
     // Grid indices for rho — used for direct cell access in the hot loop.
     // We look at the 2×2 rho×kappa neighborhood so we stay near the right solution family.
-    const std::size_t i0 = lower_grid_idx(rho_grid, rho);
+    const std::size_t i0 = variable_isp::VariableIspAtlas::lower_cell_index(rho_grid, rho);
     const std::size_t i1 = std::min(i0 + 1, rho_grid.size() - 1);
 
     // Solved cells of the 2×2 rho×kappa neighborhood at theta index k, closest first.
     // Closeness in rho matters most: the path depends on the costates only, and
     // kappa merely decides whether the fuel suffices.
     const auto neighborhood_cells = [&](double kappa, std::size_t k) {
-        const std::size_t j0 = lower_grid_idx(kappa_grid, kappa);
+        const std::size_t j0 = variable_isp::VariableIspAtlas::lower_cell_index(kappa_grid, kappa);
         const std::size_t j1 = std::min(j0 + 1, kappa_grid.size() - 1);
         std::vector<std::pair<std::size_t, std::size_t>> cells;
         for (auto ii : {i0, i1}) {

@@ -298,7 +298,7 @@ AtlasSeed VariableIspAtlas::seed_at(std::size_t i, std::size_t j, std::size_t k)
     return seed;
 }
 
-std::size_t VariableIspAtlas::lower_cell_index(const std::vector<double>& axis, double value) const {
+std::size_t VariableIspAtlas::lower_cell_index(const std::vector<double>& axis, double value) {
     if (axis.size() < 2) {
         throw std::runtime_error("VariableISP axis must contain at least 2 entries");
     }
