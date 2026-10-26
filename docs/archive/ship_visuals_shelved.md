@@ -8,7 +8,7 @@ ship visuals proposal. Proposals A (the inspector schematic) and D (map hints) w
 
 ![](fleet_to_scale.png)
 
-(Mock-up from `tools/ship_schematic_mockup.py`.)
+(Mock-up from a one-off script, removed in the 2026-10 clean-up; git history has it.)
 
 - A panel with every hull at one scale. Each row gives Δv (laden and empty), α/κ, crew, hold, price and the
   number in service.

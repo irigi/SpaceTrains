@@ -515,10 +515,6 @@ double EconomySystem::reference_price(const domain::StationDefinition& station, 
     return curve_centre(station, commodity_id, commodity_base_price(commodity_id));
 }
 
-void EconomySystem::set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices) {
-    reference_prices_ = std::move(prices);
-}
-
 bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const {
     const auto& recipes = recipes_of(station);
     return std::any_of(recipes.begin(), recipes.end(), [&](const domain::RecipeDefinition* recipe) {
