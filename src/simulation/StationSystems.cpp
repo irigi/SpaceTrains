@@ -11,28 +11,20 @@
 
 #include "economy/EconomySystem.hpp"
 #include "simulation/Simulation.hpp"
+#include "simulation/SimulationInternal.hpp"
 
 namespace spacetrains::simulation {
+
+using namespace detail;
 
 namespace {
 
 constexpr double STANDARD_GRAVITY = 9.80665;
 
-std::string escape(const std::string& text) {
-    std::string out;
-    for (const char ch : text) {
-        if (ch == '"' || ch == '\\') {
-            out += '\\';
-        }
-        out += ch;
-    }
-    return out;
-}
-
 std::string staffing_json(const std::map<std::string, double>& staffing) {
     std::string out = "{";
     for (const auto& [kind, people] : staffing) {
-        out += std::format("{}\"{}\":{:.1f}", out.size() > 1 ? "," : "", kind, people);
+        out += std::format("{}\"{}\":{:.1f}", out.size() > 1 ? "," : "", json_escape(kind), people);
     }
     return out + "}";
 }
@@ -189,7 +181,7 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
             }
         }
     }
-    out += std::format("\"site\":\"{}\",\"gravity_g\":{:.3f},\"shield_g_cm2\":{:.0f},", escape(site), gravity_g,
+    out += std::format("\"site\":\"{}\",\"gravity_g\":{:.3f},\"shield_g_cm2\":{:.0f},", json_escape(site), gravity_g,
         site_it == universe_.station_radiation.end() ? 0.0 : site_it->second.shield_g_cm2);
     out += std::format("\"residents\":{:.0f},\"housing\":{:.0f},\"workers\":{:.0f},\"jobs\":{:.0f},\"employed\":{:.0f},"
                        "\"dependants\":{:.0f},\"spacers\":{:.0f},\"visitors\":{:.0f},\"waiting\":{:.0f},",
@@ -211,13 +203,13 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
         const auto goods = [](const std::map<std::string, double>& rates) {
             std::string list = "{";
             for (const auto& [good, rate] : rates) {
-                list += std::format("{}\"{}\":{:.3f}", list.size() > 1 ? "," : "", good, rate);
+                list += std::format("{}\"{}\":{:.3f}", list.size() > 1 ? "," : "", json_escape(good), rate);
             }
             return list + "}";
         };
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"kind\":\"{}\",\"capacity\":{},\"output\":{},\"inputs\":{},"
                            "\"jobs\":{:.1f},\"staffing\":{}}}",
-            i > 0 ? "," : "", escape(w.id), escape(w.name), escape(w.kind), goods(w.capacity), goods(w.output),
+            i > 0 ? "," : "", json_escape(w.id), json_escape(w.name), json_escape(w.kind), goods(w.capacity), goods(w.output),
             goods(w.inputs), w.jobs, staffing_json(staffing));
     }
     out += "],";
@@ -233,7 +225,7 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
     const auto add_need = [&](const std::string& commodity_id, const std::string& tier, double use) {
         const bool made_here = works_of_output.contains(commodity_id);
         out += std::format("{}{{\"good\":\"{}\",\"tier\":\"{}\",\"use_per_day\":{:.3f},\"made_here\":{}",
-            first ? "" : ",", escape(commodity_id), tier, use, made_here ? "true" : "false");
+            first ? "" : ",", json_escape(commodity_id), tier, use, made_here ? "true" : "false");
         first = false;
         if (const auto need = systems.need_kg_per_person_day.find(commodity_id); need != systems.need_kg_per_person_day.end()) {
             out += std::format(",\"need_per_day\":{:.3f}", residents * need->second / mass_per_unit(commodity_id));

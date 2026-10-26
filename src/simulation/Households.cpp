@@ -13,8 +13,11 @@
 #include <limits>
 
 #include "simulation/Simulation.hpp"
+#include "simulation/SimulationInternal.hpp"
 
 namespace spacetrains::simulation {
+
+using namespace detail;
 
 namespace {
 constexpr const char* EARTH_ECONOMY = "earth";
@@ -28,8 +31,6 @@ constexpr double SURFACE_COVER_DAYS = 30.0;
 constexpr double VACANCY_GROWTH_LIMIT = 0.05;
 // A colony fills its gateway's vacancies, and takes its unemployed, over about this many days.
 constexpr double COLONY_FILL_DAYS = 30.0;
-// What a station paid per unit is averaged over about this many days of its use (as in Simulation.cpp).
-constexpr double IMPORT_COST_DAYS = 30.0;
 
 // The journal category of a station income, by its kind in station_incomes.csv.
 MoneyCategory grant_category(const std::string& kind) {
@@ -618,21 +619,11 @@ std::string Simulation::station_economy_json(const domain::StationState& station
         return {};
     }
     const auto& definition = get_station_definition(station.station_id);
-    const auto escape = [](const std::string& text) {
-        std::string out;
-        for (const char c : text) {
-            if (c == '"' || c == '\\') {
-                out += '\\';
-            }
-            out += c;
-        }
-        return out;
-    };
     std::string incomes = "[";
     for (const auto& income : universe_.station_incomes) {
         if (income.station_id == station.station_id) {
             incomes += std::format("{}{{\"kind\":\"{}\",\"payer\":\"{}\",\"cr_per_year\":{:.0f}}}", incomes.size() > 1 ? "," : "",
-                escape(income.kind), escape(income.payer_id), income.cr_per_day * 365.25);
+                json_escape(income.kind), json_escape(income.payer_id), income.cr_per_day * 365.25);
         }
     }
     incomes += "]";
@@ -641,8 +632,8 @@ std::string Simulation::station_economy_json(const domain::StationState& station
         const auto economy = std::find_if(universe_.background_economies.begin(), universe_.background_economies.end(),
             [&](const auto& e) { return e.id == market->economy_id; });
         surface += std::format("{}{{\"economy\":\"{}\",\"good\":\"{}\",\"ask\":{:.2f},\"bid\":{:.2f},\"units_per_day\":{:.1f}}}",
-            surface.size() > 1 ? "," : "", escape(economy == universe_.background_economies.end() ? market->economy_id : economy->name),
-            escape(market->commodity_id), market->ask_cr, economy_.surface_bid(definition, market->commodity_id),
+            surface.size() > 1 ? "," : "", json_escape(economy == universe_.background_economies.end() ? market->economy_id : economy->name),
+            json_escape(market->commodity_id), market->ask_cr, economy_.surface_bid(definition, market->commodity_id),
             market->ask_cr > 0.0 ? market->sell_units_per_day : market->buy_units_per_day);
     }
     surface += "]";
@@ -734,7 +725,7 @@ std::string Simulation::background_economies_json() const {
     for (const auto& economy : universe_.background_economies) {
         const auto people = background_population_.find(economy.id);
         list += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"credits\":{:.0f},\"population\":{:.0f}}}", list.size() > 1 ? "," : "",
-            economy.id, economy.name, economy_balance(economy.id), people == background_population_.end() ? 0.0 : people->second);
+            json_escape(economy.id), json_escape(economy.name), economy_balance(economy.id), people == background_population_.end() ? 0.0 : people->second);
     }
     return std::format("\"residents_savings\":{:.0f},\"background_economies\":{}]", savings, list);
 }
