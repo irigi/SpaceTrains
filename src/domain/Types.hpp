@@ -229,6 +229,28 @@ struct ShipEnvironmentDefinition {
 struct StationRadiationDefinition {
     double location_factor {1.0};
     double shield_g_cm2 {0.0};
+    std::string site {"orbit"};   // where the habitat is: orbit, surface, underground or aerostat (display only)
+};
+
+// The station systems view (data/stations/works.csv, station_systems.csv; display only, see
+// docs/plans/station_structures.md, "Light view"). A works makes one or more of a station's
+// outputs; its jobs are its share of the station's jobs, split by kind with a typical staffing.
+struct StationWorksDefinition {
+    std::string profile_id;      // "*" for every profile without a row of its own
+    std::string commodity_id;
+    std::string works_id;
+    std::string name;
+    std::string kind;            // farm, mine, refinery, plant, fab, lab, fuel_works
+    double labour_share {1.0};   // jobs per unit of output value, relative
+    std::map<std::string, double> staffing;   // pop kind -> share of the works' jobs
+};
+
+struct StationSystemsDefinition {
+    double services_share {0.0};                       // least share of the station's jobs in life support, port, administration
+    double works_jobs_per_value {0.0};                 // works jobs per cr/day of output value x labour share
+    std::map<std::string, double> services_staffing;   // pop kind -> share
+    std::map<std::string, double> need_kg_per_person_day;
+    std::vector<std::string> life_needs;
 };
 
 // Propellant supply (data/economy/fuel_supply.csv, fuel_factories.csv). Every station has a
@@ -606,6 +628,8 @@ struct UniverseDefinition {
     LabourDefinition labour;
     std::unordered_map<std::string, SparePartDefinition> spare_parts;  // by sub-part kind
     std::unordered_map<std::string, StationRadiationDefinition> station_radiation;
+    std::vector<StationWorksDefinition> station_works;   // empty: no systems view
+    StationSystemsDefinition station_systems;
     // Module slots by hull id and slot (data/ship_classes/hull_slots.csv).
     std::unordered_map<std::string, std::unordered_map<std::string, int>> hull_slots;
     std::vector<StationDefinition> stations;

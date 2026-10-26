@@ -1,0 +1,17 @@
+profile_id,commodity_id,works_id,name,kind,labour_share,labourer,technician,engineer,scientist
+*,food,farms,Farms,farm,1.0,0.5,0.4,0.1,0
+*,oxygen,farms,Farms,farm,1.0,0.5,0.4,0.1,0
+*,medicine,pharma,Pharmaceutical plant,plant,0.5,0.1,0.5,0.3,0.1
+*,electronics,fabs,Electronics fabs,fab,0.3,0.1,0.5,0.4,0
+*,machinery,machine_shops,Machine shops,plant,0.5,0.2,0.55,0.25,0
+*,metals,smelters,Smelters,refinery,0.6,0.4,0.45,0.15,0
+*,water,ice_works,Ice works,mine,0.8,0.6,0.3,0.1,0
+*,reactor_fuel,fuel_refinery,Reactor fuel refinery,refinery,0.6,0.3,0.45,0.25,0
+*,deuterium,deuterium_plant,Deuterium separation,plant,0.5,0.2,0.55,0.25,0
+*,science_samples,labs,Laboratories,lab,1.5,0,0.3,0.2,0.5
+*,microgravity_products,microgravity_fabs,Microgravity fabs,fab,0.3,0.1,0.5,0.4,0
+*,fuel,propellant_works,Propellant works,fuel_works,0.3,0.2,0.6,0.2,0
+chem_hub,oxygen,air_plant,Atmosphere processing,plant,0.3,0.2,0.6,0.2,0
+chem_hub,food,bioreactors,Bioreactors,plant,0.5,0.2,0.6,0.2,0
+chem_hub,medicine,bioreactors,Bioreactors,plant,0.5,0.2,0.6,0.2,0
+extractor_hub,metals,ore_mine,Ore mine and smelter,mine,0.8,0.55,0.35,0.1,0

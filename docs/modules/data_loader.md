@@ -41,6 +41,9 @@ CSV files -> DataLoader -> UniverseDefinition -> Simulation
 - Every station references an existing body and faction.
 - Every ship seed references an existing station, faction, and ship class.
 - Every recipe references a known economy profile and commodity.
+- `stations/works.csv` and `stations/station_systems.csv` (optional) feed the station systems view only; every
+  works' staffing must sum to 1. `economy/station_radiation.csv` has a `site` column (orbit, surface,
+  underground, aerostat).
 - Every ship class has its parts in `ship_classes/ship_components.csv`; top-level parts add up to the class's dry
   mass and value (within 1 kg and 1 cr), habitat parts to the habitat. The file is written by
   `build_ship_classes.py`, never by hand (the `ship_class_builder` test checks it).

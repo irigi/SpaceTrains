@@ -210,5 +210,5 @@ reusable chemical ascent?).
 
 - Sizes and characters of the four economies, and whether Venus or Titan get one.
 - The price-scale decision in step 0.
-- Whether the user wants occupations here or waits for the population-composition work (EU2-style). Recommendation:
+- Whether the user wants occupations here or waits for the population-composition work (in the style of Victoria 2). Recommendation:
   build the occupation list here, small, so that work extends it.

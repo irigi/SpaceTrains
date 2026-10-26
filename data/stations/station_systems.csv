@@ -1,0 +1,12 @@
+key,value
+services_share,0.4
+works_jobs_per_value,2.0
+services.labourer,0.2
+services.technician,0.3
+services.engineer,0.1
+services.scientist,0
+services.service,0.4
+need_kg_per_person_day.food,0.62
+need_kg_per_person_day.oxygen,0.82
+need_kg_per_person_day.water,2.5
+life_needs,food|water|oxygen|medicine

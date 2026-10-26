@@ -16,11 +16,14 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-23) — start here
+## Current Plan (updated 2026-10-26) — start here
 
-**Status.** `main` holds everything up to the economy overhaul (merged as PR #21, 2026-10-23). **Better 3D ship
-models** (roadmap step 5) are on branch `feature/ship_models_3d` (2026-10-23, not merged; see "Ship and station
-models" below). The economy overhaul (plan
+**Status.** `main` holds everything up to the 3D ship and station models at true scale (roadmap steps 5-6, merged as
+PR #22, 2026-10-23; the user approved the models on 2026-10-26). **Tier 3 (station structures) is shelved after its concept** (user, 2026-10-26;
+`docs/plans/station_structures.md`). Instead, a read-only **station systems view** (people, works and jobs by kind,
+needs by tier, site), designed as the seam for the Victoria 2 style populations, is built on branch
+`feature/station_structures` (2026-10-26, not merged; same doc, "Light view"). The display-only defaults
+(services share, labour shares, staffing mixes, pop kind names) await the user's review. The economy overhaul (plan
 `docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
 `docs/modules/economy.md` ("Economy overhaul")) brought:
 - real prices: Earth surface price + $100/kg launch at the Earth stations;
@@ -42,7 +45,7 @@ Benchmark, 4 starts × 1,460 days (2026-10-23):
 
 An 8-year run holds at 0.1% unmet.
 
-**Ship and station models** (branch `feature/ship_models_3d`, `docs/modules/ui_observer.md`):
+**Ship and station models** (merged as PR #22; `docs/modules/ui_observer.md`):
 - Map ships are built from their design's components with the schematic's layout, in metres. A coarse model shows
   at mid zoom; a detailed one (built in the background) shows close up, with live radiators, plume and cargo.
 - Generic stations with rings, berths and a flavour per economy profile; docked ships sit at the berths.
@@ -50,23 +53,12 @@ An 8-year run holds at 0.1% unmet.
   fill light keeps night sides readable.
 - Frame time at overview is unchanged against `main`; station close-ups run at 56-60 fps.
 - The station snapshot gained `economy_profile_id`.
-- **For the user to review:**
-  - the look (gallery: `scripts/ModelGallery.gd`);
-  - the size: ~4,500x real, stations compressed to 44-72 m ring radius;
-  - the Low Earth and Lunar Gateway stations, drawn smaller than the ships' scale so they stay above their planet.
-- Then merge.
+- True scale (step 6): ships and stations at real size, habitat rings sized by population (Stanford torus).
+- Reviewed and approved by the user (2026-10-26).
 
 **Open for the user:**
-- **Review the economy overhaul** (merged; the log's decisions were all taken overnight without the user). The main
-  calls:
-  - goods repriced to Earth's real prices plus launch (bulk goods 3-7× cheaper, platinum 12× cheaper);
-  - Earth buys only space-sourced goods;
-  - station incomes sized from the stations' trade deficits;
-  - purchase valuations capped at the landed cost; carrier margin 1.5;
-  - the money-supply controller off, a 750k credit ceiling, factions covering stations in the red within
-    2 days;
-  - a 3% travel budget (passengers ~5,000 in 4 years, down from ~16,000);
-  - Titan makes its own machinery.
+- ~~**Review the economy overhaul**~~: resolved (user, 2026-10-26: the decisions look right). They are listed in
+  `docs/plans/economy_overhaul_log.md`.
 - **Economy statistics** (built 2026-10-23 on the same branch): a money journal books every transfer by account
   and category, keeps a monthly history and is saved with the game (save version 19). It gives the
   `--econ-audit` Accounts tables, `--stats-json`, and the in-game Statistics screen (S): overview and who pays
@@ -121,16 +113,18 @@ An 8-year run holds at 0.1% unmet.
 
 1. ~~**Merge passengers**~~, ~~**passenger routes**~~, ~~**Mercury passengers**~~: done (PRs #18-20); the
    routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
-2. ~~**Economy overhaul merge**~~ (PR #21); its review is still open (above).
+2. ~~**Economy overhaul merge**~~ (PR #21); reviewed and approved by the user (2026-10-26).
 3. (free)
-4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
-5. ~~**Better 3D ship models**~~ (user, 2026-10-20): built on `feature/ship_models_3d` (above), with generic
-   station models and the colour fix; awaiting review and merge.
+4. ~~**Tier 3 ship structures: stations**~~: shelved after the concept (user, 2026-10-26); the tensions with the
+   economy are in `docs/plans/station_structures.md`. Built instead: a read-only station systems view (same doc,
+   "Light view").
+5. ~~**Better 3D ship models**~~ (user, 2026-10-20): with generic station models and the colour fix; merged
+   (PR #22), approved 2026-10-26.
 6. ~~**True scale for ships and stations**~~ (2026-10-23, on `feature/ship_models_3d`): ships and stations at real
    size (`Main.MODEL_SIZE_EXAGGERATION` = 1, `--model-scale=N` to change), Stanford-torus habitat rings by
    population, a ship-sized docking core, sticky berths with a blend into them, model-aware picking, near plane and
-   zoom limits for metre scale. Also fixed: the bridge never ticked at the slowest timewarp (600x). Awaiting review
-   with step 5.
+   zoom limits for metre scale. Also fixed: the bridge never ticked at the slowest timewarp (600x). Merged with
+   step 5.
 7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.
@@ -140,13 +134,37 @@ An 8-year run holds at 0.1% unmet.
    describe the current design, not the history of how we got there (decisions with their reasons may stay; the
    step-by-step narrative goes, git history keeps it).
 
+9. **Deployment on Linux and Windows 11** (user, 2026-10-26): one robust way to install and run SpaceTrains on
+   both systems, as an installer or a documented process. Today it needs a Godot built from source with double
+   precision (`precision=double`) plus our CMake build of the bridge, and compiling during installation is not
+   practical. Likely shape: build once per platform and ship the binaries (a double-precision Godot export
+   template, the exported game, `spacetrains_bridge` and the data with the atlas), e.g. from CI or a build machine;
+   then an installer or archive per platform (Windows: Inno Setup / NSIS or a zip; Linux: AppImage or tarball).
+   Points to check: how the game finds the bridge and data when installed, writable paths for saves and the
+   snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
+   The user can run Claude on a Windows machine to build and test there.
+
+Later (user, 2026-10-26):
+- **More views in the statistics decomposition.** First, **flows of goods from station to station**: an N × N
+  table (from × to), in units or value, for one good or all, over a month, a year or since the start.
+  Recommended with it, when we get there:
+  - Earth and the colonies as rows and columns, so the gateways' surface trade shows in the same table;
+  - the same table for passengers (settlers, crew rotation, visitors) and for money between accounts (a drill-down
+    of today's 6 × 6 "who pays whom");
+  - a per-station goods balance: made, used, imported, exported, stock change;
+  - transport work per lane (tonne-days and propellant), to see which lanes are costly;
+  - the flows drawn on the map as lines between stations, thickness by flow.
+
+  It needs a delivery record (from, to, good, units, value, day), booked like the money journal and sampled into
+  its monthly history.
+
 Later (user, 2026-10-22):
 - ~~**Earth's surface economy as a market**~~, ~~**planetary background economies**~~ and ~~**station economies**~~
   (`background_economies.md`, `economy_points_7_10.md`): built as the economy overhaul (2026-10-23, above),
   except industries as accounts of their own and supply following price (built, off). The passenger points were
   revisited (`passenger_routes.md`, "Re-evaluated after the economy overhaul").
-- **Population composition in the style of Europa Universalis 2:** stations and ships hold people of different
-  kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from EU2). To be designed
+- **Population composition in the style of Victoria 2:** stations and ships hold people of different
+  kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from Victoria 2). To be designed
   in detail together when we get there; the user wants help with the concept.
 
 Deferred (user, 2026-10-08):

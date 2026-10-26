@@ -614,6 +614,9 @@ private:
     [[nodiscard]] std::string station_passengers_json(const domain::StationState& station) const;
     // Economy overhaul bridge fields (households on): residents, wages, incomes, surface trade.
     [[nodiscard]] std::string station_economy_json(const domain::StationState& station) const;
+    // The station systems view (display only, StationSystems.cpp): "systems":{...}, or "" without data.
+    [[nodiscard]] std::string station_systems_json(const domain::StationDefinition& station,
+        const domain::StationState& state) const;
     // The background economies' accounts and people, and residents' savings (bridge "economy").
     [[nodiscard]] std::string background_economies_json() const;
     void step_passengers(double dt_s);
