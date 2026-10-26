@@ -108,7 +108,11 @@ void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& m
 
 double Simulation::station_r_au(const domain::StationDefinition& station, double time_s) const {
     // Asked many times per tick at the same few times (now, a bucket start): remember the
-    // last answer per station. Simulation thread only; a pure cache.
+    // last answer per station. A pure cache for the simulation thread; parallel work (the
+    // reference prices and fares) computes it directly.
+    if (util::ThreadPool::in_parallel_for()) {
+        return mechanics_.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11;
+    }
     auto& slot = station_radius_cache_[station.id];
     if (slot.first != time_s || slot.second <= 0.0) {
         slot = {time_s, mechanics_.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11};
