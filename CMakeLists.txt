@@ -16,6 +16,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
+    src/data_loader/Csv.cpp
+    src/data_loader/LoadShips.cpp
+    src/data_loader/LoadEconomy.cpp
+    src/data_loader/LoadPassengers.cpp
     src/domain/ShipDesign.cpp
     src/celestial/CelestialMechanics.cpp
     src/trajectory/ChaseSolver.cpp
