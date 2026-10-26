@@ -90,3 +90,36 @@ result change), **perf** (same results, faster), **refactor** (same results, cle
 - `domain/Types.hpp` (1,088 lines) is included by everything, so any change rebuilds the whole project.
 - The bridge protocol is files on disk (snapshot, paths, designs, stats, command); the review's P3, P4, P6, G4 and
   G6 are all about that protocol. It is the same seam the deployment step (9) has to make robust on Windows.
+
+## Status (2026-10-26, end of steps 1-4)
+
+Every commit below kept results byte-identical (saves at day 60 and 730, save/load continuation, econ audit,
+bridge snapshot, paths, designs and stats JSON, reference prices and fares), unless marked.
+
+**Restructured:** `Simulation.cpp` split by topic (Market, ShipOperations, MissionPlanning, ShipPhases, Contracts,
+FleetInvestment, Snapshot; shared helpers in `SimulationInternal.hpp`); dispatch as `Simulation::MissionPass`
+and fleet investment as `Simulation::InvestmentReview` (named steps instead of 1,060- and 680-line lambdas); data
+loader one function per file (`Csv.cpp`, `LoadShips/LoadEconomy/LoadPassengers.cpp`); headless reports in
+`app/Reports.cpp` and `app/TrajectoryReports.cpp`; `domain/Types.hpp` split into Definitions, State and
+TrajectoryPlan; shared orbit helpers (`trajectory/OrbitMath.hpp`); `Main.gd` lost its map icons (`MapIcons.gd`)
+and economy history (`EconomyHistory.gd`).
+
+**Fixed (no result change):** S1, S5, S6, S7, S8, S10, E2, E3, E6, E9, P1-P10, G1-G10. Plus: zero build warnings
+on every target (warnings now also on the executables and tests), a 365-day run 14% faster (S9, P7).
+
+**Not done, on purpose:** E8 (a linear search over ~20 stations per tick: too small to matter); E10 (cosmetic);
+`Main.gd` kept its rails, trails and bridge I/O (tightly bound to its state; further splits would be risk for
+little gain).
+
+**Open, for the user (a fix changes results or saved values):**
+- **S3** follow-up legs cached per destination only: lighter loads reuse the full load's follow-ups. Fix changes
+  dispatch.
+- **S4** inbound decay in order quotes and route valuation ignores cold holds. Only matters with `cold_storage` on
+  (on in the data?), changes prices.
+- **E1** `solve_min_time` may return a transfer shorter than its lower bound; the VariableISP planner's direct
+  fallback uses it. Fix changes some plasma plans.
+- **E4** phantom `output_factor` entries for goods a station does not make (display and audit only).
+- **E5** every station's inventory gets a zero `machinery` key (save content only).
+- **S2** a station's lifetime profit values its starting stock at today's (population-scaled) rates, so the
+  reported profit drifts; fixing it means storing the starting stock value (save format).
+- **E7** the planet-system phase scan is recomputed on every plan (a cache would be faster, same results).
