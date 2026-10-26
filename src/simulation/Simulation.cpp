@@ -34,6 +34,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
         stations_.push_back({.station_id = station.id, .inventory = starting_inventory(station), .credits = station.initial_credits, .ledger = {}});
+        starting_inventories_[station.id] = stations_.back().inventory;
         stations_.back().population = static_cast<double>(station.population);
         stations_.back().population_announced = stations_.back().population;
     }

@@ -611,7 +611,7 @@ double Simulation::station_lifetime_profit(const domain::StationState& station) 
         return value;
     };
     return station.credits - definition.initial_credits + station.ledger.taxes - station.ledger.subsidies
-        + stock_value(station.inventory) - stock_value(starting_inventory(definition));
+        + stock_value(station.inventory) - stock_value(starting_inventories_.at(station.station_id));
 }
 
 std::string Simulation::station_economy_json(const domain::StationState& station) const {

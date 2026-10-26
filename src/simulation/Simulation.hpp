@@ -804,6 +804,10 @@ private:
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;
     std::vector<domain::EventEntry> recent_events_;
+    // Each station's stock at the start (from the data, so a loaded game rebuilds the same):
+    // lifetime profit counts the stock's value gain against it. (Recomputed from today's rates
+    // it grew with the population, and the reported profit drifted.)
+    std::unordered_map<std::string, domain::Inventory> starting_inventories_;
     std::vector<domain::TradeEntry> recent_trades_;
     double delivered_paid_cr_ {0.0};       // audit only, not saved
     RadiationAudit radiation_audit_;       // audit only, not saved
