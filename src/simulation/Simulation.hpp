@@ -658,6 +658,7 @@ private:
     [[nodiscard]] MissionChoice choose_mission_pass(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
         bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans, std::string& trace_text);
+    class MissionPass;  // MissionPlanning.cpp
     // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
     struct DeferredPlan {
         std::function<domain::TrajectoryPlan()> compute;
