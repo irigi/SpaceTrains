@@ -177,7 +177,7 @@ std::string Simulation::build_bridge_paths_json() const {
     return output.str();
 }
 
-// Live state of a ship's systems for the inspector (tier 1 of docs/plans/ship_internals.md):
+// Live state of a ship's systems for the inspector (docs/modules/ships_and_fleet.md):
 // whether the engine runs, and how hot the drive radiators are. Nuclear-thermal burns are
 // impulsive in the planners; for display each burn lasts its share of the mission's
 // propellant (half each) at the engine's mass flow. Variable-Isp ships thrust the whole way.

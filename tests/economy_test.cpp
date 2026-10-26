@@ -501,7 +501,7 @@ int main() {
     }
 
     {
-        // --- Economy overhaul (docs/plans/economy_overhaul.md): the game's own data. ---
+        // --- Economy overhaul (docs/modules/economy.md): the game's own data. ---
         const auto full = loader.load_universe("data");
         require(full.households.enabled != 0.0 && full.labour_market.enabled != 0.0,
             "the data should switch households and the labour market on");

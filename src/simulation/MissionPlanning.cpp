@@ -321,7 +321,7 @@ private:
     std::vector<Offer> offers = origin_offers();
     // Propellant bought for the mission is paid at this port's price.
     const double marginal_fuel_price_per_kg = (origin_fuel_price + origin_fuel_premium) / FUEL_UNITS_TO_KG;
-    // Passengers (docs/plans/passengers.md) ride in berths, not the hold; they board here if a
+    // Passengers (docs/modules/ships_and_fleet.md) ride in berths, not the hold; they board here if a
     // trip to their destination costs them less than they will pay.
     const double berths = cargo_only ? 0.0 : ship_class.berths;
     const bool passengers_waiting = berths >= 1.0 && !origin_state.waiting.empty();

@@ -42,7 +42,7 @@ public:
     [[nodiscard]] double storage_used_units(const domain::Inventory& inventory) const;
     [[nodiscard]] double storage_used_units(const domain::StationDefinition& station, const domain::Inventory& inventory) const;
 
-    // Background economies (docs/plans/economy_overhaul.md): what one sells or buys at this
+    // Background economies (docs/modules/economy.md): what one sells or buys at this
     // gateway (nullptr: none). A surface market that sells in any amount keeps the station's
     // stock at surface_depth_units, priced at its ask.
     [[nodiscard]] const domain::SurfaceMarketDefinition* surface_market(

@@ -1,4 +1,4 @@
-// Households and background economies (docs/plans/economy_overhaul.md).
+// Households and background economies (docs/modules/economy.md).
 //
 // Residents are an account of their own: their station pays them wages, they pay for the goods
 // they use up (settle_local_economy) and spend the rest of their income at the station, keeping

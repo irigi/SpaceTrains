@@ -151,7 +151,7 @@ int main() {
             "bigger tanks should weigh and cost more, smaller ones less");
     }
 
-    // Ship components (tier 1 of docs/plans/ship_internals.md): every class lists its parts,
+    // Ship components (docs/modules/ships_and_fleet.md): every class lists its parts,
     // they add up to the class, plasma ships carry hot radiators and thermal ships none.
     for (const auto& ship_class : universe.ship_classes) {
         double mass = 0.0;
@@ -1241,7 +1241,7 @@ int main() {
             }
         }
         {
-            // Passengers (docs/plans/passengers.md). Off: no liner classes, no queues.
+            // Passengers (docs/modules/ships_and_fleet.md). Off: no liner classes, no queues.
             auto off = spacetrains::simulation::Simulation::from_data_root(passengers_off_data(repo_root));
             for (const auto& c : off.universe().ship_classes) {
                 require(c.berths == 0.0, "without passengers no class should have berths");

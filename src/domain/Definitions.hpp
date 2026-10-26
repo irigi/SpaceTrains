@@ -86,7 +86,7 @@ struct ShipClassDefinition {
     // Operating economics:
     double ship_value_cr {0.0};   // capital tied up in the ship (amortised + interest)
     double crew_size {0.0};
-    // Passenger berths (docs/plans/passengers.md): built-in cabins of a liner class, plus a fitted
+    // Passenger berths (docs/modules/ships_and_fleet.md): built-in cabins of a liner class, plus a fitted
     // cabin module's `berths` effect on a design. Liner classes load only when passengers are on.
     double berths {0.0};
     // Classes with the same hull differ only in their tanks; ships refit between them
@@ -101,7 +101,7 @@ struct ShipClassDefinition {
 };
 
 // A module a hull can fit at its home yard (data/ship_classes/modules.csv, written by
-// build_ship_classes.py; tier 2, docs/plans/ship_structures_tier2.md). Its part joins the
+// build_ship_classes.py; tier 2, docs/modules/ships_and_fleet.md). Its part joins the
 // design's components; its effects (key=value) act through the quantities they name.
 struct ShipModuleDefinition {
     std::string hull_id;
@@ -352,7 +352,7 @@ struct PricingDefinition {
     std::unordered_map<std::string, std::unordered_map<std::string, double>> round_trip_days;
 };
 
-// Station purchase orders (step 29, docs/plans/station_orders.md; data/economy/orders.csv).
+// Station purchase orders (step 29, docs/modules/economy.md; data/economy/orders.csv).
 struct OrdersDefinition {
     double safety_factor {1.5};        // k: the safety stock is k x the spread of a delivery cycle
     double ema_deliveries {4.0};       // the observed lead, interval and spread average over this many deliveries
@@ -366,7 +366,7 @@ struct OrdersDefinition {
     double input_cap {12.0};           // x reference: an input's bid goes at most this high (its ceiling V permitting)
 };
 
-// Passengers (docs/plans/passengers.md; data/economy/passengers.csv, every key optional). Off by
+// Passengers (docs/modules/ships_and_fleet.md; data/economy/passengers.csv, every key optional). Off by
 // default: the economy without passengers, liner classes not loaded, growth by formula.
 struct PassengerDefinition {
     double enabled {0.0};                       // master switch
@@ -426,7 +426,7 @@ struct PassengerDefinition {
     std::map<std::string, std::map<std::string, ReferenceFare>> reference_fares;
 };
 
-// Market redesign (2026-10-19, docs/plans/market_redesign.md): optional keys in
+// Market redesign (2026-10-19, docs/modules/economy.md): optional keys in
 // data/economy/market.csv. These defaults are the economy before the redesign (all off); the game's
 // data turns competitive pricing and rotation contracts on.
 struct MarketDefinition {
@@ -501,7 +501,7 @@ struct ExportMarketDefinition {
     double units_per_day {0.0};
 };
 
-// Background economies (docs/plans/economy_overhaul.md): Earth's surface and a few small
+// Background economies (docs/modules/economy.md): Earth's surface and a few small
 // colonies the game does not simulate in detail (data/economy/background_economies.csv). Each
 // has an account and trades with its gateway stations at its surface price plus launch (it
 // sells) or minus landing (it buys); Earth is the old outside account.
@@ -551,7 +551,7 @@ struct StationIncomeDefinition {
     bool need_based {false};
 };
 
-// Residents as an account of their own (docs/plans/economy_overhaul.md): the station pays
+// Residents as an account of their own (docs/modules/economy.md): the station pays
 // them wages; they pay for what they use up and spend the rest at the station, keeping a
 // buffer of savings (data/economy/households.csv).
 struct HouseholdDefinition {
@@ -588,7 +588,7 @@ struct HouseholdDefinition {
     std::vector<std::string> colony_essentials;  // goods a short colony keeps buying first (food, medicine)
 };
 
-// Labour market (docs/plans/economy_overhaul.md, phase B; data/economy/labour_market.csv).
+// Labour market (docs/modules/economy.md, phase B; data/economy/labour_market.csv).
 // Every station off Earth has jobs and a wage per worker; wages follow vacancies; people move
 // for the gain a job brings them, and pay their passage out of that gain. Wages and incomes are
 // lognormal distributions, so a low-paid worker on Earth may gain from a job a well-paid one

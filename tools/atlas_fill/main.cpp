@@ -25,7 +25,7 @@
 // i.e. 14 new levels (κ down to 0.0032; 99% of the planner's below-grid requests, mostly
 // departures from Mercury, whose κ scales by 0.387^2.5) with the old cells untouched. Filling
 // the old grid's holes as well found 12% more cells but cost the planner ~12% more time per
-// simulated day for little economy gain (docs/plans/visp_general_solver_log.md).
+// simulated day for little economy gain (docs/modules/trajectory.md).
 #include <algorithm>
 #include <atomic>
 #include <chrono>

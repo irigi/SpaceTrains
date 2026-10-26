@@ -560,7 +560,7 @@ private:
         units_per_day = delivered / window_days;
         return margin / window_days;
     }
-    // Passengers (docs/plans/passengers.md): a shuttle between the yard and a station, full berths
+    // Passengers (docs/modules/ships_and_fleet.md): a shuttle between the yard and a station, full berths
     // at most each way, carrying the open part of the travellers' flow (what ships committed to
     // the route already carry is taken), at the reference fare adjusted for this ship's days.
     double sustained_passenger_profit_per_day(const domain::ShipClassDefinition& ship_class,

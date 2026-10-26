@@ -142,7 +142,7 @@ struct ShipContract {
     double cycle_days {0.0};
 };
 
-// Passengers (docs/plans/passengers.md). Why a person travels decides who pays and what
+// Passengers (docs/modules/ships_and_fleet.md). Why a person travels decides who pays and what
 // happens on arrival.
 enum class PassengerKind {
     Migrant,       // settler from Earth: joins the destination's population (pays from the outside account)
@@ -185,7 +185,7 @@ struct ShipState {
     std::string name;
     std::string faction_id;
     std::string class_id;
-    // Modules fitted at the home yard (tier 2, docs/plans/ship_structures_tier2.md). The
+    // Modules fitted at the home yard (tier 2, docs/modules/ships_and_fleet.md). The
     // ship flies the design class_id + fit (Simulation::ship_design).
     std::vector<std::string> fit;
     std::string home_station_id;

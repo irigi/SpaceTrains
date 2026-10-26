@@ -111,15 +111,23 @@ on every target (warnings now also on the executables and tests), a 365-day run 
 `Main.gd` kept its rails, trails and bridge I/O (tightly bound to its state; further splits would be risk for
 little gain).
 
-**Open, for the user (a fix changes results or saved values):**
-- **S3** follow-up legs cached per destination only: lighter loads reuse the full load's follow-ups. Fix changes
-  dispatch.
-- **S4** inbound decay in order quotes and route valuation ignores cold holds. `cold_storage` is on in the data, so
-  a fix changes prices.
-- **E1** `solve_min_time` may return a transfer shorter than its lower bound; the VariableISP planner's direct
-  fallback uses it. Fix changes some plasma plans.
-- **E4** phantom `output_factor` entries for goods a station does not make (display and audit only).
-- **E5** every station's inventory gets a zero `machinery` key (save content only).
-- **S2** a station's lifetime profit values its starting stock at today's (population-scaled) rates, so the
-  reported profit drifts; fixing it means storing the starting stock value (save format).
-- **E7** the planet-system phase scan is recomputed on every plan (a cache would be faster, same results).
+**Fixes that change results** (user: make all of them, 2026-10-26), 4 starts × 1,460 days:
+
+| | Baseline | + S3 follow-ups | + S4 cold holds |
+|---|---|---|---|
+| Unmet | 0.2 ± 0.2% | 0.3 ± 0.4% | 0.3 ± 0.4% |
+| Last fifth | 0.0% | 0.0% | 0.0% |
+| Price ÷ reference | 1.8 | 1.8 | 1.9 |
+| Profitable ships | 87 of 131 | 92 of 132 | 88.5 of 131 |
+| Money % | 55 | 49 | 53 |
+| Emergencies | 0.0 | 0.5 | 0.8 |
+| Boarded | 4,472 | 4,679 | 4,793 |
+| Run, s | 152 | 198 | 198 |
+
+- **S3** keeps supply, and more ships pay (+5), but costs ~30% run time over 4 years (+4% over 2 years; the slowest
+  20-day stretch over 730 days 6.9 → 6.2 days/s, still above 5). The extra follow-up plans are the price of
+  scoring each load on its own arrival.
+- **S4** is neutral within noise.
+- **E1** (min-time lower bound), **E4/E5** (no phantom or zero entries) leave the game identical over 730 days;
+  **S2** changes only the reported station profit and its saved samples.
+- Not done: **E7** (the phase scan is ~0.1 ms of the Kepler plan; not worth a cache).

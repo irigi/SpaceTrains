@@ -1,166 +1,82 @@
 # SpaceTrains Architecture Overview
 
-## Project Intent
+## What it is
 
-SpaceTrains is a self-playing logistics simulation set in the Solar System, with a planned path toward custom star systems, richer faction behavior, realistic fuel-constrained ship operations, patched-conics travel, and later VariableISP transfer planning. The project uses:
+A self-playing logistics simulation of the Solar System: stations make and use goods, residents earn and spend,
+autonomous ships plan physically real transfers (Kepler arcs for nuclear-thermal ships, constant-power variable-Isp
+trajectories for plasma ships), fuel and money matter, and factions buy and sell ships. The player watches, with
+time controls, inspectors, statistics and save/load. The game is planar by design.
 
-- a **C++20 simulation core** for deterministic gameplay state and orbital/economic logic
-- **Godot 4** as the presentation, input, and observer UI layer
-- external **data files** for Solar System content, stations, factions, ship classes, and economy definitions
+- a **C++20 simulation core**, deterministic and authoritative;
+- **Godot 4** (built with double precision) as the observer UI;
+- **data files** (`data/`, CSV) for bodies, stations, goods, recipes, ships and every economy setting.
 
-The first playable target is an **observer sandbox**: the player watches stations produce and consume goods, ships autonomously plan missions, fuel levels matter, and the UI exposes time controls, selection, and debugging tools.
-
----
-
-## Layered Architecture
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                          GODOT LAYER                              │
-│  map view │ camera │ selection UI │ event log │ time controls     │
-│  bridge-backed observer scene                                     │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │ reads snapshots, sends commands
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                        BRIDGE / QUERY LAYER                       │
-│  SimulationBridge │ read-only queries │ command surface           │
-│  converts C++ state to Godot-friendly data                        │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │ owns / drives
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                        SIMULATION CORE (C++)                      │
-│  simulation │ trajectory │ celestial │ economy │ data_loader      │
-│  deterministic state, ticking, missions, fuel, inventories        │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-### Design rules
-
-- The simulation core is authoritative. Godot does not own gameplay state.
-- Content is data-driven from the start. The Solar System is seeded content, not hardcoded behavior.
-- Trajectory planning is abstracted behind interfaces so Kepler and VariableISP planners can coexist later.
-- The initial game is mission-level and economy-level, not local rigid-body ship control.
-
----
-
-## Core Modules
-
-### `data_loader`
-- Loads bodies, factions, commodities, ship classes, stations, recipes, and ship seeds from external files.
-- Produces `UniverseDefinition`, the static input for a simulation run.
-
-### `celestial`
-- Stores body lookup and simple orbital propagation for bodies and station anchors.
-- Provides spatial queries required by planners and renderers.
-
-### `trajectory`
-- Defines the stable planner interface (`ITrajectoryPlanner`).
-- `KeplerTrajectoryPlanner`: local same-parent transfers and launch-windowed Hohmann interplanetary transfers.
-- `VariableIspTrajectoryPlanner`: constant-power optimal trajectories backed by the precomputed atlas. Searches the theta grid for the launch window minimizing total trip time. Uses similarity scaling to handle any heliocentric origin radius.
-- `TrajectoryPlan::sampled_path` plus timed samples are authoritative for ship motion and selected trajectory rendering.
-- The simulation dispatches to the appropriate planner based on each ship class's `propulsion_type`.
-
-### `economy`
-- Applies production and consumption rules to station inventories over time.
-- Supplies the simulation with shortage/surplus information used for mission generation.
-
-### `simulation`
-- Owns the runtime world state: current time, station inventories, ship state, active missions, and event history.
-- Advances the simulation, dispatches missions, applies refueling, and exposes read-only snapshots.
-
-### `bridge`
-- Runs the C++ simulation as a file-backed bridge for Godot.
-- Emits body, station, ship, event, timing, and active mission trajectory snapshots.
-- Accepts narrow pause/timewarp commands from Godot.
-
-### `ui_observer`
-- Godot-side presentation layer for camera, map rendering, selection, time controls, and debug overlays.
-- Must remain presentation-only.
-
----
-
-## Key Runtime Types
-
-### `UniverseDefinition`
-- Static loaded content for a scenario.
-- Contains bodies, stations, factions, ship classes, commodities, recipes, and initial ship seeds.
-
-### `SimulationSnapshot`
-- Read-only runtime state for presentation and debugging.
-- Contains sim time, station states, ship states, and recent events.
-
-### `ITrajectoryPlanner`
-- Stable interface for ship transfer planning.
-- Must return enough information for feasibility checks, fuel budgeting, ETA, and rendering samples.
-
-### `MissionAssignment`
-- Runtime mission contract between the simulation and a ship.
-- Contains origin, destination, cargo, wait/coast timing, remaining travel time, fuel cost, and the sampled path copied from the selected `TrajectoryPlan`.
-
----
-
-## Data Flow
-
-### Startup
+## Layers
 
 ```
-external data files
-    ↓
-data_loader.load_universe()
-    ↓
-UniverseDefinition
-    ↓
-Simulation.initialize(...)
+Godot (godot/)            map, models, panels, statistics, time controls      reads files, writes commands
+        │  snapshot + paths + designs + stats files  /  command file
+Bridge (src/bridge)       runs the Simulation in real time × timewarp, writes the files, applies commands
+        │
+Core (src/)               simulation · economy · trajectory · variable_isp · celestial · data_loader ·
+                          persistence · domain · util
 ```
 
-### Simulation tick
+Rules:
+- The core is authoritative; Godot never owns gameplay state and the bridge adds no rules.
+- Content is data: the Solar System, stations and ships are seeded content, not code.
+- Planners sit behind `ITrajectoryPlanner`, chosen by a ship class's `propulsion_type`.
+- Determinism: the same data and start give byte-identical results, whatever the thread count, and a saved,
+  loaded and continued game equals one that never stopped.
+
+## Modules
+
+| Module | Docs | What |
+|---|---|---|
+| `domain` | — | types: `Definitions.hpp` (the loaded universe), `State.hpp` (the running game, snapshots), `TrajectoryPlan.hpp`; `ShipDesign` (designs from parts) |
+| `data_loader` | `modules/data_loader.md` | CSV → `UniverseDefinition`, with checks |
+| `celestial` | `modules/celestial.md` | body and station positions over time |
+| `trajectory` | `modules/trajectory.md` | Kepler and VariableISP planners, path sampling, audit, chase solver |
+| `variable_isp` | `modules/trajectory.md` | the atlas, the integrator and the general-boundary solver |
+| `economy` | `modules/economy.md` | production, price curves, surface markets |
+| `simulation` | `modules/simulation.md` | the running game; ships (`modules/ships_and_fleet.md`) and economy rules (`modules/economy.md`) |
+| `persistence` | `modules/persistence.md` | save games (JSON) |
+| `bridge` | `modules/bridge.md` | the file-backed link to Godot |
+| `app` | README | `spacetrains_headless`: runs, reports, audits, benchmarks' engine |
+| `util` | — | thread pool, profiling |
+| Godot | `modules/ui_observer.md` | the observer UI |
+
+Background: `game_design.md` (the game), `ship_technology.md` (the ships' physics and sources), `roadmap.md`
+(where it is going), `plans/` (open concepts and the current work's log).
+
+## A tick
 
 ```
-Simulation.step(dt)
-    ├── economy.step(stations, dt)
-    ├── refuel idle ships when possible
-    ├── generate/scored trade opportunities
-    ├── trajectory.plan_transfer(...)
-    ├── start or advance missions
-    └── append event history
+Simulation::step(real_dt)                     whole ticks of 0.1 day
+  └─ tick()
+       ├─ economy: production and consumption (EconomySystem::step); residents pay for what they used
+       ├─ households, surface markets, labour, colonies, population, passengers
+       ├─ events, particle events
+       ├─ treasuries; emergencies; the daily market among ships; station orders
+       ├─ fleet investment (sell laid-up ships, review purchases)
+       ├─ each ship: operating costs, then by phase: idle (dispatch, refit, repair) · awaiting departure ·
+       │  in transit (arrival) · refitting
+       └─ the money journal closes a month every 30 days
 ```
 
-### Presentation flow
+Dispatch plans in parallel (a thread pool computes queued plans; results are combined in a fixed order), and every
+cache it uses is a pure function of its key, so a loaded game, which starts with empty caches, plays the same.
 
-```
-Godot UI
-    ↓
-bridge snapshot / derived render data
-    ↓
-map rendering, selected trajectory path, labels, selection panel, event log, time controls
-```
+## Binaries and tools
 
----
+- `spacetrains_bridge` (started by Godot), `spacetrains_headless` (runs and reports), tests
+  (`spacetrains_tests`, `spacetrains_economy_tests`, `spacetrains_variable_isp_tests`, Python checks),
+  `spacetrains_visp_bench`, `spacetrains_atlas_fill`.
+- `tools/benchmark.py` (economy over 4 starts), `tools/purchase_returns.py`, `tools/rebalance_production.py`.
+- The VariableISP atlas lives in `tests/data/variable_isp/` (the `.bin` is the master).
 
-## Planned Evolution
+## Known gaps
 
-### Near term
-- Broaden bridge-backed UI debugging and mission inspection.
-- Expand the simulation from mission timing to richer mission-state handling.
-
-### Medium term
-- Improve the Kepler planner with patched-conic handoffs and richer orbital state.
-- Add save/load, deterministic scenario seeding, and stronger debugging surfaces.
-- Introduce rescue and support mission states before combat.
-
-### Long term
-- Patched-conic SOI handoffs for more realistic Kepler transfers.
-- Per-ship parameter variation (power multiplier, size multiplier).
-- Support custom star systems through data-only content changes.
-
----
-
-## Current Gaps
-
-- No save/load yet
-- No pirates, police, combat, or rescue gameplay yet
-- No per-ship individual parameter variation yet (power multiplier, size multiplier)
-
-These are expected gaps, not architectural contradictions.
+- No pirates, police or rescue gameplay yet (the chase solver is ready for it).
+- Per-ship variation beyond tanks and modules.
+- Deployment: Godot must be built with double precision, and there is no installer yet (roadmap).

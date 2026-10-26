@@ -18,69 +18,23 @@
 
 ## Current Plan (updated 2026-10-26) — start here
 
-**Status.** `main` holds everything up to the 3D ship and station models at true scale (roadmap steps 5-6, merged as
-PR #22, 2026-10-23; the user approved the models on 2026-10-26). **Tier 3 (station structures) is shelved after its concept** (user, 2026-10-26;
-`docs/plans/station_structures.md`). Instead, a read-only **station systems view** (people, works and jobs by kind,
-needs by tier, site), designed as the seam for the Victoria 2 style populations, is built on branch
-`feature/station_structures` (2026-10-26, not merged; same doc, "Light view"). The display-only defaults
-(services share, labour shares, staffing mixes, pop kind names) await the user's review. The economy overhaul (plan
-`docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
-`docs/modules/economy.md` ("Economy overhaul")) brought:
-- real prices: Earth surface price + $100/kg launch at the Earth stations;
-- Earth and colony surface markets with their own accounts;
-- residents paid wages, with travel and savings from their own accounts;
-- ships paying their crews;
-- a labour market with lognormal wage distributions, local hiring between colonies and their gateways,
-  and colony recruiting on Earth;
-- station incomes from Earth (need-based science and settlement grants, relay, tourism, yards in space,
-  microgravity products, helium-3, low-orbit propellant from Luna);
-- Venus Orbital Exchange.
+**Status.** `main` holds the game up to the economy overhaul (PR #21), the 3D models at true scale (PR #22) and the
+station systems view (PR #23); the user approved the overhaul's decisions and the models on 2026-10-26. The clean-up
+review (step 8) is on `feature/cleanup_review`: code restructured with identical results, the review's fixes, and
+these docs rewritten (log: `docs/plans/cleanup_review_log.md`). The design as it stands is in `docs/modules/`
+(start with `docs/architecture_overview.md`); the economy in `economy.md`, ships, dispatch and passengers in
+`ships_and_fleet.md`.
 
-Benchmark, 4 starts × 1,460 days (2026-10-23):
-- unmet demand 0.2 ± 0.1%, last fifth 0.0%;
-- 92 of 129 ships profitable (71%);
-- no station in the red at the end (worst ~12 days in the red per 4 years);
-- ~4,600 boardings (mostly cislunar);
-- drift 0; 54.6 ms per simulated day, slowest 20-day stretch 6.0 days/s.
-
-An 8-year run holds at 0.1% unmet.
-
-**Ship and station models** (merged as PR #22; `docs/modules/ui_observer.md`):
-- Map ships are built from their design's components with the schematic's layout, in metres. A coarse model shows
-  at mid zoom; a detailed one (built in the background) shows close up, with live radiators, plume and cargo.
-- Generic stations with rings, berths and a flavour per economy profile; docked ships sit at the berths.
-- Muted, non-emissive paint. Ships no longer glare near the Sun (0% clipped pixels, down from ~30%), and a camera
-  fill light keeps night sides readable.
-- Frame time at overview is unchanged against `main`; station close-ups run at 56-60 fps.
-- The station snapshot gained `economy_profile_id`.
-- True scale (step 6): ships and stations at real size, habitat rings sized by population (Stanford torus).
-- Reviewed and approved by the user (2026-10-26).
+Benchmark, 4 starts × 1,460 days (before the review's result-changing fixes, 2026-10-26): unmet demand
+0.2 ± 0.2%, last fifth 0.0%; 87 of 131 ships profitable; ~4,500 boardings; drift 0; ~150 s per run.
 
 **Open for the user:**
-- ~~**Review the economy overhaul**~~: resolved (user, 2026-10-26: the decisions look right). They are listed in
-  `docs/plans/economy_overhaul_log.md`.
-- **Economy statistics** (built 2026-10-23 on the same branch): a money journal books every transfer by account
-  and category, keeps a monthly history and is saved with the game (save version 19). It gives the
-  `--econ-audit` Accounts tables, `--stats-json`, and the in-game Statistics screen (S): overview and who pays
-  whom, factions, stations, residents, colonies & Earth, fleet. Docs: `docs/modules/economy.md` ("Money
-  journal"), `docs/modules/ui_observer.md`.
-- **Colonies fixed** (2026-10-23, same branch): the surface mines and the gateways trade. Luna surface and the
-  belt sell metals, water, helium-3 and platinum at their gateways. Imports follow money and people; growth and
-  wages follow welfare. Luna surface: all imports met, account +0.8M. Belt: 65-82% of imports met, off its line.
-  Log: `economy_overhaul_log.md`, "Colonies fixed".
-- **Mars fixed** (2026-10-23, same branch): gateways order their colony's imports at the colony's bid (Mars
-  Transfer's reactor fuel was capped at the floor and never delivered), and a faction in debt taxes its stations
-  above 375k. Mars surface 42% → ~70% of imports met; Mars Corporation and the Independent Consortium end 8 years
-  near or above zero. Log: `economy_overhaul_log.md`, "Mars reactor fuel and faction debt". Still open: Luna
-  surface's money piles up (later: imports that rise with income).
-- **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person (Luna Ferry study,
-  `passenger_routes.md`). Its other open points were closed after the overhaul (same file, "Re-evaluated
-  after the economy overhaul").
-- **Supply that follows price** is built but off (`households.csv` `supply_price_elasticity`): production
-  is 8-10× use, so it idles plants and cut jobs everywhere. It needs capacity sized to use first (see the
-  population-composition item below).
-- Fleet cap stays 130 (user, 2026-10-22). With the cap reached, faction treasuries pile up unspent money
-  (Sol Federation ~9M by year 8).
+- **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person
+  (`docs/plans/passenger_routes.md`).
+- **Supply that follows price** is built but off: production is 8-10× use, so it needs capacity sized to use first
+  (with the population composition item below).
+- Luna surface's money piles up (later: imports that rise with income); with the fleet cap reached, faction
+  treasuries pile up unspent money (Sol Federation ~9M by year 8). Fleet cap stays 130 (user, 2026-10-22).
 
 ### Decisions so far
 
@@ -111,30 +65,11 @@ An 8-year run holds at 0.1% unmet.
 
 ### Next steps, in order
 
-1. ~~**Merge passengers**~~, ~~**passenger routes**~~, ~~**Mercury passengers**~~: done (PRs #18-20); the
-   routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
-2. ~~**Economy overhaul merge**~~ (PR #21); reviewed and approved by the user (2026-10-26).
-3. (free)
-4. ~~**Tier 3 ship structures: stations**~~: shelved after the concept (user, 2026-10-26); the tensions with the
-   economy are in `docs/plans/station_structures.md`. Built instead: a read-only station systems view (same doc,
-   "Light view").
-5. ~~**Better 3D ship models**~~ (user, 2026-10-20): with generic station models and the colour fix; merged
-   (PR #22), approved 2026-10-26.
-6. ~~**True scale for ships and stations**~~ (2026-10-23, on `feature/ship_models_3d`): ships and stations at real
-   size (`Main.MODEL_SIZE_EXAGGERATION` = 1, `--model-scale=N` to change), Stanford-torus habitat rings by
-   population, a ship-sized docking core, sticky berths with a blend into them, model-aware picking, near plane and
-   zoom limits for metre scale. Also fixed: the bridge never ticked at the slowest timewarp (600x). Merged with
-   step 5.
-7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
+1. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.
 
-8. **Code review and document cleanup** (user, 2026-10-22), once the steps above are done: review the code
-   (`/code-review`, `/simplify`), delete obsolete plans, and rewrite the module docs and the plans that stay so they
-   describe the current design, not the history of how we got there (decisions with their reasons may stay; the
-   step-by-step narrative goes, git history keeps it).
-
-9. **Deployment on Linux and Windows 11** (user, 2026-10-26): one robust way to install and run SpaceTrains on
+2. **Deployment on Linux and Windows 11** (user, 2026-10-26): one robust way to install and run SpaceTrains on
    both systems, as an installer or a documented process. Today it needs a Godot built from source with double
    precision (`precision=double`) plus our CMake build of the bridge, and compiling during installation is not
    practical. Likely shape: build once per platform and ship the binaries (a double-precision Godot export
@@ -159,10 +94,6 @@ Later (user, 2026-10-26):
   its monthly history.
 
 Later (user, 2026-10-22):
-- ~~**Earth's surface economy as a market**~~, ~~**planetary background economies**~~ and ~~**station economies**~~
-  (`background_economies.md`, `economy_points_7_10.md`): built as the economy overhaul (2026-10-23, above),
-  except industries as accounts of their own and supply following price (built, off). The passenger points were
-  revisited (`passenger_routes.md`, "Re-evaluated after the economy overhaul").
 - **Population composition in the style of Victoria 2:** stations and ships hold people of different
   kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from Victoria 2). To be designed
   in detail together when we get there; the user wants help with the concept.
@@ -172,27 +103,20 @@ Deferred (user, 2026-10-08):
   so an intercept is a rendezvous problem (Lambert), costly in delta-v and likeliest near departure and arrival.
   It could start as an expected-loss cost per route that police presence lowers.
 
-### Done (one line each; details in the module docs, the logs named and git history)
+### Done (details in the module docs and git history)
 
-- Tech plausibility review: classes rebuilt bottom-up, priced from hardware, renamed (`docs/ship_technology.md`).
-- Part C, modular tanks and refits (v25); open economy (v26); fleet investment (v27-v31); fuel factories and
-  bulk tankers (v29); outer-system exports (v32-v33); trajectory reach, κ at the origin's radius (v33)
-  (`docs/modules/ships_and_fleet.md`, `trajectory.md`).
-- Steps 9-13: speed (`--profile`, parallel planning), GUI, save/load (F5/F9), unmet-demand findings, orders
-  and mixed cargo (`docs/plans/overnight_2026-10-08.md` in git history).
-- Steps 14-17: production dependencies, landed-cost reference prices, science trade, station money
-  (`docs/plans/steps_14_17_log.md`).
-- Steps 18-22: start stocked, landed-cost depot fuel, scheduled liners to Titan and Ganymede
-  (`docs/plans/steps_18_22_log.md`).
-- Steps 23-28: cover from the round trip, input caps, faction credit, station growth, random events
-  (`docs/plans/steps_23_28_log.md`).
-- Step 29, station purchase orders (`docs/plans/station_orders.md`).
-- Market redesign: competitive asks, multi-stop rotation contracts (PR #14, `docs/plans/market_redesign.md`,
-  `overnight_2026-10-19.md`). Key bindings help (PR #15), close-zoom camera (PR #16).
-- Ship structures: tier 1 parts and schematic (2026-10-11), tier 2 modules, radiation, boil-off and wear (PR #17;
-  `docs/plans/ship_structures_log.md`, `tier2_log.md`). Wobbly outer-moon paths fixed (cubic Hermite, 2026-10-11).
-- Passengers (PR #18), passenger routes (PR #19), atlas extension to low κ for Mercury (PR #20).
-- Economy overhaul (branch `feature/economy_overhaul`, 2026-10-23): `docs/plans/economy_overhaul_log.md`.
+- Physics and planners: Kepler and VariableISP planners, the atlas with low-κ levels, κ at the origin's radius,
+  STM refinement, the general-boundary and chase solver, perihelion limit, trajectory audit
+  (`modules/trajectory.md`); tech review of the ship classes (`ship_technology.md`).
+- Ships: operating costs, mission-sized fuelling, tank refits, fleet investment, fuel factories and tankers,
+  outer exports; parts, modules, crew radiation, boil-off and wear; passengers and liners
+  (`modules/ships_and_fleet.md`, PRs #17-#20).
+- Economy: production roles, landed-cost reference prices, station money and faction credit, start stocked,
+  growth, events, station purchase orders, competitive asks and rotation contracts (PR #14), the economy overhaul
+  with real prices, households, labour, colonies, incomes and the money journal (PR #21) (`modules/economy.md`).
+- UI: the observer with display clock, close zoom, statistics screen, ship schematic, 3D models at true scale,
+  station systems view (PRs #15, #16, #22, #23; `modules/ui_observer.md`); save/load (F5/F9).
+- Step 8, code review and clean-up (2026-10-26, `feature/cleanup_review`): `docs/plans/cleanup_review_log.md`.
 
 Checks after each step: the test suites (`ctest`), `tools/benchmark.py` (four starting dates, mean and spread;
 one run is too noisy to judge a change) and `--trajectory-audit`; for speed, `--profile` runs one after another

@@ -182,7 +182,7 @@ void print_station_inventories(
     }
 }
 
-// Passengers (docs/plans/passengers.md): who travelled, what they paid, who is still waiting.
+// Passengers (docs/modules/ships_and_fleet.md): who travelled, what they paid, who is still waiting.
 void print_passenger_audit(const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::simulation::Simulation::PassengerAudit& audit,

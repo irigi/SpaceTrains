@@ -139,7 +139,7 @@ a ~40 t habitat.
 ### Component details (added 2026-10-11, ship structures tier 1)
 
 These describe the parts in `ship_components.csv`. They do not change any mass or price above (see
-`docs/plans/ship_internals.md`).
+`docs/modules/ships_and_fleet.md`).
 
 | Quantity | Value | Status |
 |---|---|---|
@@ -234,7 +234,7 @@ price: precision work on hardware no generic good stands for (an NTR's pressure 
 economy's chips and boards, not a finished drive. An overhaul replaces the worn share of the wearing parts, so at
 base prices a whole core's overhaul costs exactly its fuel elements' price.
 
-### Passengers (added 2026-10-21, `docs/plans/passengers.md`)
+### Passengers (added 2026-10-21, `docs/modules/ships_and_fleet.md`)
 
 Values in `data/economy/passengers.csv` and the ship class builder.
 

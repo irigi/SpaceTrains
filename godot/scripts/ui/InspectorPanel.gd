@@ -604,7 +604,7 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
     _add_ship_systems(detail, context)
 
-# --- Ship systems (tier 1 of docs/plans/ship_internals.md) ----------------------------
+# --- Ship systems (docs/modules/ships_and_fleet.md) ----------------------------
 # The ship's parts from the bridge's designs file: a to-scale schematic with its live state
 # (ShipSchematic), whether the engine runs, and the parts as a list (folded by default).
 func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:

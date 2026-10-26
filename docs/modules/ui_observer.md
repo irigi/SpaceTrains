@@ -18,7 +18,20 @@
 - Persistent gameplay state ownership
 - Static data loading as a long-term solution
 
-## Current UI Surface (2026-10-08)
+## Scripts
+
+| Script | What |
+|---|---|
+| `Main.gd` | starts the bridge, reads its files, places everything each frame (display clock, rails, docked berths), trails and fine paths, picking, focus |
+| `MapIcons.gd` | the icon and label layer over the map, the selection ring, model pixel sizes |
+| `EconomyHistory.gd` | prices and unmet demand over time (trend arrows, the 30-day unmet share) |
+| `OrbitCamera.gd` | the camera rig |
+| `EntityVisuals.gd`, `SpaceEnvironment.gd` | bodies, glows, the Sun, rings, stars, lighting |
+| `ShipModels.gd`, `StationModels.gd`, `ShipLayout.gd`, `MeshBuilder.gd`, `ModelMaterials.gd`, `ThermalPalette.gd` | 3D models (below) |
+| `ui/*.gd` | panels: top bar, registry, inspector, ship schematic, market, statistics, charts, comms log, help, key bindings, theme |
+| `ShotTour.gd`, `DebugShot.gd`, `ModelGallery.gd` | dev: scripted screenshots and the model gallery |
+
+## UI Surface
 
 - **Display clock** (`Main.gd:_advance_display_clock`): game time for the picture, advanced every frame at the
   simulation's measured pace (at most the requested timewarp), at most 3 s of real time ahead of the last snapshot,
@@ -121,7 +134,8 @@
   short, a collapsible station systems section (below), orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
   overview (M); comms log.
 - **Station systems** (display only; `Simulation::station_systems_json` in `StationSystems.cpp`, the snapshot's
-  `systems`; design in `docs/plans/station_structures.md`, "Light view"):
+  `systems`; design in `docs/plans/station_structures.md`, "Light view", the seam for Victoria 2 style
+  populations):
   - the site (orbit, surface, underground or aerostat; `station_radiation.csv`), its gravity and shielding;
   - housing (the growth cap) against residents;
   - workers, dependants, spacers on the station's ships, visitors and passengers waiting;
@@ -149,6 +163,11 @@
     instance across refreshes, so a hover survives them.
 - **Wheel:** zooms the map, except over the inspector, browser or market panel, which take it even at the
   end of their scroll.
+- **Keyboard focus:** panel buttons and lists never take it, so Space and the shortcuts always reach the map; the
+  registry's filter takes it while typing and gives it back on Enter, Escape or a click on the map.
+- **Clicks survive refreshes:** the inspector (every 0.5 s) and the statistics screen (each stats file) rebuild
+  their controls, but not while the mouse is held over them, which used to lose clicks. The market grid is rebuilt
+  only when what it shows changes.
 - **Statistics screen** (S, `ui/StatisticsPanel.gd`, charts `ui/LineChart.gd`): it reads the bridge's
   `.stats` side file (the money journal, docs/modules/economy.md), which the bridge writes only while the screen
   is open (`stats_open` in the command file).
@@ -166,7 +185,8 @@
   - The station inspector shows its profit before the faction, since the start and over the last year.
 - **Keys:** F5 quick save, F9 quick load, M economy, S statistics, F focus, T thermal view, Space pause, `,` `.`
   timewarp, F11 map debug.
-- **Dev:** `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
+- **Dev** (a tour opens a real window; parse-check scripts first with `godot4 --headless --path godot --check-only
+  --script res://scripts/<file>.gd`): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
   `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
@@ -197,8 +217,7 @@ SimulationBridge snapshot/query -> UI widgets and 3D nodes -> player observation
 ## Deferred Work
 
 - Trajectory progress as a shader instead of rebuilt lines
-- Filtering and search
-- Visual effects and camera modes beyond map-first viewing
+- More statistics views (roadmap: flows of goods from station to station)
 
 ## Tests
 

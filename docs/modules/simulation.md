@@ -2,74 +2,60 @@
 
 ## Purpose
 
-`simulation` is the authoritative runtime coordinator. It owns the mutable game state and advances the sandbox over time by invoking economy updates, mission generation, refueling, and ship state transitions.
+`Simulation` (`src/simulation/Simulation.hpp`) owns the running game: time, stations, ships and their missions,
+residents, colonies, treasuries, the money journal and events. It advances in fixed ticks and exposes read-only
+snapshots for the bridge, the headless reports and tests. Godot never owns gameplay state.
 
-## Responsibilities
+## Files
 
-- Own current game time and timewarp.
-- Own station state, ship state, active missions, and event history.
-- Advance the simulation in deterministic ticks.
-- Refuel ships when local inventory allows it.
-- Score and assign cargo missions using economy signals and trajectory results.
-- Copy planned timed sample paths into active missions and use them for ship render positions.
-- Keep ships at origin during launch-window waits, then advance them along timed samples after departure.
-- Expose snapshots for presentation and debugging.
+One class, its members spread over files by topic:
 
-## Non-responsibilities
+| File | What |
+|---|---|
+| `Simulation.cpp` | construction, accessors, `step`/`tick`, local economy, population, events |
+| `Market.cpp` | reference prices, station prices and orders, emergencies, the daily market among ships |
+| `ShipOperations.cpp` | capital and crew costs, provisions, radiation, wear and repair, boil-off, propellant |
+| `MissionPlanning.cpp` | leg estimates and dispatch (`Simulation::MissionPass`) |
+| `ShipPhases.cpp` | a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and refits |
+| `Contracts.cpp` | liners, scheduled stops, rotation contracts |
+| `FleetInvestment.cpp` | treasuries, credit, ship sales and purchases (`Simulation::InvestmentReview`) |
+| `Households.cpp` | residents, colonies, labour, station incomes |
+| `Passengers.cpp` | travellers, boarding, fares, rotation tours |
+| `CrewEnvironment.cpp` | crew radiation and the particle-event model |
+| `StationSystems.cpp` | the station systems view (display only) |
+| `MoneyJournal.cpp`, `Statistics.cpp` | the money journal, its history and the statistics JSON |
+| `Snapshot.cpp` | the snapshot, the bridge's JSON (snapshot, paths, designs) and the text report |
+| `SimulationInternal.hpp` | constants and helpers shared by these files (namespace `detail`) |
 
-- Direct Godot scene control
-- Static data loading from disk
-- Raw trajectory math internals
-- Combat and policing logic in the current stage
+What each topic does: `economy.md` (prices, orders, money) and `ships_and_fleet.md` (ships, dispatch, passengers).
 
-## Public Interfaces
+## Time
 
-```cpp
-class Simulation {
-public:
-    static Simulation from_data_root(const std::string& data_root);
-
-    void step(double real_dt_s);
-    void set_timewarp(double timewarp_factor);
-
-    const UniverseDefinition& universe() const;
-    SimulationSnapshot snapshot() const;
-    std::string build_report() const;
-    std::string build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s) const;
-    Vec3d get_ship_render_position(const ShipState& ship) const;
-};
-```
-
-## Data Flow
-
-```
-Simulation.step()
-    -> economy.step()
-    -> refuel logic
-    -> mission scoring
-    -> trajectory planner call
-    -> ship mission phase update
-    -> event log append
-```
+- `step(real_dt_s)` adds real time × timewarp and runs the whole ticks due; a tick is `TICK_S` (0.1 day) of game
+  time whatever the caller's step, so headless runs and the UI simulate the same game.
+- `start_at(time_s)` starts a fresh game at another date (planets elsewhere along their orbits): the same economy in
+  another geometry, for benchmarks over several starts.
+- A tick: economy step, station orders and emergencies, the daily market (on the tick that crosses midnight),
+  residents and colonies, treasuries, fleet investment, then each ship by phase.
 
 ## Invariants
 
-- The simulation is the only owner of mutable ship/station runtime state.
-- Mission assignment consumes cargo and reserves fuel before departure.
-- Active awaiting/in-transit render positions interpolate `MissionAssignment` timed samples; they do not recompute a separate straight-line path.
-- Snapshot queries do not mutate simulation state.
+- **Deterministic:** the same data and start give byte-identical saves, whatever the thread count. Parallel work
+  (plans, reference prices) only computes; results are combined in a fixed order on the simulation thread.
+- **Save and load are exact:** a game saved, loaded and continued equals one that never stopped (`persistence.md`).
+  Caches must therefore be pure functions of their keys (leg estimates, Lambert rows, VariableISP refinements,
+  designs), because a loaded game starts with them empty.
+- Iterated maps are ordered (`Inventory`, treasuries), so a loaded game iterates, and chooses, as the original did.
+- Snapshot queries do not change the state.
+- Money is exact: every transfer has a payer and a payee, and the audit's drift is 0.
 
-## Deferred Work
+## Snapshots
 
-- Save/load
-- Stronger mission state machine
-- Rescue/support missions
-- Explicit deterministic random seeding for scenario variation
+`snapshot()` (C++ structs, for the headless reports) and `build_bridge_snapshot_json()` (the bridge's JSON).
+Ships in flight carry a `path_id`; their planned paths are in `build_bridge_paths_json()`, written only when some
+ship's plan changes (`bridge.md`).
 
 ## Tests
 
-- Time advances when stepping.
-- Missions can be dispatched when supply, demand, and fuel align.
-- Event history records departures and arrivals.
-- Stranded state appears when refueling fails.
-- Bridge snapshots include `trajectory_path` and `destination_body_at_arrival` for awaiting/in-transit ships.
+`tests/test_main.cpp` (dispatch, planners, save/load, ship designs), `tests/economy_test.cpp` (economy and money),
+`tests/variable_isp_test.cpp` (the VariableISP solver).

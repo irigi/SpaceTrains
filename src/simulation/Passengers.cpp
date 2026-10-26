@@ -1,4 +1,4 @@
-// Passengers (docs/plans/passengers.md): people waiting at stations, the fares ships charge
+// Passengers (docs/modules/ships_and_fleet.md): people waiting at stations, the fares ships charge
 // them, boarding and landing, and the reference fares the market prices against.
 
 #include "domain/ShipDesign.hpp"

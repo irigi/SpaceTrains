@@ -19,7 +19,7 @@
 namespace spacetrains::data_loader::detail {
 
 void load_passengers(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
-    // Passengers (docs/plans/passengers.md): every key optional, defaults in PassengerDefinition.
+    // Passengers (docs/modules/ships_and_fleet.md): every key optional, defaults in PassengerDefinition.
     const auto passengers_path = root / "economy" / "passengers.csv";
     auto& passengers = universe.passengers;
     if (std::filesystem::exists(passengers_path)) {

@@ -78,7 +78,7 @@ void load_fuel_supply(const std::filesystem::path& root, domain::UniverseDefinit
 }
 
 // Economy overhaul: households, background economies, surface markets, station incomes
-// (docs/plans/economy_overhaul.md). All optional; without households.csv the economy runs as before.
+// (docs/modules/economy.md). All optional; without households.csv the economy runs as before.
 void load_households(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
     if (const auto households_path = root / "economy" / "households.csv"; std::filesystem::exists(households_path)) {
         const auto rows = read_csv_rows(households_path);

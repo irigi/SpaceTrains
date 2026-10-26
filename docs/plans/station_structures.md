@@ -5,8 +5,8 @@ economy, and growth by building has no economic basis today (tensions 9 and 10).
 is built: see "Light view (built instead)" at the end. The concept and its tensions stay here for a later
 revisit; the decisions listed are not needed now.
 
-Tier 1 and tier 2 (ships) are in `ship_internals.md`, `ship_structures_tier2.md` and `tier2_log.md`. The sketch
-this replaces is the "Tier 3: Stations (sketch)" section of `ship_internals.md`.
+Tier 1 and tier 2 (ships: parts, modules, crew environment, wear) are in `docs/modules/ships_and_fleet.md`.
+This replaces the "Tier 3: Stations (sketch)" of the old ship-internals plan (in git history).
 
 ## Goal
 
@@ -92,7 +92,7 @@ time, each checked with `tools/benchmark.py`.
 - **Small increments,** so a 4-8 year run shows change: a ring sector for about 500 people, one more smelter line,
   one more array.
 - **Construction absorbs today's overcapacity.** Metals made are about 15 × used today. That surplus is exactly the
-  slack that kept "supply that follows price" switched off (`economy_overhaul_log.md`). Building demand would give
+  slack that kept "supply that follows price" switched off (`docs/modules/economy.md`). Building demand would give
   the surplus a use and give prices a reason to leave the floor.
 - **Faction money that piles up** once the fleet cap is reached (Sol Federation about 9M by year 8) gets an
   outlet.

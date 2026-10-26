@@ -54,7 +54,7 @@ void load_ship_classes(const std::filesystem::path& root, domain::UniverseDefini
     }
 }
 
-// Ship components (tier 1 of docs/plans/ship_internals.md): the parts of every class. They
+// Ship components (docs/modules/ships_and_fleet.md): the parts of every class. They
 // must decompose the class rows exactly, so the simulation's totals and the parts agree.
 void load_ship_components(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
     const auto ship_components_path = root / "ship_classes" / "ship_components.csv";
