@@ -57,16 +57,8 @@ An 8-year run holds at 0.1% unmet.
 - Reviewed and approved by the user (2026-10-26).
 
 **Open for the user:**
-- **Review the economy overhaul** (merged; the log's decisions were all taken overnight without the user). The main
-  calls:
-  - goods repriced to Earth's real prices plus launch (bulk goods 3-7× cheaper, platinum 12× cheaper);
-  - Earth buys only space-sourced goods;
-  - station incomes sized from the stations' trade deficits;
-  - purchase valuations capped at the landed cost; carrier margin 1.5;
-  - the money-supply controller off, a 750k credit ceiling, factions covering stations in the red within
-    2 days;
-  - a 3% travel budget (passengers ~5,000 in 4 years, down from ~16,000);
-  - Titan makes its own machinery.
+- ~~**Review the economy overhaul**~~: resolved (user, 2026-10-26: the decisions look right). They are listed in
+  `docs/plans/economy_overhaul_log.md`.
 - **Economy statistics** (built 2026-10-23 on the same branch): a money journal books every transfer by account
   and category, keeps a monthly history and is saved with the game (save version 19). It gives the
   `--econ-audit` Accounts tables, `--stats-json`, and the in-game Statistics screen (S): overview and who pays
@@ -121,7 +113,7 @@ An 8-year run holds at 0.1% unmet.
 
 1. ~~**Merge passengers**~~, ~~**passenger routes**~~, ~~**Mercury passengers**~~: done (PRs #18-20); the
    routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
-2. ~~**Economy overhaul merge**~~ (PR #21); its review is still open (above).
+2. ~~**Economy overhaul merge**~~ (PR #21); reviewed and approved by the user (2026-10-26).
 3. (free)
 4. ~~**Tier 3 ship structures: stations**~~: shelved after the concept (user, 2026-10-26); the tensions with the
    economy are in `docs/plans/station_structures.md`. Built instead: a read-only station systems view (same doc,
@@ -141,6 +133,16 @@ An 8-year run holds at 0.1% unmet.
    (`/code-review`, `/simplify`), delete obsolete plans, and rewrite the module docs and the plans that stay so they
    describe the current design, not the history of how we got there (decisions with their reasons may stay; the
    step-by-step narrative goes, git history keeps it).
+
+9. **Deployment on Linux and Windows 11** (user, 2026-10-26): one robust way to install and run SpaceTrains on
+   both systems, as an installer or a documented process. Today it needs a Godot built from source with double
+   precision (`precision=double`) plus our CMake build of the bridge, and compiling during installation is not
+   practical. Likely shape: build once per platform and ship the binaries (a double-precision Godot export
+   template, the exported game, `spacetrains_bridge` and the data with the atlas), e.g. from CI or a build machine;
+   then an installer or archive per platform (Windows: Inno Setup / NSIS or a zip; Linux: AppImage or tarball).
+   Points to check: how the game finds the bridge and data when installed, writable paths for saves and the
+   snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
+   The user can run Claude on a Windows machine to build and test there.
 
 Later (user, 2026-10-26):
 - **More views in the statistics decomposition.** First, **flows of goods from station to station**: an N × N
