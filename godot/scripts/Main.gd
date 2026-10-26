@@ -361,7 +361,8 @@ func _exit_tree() -> void:
     for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp",
             snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp",
             snapshot_path + ".designs", snapshot_path + ".designs.tmp", snapshot_path + ".designs.seq", snapshot_path + ".designs.seq.tmp",
-            command_path]:
+            snapshot_path + ".stats", snapshot_path + ".stats.tmp", snapshot_path + ".stats.seq", snapshot_path + ".stats.seq.tmp",
+            command_path, command_path + ".tmp"]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
 
@@ -465,7 +466,9 @@ func _start_bridge() -> void:
         "--snapshot-file", snapshot_path,
         "--command-file", command_path,
         "--step-seconds", str(BRIDGE_STEP_SECONDS),
-        "--opening-cache", ProjectSettings.globalize_path("user://opening_cache")
+        "--opening-cache", ProjectSettings.globalize_path("user://opening_cache"),
+        # The bridge exits when this process is gone (no orphan if the UI crashes).
+        "--parent-pid", str(OS.get_process_id())
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
@@ -511,8 +514,11 @@ func _show_notice(text: String) -> void:
     bridge_status_until_s = _wall_time_s() + 3.0
     _set_status(text)
 
+# Written aside and renamed, so the bridge never reads a half-written command (a save or
+# load request read half-written was lost).
 func _write_bridge_commands() -> void:
-    var file := FileAccess.open(command_path, FileAccess.WRITE)
+    var temp_path := command_path + ".tmp"
+    var file := FileAccess.open(temp_path, FileAccess.WRITE)
     if file == null:
         return
     var payload := {
@@ -524,6 +530,8 @@ func _write_bridge_commands() -> void:
         "stats_open": stats_panel != null and stats_panel.visible,
     }
     file.store_string(JSON.stringify(payload))
+    file.close()
+    DirAccess.rename_absolute(temp_path, command_path)
 
 # Planned paths by ship id ({path_id, trajectory_path, destination_body_at_arrival}), from
 # the bridge's paths file, which changes only when a ship gets a new plan.

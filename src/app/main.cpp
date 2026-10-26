@@ -205,8 +205,13 @@ int main(int argc, char** argv) {
 
         const double game_day = sim.game_time_s() / kDayS;
         if (save_at_day >= 0 && step + 1 == save_at_day) {
-            std::ofstream file(save_path, std::ios::binary | std::ios::trunc);
-            file << sim.save_state_json();
+            // Written aside and renamed, so an interrupted save leaves the old file whole.
+            const std::string temp_path = save_path + ".tmp";
+            {
+                std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
+                file << sim.save_state_json();
+            }
+            std::filesystem::rename(temp_path, save_path);
             std::cout << std::format("Saved day {:.1f} to {}\n", game_day, save_path);
         }
 
