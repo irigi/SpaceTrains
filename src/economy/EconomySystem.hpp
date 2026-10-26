@@ -134,7 +134,8 @@ private:
     // Surface markets by station id (economy overhaul), and the flat bids of those that only buy.
     std::unordered_map<std::string, std::vector<const domain::SurfaceMarketDefinition*>> surface_by_station_;
     std::unordered_map<std::string, std::unordered_map<std::string, double>> export_bids_;
-    bool legacy_export_markets_ {false};
+    // Legacy export markets (export_markets.csv): goods Earth takes from a station each day, by station.
+    std::unordered_map<std::string, std::vector<std::string>> legacy_export_goods_;
     std::unordered_set<std::string> science_stations_;   // stations whose budget is science (station_incomes kind science_station)
     double surface_depth_units_ {0.0};
     // Landed-cost reference prices by station id and good (empty: base prices).

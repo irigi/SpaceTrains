@@ -361,7 +361,10 @@ void Simulation::step_emergencies() {
                     // stock), so the premium starts there (step 29). A faction offer that rose with
                     // the projected stock instead (24x at once on an empty stock) opened emergencies
                     // three to four times as often and paid 2M cr in four years.
-                    const auto& stats = state.order_stats.at(commodity_id);
+                    // Order stats are seeded at the start; a good that became net-consumed later
+                    // (plants slowed by the labour market) has none yet: seed them for the premium.
+                    const auto known = state.order_stats.find(commodity_id);
+                    const auto stats = known != state.order_stats.end() ? known->second : seed_order_stats(definition, commodity_id);
                     const double premium = order_bid(state, commodity_id, order_levels(state, commodity_id, stats), 0.0).cap
                         / economy_.reference_price(definition, commodity_id);
                     emergencies_.push_back({

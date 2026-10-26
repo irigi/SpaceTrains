@@ -207,7 +207,9 @@ const economy::EconomySystem& Simulation::economy_system() const {
 }
 
 double Simulation::radiator_bucket(const domain::ShipState& ship) const {
-    if (!universe_.ship_environment.wear) {
+    // Only a plasma drive's radiators limit its power (register_design makes damaged designs
+    // for variable-Isp hulls only), so other hulls are always in the undamaged bucket.
+    if (!universe_.ship_environment.wear || get_ship_class(ship.class_id).propulsion_type != "variable_isp") {
         return 1.0;
     }
     return std::clamp(std::round(ship.radiator_condition * 10.0) / 10.0, 0.1, 1.0);

@@ -38,7 +38,7 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     for (const auto& market : universe_.export_markets) {
         export_markets_[market.station_id][market.commodity_id] = market.units_per_day;
         export_goods_.insert(market.commodity_id);
-        legacy_export_markets_ = true;
+        legacy_export_goods_[market.station_id].push_back(market.commodity_id);
     }
     // A surface market that only buys (no ask) is an export market at its flat bid; planners
     // see it as a consumer of its daily volume (EXPORT_PLANNING_UNITS where it takes any amount).
@@ -209,11 +209,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             continue;
         }
 
-        // Earth's economy takes everything delivered to its export markets (surface markets
-        // are settled by the simulation, which pays for them).
-        if (const auto market_it = export_markets_.find(station.station_id);
-            legacy_export_markets_ && market_it != export_markets_.end()) {
-            for (const auto& [commodity_id, units_per_day] : market_it->second) {
+        // Earth's economy takes everything delivered to a legacy export market (export_markets.csv).
+        // Surface markets, also in export_markets_, are settled by the simulation, which pays for them.
+        if (const auto legacy = legacy_export_goods_.find(station.station_id); legacy != legacy_export_goods_.end()) {
+            for (const auto& commodity_id : legacy->second) {
                 double& stock = station.inventory[commodity_id];
                 if (stock > 0.0) {
                     station.market_sold_units[commodity_id] += stock;
