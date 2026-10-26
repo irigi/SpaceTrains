@@ -446,7 +446,7 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
     if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
         return fuel_buffer_units(station);
     }
-    const auto rates = get_station_net_rates(station);
+    const auto& rates = get_station_net_rates(station);
     const double net_rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
     // A surface economy keeps it stocked at its depth, priced at its ask there.
     if (surface_supplied(station, commodity_id)) {

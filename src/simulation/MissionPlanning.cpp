@@ -41,29 +41,10 @@ Simulation::LegEstimate Simulation::estimate_leg(
     // other's plans across a whole bucket. The ship is assumed to buy what it needs.
     constexpr double BUCKET_S = 5.0 * 86400.0;
     const auto bucket = static_cast<std::int64_t>(std::floor(departure_time_s / BUCKET_S));
-    // Plan with this class's typical costs: provisions at base prices, so an estimate does
-    // not depend on the port's prices on the day the bucket was first planned.
-    double typical_crew_cost = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
-    for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
-        typical_crew_cost += ship_class.crew_size * units_per_crew_day * get_commodity(commodity_id).base_price;
-    }
     const double fuel_step_kg = std::max(1.0, ship_class.propellant_capacity_kg * 0.1);
     const auto fuel_bucket = static_cast<std::int64_t>(std::floor(available_propellant_kg / fuel_step_kg));
     constexpr double PAYLOAD_STEP_KG = 2000.0;
     const auto payload_bucket = static_cast<std::int64_t>(std::ceil(std::max(0.0, payload_kg) / PAYLOAD_STEP_KG));
-    const trajectory::PlanningOptions options {
-        .propellant_cr_per_kg = get_commodity("fuel").base_price / FUEL_UNITS_TO_KG + wear_cr_per_propellant_kg(ship_class),
-        .time_cr_per_day = daily_capital_cost(ship_class) + typical_crew_cost
-            + hazard_cr_per_day(ship_class, origin, destination, static_cast<double>(bucket) * BUCKET_S)
-            + wear_cr_per_flight_day(ship_class),
-        .payload_kg = static_cast<double>(payload_bucket) * PAYLOAD_STEP_KG,
-        .purchasable_propellant_kg = static_cast<double>(fuel_bucket) * fuel_step_kg,
-        .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
-        // Boil-off averaged over the leg (the leak falls about as 1/r).
-        .boiloff_kg_per_day = leg_boiloff_kg_per_day(ship_class, origin, destination,
-            static_cast<double>(bucket) * BUCKET_S),
-        .include_path = false,
-    };
     leg_estimates_.erase(leg_estimates_.begin(),
         leg_estimates_.lower_bound(static_cast<std::int64_t>(std::floor(game_time_s_ / BUCKET_S))));
     auto& slot = leg_estimates_[bucket];
@@ -87,10 +68,31 @@ Simulation::LegEstimate Simulation::estimate_leg(
     const auto& planner = (ship_class.propulsion_type == "variable_isp" && variable_isp_planner_)
         ? static_cast<trajectory::ITrajectoryPlanner&>(*variable_isp_planner_)
         : static_cast<trajectory::ITrajectoryPlanner&>(*kepler_planner_);
-    if (options.purchasable_propellant_kg <= 0.0) {
+    const double purchasable_kg = static_cast<double>(fuel_bucket) * fuel_step_kg;
+    if (purchasable_kg <= 0.0) {
         slot.emplace(key, LegEstimate {});
         return {};
     }
+    // Plan with this class's typical costs: provisions at base prices, so an estimate does
+    // not depend on the port's prices on the day the bucket was first planned. (Built only
+    // here: nearly every call is answered from the cache above.)
+    double typical_crew_cost = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
+    for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+        typical_crew_cost += ship_class.crew_size * units_per_crew_day * get_commodity(commodity_id).base_price;
+    }
+    const trajectory::PlanningOptions options {
+        .propellant_cr_per_kg = get_commodity("fuel").base_price / FUEL_UNITS_TO_KG + wear_cr_per_propellant_kg(ship_class),
+        .time_cr_per_day = daily_capital_cost(ship_class) + typical_crew_cost
+            + hazard_cr_per_day(ship_class, origin, destination, static_cast<double>(bucket) * BUCKET_S)
+            + wear_cr_per_flight_day(ship_class),
+        .payload_kg = static_cast<double>(payload_bucket) * PAYLOAD_STEP_KG,
+        .purchasable_propellant_kg = purchasable_kg,
+        .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
+        // Boil-off averaged over the leg (the leak falls about as 1/r).
+        .boiloff_kg_per_day = leg_boiloff_kg_per_day(ship_class, origin, destination,
+            static_cast<double>(bucket) * BUCKET_S),
+        .include_path = false,
+    };
     // Planned from the bucket's start, whenever the bucket is first asked for, so an
     // estimate does not depend on which ship asked first (or on a save and load).
     const double plan_departure_s = static_cast<double>(bucket) * BUCKET_S;
@@ -294,8 +296,15 @@ private:
     // scarce the planners fly slower, cheaper transfers.
     const double planning_fuel_price = std::max(sim_.get_commodity("fuel").base_price, sim_.station_price(origin_state, "fuel"));
     const double exhaust_velocity_mps = trajectory::thermal_exhaust_velocity_mps(ship_class);
-    // What each plan was planned with, so the chosen one can be planned again with its path.
-    std::unordered_map<const domain::TrajectoryPlan*, std::pair<trajectory::PlanningOptions, double>> plan_inputs;
+    // What each plan was planned with, so the chosen one can be planned again with its path
+    // (its options are built in finish(), for that plan only).
+    struct PlanInputs {
+        const domain::StationDefinition* destination {nullptr};
+        double cargo_kg {0.0};
+        double rider_time_cr_per_day {0.0};
+        bool full_tank {false};
+    };
+    std::unordered_map<const domain::TrajectoryPlan*, PlanInputs> plan_inputs;
     const double fuel_limit_kg = std::min(ship_class.propellant_capacity_kg,
         std::max(0.0, ship.propellant_kg) + origin_fuel_for_sale_kg);
     // Fuel burned on a mission comes out of the tank, already bought and not resalable,
@@ -406,8 +415,7 @@ private:
             key += "|full";
         }
         if (const auto it = plans.find(key); it != plans.end()) {
-            plan_inputs[&it->second] = {planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank),
-                std::max(sim_.game_time_s_, earliest_departure_s)};
+            plan_inputs[&it->second] = {&destination, cargo_bucket_kg, rider_bucket, full_tank};
             return it->second;
         }
         // Not planned yet: queue it and read it as infeasible for this pass.
@@ -1281,8 +1289,10 @@ private:
         choice.cargo_margin = best_cargo_margin;
         choice.plan = *best_plan;
         if (const auto it = plan_inputs.find(best_plan); it != plan_inputs.end()) {
-            choice.plan_options = it->second.first;
-            choice.plan_departure_s = it->second.second;
+            const auto& inputs = it->second;
+            choice.plan_options = planning_options(*inputs.destination, inputs.cargo_kg, inputs.rider_time_cr_per_day,
+                inputs.full_tank);
+            choice.plan_departure_s = std::max(sim_.game_time_s_, earliest_departure_s);
         }
         choice.carried_propellant_kg = best_carried_kg;
         choice.pickup_commodity_id = best_pickup_commodity;

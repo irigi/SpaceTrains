@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        const double game_day = sim.snapshot().game_time_s / kDayS;
+        const double game_day = sim.game_time_s() / kDayS;
         if (save_at_day >= 0 && step + 1 == save_at_day) {
             std::ofstream file(save_path, std::ios::binary | std::ios::trunc);
             file << sim.save_state_json();
