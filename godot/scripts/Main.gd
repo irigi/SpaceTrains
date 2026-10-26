@@ -452,6 +452,7 @@ func _unhandled_input(event: InputEvent) -> void:
         elif event.keycode == KEY_F10:
             _debug_map_state("manual")
     elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+        get_viewport().gui_release_focus()  # a click on the map takes the keys back from a text field
         _pick_entity(event.position)
         if event.double_click and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
@@ -580,6 +581,23 @@ func _read_stats() -> void:
     stats_seq = int(seq_text)
     stats_panel.update_stats(json.data)
 
+# Ships in flight carry only a path id; attach the planned path from the paths file.
+# Returns how many ships name a path the paths file does not have.
+func _attach_paths() -> int:
+    var missing := 0
+    for ship in bridge_state.get("ships", []):
+        var path_id := String(ship.get("path_id", ""))
+        if path_id == "":
+            continue
+        var cached: Dictionary = bridge_paths.get(String(ship.get("id", "")), {})
+        if String(cached.get("path_id", "")) == path_id:
+            ship["trajectory_path"] = cached.get("trajectory_path", [])
+            if cached.has("destination_body_at_arrival"):
+                ship["destination_body_at_arrival"] = cached["destination_body_at_arrival"]
+        else:
+            missing += 1
+    return missing
+
 func _read_snapshot() -> void:
     _read_paths()
     _read_designs()
@@ -622,16 +640,11 @@ func _read_snapshot() -> void:
     current_snapshot_seq = new_seq
     current_snapshot_arrival_s = arrival_now_s
     bridge_state = json.data
-    # Ships in flight carry only a path id; attach the planned path from the paths file.
-    for ship in bridge_state.get("ships", []):
-        var path_id := String(ship.get("path_id", ""))
-        if path_id == "":
-            continue
-        var cached: Dictionary = bridge_paths.get(String(ship.get("id", "")), {})
-        if String(cached.get("path_id", "")) == path_id:
-            ship["trajectory_path"] = cached.get("trajectory_path", [])
-            if cached.has("destination_body_at_arrival"):
-                ship["destination_body_at_arrival"] = cached["destination_body_at_arrival"]
+    # The bridge writes the paths a snapshot names before the snapshot: one read in between
+    # (the paths file read first, the new snapshot after) has an older paths file, read again.
+    if _attach_paths() > 0:
+        _read_paths()
+        _attach_paths()
     if snapshot_wall_s > 0.0 and arrival_now_s > snapshot_wall_s and new_game_time_s >= snapshot_game_time_s:
         var interval := arrival_now_s - snapshot_wall_s
         var sample := (new_game_time_s - snapshot_game_time_s) / interval
@@ -650,6 +663,8 @@ func _apply_snapshot() -> void:
         body_display_radii[String(body["id"])] = _body_scale_from_radius(float(body.get("radius_m", 0.0)))
     for ship in bridge_state.get("ships", []):
         _cache_ship_path(String(ship["id"]), ship)
+    # Before the entities: new stations and labels take their faction's colour from the data.
+    _update_faction_colors()
 
     var upsert_started := Time.get_ticks_usec()
     for body in bridge_state.get("bodies", []):
@@ -702,7 +717,6 @@ func _apply_snapshot() -> void:
             ship_paths.erase(ship_id)
     _rebuild_docked_slots()
     if _profile_enabled: _profiled("  upsert entities", upsert_started)
-    _update_faction_colors()
     var trails_started := Time.get_ticks_usec()
     _update_ship_trails()
     if _profile_enabled: _profiled("  ship trails", trails_started)
@@ -1165,11 +1179,18 @@ func _ship_m(ship_id: String) -> PackedFloat64Array:
     return PackedFloat64Array([float(detail.get("x", 0.0)), float(detail.get("y", 0.0)), float(detail.get("z", 0.0))])
 
 # Position [x, y, z] and direction of motion [dx, dy, dz] on a ship's path at time t.
+# At the display time it is kept for the frame: position, heading and focus all ask for it.
 func _path_sample(ship_id: String, t: float) -> PackedFloat64Array:
+    var key := "@" + ship_id
+    if t == display_time_s and frame_positions_m.has(key):
+        return frame_positions_m[key]
     var path: Dictionary = ship_paths[ship_id]
     var here := _rail_point_m(path, t)
     var ahead := _rail_point_m(path, t + 600.0)
-    return PackedFloat64Array([here[0], here[1], here[2], ahead[0] - here[0], ahead[1] - here[1], ahead[2] - here[2]])
+    var sample := PackedFloat64Array([here[0], here[1], here[2], ahead[0] - here[0], ahead[1] - here[1], ahead[2] - here[2]])
+    if t == display_time_s:
+        frame_positions_m[key] = sample
+    return sample
 
 func _ship_heading(ship_id: String) -> Vector3:
     if not ship_paths.has(ship_id):
@@ -1450,12 +1471,15 @@ func _update_fine_paths() -> void:
             node.position = _to_render(entry["focus"])
             node.visible = true
             active[ship_id] = true
+    # A fine path drawn replaces the ship's history trail; one not drawn is hidden (and the
+    # history trail stays as it is).
     for ship_id in fine_paths.keys():
         var node: MeshInstance3D = fine_paths[ship_id]["node"]
-        if not active.has(ship_id) and node != null:
+        if active.has(ship_id):
+            if history_trail_nodes.has(ship_id):
+                (history_trail_nodes[ship_id] as MeshInstance3D).visible = false
+        elif node != null:
             node.visible = false
-        elif history_trail_nodes.has(ship_id):
-            (history_trail_nodes[ship_id] as MeshInstance3D).visible = false
     var material := _trail_material()
     material.set_shader_parameter("focus", pivot)
     material.set_shader_parameter("hide_radius", hide_radius_m * POSITION_SCALE)
@@ -1836,6 +1860,11 @@ func _reset_timeline() -> void:
     economy_history.clear()
     price_history.clear()
     ship_trail_history.clear()
+    # The trails drawn from the old timeline go with it (after a load, a ship docked in the
+    # save kept its old trail on screen).
+    for ship_id in history_trail_nodes.keys():
+        (history_trail_nodes[ship_id] as Node).queue_free()
+    history_trail_nodes.clear()
     trail_path_signatures.clear()
 
 # Cumulative demand and unmet demand (base value), sampled once per game day, for the

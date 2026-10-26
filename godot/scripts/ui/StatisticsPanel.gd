@@ -50,6 +50,7 @@ func _ready() -> void:
     title.add_theme_font_size_override("font_size", 14)
     box.add_child(title)
     _tab_bar = TabBar.new()
+    _tab_bar.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     for name in TABS:
         _tab_bar.add_tab(name)
     _tab_bar.tab_changed.connect(func(index: int) -> void:
@@ -61,6 +62,7 @@ func _ready() -> void:
     box.add_child(options)
     for period in PERIODS:
         var button := Button.new()
+        button.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
         button.text = period[1]
         button.toggle_mode = true
         button.button_pressed = period[0] == _period
@@ -75,6 +77,7 @@ func _ready() -> void:
     spacer.custom_minimum_size.x = 24
     options.add_child(spacer)
     _measure_button = Button.new()
+    _measure_button.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     _measure_button.text = "Charts: balances"
     _measure_button.pressed.connect(func() -> void:
         _monthly = not _monthly
@@ -112,7 +115,10 @@ func update_stats(data: Dictionary) -> void:
     _labels.clear()
     for category in stats.get("categories", []):
         _labels[String(category.get("id", ""))] = String(category.get("label", ""))
-    if visible:
+    # Not while the mouse is held over the panel: a rebuild between press and release frees the
+    # button being clicked (the next stats file comes about a second later).
+    var held := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and get_global_rect().has_point(get_global_mouse_position())
+    if visible and not held:
         _rebuild()
 
 # --- building blocks ---
@@ -405,6 +411,7 @@ func _build_factions() -> void:
 func _station_buttons_row(station: Dictionary) -> Button:
     var id := String(station.get("id", ""))
     var button := Button.new()
+    button.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     button.text = String(station.get("name", id))
     button.flat = true
     button.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -546,6 +553,7 @@ func _fleet_rows(list: Array, name_of: Callable) -> Array:
 
 func _ship_button(ship: Dictionary) -> Button:
     var button := Button.new()
+    button.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     var sold := bool(ship.get("sold", false))
     button.text = "%s  %s%s" % [String(ship.get("name", "")), _cr(float(ship.get("profit", 0.0))), "  (sold)" if sold else ""]
     button.flat = true

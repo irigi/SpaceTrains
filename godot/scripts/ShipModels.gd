@@ -39,6 +39,9 @@ static var _finished := {}
 static var _mutex := Mutex.new()
 static var _plume_meshes := {}
 static var _cargo_meshes := {}
+# Each cargo shape's surfaces as [vertices, normals, draw order], read from its mesh once:
+# surface_get_arrays reads the buffers back from the GPU, and a hold has hundreds of containers.
+static var _cargo_arrays := {}
 static var _cargo_slots := {}  # shape -> slot name per surface
 
 # --- Cached meshes ----------------------------------------------------------------
@@ -655,6 +658,19 @@ static func _update_cargo(container: Node3D, data: Dictionary) -> void:
     instance.layers = Materials.MODEL_LAYERS
     container.add_child(instance)
 
+static func _cargo_surface(shape: String, unit: Mesh, i: int) -> Array:
+    if not _cargo_arrays.has(shape):
+        _cargo_arrays[shape] = {}
+    var by_surface: Dictionary = _cargo_arrays[shape]
+    if not by_surface.has(i):
+        var arrays := unit.surface_get_arrays(i)
+        var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+        var index = arrays[Mesh.ARRAY_INDEX]
+        var order: PackedInt32Array = index if index is PackedInt32Array and (index as PackedInt32Array).size() > 0 \
+            else PackedInt32Array(range(verts.size()))
+        by_surface[i] = [verts, arrays[Mesh.ARRAY_NORMAL], order]
+    return by_surface[i]
+
 # Adds one container (a unit cargo mesh placed by xf, painted `paint`) to the merged arrays.
 static func _append_cargo(parts: Dictionary, shape: String, xf: Transform3D, paint: Color) -> void:
     var unit := _cargo_mesh(shape)
@@ -665,12 +681,10 @@ static func _append_cargo(parts: Dictionary, shape: String, xf: Transform3D, pai
         if not parts.has(slot_name):
             parts[slot_name] = {"v": PackedVector3Array(), "n": PackedVector3Array(), "c": PackedColorArray()}
         var part: Dictionary = parts[slot_name]
-        var arrays := unit.surface_get_arrays(i)
-        var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-        var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-        var index = arrays[Mesh.ARRAY_INDEX]
-        var order: PackedInt32Array = index if index is PackedInt32Array and (index as PackedInt32Array).size() > 0 \
-            else PackedInt32Array(range(verts.size()))
+        var surface: Array = _cargo_surface(shape, unit, i)
+        var verts: PackedVector3Array = surface[0]
+        var normals: PackedVector3Array = surface[1]
+        var order: PackedInt32Array = surface[2]
         var v: PackedVector3Array = part["v"]
         var nn: PackedVector3Array = part["n"]
         var c: PackedColorArray = part["c"]

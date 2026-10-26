@@ -50,17 +50,36 @@ func _cell(text: String, color: Color, min_width: float, bg: Color = Color.TRANS
         return wrapper
     return label
 
+# The grid as last built: rebuilt only when what it shows changes (it was ~600 controls freed
+# and made again twice a second, paused or not).
+var _grid_signature := ""
+
 func update_market(state: Dictionary) -> void:
     if not visible:
         return
-    for child in _grid.get_children():
-        child.queue_free()
-
     var commodities: Array = state.get("commodities", [])
     var stations: Array = state.get("stations", [])
     if commodities.is_empty() or stations.is_empty():
+        for child in _grid.get_children():
+            child.queue_free()
+        _grid_signature = ""
         return
     _summary.text = _economy_summary(state, commodities, stations)
+    var parts: PackedStringArray = []
+    for station in stations:
+        parts.append(String(station.get("name", "")))
+    for commodity in commodities:
+        var commodity_id := String(commodity.get("id", ""))
+        parts.append(commodity_id)
+        for station in stations:
+            parts.append("%.0f/%.0f" % [float((station.get("prices", {}) as Dictionary).get(commodity_id, 0.0)),
+                float((station.get("inventory", {}) as Dictionary).get(commodity_id, 0.0))])
+    var signature := "|".join(parts)
+    if signature == _grid_signature:
+        return
+    _grid_signature = signature
+    for child in _grid.get_children():
+        child.queue_free()
 
     _grid.columns = stations.size() + 1
     _grid.add_child(_cell("", UiTheme.TEXT_DIM, 90.0))

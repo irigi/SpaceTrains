@@ -46,6 +46,7 @@ func _ready() -> void:
     header.add_child(_collapse_button)
 
     _tab_bar = TabBar.new()
+    _tab_bar.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     for tab_name in TABS:
         _tab_bar.add_tab(tab_name)
     _tab_bar.tab_changed.connect(func(_index: int) -> void: _rebuild(true))
@@ -54,9 +55,16 @@ func _ready() -> void:
     _filter = LineEdit.new()
     _filter.placeholder_text = "filter…"
     _filter.text_changed.connect(func(_text: String) -> void: _rebuild(true))
+    # Typing needs focus; Enter or Escape gives the keys back to the map (so does a click on it).
+    _filter.text_submitted.connect(func(_text: String) -> void: _filter.release_focus())
+    _filter.gui_input.connect(func(event: InputEvent) -> void:
+        if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+            _filter.release_focus()
+            _filter.accept_event())
     _content.add_child(_filter)
 
     _list = ItemList.new()
+    _list.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     _list.size_flags_vertical = Control.SIZE_EXPAND_FILL
     _list.item_selected.connect(_on_item_selected)
     _content.add_child(_list)
