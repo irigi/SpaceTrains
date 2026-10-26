@@ -316,7 +316,7 @@ private:
     // factories make fuel, a drained depot sells at up to 16x base, and that premium is a
     // real cost of leaving from here (the tanks' contents are not).
     const double origin_fuel_premium = std::max(0.0, sim_.station_price(origin_state, "fuel") - origin_fuel_price);
-    std::unordered_map<std::string, std::vector<FollowUp>> follow_ups_by_destination;
+    std::unordered_map<std::string, std::vector<FollowUp>> follow_ups_by_destination;  // by destination, arrival and fuel
     const std::unordered_map<std::string, double>& origin_rates = sim_.economy_.get_station_net_rates(origin_def);
     std::vector<Offer> offers = origin_offers();
     // Propellant bought for the mission is paid at this port's price.
@@ -531,10 +531,6 @@ private:
     }
     const std::vector<FollowUp>& follow_ups_from(const domain::StationDefinition& destination,
         const domain::TrajectoryPlan& plan, double carried_kg) {
-        if (const auto it = follow_ups_by_destination.find(destination.id); it != follow_ups_by_destination.end()) {
-            return it->second;
-        }
-        std::vector<FollowUp> options;
         const auto& dest_state = sim_.get_station_state(destination.id);
         const double arrival_kg = std::max(0.0,
             plan.propellant_load_kg - plan.propellant_required_kg - plan.propellant_boiled_kg) + carried_kg;
@@ -544,6 +540,14 @@ private:
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
                 sim_.economy_, destination, dest_state, delay_days + plan.travel_time_s / 86400.0));
+        // The follow-ups depend on when the ship arrives and with how much fuel it can leave, so
+        // a lighter load (earlier, more fuel left) gets its own (before: one set per destination,
+        // from whichever plan asked first).
+        const auto key = std::format("{}|{}|{}|{}", destination.id, plan.arrival_time_s, plan.travel_time_s, departure_kg);
+        if (const auto it = follow_ups_by_destination.find(key); it != follow_ups_by_destination.end()) {
+            return it->second;
+        }
+        std::vector<FollowUp> options;
         auto surplus_by_commodity = open_surplus(destination, dest_state, follow_days);
         for (const auto& [commodity_id, surplus] : surplus_by_commodity) {
             const double full_units = std::min(surplus, ship_class.cargo_capacity_units);
@@ -655,7 +659,7 @@ private:
         } else {
             options.push_back({.profit = -time_cost_per_day * IDLE_LAYUP_DAYS, .days = IDLE_LAYUP_DAYS, .label = "then idle"});
         }
-        return follow_ups_by_destination.emplace(destination.id, std::move(options)).first->second;
+        return follow_ups_by_destination.emplace(key, std::move(options)).first->second;
     }
     // Profit per day over both legs, with the best follow-up for this leg.
     double two_leg_score(const domain::StationDefinition& destination, const domain::TrajectoryPlan& plan,
