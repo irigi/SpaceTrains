@@ -28,6 +28,13 @@ add_library(spacetrains_core
     src/variable_isp/GeneralTransfer.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
+    src/simulation/Market.cpp
+    src/simulation/ShipOperations.cpp
+    src/simulation/MissionPlanning.cpp
+    src/simulation/ShipPhases.cpp
+    src/simulation/Contracts.cpp
+    src/simulation/FleetInvestment.cpp
+    src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp
     src/simulation/Households.cpp
