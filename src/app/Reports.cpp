@@ -601,18 +601,6 @@ void print_economy_audit(
     double station_credits = 0.0;
     double ship_credits = 0.0;
     std::cout << "\n  [ECON AUDIT] Money:\n";
-    // A station's stock is worth the price curve integrated from zero up to it; trades along
-    // the curve move money and stock value in step, so this shows where money went into goods.
-    const auto stock_value = [&](const spacetrains::domain::StationDefinition& sd,
-                                 const spacetrains::domain::Inventory& inventory) {
-        double value = 0.0;
-        for (const auto& commodity : universe.commodities) {
-            const auto it = inventory.find(commodity.id);
-            const double stock = it == inventory.end() ? 0.0 : std::max(0.0, it->second);
-            value += economy.get_trade_value(sd, commodity.id, 0.0, stock, commodity.base_price);
-        }
-        return value;
-    };
     std::cout << std::format("    {:30s}  {:>12s}     {:>9s} {:>9s} {:>8s} {:>8s} {:>8s} {:>9s} {:>9s}\n",
         "", "", "household", "producer", "dividend", "subsidy", "tax", "Δstock", "profit");
     spacetrains::domain::StationLedger stations_total;

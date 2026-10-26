@@ -11,6 +11,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -47,35 +48,35 @@ double distance_between(const spacetrains::math::Vec3d& lhs, const spacetrains::
 
 const spacetrains::domain::StationDefinition& station_by_id(
     const spacetrains::domain::UniverseDefinition& universe,
-    const std::string& id) {
+    std::string_view id) {
     for (const auto& station : universe.stations) {
         if (station.id == id) {
             return station;
         }
     }
-    throw std::runtime_error("missing station " + id);
+    throw std::runtime_error("missing station " + std::string(id));
 }
 
 const spacetrains::domain::ShipClassDefinition& ship_class_by_id(
     const spacetrains::domain::UniverseDefinition& universe,
-    const std::string& id) {
+    std::string_view id) {
     for (const auto& ship_class : universe.ship_classes) {
         if (ship_class.id == id) {
             return ship_class;
         }
     }
-    throw std::runtime_error("missing ship class " + id);
+    throw std::runtime_error("missing ship class " + std::string(id));
 }
 
 const spacetrains::domain::CelestialBodyDefinition& body_by_id(
     const spacetrains::domain::UniverseDefinition& universe,
-    const std::string& id) {
+    std::string_view id) {
     for (const auto& body : universe.bodies) {
         if (body.id == id) {
             return body;
         }
     }
-    throw std::runtime_error("missing body " + id);
+    throw std::runtime_error("missing body " + std::string(id));
 }
 
 spacetrains::math::Vec3d interpolate_path(const std::vector<spacetrains::math::Vec3d>& path, double progress) {
