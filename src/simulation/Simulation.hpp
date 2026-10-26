@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <functional>
 #include <iosfwd>
 #include <limits>
@@ -421,6 +422,11 @@ private:
     // the inspector and the audit; quotes compute their own).
     void step_orders();
     // Competitive pricing: each order's market price from the asks of ships near a source (daily).
+    // True on the tick that crosses into a new day (on the 0.1-day grid from midnight, the
+    // tick at midnight; from any other start, the first tick past it).
+    [[nodiscard]] bool first_tick_of_day() const {
+        return std::floor(game_time_s_ / 86400.0) != std::floor((game_time_s_ - TICK_S) / 86400.0);
+    }
     void update_market_prices();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;

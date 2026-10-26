@@ -920,7 +920,7 @@ Simulation::OrderBid Simulation::order_bid(const domain::StationState& state, co
 
 void Simulation::update_market_prices() {
     const auto& market = universe_.market;
-    if (market.competitive <= 0.0 || std::fmod(game_time_s_, 86400.0) >= TICK_S * 0.5) {
+    if (market.competitive <= 0.0 || !first_tick_of_day()) {
         return;
     }
     const profiling::Scope profile_scope(profiling::Phase::EstimateLeg);
@@ -1060,7 +1060,7 @@ void Simulation::step_orders() {
             // Debug aid: SPACETRAINS_TRACE_ORDER="<station id>:<good>" logs that order once a day (stderr).
             if (static const char* const trace_order = std::getenv("SPACETRAINS_TRACE_ORDER");
                 trace_order != nullptr && state.station_id + ":" + commodity_id == trace_order
-                && std::fmod(game_time_s_, 86400.0) < Simulation::TICK_S * 0.5) {
+                && first_tick_of_day()) {
                 const auto view = order_view(state, commodity_id);
                 std::cerr << std::format("[ORDER] day {:.0f} {} stock {:.0f} coming {:.0f} S {:.0f} N {:.0f} short {:.0f} "
                     "P {:.1f} G {:.1f} L {:.0f} I {:.0f} sigma {:.0f}\n", game_time_s_ / 86400.0, trace_order, view.stock,
