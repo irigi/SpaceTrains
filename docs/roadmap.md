@@ -16,11 +16,12 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-23) — start here
+## Current Plan (updated 2026-10-26) — start here
 
-**Status.** `main` holds everything up to the economy overhaul (merged as PR #21, 2026-10-23). **Better 3D ship
-models** (roadmap step 5) are on branch `feature/ship_models_3d` (2026-10-23, not merged; see "Ship and station
-models" below). The economy overhaul (plan
+**Status.** `main` holds everything up to the 3D ship and station models at true scale (roadmap steps 5-6, merged as
+PR #22, 2026-10-23; the user approved the models on 2026-10-26). **Next: Tier 3 ship structures, stations** (step 4):
+concept and its tensions with the economy in `docs/plans/station_structures.md`, on branch
+`feature/station_structures`; awaiting the user's decisions before any code. The economy overhaul (plan
 `docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
 `docs/modules/economy.md` ("Economy overhaul")) brought:
 - real prices: Earth surface price + $100/kg launch at the Earth stations;
@@ -42,7 +43,7 @@ Benchmark, 4 starts × 1,460 days (2026-10-23):
 
 An 8-year run holds at 0.1% unmet.
 
-**Ship and station models** (branch `feature/ship_models_3d`, `docs/modules/ui_observer.md`):
+**Ship and station models** (merged as PR #22; `docs/modules/ui_observer.md`):
 - Map ships are built from their design's components with the schematic's layout, in metres. A coarse model shows
   at mid zoom; a detailed one (built in the background) shows close up, with live radiators, plume and cargo.
 - Generic stations with rings, berths and a flavour per economy profile; docked ships sit at the berths.
@@ -50,11 +51,8 @@ An 8-year run holds at 0.1% unmet.
   fill light keeps night sides readable.
 - Frame time at overview is unchanged against `main`; station close-ups run at 56-60 fps.
 - The station snapshot gained `economy_profile_id`.
-- **For the user to review:**
-  - the look (gallery: `scripts/ModelGallery.gd`);
-  - the size: ~4,500x real, stations compressed to 44-72 m ring radius;
-  - the Low Earth and Lunar Gateway stations, drawn smaller than the ships' scale so they stay above their planet.
-- Then merge.
+- True scale (step 6): ships and stations at real size, habitat rings sized by population (Stanford torus).
+- Reviewed and approved by the user (2026-10-26).
 
 **Open for the user:**
 - **Review the economy overhaul** (merged; the log's decisions were all taken overnight without the user). The main
@@ -123,14 +121,15 @@ An 8-year run holds at 0.1% unmet.
    routes' open points were re-evaluated after the economy overhaul (`passenger_routes.md`).
 2. ~~**Economy overhaul merge**~~ (PR #21); its review is still open (above).
 3. (free)
-4. **Tier 3 ship structures: stations** (`docs/plans/ship_internals.md`).
-5. ~~**Better 3D ship models**~~ (user, 2026-10-20): built on `feature/ship_models_3d` (above), with generic
-   station models and the colour fix; awaiting review and merge.
+4. **Tier 3 ship structures: stations** (concept 2026-10-26: `docs/plans/station_structures.md`; the sketch in
+   `docs/plans/ship_internals.md`). Concept and tensions written, decisions open for the user, no code yet.
+5. ~~**Better 3D ship models**~~ (user, 2026-10-20): with generic station models and the colour fix; merged
+   (PR #22), approved 2026-10-26.
 6. ~~**True scale for ships and stations**~~ (2026-10-23, on `feature/ship_models_3d`): ships and stations at real
    size (`Main.MODEL_SIZE_EXAGGERATION` = 1, `--model-scale=N` to change), Stanford-torus habitat rings by
    population, a ship-sized docking core, sticky berths with a blend into them, model-aware picking, near plane and
-   zoom limits for metre scale. Also fixed: the bridge never ticked at the slowest timewarp (600x). Awaiting review
-   with step 5.
+   zoom limits for metre scale. Also fixed: the bridge never ticked at the slowest timewarp (600x). Merged with
+   step 5.
 7. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
    into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
    (below). Needs the game design: who chases whom, triggers, what happens at intercept.
@@ -145,8 +144,8 @@ Later (user, 2026-10-22):
   (`background_economies.md`, `economy_points_7_10.md`): built as the economy overhaul (2026-10-23, above),
   except industries as accounts of their own and supply following price (built, off). The passenger points were
   revisited (`passenger_routes.md`, "Re-evaluated after the economy overhaul").
-- **Population composition in the style of Europa Universalis 2:** stations and ships hold people of different
-  kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from EU2). To be designed
+- **Population composition in the style of Victoria 2:** stations and ships hold people of different
+  kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from Victoria 2). To be designed
   in detail together when we get there; the user wants help with the concept.
 
 Deferred (user, 2026-10-08):

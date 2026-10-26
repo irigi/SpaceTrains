@@ -11,7 +11,7 @@ Three tiers:
 2. **Modules as refit choices**, with component condition and damage. Built 2026-10-21 on
    `feature/ship_structures_tier2`: plan `ship_structures_tier2.md`, decisions and measurements
    `tier2_log.md`, mechanisms in `docs/modules/ships_and_fleet.md`. The design below is the 2026-10-11 draft.
-3. **Stations** get the same treatment. Sketch at the end.
+3. **Stations** get the same treatment. Concept: `station_structures.md`.
 
 The decisions are logged in `ship_structures_log.md`. The graphics are the inspector's ship schematic and the
 map hints (`docs/modules/ui_observer.md`). A shipyard panel and 3D close-ups are shelved
@@ -154,6 +154,9 @@ Fleet investment picks a hull and then its best fit, as it now picks the best ta
 5. 2d condition and ship events.
 
 ## Tier 3: Stations (sketch)
+Superseded by the concept in `station_structures.md` (2026-10-26), which also lists where it conflicts with the
+economy. The original sketch:
+
 Station modules map onto quantities the economy already has:
 - habitat rings → population
 - factories → recipes
