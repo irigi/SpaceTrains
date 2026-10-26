@@ -114,8 +114,8 @@ little gain).
 **Open, for the user (a fix changes results or saved values):**
 - **S3** follow-up legs cached per destination only: lighter loads reuse the full load's follow-ups. Fix changes
   dispatch.
-- **S4** inbound decay in order quotes and route valuation ignores cold holds. Only matters with `cold_storage` on
-  (on in the data?), changes prices.
+- **S4** inbound decay in order quotes and route valuation ignores cold holds. `cold_storage` is on in the data, so
+  a fix changes prices.
 - **E1** `solve_min_time` may return a transfer shorter than its lower bound; the VariableISP planner's direct
   fallback uses it. Fix changes some plasma plans.
 - **E4** phantom `output_factor` entries for goods a station does not make (display and audit only).
