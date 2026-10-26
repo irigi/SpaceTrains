@@ -656,13 +656,14 @@ Simulation::OrderLevels Simulation::order_levels(
 
 std::vector<std::pair<double, double>> Simulation::contracted_arrivals(
     const domain::StationState& state, const std::string& commodity_id, const std::string& except_ship_id) const {
-    const double decay = get_commodity(commodity_id).decay_fraction_per_day;
     std::vector<std::pair<double, double>> arrivals;
     for (const auto& ship : ships_) {
         if (ship.id != except_ship_id
             && (ship.phase == domain::ShipMissionPhase::InTransit || ship.phase == domain::ShipMissionPhase::AwaitingDeparture)
             && ship.active_mission.destination_station_id == state.station_id) {
             if (const double units = domain::units_of(ship.active_mission.cargo, commodity_id); units > 0.0) {
+                // What survives the trip in this ship's hold (a cold hold slows the spoiling).
+                const double decay = cargo_decay_per_day(ship_design(ship), commodity_id);
                 arrivals.emplace_back(ship.active_mission.arrival_time_s,
                     units * std::pow(1.0 - decay, ship.active_mission.total_travel_time_s / 86400.0));
             }

@@ -468,7 +468,7 @@ private:
     // share of it; the destination keeps consuming it and other ships (at least those committed
     // to the route) keep delivering it. A route already served thus sells near the base
     // price, not at today's scarcity price.
-    double sustained_profit_per_day(const domain::StationDefinition& yard,
+    double sustained_profit_per_day(const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
         const MissionChoice::CargoOption& option, double& units_per_day) const {
         const auto& commodity_id = option.commodity_id;
         const auto& commodity = sim_.get_commodity(commodity_id);
@@ -551,7 +551,7 @@ private:
                 + 2.0 * option.fuel_cost;
             yard_stock -= units;
             advance(leg_days);
-            const double surviving = units * std::pow(1.0 - commodity.decay_fraction_per_day, option.travel_days);
+            const double surviving = units * std::pow(1.0 - sim_.cargo_decay_per_day(ship_class, commodity_id), option.travel_days);
             margin += sale_value(surviving) - cost;
             destination_stock += surviving;
             delivered += surviving;
@@ -642,7 +642,7 @@ private:
             if (cabin_fit(ship_class)) {
                 continue;  // a cabin hull is valued for its berths (see the bound above)
             }
-            const double profit_per_day = sustained_profit_per_day(yard, option, units_per_day);
+            const double profit_per_day = sustained_profit_per_day(ship_class, yard, option, units_per_day);
             if (option.run < 0) {
                 consider({.profit_per_day = profit_per_day, .label = {}, .main_lot = &option, .main_units_per_day = units_per_day});
                 continue;
