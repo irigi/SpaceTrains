@@ -56,7 +56,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(spacetrains_core PUBLIC Threads::Threads)
 target_compile_options(spacetrains_core PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(spacetrains_headless src/app/main.cpp)
+add_executable(spacetrains_headless src/app/main.cpp src/app/Reports.cpp src/app/TrajectoryReports.cpp)
 target_link_libraries(spacetrains_headless PRIVATE spacetrains_core Threads::Threads)
 
 add_executable(spacetrains_bridge src/bridge/main.cpp)
