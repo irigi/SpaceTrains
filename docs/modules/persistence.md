@@ -8,12 +8,14 @@ data files.
 ## Interfaces
 
 - `Simulation::save_state_json()` / `Simulation::load_state_json(text)` (`src/persistence/SimulationPersistence.cpp`).
-  A load parses and checks everything first and throws on a bad file, leaving the game unchanged.
-- `Simulation::data_fingerprint()`: FNV-1a over station, ship class, goods and recipe definitions; a save made with
-  other data is refused.
+  A load throws on a bad or foreign file and leaves the game as it was: it saves the state first and loads that
+  back if anything in the file fails.
+- `Simulation::data_fingerprint()`: FNV-1a over the definitions a save depends on (stations, ship classes, goods,
+  recipes, the passenger, environment and labour settings); a save made with other data is refused. It is
+  deliberately narrower than the bridge's opening-cache key, so a save still loads after, say, a price tweak.
 - `persistence::Json` (`src/persistence/Json.*`): a small JSON value with ordered objects; numbers are written in the
   shortest form that reads back to the same double, non-finite ones as the strings `"inf"`, `"-inf"`, `"nan"`.
-- Headless: `--save-at DAY FILE`, `--load FILE` (then `--days N` more).
+- Headless: `--save-at DAY FILE`, `--load FILE` (then `--days N` more). Saves are written aside and renamed.
 - Bridge: the command file's `request` number with `save_path` or `load_path`; the snapshot's `bridge.status` reports
   the result and `bridge.epoch` changes on every load.
 - UI: F5 quick save, F9 quick load (`user://saves/quicksave.json`); on a new epoch the UI forgets its timeline
@@ -29,6 +31,8 @@ data files.
 
 ## Format
 
-Version 4 (2: a mission's hold is a list of lots; 3: a fleet review's probes; 4: probe runs): `version`, `data_fingerprint`, game time and the tick remainder, timewarp, outside-economy credits,
-treasuries, money-supply target, investment state, stations, ships (with their missions and planned paths), sold
-ships, recent events and trades. About 140 KB at day 45.
+Version 20 (`kSaveVersion` in `SimulationPersistence.cpp` lists what each version added): `version`,
+`data_fingerprint`, game time and the tick remainder, timewarp, the background accounts, treasuries and faction
+credit, investment state and probes, stations (stock, orders, residents, jobs, ledgers), colonies, ships (missions
+with their planned paths, fits, wear, doses, passengers, contracts), sold ships, recent events and trades, the
+random generators, and the money journal with its monthly history. About 1.2 MB at day 730.

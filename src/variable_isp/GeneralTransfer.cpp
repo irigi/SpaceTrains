@@ -1094,8 +1094,13 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
             continue;
         }
         if (sol.end.effort <= budget) {
-            // Refine the crossing on the budget equation from the feasible side (or keep this
-            // grid point when it is the first and already feasible).
+            // Refine the crossing on the budget equation from the feasible side, or keep this
+            // grid point when it is the first and already feasible: the answer must not be
+            // shorter than T_lo (the caller's minimum transfer time).
+            if (i == 0) {
+                sol.propagations = propagations;
+                return sol;
+            }
             const Solution& from = (have_previous && previous.end.effort > budget) ? previous : sol;
             const double T_from = (have_previous && previous.end.effort > budget) ? previous_T : T;
             ShootingOptions budget_shoot;
@@ -1113,7 +1118,8 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
             const Primer& seed = (&from == &previous) ? previous.primer : sol.primer;
             auto refined = shoot(propagator, request.start, request.target, request.end_condition, seed, T_guess, budget_shoot);
             propagations += refined.propagations;
-            if (refined.converged && refined.end.min_radius >= request.min_radius && refined.T <= T * (1.0 + 1e-9)) {
+            if (refined.converged && refined.end.min_radius >= request.min_radius && refined.T <= T * (1.0 + 1e-9)
+                && refined.T >= T_lo) {
                 refined.propagations = propagations;
                 return refined;
             }

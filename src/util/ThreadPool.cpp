@@ -3,15 +3,22 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string>
+#include <utility>
 
 namespace spacetrains::util {
 
 namespace {
 
+thread_local bool in_parallel_for_ = false;
+
 std::size_t default_thread_count() {
+    // SPACETRAINS_THREADS: a positive count; anything else (negative, zero, not a number) is ignored.
     if (const char* env = std::getenv("SPACETRAINS_THREADS")) {
         try {
-            return std::max<std::size_t>(1, static_cast<std::size_t>(std::stoul(env)));
+            const long long threads = std::stoll(env);
+            if (threads > 0) {
+                return static_cast<std::size_t>(std::min<long long>(threads, 1024));
+            }
         } catch (...) {
         }
     }
@@ -39,10 +46,23 @@ ThreadPool::~ThreadPool() {
     }
 }
 
+bool ThreadPool::in_parallel_for() {
+    return in_parallel_for_;
+}
+
 void ThreadPool::run_indices(const std::function<void(std::size_t)>& job, std::size_t count) {
+    in_parallel_for_ = true;
     for (std::size_t i = next_index_.fetch_add(1); i < count; i = next_index_.fetch_add(1)) {
-        job(i);
+        try {
+            job(i);
+        } catch (...) {
+            const std::lock_guard lock(mutex_);
+            if (!error_) {
+                error_ = std::current_exception();
+            }
+        }
     }
+    in_parallel_for_ = false;
 }
 
 void ThreadPool::worker_loop() {
@@ -92,6 +112,7 @@ void ThreadPool::parallel_for(std::size_t count, const std::function<void(std::s
         job_ = &fn;
         job_count_ = count;
         next_index_.store(0);
+        error_ = nullptr;
         ++generation_;
     }
     work_ready_.notify_all();
@@ -100,6 +121,9 @@ void ThreadPool::parallel_for(std::size_t count, const std::function<void(std::s
     // Workers that woke late find no index left and leave at once; wait for the busy ones.
     work_done_.wait(lock, [&] { return busy_workers_ == 0 && next_index_.load() >= job_count_; });
     job_ = nullptr;
+    if (error_) {
+        std::rethrow_exception(std::exchange(error_, nullptr));
+    }
 }
 
 }  // namespace spacetrains::util

@@ -913,6 +913,19 @@ std::string Simulation::save_state_json() const {
 }
 
 void Simulation::load_state_json(const std::string& text) {
+    // Most of a bad file is caught before the simulation changes, but some fields are read
+    // only after: on any failure the state is restored from a save made just before
+    // (save and load round-trip exactly), so the caller keeps a whole game.
+    const std::string before = save_state_json();
+    try {
+        read_state_json(text);
+    } catch (...) {
+        read_state_json(before);
+        throw;
+    }
+}
+
+void Simulation::read_state_json(const std::string& text) {
     const auto root = Json::parse(text);
     const int version = static_cast<int>(root.get("version").number());
     if (version != kSaveVersion) {
@@ -921,7 +934,7 @@ void Simulation::load_state_json(const std::string& text) {
     if (root.get("data_fingerprint").string() != data_fingerprint()) {
         throw std::runtime_error("save: made with different data files (stations, ship classes, goods or recipes changed)");
     }
-    // Parse everything before touching the simulation, so a bad file leaves it as it was.
+    // Parse what can be checked before touching the simulation.
     std::vector<domain::StationState> stations;
     for (const auto& item : root.get("stations").items()) {
         stations.push_back(station_from_json(item));

@@ -8,8 +8,11 @@
 #include <stdexcept>
 
 #include "simulation/Simulation.hpp"
+#include "simulation/SimulationInternal.hpp"
 
 namespace spacetrains::simulation {
+
+using namespace detail;
 
 void Simulation::setup_money_journal() {
     // Accounts in a fixed order (definitions order), so indices are the same in every run.
@@ -153,19 +156,13 @@ void Simulation::close_journal_period() {
 
 namespace {
 
-std::string escape_json(const std::string& text) {
-    std::string out;
-    for (const char c : text) {
-        if (c == '"' || c == '\\') {
-            out += '\\';
-        }
-        out += c;
-    }
-    return out;
-}
-
 std::string number(double value) {
     return std::isfinite(value) ? std::format("{:.2f}", value) : "0";
+}
+
+// Rates and shares, with three decimals; a non-finite value is written as 0 (valid JSON).
+std::string fine(double value) {
+    return std::isfinite(value) ? std::format("{:.3f}", value) : "0";
 }
 
 // {"cat":[in,out],...} for the categories that moved.
@@ -228,8 +225,8 @@ std::string Simulation::build_stats_json() const {
         seeds += journal_.seed(i);
         out += std::format("{}{{\"key\":\"{}\",\"kind\":\"{}\",\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"balance\":{},\"seed\":{},"
             "\"lifetime\":{},\"last_year\":{},\"last_30\":{},\"running\":{}}}",
-            i > 0 ? "," : "", escape_json(info.key()), account_kind_id(info.kind), escape_json(info.id), escape_json(info.name),
-            escape_json(info.faction_id), number(balance), number(journal_.seed(i)), flows_json(journal_.lifetime(i)),
+            i > 0 ? "," : "", json_escape(info.key()), account_kind_id(info.kind), json_escape(info.id), json_escape(info.name),
+            json_escape(info.faction_id), number(balance), number(journal_.seed(i)), flows_json(journal_.lifetime(i)),
             flows_json(year), flows_json(month), flows_json(journal_.period(i)));
     }
     out += std::format("],\"total\":{},\"seed_total\":{},", number(total), number(seeds));
@@ -264,11 +261,11 @@ std::string Simulation::build_stats_json() const {
         for (const auto& sample : history) {
             series.push_back(sample.balances[i]);
         }
-        out += std::format("{}\"{}\":{}", i > 0 ? "," : "", escape_json(accounts[i].key()), numbers_json(series));
+        out += std::format("{}\"{}\":{}", i > 0 ? "," : "", json_escape(accounts[i].key()), numbers_json(series));
     }
     out += "},\"flows\":{";
     for (std::size_t i = 0; i < accounts.size(); ++i) {
-        out += std::format("{}\"{}\":{{", i > 0 ? "," : "", escape_json(accounts[i].key()));
+        out += std::format("{}\"{}\":{{", i > 0 ? "," : "", json_escape(accounts[i].key()));
         bool first_category = true;
         for (std::size_t c = 0; c < kMoneyCategories; ++c) {
             std::vector<double> series;
@@ -292,7 +289,7 @@ std::string Simulation::build_stats_json() const {
         for (const auto& sample : history) {
             series.push_back(s < sample.station_profit.size() ? sample.station_profit[s] : 0.0);
         }
-        out += std::format("{}\"{}\":{}", s > 0 ? "," : "", escape_json(stations_[s].station_id), numbers_json(series));
+        out += std::format("{}\"{}\":{}", s > 0 ? "," : "", json_escape(stations_[s].station_id), numbers_json(series));
     }
     out += "}},";
 
@@ -303,11 +300,11 @@ std::string Simulation::build_stats_json() const {
         const auto& definition = get_station_definition(station.station_id);
         const double profit = station_lifetime_profit(station);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"credits\":{},\"profit\":{},\"profit_last_year\":{},"
-            "\"red_days\":{},\"population\":{},\"workers\":{},\"jobs\":{},\"wage\":{:.3f},\"labour_market\":{},\"household_credits\":{}}}",
-            s > 0 ? "," : "", escape_json(station.station_id), escape_json(definition.name), escape_json(definition.faction_id),
+            "\"red_days\":{},\"population\":{},\"workers\":{},\"jobs\":{},\"wage\":{},\"labour_market\":{},\"household_credits\":{}}}",
+            s > 0 ? "," : "", json_escape(station.station_id), json_escape(definition.name), json_escape(definition.faction_id),
             number(station.credits), number(profit), number(station_profit_last_year(station)), number(station.ledger.days_in_red),
             number(station.population), number(station_workers(station)),
-            number(in_labour_market(station) ? station.jobs : station_workers(station)), station_wage_cr_per_day(station),
+            number(in_labour_market(station) ? station.jobs : station_workers(station)), fine(station_wage_cr_per_day(station)),
             in_labour_market(station) ? "true" : "false", number(station.household_credits));
     }
     out += "],";
@@ -337,15 +334,16 @@ std::string Simulation::build_stats_json() const {
         const double wage = colony_wage_median(economy);
         const auto* state = colony_state(economy.id);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"gateways\":\"{}\",\"credits\":{},\"credit_line\":{},\"people\":{},"
-            "\"wage_p10\":{:.3f},\"wage_p50\":{:.3f},\"wage_p90\":{:.3f},\"hired_up\":{},\"gone_down\":{},\"earth_investment_per_year\":{},"
-            "\"people_history\":{},\"wage_data\":{:.3f},\"satisfaction\":{:.3f},\"throttle\":{:.3f},\"income_per_year\":{},"
+            "\"wage_p10\":{},\"wage_p50\":{},\"wage_p90\":{},\"hired_up\":{},\"gone_down\":{},\"earth_investment_per_year\":{},"
+            "\"people_history\":{},\"wage_data\":{},\"satisfaction\":{},\"throttle\":{},\"income_per_year\":{},"
             "\"imports_per_year\":{}}}",
-            first_colony ? "" : ",", escape_json(economy.id), escape_json(economy.name),
-            escape_json(economy.gateways.empty() ? std::string() : economy.gateways.front()), number(economy_balance(economy.id)),
+            first_colony ? "" : ",", json_escape(economy.id), json_escape(economy.name),
+            json_escape(economy.gateways.empty() ? std::string() : economy.gateways.front()), number(economy_balance(economy.id)),
             number(economy_credit_line(economy.id)), number(people == background_population_.end() ? 0.0 : people->second),
-            wage * std::exp(-Z90 * economy.wage_sigma), wage, wage * std::exp(Z90 * economy.wage_sigma), number(hired_up),
-            number(gone_down), number(economy.income_cr_per_day * 365.25), numbers_json(people_series), economy.wage_median_cr_per_day,
-            state == nullptr ? 1.0 : state->satisfaction, state == nullptr ? 1.0 : state->throttle,
+            fine(wage * std::exp(-Z90 * economy.wage_sigma)), fine(wage), fine(wage * std::exp(Z90 * economy.wage_sigma)),
+            number(hired_up), number(gone_down), number(economy.income_cr_per_day * 365.25), numbers_json(people_series),
+            fine(economy.wage_median_cr_per_day), fine(state == nullptr ? 1.0 : state->satisfaction),
+            fine(state == nullptr ? 1.0 : state->throttle),
             number(state == nullptr ? 0.0 : state->income_per_day * 365.25),
             number(state == nullptr ? 0.0 : state->base_imports_per_day * 365.25));
         first_colony = false;
@@ -358,7 +356,7 @@ std::string Simulation::build_stats_json() const {
         const auto& faction = universe_.factions[f];
         const auto treasury = faction_treasuries_.find(faction.id);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"color\":\"{}\",\"treasury\":{},\"credit_limit\":{}}}",
-            f > 0 ? "," : "", escape_json(faction.id), escape_json(faction.name), escape_json(faction.color_hex),
+            f > 0 ? "," : "", json_escape(faction.id), json_escape(faction.name), json_escape(faction.color_hex),
             number(treasury == faction_treasuries_.end() ? 0.0 : treasury->second), number(faction_credit_limit(faction.id)));
     }
     out += "],";
@@ -408,7 +406,7 @@ std::string Simulation::build_stats_json() const {
         return std::format("{{\"key\":\"{}\",\"ships\":{},\"in_service\":{},\"profitable\":{},\"cargo_revenue\":{},\"cargo_purchases\":{},"
             "\"fares\":{},\"fuel\":{},\"wages\":{},\"capital\":{},\"provisions\":{},\"refits\":{},\"dividends\":{},\"subsidies\":{},"
             "\"profit\":{}}}",
-            escape_json(key), t.ships, t.in_service, t.profitable, number(l.cargo_revenue), number(l.cargo_purchases), number(l.fares),
+            json_escape(key), t.ships, t.in_service, t.profitable, number(l.cargo_revenue), number(l.cargo_purchases), number(l.fares),
             number(l.fuel), number(l.wages), number(l.capital), number(l.provisions), number(l.refits), number(l.dividends),
             number(l.subsidies), number(t.profit));
     };
@@ -430,7 +428,7 @@ std::string Simulation::build_stats_json() const {
     });
     const auto ship_json = [](const Ranked& r) {
         return std::format("{{\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"class\":\"{}\",\"profit\":{},\"sold\":{}}}",
-            escape_json(r.ship->id), escape_json(r.ship->name), escape_json(r.ship->faction_id), escape_json(r.ship->class_id),
+            json_escape(r.ship->id), json_escape(r.ship->name), json_escape(r.ship->faction_id), json_escape(r.ship->class_id),
             number(r.ship->lifetime_profit), r.sold ? "true" : "false");
     };
     out += "],\"top\":[";

@@ -1,11 +1,20 @@
 # ships and fleet
 
-How ships pay their way, choose missions, refit and are bought and sold. All of it lives in `Simulation`
-(`src/simulation/Simulation.{hpp,cpp}`). Parameters are in `data/economy/` (`ship_operations.csv`,
-`fleet_investment.csv`, `open_economy.csv`, `fuel_supply.csv`, `fuel_factories.csv`). This file condenses the
-finished plans for operating costs (parts A-C, v12-v25), fleet investment (v27-v31), fuel factories (v29) and
-outer exports (v32-v33). Their full texts, with measurements, are in git history before 2026-10-11 under
-`docs/plans/`.
+How ships pay their way, choose missions, refit and are bought and sold, and how passengers travel. Prices,
+orders and money: `economy.md`.
+
+**Code** (all members of `Simulation`):
+- `src/simulation/ShipOperations.cpp`: capital and crew costs, provisions, radiation, wear and repair, boil-off,
+  propellant purchases;
+- `src/simulation/MissionPlanning.cpp`: leg estimates and dispatch (`Simulation::MissionPass`);
+- `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
+  refits;
+- `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
+- `src/simulation/Passengers.cpp`, `CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
+
+**Data:** `data/economy/` (`ship_operations.csv`, `fleet_investment.csv`, `open_economy.csv`, `fuel_supply.csv`,
+`ship_environment.csv`, `passengers.csv`), `data/ship_classes/` (classes, components, modules, hull slots, spares;
+written by `build_ship_classes.py`). Sources for the physics: `docs/ship_technology.md`.
 
 ## Operating costs
 
@@ -19,20 +28,44 @@ lose on their own instead of being cut off by rules. Each ship accrues, prorated
   (`PROVISION_ENDURANCE_DAYS`) and top up where a port can spare it. A departing crew must hold the mission
   × 1.1 plus a 120-day return reserve; a docked crew doesn't eat into that reserve, it lays up instead.
 
-Wages and capital go to the ship's home station; provisions are ordinary trades. A ship whose cash falls below
+Capital goes to the ship's home station, wages and hazard pay to its residents; provisions are ordinary trades. A ship whose cash falls below
 zero **lays up**: crew discharged, capital still charged. It reactivates when a mission's profit covers rehiring
 and provisioning.
 
 ## Dispatch (`choose_mission`)
 
+A dispatch pass (`Simulation::MissionPass`) plans one ship's options from its port and picks the best by profit
+per day. Plans it has not computed yet are queued and computed in parallel, then the pass is repeated, so the last
+pass is exactly the sequential result (`choose_mission`, `choose_missions` for several ships at once). Its steps,
+in order:
+1. **Cargo runs:** per destination, the manifest (below), whole and as its first half and quarter, with the
+   passengers who board;
+2. **Investment probes** only: berth runs for ships with berths, and each cabin module on a bare hull;
+3. **Empty legs** toward a better pickup, on the same two-leg terms;
+4. a liner flies its next stop empty, and a ship on its commissioning route flies home empty, if nothing pays;
+5. **Repositioning** toward a producer whose surplus the system needs, if nothing else is worth flying.
+
 - **Two-leg scoring.** Each candidate leg (cargo, or empty toward a pickup) is scored together with the best
   follow-up leg from its destination: `(urgency × leg profit + follow-up profit) / (leg days + follow-up days)`.
   Profit is revenue − cargo cost − fuel − provisions − daily cost × (wait + transit). Follow-ups come from the
-  forecast stock at arrival, less what other ships have already planned to pick up. Without one, the ship is
-  charged an empty trip back. They are cached per class, 5-day departure bucket and 10% fuel bucket
-  (`estimate_leg`).
-- **Mixed cargo, forecasts and contracts:** see `economy.md`, "Prices and target stocks".
-- **Mission-sized fuelling (part B).** Plans carry the payload (cargo and provisions) in the rocket equation and
+  forecast stock at arrival, less what other ships have already planned to pick up; without one, the ship is
+  charged an empty trip back. A follow-up counts only if the ship could leave its next port again.
+  - Follow-ups are cached per destination, arrival time and the fuel the ship can leave with (a lighter load
+    arrives earlier with more fuel; until 2026-10-26 one set per destination was reused for every load).
+  - Follow-up legs are cheap estimates (`estimate_leg`), cached per class, 5-day departure bucket, 10%-of-tank
+    fuel bucket and 2 t payload bucket, planned from the bucket's start so an estimate does not depend on which
+    ship asked first (or on a save and load).
+- **Urgency weight:** a lot's margin counts 1-5× by how few days of stock the destination has left. Turning it off
+  was measured and rejected: the order price alone does not rank deliveries well enough.
+- **The manifest:** for each destination the hold fills chunk by chunk (1/40 of it) with the units that earn the
+  most each: what the destination pays for the next unit (open order, extra buffer, floor; along its curve where it
+  posts no order), less the cost here along the producer's curve and the propellant its mass burns, until the next
+  unit would lose money or the hold, the credit or the surplus runs out. A rotation contract's deliveries load first.
+  Ships size their own loads: small loads are fine when they are the ship's best business (user, 2026-10-15).
+- **Contracts:** each lot's price is agreed at departure from the destination's order for the units that survive
+  the trip in this ship's hold; the station pays it on arrival whatever the market did meanwhile (pro rata if
+  storage forced a jettison). Ships earn what they planned; stations bear the forecast error.
+- **Mission-sized fuelling.** Plans carry the payload (cargo and provisions) in the rocket equation and
   report `propellant_load_kg`, what is aboard at departure.
   - Nuclear-thermal: the smallest load L with L = 1.1 × burn for the Δv, never less than already aboard.
   - Variable-Isp: fuel budgets of 100/75/55/40% are ranked by atlas estimate and the two cheapest are refined.
@@ -47,7 +80,7 @@ and provisioning.
   - Cis-lunar plasma spirals take the cheapest of 1.5-10 × the shortest transfer time.
 - **Stranded:** no mission, under 1% fuel, and none for sale.
 
-## Tank refits (part C)
+## Tank refits
 
 - Every class is built with 50/100/150/200% of its nominal propellant (`build_ship_classes.py`). Variants share a
   `hull_id`; the nominal one keeps the class id.
@@ -58,16 +91,18 @@ and provisioning.
     added or removed, paid to the home station. Propellant that no longer fits is sold to the depot.
   - Afterwards the ship is locked out of further refits for the yard time plus 180 days.
 
-## Modules, crew radiation, boil-off and wear (tier 2, 2026-10-21)
+## Modules, crew radiation, boil-off and wear
 
-Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/plans/tier2_log.md`; sources
-`docs/ship_technology.md` ("Crew radiation", "Boil-off and wear"). Every mechanism is a switch in
-`data/economy/ship_environment.csv` (all on by default); with all off the economy is the pre-tier-2 one.
+Sources: `docs/ship_technology.md` ("Crew radiation", "Boil-off and wear"). Every mechanism is a switch in
+`data/economy/ship_environment.csv` (all on by default); with all off the economy is the one without them.
+- **Parts.** Every class is built from its components (`ship_components.csv`: habitat and its rooms, hold, tanks,
+  drive, reactor, radiators, shields), which add up exactly to the class's dry mass and value; the inspector's
+  schematic and the 3D models draw them.
 - **Designs.** A ship flies `ship_design(ship)`: its class (tank variant) plus its fit (`ShipState::fit`, modules
   from `data/ship_classes/modules.csv`, sized per hull by the builder) plus its radiator damage in 10% steps.
   Fitted designs are derived from the parts (`src/domain/ShipDesign.cpp`) and cached by design id
   (`class+module…#r9`); the cache is pure and never saved. Slots per hull: `hull_slots.csv`.
-- **Refits** offer the next tank size either way or one module in or out, by the part C rule; only modules
+- **Refits** offer the next tank size either way or one module in or out, by the tank-refit rule; only modules
   whose effect is switched on are offered. Fleet investment also tries the winning hull with each module.
 - **Crew radiation** (`src/simulation/CrewEnvironment.cpp`): cosmic rays and solar particle events dose each
   crew; docked crews get their station's dose (`station_radiation.csv`). A crew signs on per leg, and no leg may
@@ -87,12 +122,12 @@ Plan `docs/plans/ship_structures_tier2.md`; decisions and measurements `docs/pla
   (`overhaul_bill`), a few days in the yard. The planners price wear in (`wear_cr_per_propellant_kg` for
   nuclear-thermal burns, `wear_cr_per_flight_day` for plasma thrust), so asks and contracts cover it.
 
-## Passengers (2026-10-21, `src/simulation/Passengers.cpp`)
+## Passengers
 
-Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, on since 2026-10-22;
-sub-switches `rotation`, `migration`, `discretionary`). Plan in `docs/plans/passengers.md`, decisions and
-results in `docs/plans/passengers_log.md`. With `passengers,0` the economy is the one before passengers: the
-liner classes do not load and cabins are never offered. `--econ-audit` reports passengers by kind, by station
+Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, on; sub-switches `rotation`,
+`migration`, `discretionary`). With `passengers,0` the economy runs without them: the liner classes do not load and
+cabins are never offered. Open points on routes and cabins: `docs/plans/passenger_routes.md`. A berth is costed as
+linopt's per-passenger mass (2.5 t) plus a share of the habitat's constant part: about 3 t and 2,535 cr. `--econ-audit` reports passengers by kind, by station
 on every route to or from Titan, the routes where most people gave up (with legs flown, legs by ships with
 berths, and those that left empty while people waited), and the legs flown in all.
 
@@ -121,7 +156,7 @@ berths, and those that left empty while people waited), and the legs flown in al
   - a colony pays for the settlers it recruits.
 
   Settlers pay their own passage out of what the job gains them, and visitors travel when half a year's
-  income covers the trip (`docs/modules/economy.md`, "Economy overhaul").
+  income covers the trip (`economy.md`, "Households and labour").
 - **Without the labour market:** fares come from the outside account (emigrants, visitors) or from the work
   station (rotation, and settlers with `settlers_sponsored`). A station recovers what it paid for passages
   (`passage_debt_cr`) at 1/`passage_recovery_days` a day, at most `passage_max_markup` × its residents'
@@ -148,26 +183,33 @@ berths, and those that left empty while people waited), and the legs flown in al
   - The passenger bound assumes a ship twice as fast as the reference carrier, filled the same way, and is
     taken as the larger of the cargo and passenger bounds (a passenger run is valued on its own).
 
-## Fleet investment (`step_fleet_investment`)
+## Fleet investment (`step_fleet_investment`, `Simulation::InvestmentReview`)
 
 - **Selling:** a ship laid up for `layup_sale_days` without a break is sold for `salvage_fraction` of its value
   to its faction's treasury. Its cash or debt goes to its home station. It stays in the audit as `(sold)`.
 - **Commissioning:** every `review_days` the treasuries consider every hull in standard tanks, at every station
   whose yard is free. They skip hulls where a ship of that hull already sits idle, and hulls no one can pay for.
+  - **Order of work:** candidates are ranked by a cheap bound on their return (the yard's surplus goods against
+    their consumers' prices, or berths filled both ways) and probed best first, two at a time; the review stops
+    once the best value found beats every remaining bound, and a purchase waits for a later tick while probes run.
   - **Valuation:** a cargo-only dispatch probe lists the runs from the yard. Each run is valued as whole round
     trips over the route commitment, along the price curves of the stocks both stations would hold by then.
     Production, consumption, other ships' observed imports and exports, and flows already committed all count,
     so a served route sells near base price.
   - **Hurdle:** profit per day, minus capital and crew, over the hull price, must reach
-    `hurdle_return_per_year`. Near `max_fleet_size`, candidates are ranked by profit per day instead.
+    `hurdle_return_per_year` (30%: purchases expect about 1.6× what they earn, so that is ~19% earned). Sustained
+    sales are valued at most at the destination's landed cost (or its going rate if higher): at scarcity prices,
+    estimates ran 15× the earned returns. Near `max_fleet_size`, candidates are ranked by profit per day instead.
   - **Buying:** a review buys until no candidate clears the hurdle, at most `max_ships_per_review`. Each purchase
     counts at once against the destination's open demand.
-  - **Paying:** the yard station's faction pays if it can (cash plus credit, see `economy.md` "Station money"),
+  - **Paying:** the yard station's faction pays if it can (cash plus credit, see `economy.md` "Money"),
     otherwise the richest faction. The hull is paid to the outside economy and `working_capital` to the ship.
     The ship is built in `build_days`, with the tank variant dispatch prefers.
 - **Route commitment:** for `route_commitment_days` after the yard, a new ship flies only between its yard and
   the destination it was bought for. Its flow comes off that destination's demand in later reviews.
-- **Liners** (`data/economy/liners.csv`) are outside all of this: see `economy.md`, steps 18-22.
+- **Liners** (`data/economy/liners.csv`) are outside all of this: see `economy.md`, "The market among ships".
+- **Fleet cap:** `max_fleet_size` 130 (user, 2026-10-22). A hold cap (`max_fleet_hold_units`) is built but off: it
+  filled the fleet with small ships and was slower.
 - Debug: `SPACETRAINS_TRACE_INVESTMENT=1`, `SPACETRAINS_TRACE_SHIP=<id>`.
 
 ## Money around ships
@@ -192,10 +234,8 @@ berths, and those that left empty while people waited), and the legs flown in al
   hold `depot_buffer_units` outside cargo storage and only gain what ships deliver, priced along the usual curve.
   Bulk Tanker and Plasma Bulk Tanker (2,000 units) are ordinary hulls for investment. Each station's ship fuel
   purchases (60-day average) count as demand when a fuel run is valued.
-- **Outer exports:**
-  - Station recipes (`station_recipes.csv`): Ceres makes platinum; Ganymede and Titan make deuterium. These are
-    light, valuable goods, stockpiled up to 720 days.
-  - Export markets: Low Earth Logistics and Earth L1 sell what is delivered on to Earth at Earth's bid
-    (`surface_markets.csv` since the economy overhaul; `export_markets.csv` before), in any amount. Planners
-    see them as steady consumers, never as starving ones.
-  - Anywhere else, export goods price at the floor, so nobody hauls them elsewhere.
+- **Outer exports:** Ceres (platinum, from the belt miners), Ganymede and Titan (deuterium) and the science
+  stations make light, valuable goods, stockpiled up to 720 days. Low Earth Logistics and Earth L1 sell them on to
+  Earth at Earth's bid (`surface_markets.csv`; the older `export_markets.csv` still works) in any amount; planners
+  see them as steady consumers, never as starving ones. Anywhere else export goods price at the floor, so nobody
+  hauls them elsewhere.

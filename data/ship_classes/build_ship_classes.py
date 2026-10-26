@@ -12,7 +12,7 @@ the parts, so changing a reference number and re-running keeps the classes consi
 
 It also writes ship_components.csv: the parts of every class (engine, radiators, tanks,
 habitat and its parts, hold, structure) with their physical numbers. The parts add up
-exactly to each class's dry mass and value; docs/plans/ship_internals.md (tier 1).
+exactly to each class's dry mass and value; docs/modules/ships_and_fleet.md (tier 1).
 
 Every class also gets tank variants (TANK_OPTIONS): the same hull, engine and hold with
 smaller or larger propellant tanks. Ships refit between the variants of their hull at their
@@ -72,7 +72,7 @@ USD_PER_KG = {
 # (the game's fuel base price is 0.08 cr/kg).
 CR_PER_USD = 0.00078
 
-# --- Component details (ship_components.csv; docs/plans/ship_internals.md) ------------
+# --- Component details (ship_components.csv; docs/modules/ships_and_fleet.md) ------------
 # These describe the parts; they do not change any mass or price above. Status as in the
 # tech review: sourced / derived / estimate / game.
 STEFAN_BOLTZMANN = 5.670374e-8
@@ -126,7 +126,7 @@ DSH_HEAT_W = 12_925.0             # sourced: heat dissipated to the thermal cont
 CABIN_TEMPERATURE_K = 295.0
 CABIN_RADIATOR_TEMPERATURE_K = 277.0  # estimate: ISS-style external ammonia loop, 2-6 C
 HOLD_M3_PER_CARGO_UNIT = 1.0      # game: one unit of cargo is about a cubic metre
-# Passenger cabins (docs/plans/passengers.md). The user's linopt fare study
+# Passenger cabins (docs/modules/ships_and_fleet.md). The user's linopt fare study
 # (passenger_ticket_optimizer.py defaults): 2,500 kg of cabin per passenger ("cabins, seats,
 # personal life-support and safety hardware") at 1,000 $/kg, and 300 t of shared structure,
 # controls and common life support for 600 passengers at 1,500 $/kg. A cabin scales the shared
@@ -150,7 +150,7 @@ CABIN_WALL_KG_PER_M2 = 200.0
 # propellant burns (the simulation counts the tanks' mean fill over a leg).
 TANK_WRAP_EXTRA_WALL = 0.5
 
-# Wearing and lasting parts (tier 2 follow-up, docs/plans/tier2_log.md). A part's price is
+# Wearing and lasting parts (tier 2 follow-up, docs/modules/ships_and_fleet.md). A part's price is
 # materials (commodities at base price) plus work. The parts that wear out are priced that way
 # from the economy's own goods and wages, so an overhaul that replaces them costs what they
 # cost; the parts that last the ship's life (pressure vessel, magnets, frames) carry the rest
@@ -215,7 +215,7 @@ COMPONENT_HEADER = ["class_id", "component_id", "parent_id", "kind", "name", "ma
                     "power_w", "heat_w", "temperature_k", "volume_m3", "area_m2", "capacity_kg",
                     "crew_capacity", "isp_s", "thrust_n"]
 
-# --- Modules (tier 2, docs/plans/ship_structures_tier2.md) ----------------------------
+# --- Modules (tier 2, docs/modules/ships_and_fleet.md) ----------------------------
 # Optional parts fitted at the home yard, sized per hull. Each module's mass includes its share
 # of truss (STRUCTURE_FRACTION), so a fitted design is the class plus the module rows.
 MODULE_HEADER = ["hull_id", "module_id", "slot", "name", "mass_kg", "price_cr", "power_w", "heat_w",
@@ -306,7 +306,7 @@ CLASSES = [
               cargo_units=2000, propellant_kg=300_000, accel_full_mps2=0.2),
     ClassSpec("plasma_bulk_tanker", "Plasma Bulk Tanker", "plasma", crew=3, habitat="long",
               cargo_units=2000, propellant_kg=100_000, jet_power_w=40.0e6),
-    # Passenger liners (docs/plans/passengers.md): 40 berths, a small hold for mail and
+    # Passenger liners (docs/modules/ships_and_fleet.md): 40 berths, a small hold for mail and
     # luggage. Only in service when data/economy/passengers.csv switches passengers on.
     # The plasma liner has a courier's power to mass (~500 W/kg) for the outer system; the
     # nuclear-thermal shuttle (the NTR Freighter's engine and tanks) flies fast inner-system hops.

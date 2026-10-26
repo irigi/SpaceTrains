@@ -38,7 +38,7 @@ const STOPS := [
 # A stop's camera distance: fixed world units, or model sizes ("size").
 func _stop_distance(stop: Dictionary) -> float:
     if stop.has("size"):
-        return float(stop["size"]) * main._model_world_size(main.entity_nodes[stop["id"]])
+        return float(stop["size"]) * main.map_icons.model_world_size(main.entity_nodes[stop["id"]])
     return float(stop["distance"])
 
 func _ready() -> void:
@@ -288,12 +288,12 @@ func _run() -> void:
             continue
         shot_hulls[hull] = true
         main.select_entity(ship_id, "ship", true)
-        rig.set("distance", maxf(main._model_world_size(main.entity_nodes[ship_id]) * 40.0, float(rig.get("min_distance"))))
+        rig.set("distance", maxf(main.map_icons.model_world_size(main.entity_nodes[ship_id]) * 40.0, float(rig.get("min_distance"))))
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot("ship_model_" + hull)
         # Close enough for the detailed model.
-        rig.set("distance", maxf(main._model_world_size(main.entity_nodes[ship_id]) * 3.0, float(rig.get("min_distance"))))
+        rig.set("distance", maxf(main.map_icons.model_world_size(main.entity_nodes[ship_id]) * 3.0, float(rig.get("min_distance"))))
         rig.call("_update_transform")
         await get_tree().create_timer(0.6).timeout
         await _shoot("ship_detail_" + hull)
@@ -415,7 +415,7 @@ func _arrival_shots(rig: Node3D) -> void:
     print("[ShotTour] arrival: %s to %s in %.2f d" % [pick, station_id, (soonest - float(main.get("display_time_s"))) / 86400.0])
     main.select_entity(station_id, "station", true)
     var station: Node3D = main.entity_nodes[station_id]
-    rig.set("distance", main._model_world_size(station) * 6.0)
+    rig.set("distance", main.map_icons.model_world_size(station) * 6.0)
     rig.set("pitch", -0.6)
     rig.call("_update_transform")
     main._on_timewarp_changed(21600.0)
@@ -472,7 +472,7 @@ func _docked_close_shot(rig: Node3D) -> void:
         if main.entity_kinds.get(ship_id, "") == "ship" and String(main.entity_details[ship_id].get("phase", "")) != "in_transit" \
                 and main.entity_nodes.has(ship_id):
             main.select_entity(ship_id, "ship", true)
-            rig.set("distance", maxf(main._model_world_size(main.entity_nodes[ship_id]) * 2.5, float(rig.get("min_distance"))))
+            rig.set("distance", maxf(main.map_icons.model_world_size(main.entity_nodes[ship_id]) * 2.5, float(rig.get("min_distance"))))
             rig.call("_update_transform")
             await get_tree().create_timer(1.5).timeout
             await _shoot("ship_docked_close")
@@ -480,15 +480,15 @@ func _docked_close_shot(rig: Node3D) -> void:
             var camera: Camera3D = rig.get("camera")
             var node: Node3D = main.entity_nodes[ship_id]
             var at := camera.unproject_position(node.global_position)
-            var off := Vector2(main._projected_model_pixels(node) * 0.6, 0.0)
+            var off := Vector2(main.map_icons.projected_model_pixels(node) * 0.6, 0.0)
             main._pick_entity(at + off)
             var on_ship := String(main.get("selected_id"))
             main.select_entity(String(main.entity_details[ship_id].get("current_station_id", "")), "station", true)
-            rig.set("distance", main._model_world_size(main.entity_nodes[main.get("selected_id")]) * 2.5)
+            rig.set("distance", main.map_icons.model_world_size(main.entity_nodes[main.get("selected_id")]) * 2.5)
             rig.call("_update_transform")
             await get_tree().create_timer(0.3).timeout
             var station: Node3D = main.entity_nodes[main.get("selected_id")]
-            var ring_at := camera.unproject_position(station.global_position) + Vector2(main._projected_model_pixels(station) * 0.7, 0.0)
+            var ring_at := camera.unproject_position(station.global_position) + Vector2(main.map_icons.projected_model_pixels(station) * 0.7, 0.0)
             main.select_entity(ship_id, "ship")
             main._pick_entity(ring_at)
             print("[ShotTour] pick: ship body off the icon -> %s (want %s); inside the ring -> %s" % [on_ship, ship_id, String(main.get("selected_id"))])
@@ -538,7 +538,7 @@ func _cargo_shots(rig: Node3D) -> void:
                 or (ship.get("cargo", []) as Array).is_empty():
             continue
         main.select_entity(ship_id, "ship", true)
-        rig.set("distance", 1.5 * main._model_world_size(main.entity_nodes[ship_id]))
+        rig.set("distance", 1.5 * main.map_icons.model_world_size(main.entity_nodes[ship_id]))
         rig.call("_update_transform")
         await get_tree().create_timer(1.5).timeout
         var node: Node3D = main.entity_nodes[ship_id]
@@ -555,7 +555,7 @@ func _cargo_shots(rig: Node3D) -> void:
             for k in range(4):
                 rig.set("yaw", float(k) * PI * 0.5)
                 rig.set("pitch", 0.5 if k % 2 == 0 else -0.5)
-                rig.set("distance", 0.7 * main._model_world_size(node))
+                rig.set("distance", 0.7 * main.map_icons.model_world_size(node))
                 rig.call("_update_transform")
                 await get_tree().create_timer(0.4).timeout
                 await _shoot("cargo_%s_%d" % [ship_id, k])

@@ -1,10 +1,10 @@
 #pragma once
 
-// Crew radiation (tier 2, step D of docs/plans/ship_structures_tier2.md): pure functions of
+// Crew radiation (docs/modules/ships_and_fleet.md): pure functions of
 // the environment settings, a ship design, the distance from the Sun and the game day.
 // Doses are effective dose (mSv); "hull" means inside a habitat-class pressure hull.
 
-#include "domain/Types.hpp"
+#include "domain/Definitions.hpp"
 
 #include <random>
 
@@ -19,7 +19,7 @@ namespace spacetrains::simulation::crew_environment {
 // Extra water areal density (g/cm2) a design's storm shelter gives (0 without one).
 [[nodiscard]] double shelter_g_cm2(const domain::ShipClassDefinition& design);
 
-// Water round the passenger cabins, g/cm2, full time (passengers, docs/plans/passengers_log.md):
+// Water round the passenger cabins, g/cm2, full time (passengers, docs/modules/ships_and_fleet.md):
 // a cabin water wall (effect cabin_shield_g_cm2) plus, for cabins inside the propellant tanks
 // (effect tank_wrap_m2: the wrapped wall area), the water in them spread over that wall.
 // The crew lives behind it too.

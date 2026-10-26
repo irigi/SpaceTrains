@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-#include "domain/Types.hpp"
+#include "domain/Definitions.hpp"
 
 namespace spacetrains::data_loader {
 

@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <functional>
+#include <format>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -256,20 +258,47 @@ void VariableIspAtlas::load_binary(const std::string& path) {
     const auto rho_count = static_cast<std::size_t>(read_value<std::uint64_t>(stream));
     const auto kappa_count = static_cast<std::size_t>(read_value<std::uint64_t>(stream));
     const auto theta_count = static_cast<std::size_t>(read_value<std::uint64_t>(stream));
-
-    rho_grid_.resize(rho_count);
-    kappa_grid_.resize(kappa_count);
-    theta_grid_.resize(theta_count);
-    read_exact(stream, rho_grid_.data(), rho_grid_.size() * sizeof(double));
-    read_exact(stream, kappa_grid_.data(), kappa_grid_.size() * sizeof(double));
-    read_exact(stream, theta_grid_.data(), theta_grid_.size() * sizeof(double));
-
+    // Checked before anything is allocated: each axis needs two points to interpolate, and the
+    // file must hold every cell (a damaged header would otherwise ask for terabytes).
+    constexpr std::size_t kMaxAxis = 100000;
+    for (const auto count : {rho_count, kappa_count, theta_count}) {
+        if (count < 2 || count > kMaxAxis) {
+            throw std::runtime_error(std::format("VariableISP atlas axis of {} points in {}", count, path));
+        }
+    }
     const auto total_cells = rho_count * kappa_count * theta_count;
-    solved_mask_.resize(total_cells);
-    read_exact(stream, solved_mask_.data(), solved_mask_.size() * sizeof(std::uint8_t));
+    const auto header_end = stream.tellg();
+    stream.seekg(0, std::ios::end);
+    const auto file_bytes = static_cast<std::uint64_t>(stream.tellg() - header_end);
+    stream.seekg(header_end);
+    const std::uint64_t needed_bytes = (rho_count + kappa_count + theta_count) * sizeof(double)
+        + total_cells * (sizeof(std::uint8_t) + kRecordWidth * sizeof(double));
+    if (file_bytes < needed_bytes) {
+        throw std::runtime_error(std::format("VariableISP atlas {} is truncated ({} of {} bytes)", path, file_bytes, needed_bytes));
+    }
 
-    records_.resize(total_cells * kRecordWidth);
-    read_exact(stream, records_.data(), records_.size() * sizeof(double));
+    // Read into new arrays and keep them only when the whole file is good.
+    std::vector<double> rho_grid(rho_count);
+    std::vector<double> kappa_grid(kappa_count);
+    std::vector<double> theta_grid(theta_count);
+    read_exact(stream, rho_grid.data(), rho_grid.size() * sizeof(double));
+    read_exact(stream, kappa_grid.data(), kappa_grid.size() * sizeof(double));
+    read_exact(stream, theta_grid.data(), theta_grid.size() * sizeof(double));
+    for (const auto* axis : {&rho_grid, &kappa_grid, &theta_grid}) {
+        if (std::adjacent_find(axis->begin(), axis->end(), std::greater_equal<double>()) != axis->end()) {
+            throw std::runtime_error("VariableISP atlas axis is not strictly increasing in " + path);
+        }
+    }
+    std::vector<std::uint8_t> solved_mask(total_cells);
+    read_exact(stream, solved_mask.data(), solved_mask.size() * sizeof(std::uint8_t));
+    std::vector<double> records(total_cells * kRecordWidth);
+    read_exact(stream, records.data(), records.size() * sizeof(double));
+
+    rho_grid_ = std::move(rho_grid);
+    kappa_grid_ = std::move(kappa_grid);
+    theta_grid_ = std::move(theta_grid);
+    solved_mask_ = std::move(solved_mask);
+    records_ = std::move(records);
 }
 
 std::size_t VariableIspAtlas::solved_count() const {
@@ -298,7 +327,7 @@ AtlasSeed VariableIspAtlas::seed_at(std::size_t i, std::size_t j, std::size_t k)
     return seed;
 }
 
-std::size_t VariableIspAtlas::lower_cell_index(const std::vector<double>& axis, double value) const {
+std::size_t VariableIspAtlas::lower_cell_index(const std::vector<double>& axis, double value) {
     if (axis.size() < 2) {
         throw std::runtime_error("VariableISP axis must contain at least 2 entries");
     }

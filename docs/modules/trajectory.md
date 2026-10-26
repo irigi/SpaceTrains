@@ -70,19 +70,19 @@ rotated from the origin station's position at departure. Windows whose refinemen
 needs more fuel than the ship carries are skipped (up to 4 tried). The path shape does not depend on κ: κ only
 decides whether the fuel suffices.
 
-**κ at the origin's radius (v33).** The atlas is solved at r0 = 1 AU and scaled to the origin's orbit: lengths by
+**κ at the origin's radius.** The atlas is solved at r0 = 1 AU and scaled to the origin's orbit: lengths by
 r/1 AU, times by (r/1 AU)^1.5, accelerations by (r/1 AU)^-2, so the transfer needs (r/1 AU)^-2.5 of the canonical
 ∫a²dt. The planner therefore looks up and integrates with κ·(r/1 AU)^2.5, where κ = 2P(1/m_dry − 1/m0)·(1 AU)^2.5/μ^1.5;
 with that the propellant formula (I_real = I_canonical·δ_real/δ_canonical) holds unchanged. Before, κ was taken at
 1 AU for every origin: plasma ships leaving Jupiter were planned about 60x too weak and those leaving Saturn 280x
 (no feasible way home to Earth), those leaving Mercury 10x too strong (unphysically fast and cheap).
 
-**Missed windows (v33).** Refinement moves a window a little. When it moves just into the past (phase error under
+**Missed windows.** Refinement moves a window a little. When it moves just into the past (phase error under
 0.3 rad), the ship leaves now and the station-targeting pass absorbs the error; only if that does not converge does
 it wait for the next window. Before, the wait wrapped to almost a whole synodic period (Ganymede -> Ceres planned
 3133 days, 2705 of them waiting; now 432).
 
-## VariableISP Refinement in Primer Form (v34–v35)
+## VariableISP Refinement in Primer Form
 
 `VariableIspIntegrator::refine_seed_stm` solves the refinement above with the general solver below:
 the atlas costates map exactly to the Cartesian primer (p = k·λ_v, w = −k[λ_r e_r + (C_θ + v_θλ_vr − v_rλ_vθ)/r e_θ]),
@@ -132,11 +132,21 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
   about the coasting arc), polar shape method (Hermite + Legendre bubbles, Gauss-Newton on ∫a²) with a primer
   fit, then multiple shooting, boundary homotopy and continuation in T as fallbacks. 99–100% valid, median
   0.4–0.8 ms on the bench sets.
-- `solve_min_time` — earliest arrival for an effort budget (fuel load).
+- `solve_min_time` — earliest arrival for an effort budget (fuel load), never shorter than its lower bound
+  `T_lo` (a first grid point that already fits is kept as it is).
 - `trajectory/ChaseSolver.hpp` — SI adapter: `path_target` follows another ship's `TrajectoryPlan` samples,
   `plan_chase` returns the earliest interception or rendezvous for a ship's power and propellant.
 
-Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (see `docs/plans/visp_general_solver_log.md`).
+Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (`tools/visp_bench/main.cpp`: A/R atlas cells as
+intercepts and rendezvous, AG the same through the general solver, B-F general-boundary sets). The solver's design
+brief is `docs/plans/variable-isp-solver-directions.md`.
+
+## Shared Helpers
+
+`trajectory/OrbitMath.hpp`: `positive_mod`, a body's orbital rate, and the heliocentric rate a moon's station
+phases with (its planet's). `VariableIspAtlas::lower_cell_index` is the one grid lookup (planner and atlas).
+The atlas file (`tests/data/variable_isp/variable_isp_atlas.bin`, next to the data root) is checked on load: axis
+counts, file size and increasing axes; a bad file leaves plasma ships unable to plan, with a message.
 
 ## Perihelion Limit and Path Sampling
 

@@ -85,10 +85,11 @@ public:
         double theta_rad,
         std::size_t search_radius = 1) const;
     [[nodiscard]] AtlasSeed query(double rho, double kappa, double theta_rad, std::size_t search_radius = 1) const;
+    // The lower index of the axis cell holding value (clamped to the first and last cell).
+    [[nodiscard]] static std::size_t lower_cell_index(const std::vector<double>& axis, double value);
 
 private:
     [[nodiscard]] std::size_t cell_index(std::size_t i, std::size_t j, std::size_t k) const;
-    [[nodiscard]] std::size_t lower_cell_index(const std::vector<double>& axis, double value) const;
 
     std::vector<double> rho_grid_;
     std::vector<double> kappa_grid_;

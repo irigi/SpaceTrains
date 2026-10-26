@@ -1,4 +1,5 @@
 #include "trajectory/TrajectoryPlanner.hpp"
+#include "trajectory/OrbitMath.hpp"
 
 #include "trajectory/Lambert.hpp"
 #include "trajectory/PathSampling.hpp"
@@ -16,7 +17,6 @@ namespace spacetrains::trajectory {
 
 namespace {
 constexpr double PI = 3.14159265358979323846;
-constexpr double TAU = 6.28318530717958647692;
 constexpr double LOCAL_TRANSFER_MIN_TIME_S = 30.0 * 60.0;
 constexpr double LOCAL_TRANSFER_MAX_TIME_S = 24.0 * 3600.0;
 // Transit fractions per departure row of the Lambert grid (0.3 to 1.5 Hohmann times).
@@ -28,17 +28,6 @@ double normalize_positive_angle(double angle_rad) {
         angle_rad += TAU;
     }
     return angle_rad;
-}
-
-double positive_mod(double value, double modulus) {
-    if (modulus <= 0.0) {
-        return 0.0;
-    }
-    value = std::fmod(value, modulus);
-    if (value < 0.0) {
-        value += modulus;
-    }
-    return value;
 }
 
 // One sample of an elliptic arc: true anomaly, radius, and fraction of the arc's
@@ -217,30 +206,7 @@ private:
     double max_load_kg_ {0.0};
 };
 
-double orbital_rate_rad_s(const domain::CelestialBodyDefinition& body) {
-    if (body.orbit.orbital_period_s <= 0.0) {
-        return 0.0;
-    }
-    return TAU / body.orbit.orbital_period_s;
-}
 
-// For Hohmann phase calculations we need the rate at which a body's heliocentric angle
-// changes. For moons this is the parent planet's heliocentric rate, not the moon's own
-// orbital rate around its parent.
-double heliocentric_orbital_rate_rad_s(
-    const domain::CelestialBodyDefinition& body,
-    const std::string& root_id,
-    const std::unordered_map<std::string, const domain::CelestialBodyDefinition*>& bodies_by_id) {
-    const domain::CelestialBodyDefinition* current = &body;
-    while (!current->orbit.parent_id.empty() && current->orbit.parent_id != root_id) {
-        const auto it = bodies_by_id.find(current->orbit.parent_id);
-        if (it == bodies_by_id.end()) {
-            break;
-        }
-        current = it->second;
-    }
-    return orbital_rate_rad_s(*current);
-}
 }
 
 std::string planet_system_primary(const celestial::CelestialMechanics& mechanics, const std::string& body_id) {

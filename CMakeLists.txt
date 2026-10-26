@@ -16,6 +16,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
+    src/data_loader/Csv.cpp
+    src/data_loader/LoadShips.cpp
+    src/data_loader/LoadEconomy.cpp
+    src/data_loader/LoadPassengers.cpp
     src/domain/ShipDesign.cpp
     src/celestial/CelestialMechanics.cpp
     src/trajectory/ChaseSolver.cpp
@@ -28,6 +32,13 @@ add_library(spacetrains_core
     src/variable_isp/GeneralTransfer.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
+    src/simulation/Market.cpp
+    src/simulation/ShipOperations.cpp
+    src/simulation/MissionPlanning.cpp
+    src/simulation/ShipPhases.cpp
+    src/simulation/Contracts.cpp
+    src/simulation/FleetInvestment.cpp
+    src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp
     src/simulation/Households.cpp
@@ -43,31 +54,44 @@ add_library(spacetrains_core
 target_include_directories(spacetrains_core PUBLIC src)
 find_package(Threads REQUIRED)
 target_link_libraries(spacetrains_core PUBLIC Threads::Threads)
-target_compile_options(spacetrains_core PRIVATE -Wall -Wextra -Wpedantic)
+# Warnings for GCC and Clang. Designated initializers leave the members they do not name at their
+# defaults on purpose, so -Wmissing-field-initializers is off.
+set(SPACETRAINS_WARNINGS)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(SPACETRAINS_WARNINGS -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
+endif()
+target_compile_options(spacetrains_core PRIVATE ${SPACETRAINS_WARNINGS})
 
-add_executable(spacetrains_headless src/app/main.cpp)
+add_executable(spacetrains_headless src/app/main.cpp src/app/Reports.cpp src/app/TrajectoryReports.cpp)
+target_compile_options(spacetrains_headless PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_headless PRIVATE spacetrains_core Threads::Threads)
 
 add_executable(spacetrains_bridge src/bridge/main.cpp)
+target_compile_options(spacetrains_bridge PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_bridge PRIVATE spacetrains_core)
 
 add_executable(spacetrains_visp_bench tools/visp_bench/main.cpp)
+target_compile_options(spacetrains_visp_bench PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_visp_bench PRIVATE spacetrains_core)
 add_executable(spacetrains_atlas_fill tools/atlas_fill/main.cpp)
+target_compile_options(spacetrains_atlas_fill PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_atlas_fill PRIVATE spacetrains_core)
 
 enable_testing()
 add_executable(spacetrains_tests tests/test_main.cpp)
+target_compile_options(spacetrains_tests PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_tests COMMAND spacetrains_tests)
 set_tests_properties(spacetrains_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(spacetrains_variable_isp_tests tests/variable_isp_test.cpp)
+target_compile_options(spacetrains_variable_isp_tests PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_variable_isp_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_variable_isp_tests COMMAND spacetrains_variable_isp_tests)
 set_tests_properties(spacetrains_variable_isp_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(spacetrains_economy_tests tests/economy_test.cpp)
+target_compile_options(spacetrains_economy_tests PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_economy_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_economy_tests COMMAND spacetrains_economy_tests)
 set_tests_properties(spacetrains_economy_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

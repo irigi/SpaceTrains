@@ -327,7 +327,7 @@ Tools: `--econ-audit` (route lines), `SPACETRAINS_TRACE_INVESTMENT=1` (every pur
 
 ## Re-evaluated after the economy overhaul (2026-10-23)
 
-The overhaul (`economy_overhaul.md`, log `economy_overhaul_log.md`) replaced the demand behind these points.
+The economy overhaul (`docs/modules/economy.md`) replaced the demand behind these points.
 Travellers' budgets now come from incomes and gains, not from multiples of the reference fare:
 - settlers come for a station's vacancies and pay from what the job gains them;
 - visitors travel when half a year's income covers the trip (lognormal);

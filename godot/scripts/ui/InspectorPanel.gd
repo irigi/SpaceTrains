@@ -109,7 +109,15 @@ func _show_help() -> void:
 
 # context keys: game_time_s, faction_colors (Dictionary), names (id -> display name),
 # price_trends (commodity_id -> -1/0/1 for the selected station)
+# A click on a button here takes a press and a release; a rebuild in between frees the button
+# and the click is lost. While the mouse is held over the panel, refreshes wait (the next one
+# comes half a second later).
+func _pointer_held_here() -> bool:
+    return Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and get_global_rect().has_point(get_global_mouse_position())
+
 func update_selection(detail: Dictionary, kind: String, context: Dictionary) -> void:
+    if _pointer_held_here():
+        return
     if detail.is_empty():
         _show_help()
         return
@@ -596,7 +604,7 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
         _add_label(" · ".join(parts) + " cr", UiTheme.TEXT_DIM, 11)
     _add_ship_systems(detail, context)
 
-# --- Ship systems (tier 1 of docs/plans/ship_internals.md) ----------------------------
+# --- Ship systems (docs/modules/ships_and_fleet.md) ----------------------------
 # The ship's parts from the bridge's designs file: a to-scale schematic with its live state
 # (ShipSchematic), whether the engine runs, and the parts as a list (folded by default).
 func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
@@ -729,6 +737,7 @@ func _hours(h: float) -> String:
 
 func _add_toggle(title: String, open: bool, font_size: int, color: Color, on_pressed: Callable) -> void:
     var toggle := Button.new()
+    toggle.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
     toggle.text = ("▾ " if open else "▸ ") + title
     toggle.flat = true
     toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT

@@ -11,6 +11,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -47,35 +48,35 @@ double distance_between(const spacetrains::math::Vec3d& lhs, const spacetrains::
 
 const spacetrains::domain::StationDefinition& station_by_id(
     const spacetrains::domain::UniverseDefinition& universe,
-    const std::string& id) {
+    std::string_view id) {
     for (const auto& station : universe.stations) {
         if (station.id == id) {
             return station;
         }
     }
-    throw std::runtime_error("missing station " + id);
+    throw std::runtime_error("missing station " + std::string(id));
 }
 
 const spacetrains::domain::ShipClassDefinition& ship_class_by_id(
     const spacetrains::domain::UniverseDefinition& universe,
-    const std::string& id) {
+    std::string_view id) {
     for (const auto& ship_class : universe.ship_classes) {
         if (ship_class.id == id) {
             return ship_class;
         }
     }
-    throw std::runtime_error("missing ship class " + id);
+    throw std::runtime_error("missing ship class " + std::string(id));
 }
 
 const spacetrains::domain::CelestialBodyDefinition& body_by_id(
     const spacetrains::domain::UniverseDefinition& universe,
-    const std::string& id) {
+    std::string_view id) {
     for (const auto& body : universe.bodies) {
         if (body.id == id) {
             return body;
         }
     }
-    throw std::runtime_error("missing body " + id);
+    throw std::runtime_error("missing body " + std::string(id));
 }
 
 spacetrains::math::Vec3d interpolate_path(const std::vector<spacetrains::math::Vec3d>& path, double progress) {
@@ -150,7 +151,7 @@ int main() {
             "bigger tanks should weigh and cost more, smaller ones less");
     }
 
-    // Ship components (tier 1 of docs/plans/ship_internals.md): every class lists its parts,
+    // Ship components (docs/modules/ships_and_fleet.md): every class lists its parts,
     // they add up to the class, plasma ships carry hot radiators and thermal ships none.
     for (const auto& ship_class : universe.ship_classes) {
         double mass = 0.0;
@@ -1156,6 +1157,23 @@ int main() {
         }
         require(rejected, "a save of an unknown version should be rejected");
         require(resumed.save_state_json() == straight.save_state_json(), "a rejected load should leave the game unchanged");
+        // A save broken in a field read late (after the simulation has started to change) is
+        // rejected too, and the game it was loaded into is restored whole.
+        {
+            auto broken = saved;
+            const auto key = broken.find("\"faction_interest_paid\"");
+            require(key != std::string::npos, "the save should have faction_interest_paid");
+            broken.replace(key, std::string("\"faction_interest_paid\"").size(), "\"faction_interest_lost\"");
+            bool late_rejected = false;
+            try {
+                resumed.load_state_json(broken);
+            } catch (const std::exception&) {
+                late_rejected = true;
+            }
+            require(late_rejected, "a save missing a late field should be rejected");
+            require(resumed.save_state_json() == straight.save_state_json(),
+                "a load rejected late should restore the game as it was");
+        }
         std::cout << std::format("Save/load: {} KB save, continued game identical after {} + {} days\n",
             saved.size() / 1024, kHalfDays, kHalfDays);
 
@@ -1223,7 +1241,7 @@ int main() {
             }
         }
         {
-            // Passengers (docs/plans/passengers.md). Off: no liner classes, no queues.
+            // Passengers (docs/modules/ships_and_fleet.md). Off: no liner classes, no queues.
             auto off = spacetrains::simulation::Simulation::from_data_root(passengers_off_data(repo_root));
             for (const auto& c : off.universe().ship_classes) {
                 require(c.berths == 0.0, "without passengers no class should have berths");

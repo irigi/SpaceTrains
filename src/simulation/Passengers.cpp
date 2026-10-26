@@ -1,8 +1,9 @@
-// Passengers (docs/plans/passengers.md): people waiting at stations, the fares ships charge
+// Passengers (docs/modules/ships_and_fleet.md): people waiting at stations, the fares ships charge
 // them, boarding and landing, and the reference fares the market prices against.
 
 #include "domain/ShipDesign.hpp"
 #include "simulation/Simulation.hpp"
+#include "simulation/SimulationInternal.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,16 +15,11 @@
 
 namespace spacetrains::simulation {
 
+using namespace detail;
+
 namespace {
-// As in Simulation.cpp.
-constexpr double FUEL_UNITS_TO_KG = 100.0;
-constexpr double PROPELLANT_RESERVE_FRACTION = 0.1;
 // A waiting group smaller than this is gone (the rest of its people gave up).
 constexpr double MIN_GROUP_COUNT = 1.0e-6;
-
-double consumed_propellant_kg(const domain::TrajectoryPlan& plan) {
-    return plan.propellant_required_kg + plan.propellant_boiled_kg;
-}
 
 bool pays_from_employer(domain::PassengerKind kind) {
     return kind == domain::PassengerKind::RotationOut || kind == domain::PassengerKind::RotationHome;
@@ -953,19 +949,6 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
     ship.passengers.clear();
 }
 
-namespace {
-std::string json_text(const std::string& text) {
-    std::string out;
-    for (const char c : text) {
-        if (c == '"' || c == '\\') {
-            out += '\\';
-        }
-        out += c;
-    }
-    return out;
-}
-}  // namespace
-
 std::string Simulation::ship_passengers_json(const domain::ShipState& ship, const domain::ShipClassDefinition& design) const {
     // Bridge fields, sent only with passengers on: berths, who is aboard, the cabin shielding.
     if (!passengers_on()) {
@@ -976,7 +959,7 @@ std::string Simulation::ship_passengers_json(const domain::ShipState& ship, cons
     for (const auto& lot : ship.passengers) {
         aboard += lot.count;
         lots += std::format("{}{{\"kind\":\"{}\",\"to\":\"{}\",\"count\":{:.0f},\"fare_cr\":{:.1f}}}", lots.size() > 1 ? "," : "",
-            passenger_kind_name(lot.kind), json_text(lot.destination_id), lot.count, lot.fare_cr);
+            passenger_kind_name(lot.kind), json_escape(lot.destination_id), lot.count, lot.fare_cr);
     }
     lots += "]";
     return std::format("\"berths\":{},\"passengers_aboard\":{:.0f},\"passenger_lots\":{},\"fares_cr\":{:.1f},"
@@ -998,7 +981,7 @@ std::string Simulation::station_passengers_json(const domain::StationState& stat
     for (const auto& [key, count] : waiting) {
         if (count >= 0.5) {
             list += std::format("{}{{\"kind\":\"{}\",\"to\":\"{}\",\"count\":{:.0f}}}", list.size() > 1 ? "," : "",
-                key.first, json_text(key.second), count);
+                key.first, json_escape(key.second), count);
         }
     }
     list += "]";

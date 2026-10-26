@@ -1,3 +1,5 @@
+#include <cerrno>
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -6,8 +8,20 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "simulation/Simulation.hpp"
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <csignal>
+#include <unistd.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+#endif
 
 namespace {
 
@@ -19,6 +33,7 @@ struct BridgeConfig {
     std::string opening_cache_dir;  // where the state after the opening dispatch is kept
     double step_seconds {0.1};
     int startup_steps {0};
+    long long parent_pid {0};  // the UI's process: the bridge exits when it is gone (0: not watched)
 };
 
 BridgeConfig parse_args(int argc, char** argv) {
@@ -43,21 +58,82 @@ BridgeConfig parse_args(int argc, char** argv) {
             config.step_seconds = std::stod(argv[++i]);
         } else if (arg == "--startup-steps" && i + 1 < argc) {
             config.startup_steps = std::stoi(argv[++i]);
+        } else if (arg == "--parent-pid" && i + 1 < argc) {
+            config.parent_pid = std::stoll(argv[++i]);
         }
     }
     return config;
 }
 
-void write_text_file(const std::string& path, const std::string& contents) {
-    // Write aside and rename, so the UI never reads a half-written snapshot.
+// Write aside and rename, so a reader never sees a half-written file and a failed or
+// interrupted write leaves the old file whole. Returns false if the write failed.
+bool write_text_file(const std::string& path, const std::string& contents) {
     const std::string temp_path = path + ".tmp";
     {
         std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
         file << contents;
+        file.close();
+        if (!file) {
+            return false;
+        }
     }
     std::error_code error;
     std::filesystem::rename(temp_path, path, error);
+    return !error;
 }
+
+// The UI writes its command file as one JSON object; until the closing brace is there the
+// file is still being written, and is read again on the next loop.
+bool complete_command(const std::string& text) {
+    const auto last = text.find_last_not_of(" \t\r\n");
+    return last != std::string::npos && text[last] == '}';
+}
+
+// The bridge must not outlive the UI that started it: an orphan keeps simulating at full
+// speed. Linux signals it when the parent dies; elsewhere (and as a backstop) the loop checks.
+class ParentWatch {
+public:
+    explicit ParentWatch(long long parent_pid) : parent_pid_(parent_pid) {
+#if defined(_WIN32)
+        if (parent_pid_ > 0) {
+            handle_ = OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(parent_pid_));
+        }
+#else
+        initial_parent_ = getppid();
+#if defined(__linux__)
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+#endif
+    }
+    ~ParentWatch() {
+#if defined(_WIN32)
+        if (handle_ != nullptr) {
+            CloseHandle(handle_);
+        }
+#endif
+    }
+    ParentWatch(const ParentWatch&) = delete;
+    ParentWatch& operator=(const ParentWatch&) = delete;
+
+    [[nodiscard]] bool parent_gone() const {
+#if defined(_WIN32)
+        return handle_ != nullptr && WaitForSingleObject(handle_, 0) == WAIT_OBJECT_0;
+#else
+        if (getppid() != initial_parent_) {
+            return true;  // re-parented: the process that started the bridge has exited
+        }
+        return parent_pid_ > 0 && kill(static_cast<pid_t>(parent_pid_), 0) != 0 && errno == ESRCH;
+#endif
+    }
+
+private:
+    long long parent_pid_;
+#if defined(_WIN32)
+    HANDLE handle_ {nullptr};
+#else
+    pid_t initial_parent_ {0};
+#endif
+};
 
 std::string read_text_file(const std::string& path) {
     std::ifstream file(path, std::ios::binary);
@@ -65,6 +141,38 @@ std::string read_text_file(const std::string& path) {
         return {};
     }
     return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
+// The opening cache's key: every data file's path and contents (a few hundred KB), and the
+// atlas file's size and time (it lives next to the data, in tests/data). Saves use the
+// narrower Simulation::data_fingerprint, so a save still loads after, say, a price tweak;
+// the opening has to be planned again after any data change.
+std::string opening_fingerprint(const std::filesystem::path& data_root) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    const auto mix = [&](const std::string& text) {
+        for (const char ch : text) {
+            hash ^= static_cast<unsigned char>(ch);
+            hash *= 1099511628211ULL;
+        }
+    };
+    std::error_code error;
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(data_root, error)) {
+        if (entry.is_regular_file(error)) {
+            files.push_back(entry.path());
+        }
+    }
+    std::sort(files.begin(), files.end());
+    for (const auto& file : files) {
+        mix(std::filesystem::relative(file, data_root, error).generic_string());
+        mix("\n" + read_text_file(file.string()) + "\n");
+    }
+    const auto atlas = data_root.parent_path() / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin";
+    if (std::filesystem::exists(atlas, error)) {
+        mix(std::format("atlas|{}|{}", std::filesystem::file_size(atlas, error),
+            std::filesystem::last_write_time(atlas, error).time_since_epoch().count()));
+    }
+    return std::format("{:016x}", hash);
 }
 
 bool parse_bool_flag(const std::string& text, const std::string& key, bool fallback) {
@@ -113,6 +221,7 @@ double parse_number_flag(const std::string& text, const std::string& key, double
 
 int main(int argc, char** argv) {
     const auto config = parse_args(argc, argv);
+    const ParentWatch parent_watch(config.parent_pid);
     auto simulation = spacetrains::simulation::Simulation::from_data_root(config.data_root);
     const auto bridge_start = std::chrono::steady_clock::now();
     std::uint64_t snapshot_seq = 0;
@@ -192,7 +301,7 @@ int main(int argc, char** argv) {
         last_loop = now;
         bool changed = false;
         const std::string command_text = read_text_file(config.command_file);
-        if (!command_text.empty() && command_text != last_command_text) {
+        if (complete_command(command_text) && command_text != last_command_text) {
             last_command_text = command_text;
             paused = parse_bool_flag(command_text, "paused", paused);
             timewarp = parse_number_flag(command_text, "timewarp_factor", timewarp);
@@ -206,9 +315,8 @@ int main(int argc, char** argv) {
             if (request > last_request) {
                 last_request = request;
                 if (const auto path = parse_string_flag(command_text, "save_path"); !path.empty()) {
-                    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-                    file << simulation.save_state_json();
-                    command_status = file ? std::format("Saved day {:.1f}", simulation.game_time_s() / 86400.0) : "Save failed";
+                    command_status = write_text_file(path, simulation.save_state_json())
+                        ? std::format("Saved day {:.1f}", simulation.game_time_s() / 86400.0) : "Save failed";
                 } else if (const auto path = parse_string_flag(command_text, "load_path"); !path.empty()) {
                     const auto text = read_text_file(path);
                     try {
@@ -274,7 +382,7 @@ int main(int argc, char** argv) {
         std::error_code error;
         const auto build_time = std::filesystem::last_write_time(argv[0], error);
         opening_path = (std::filesystem::path(config.opening_cache_dir)
-            / std::format("opening_{}_{}.json", simulation.data_fingerprint(),
+            / std::format("opening_{}_{}.json", opening_fingerprint(config.data_root),
                 error ? 0 : build_time.time_since_epoch().count())).string();
     }
     bool opened_from_cache = false;
@@ -310,9 +418,11 @@ int main(int argc, char** argv) {
     last_loop = std::chrono::steady_clock::now();
 
     const auto loop_period = std::chrono::duration<double>(std::min(config.step_seconds, 0.05));
-    while (true) {
+    while (!parent_watch.parent_gone()) {
         const auto loop_start = std::chrono::steady_clock::now();
         tick();
         std::this_thread::sleep_until(loop_start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(loop_period));
     }
+    std::cerr << "[bridge] the UI is gone; exiting\n";
+    return 0;
 }

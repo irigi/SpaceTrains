@@ -4,7 +4,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "domain/Types.hpp"
+#include "domain/State.hpp"
 
 namespace spacetrains::economy {
 
@@ -42,7 +42,7 @@ public:
     [[nodiscard]] double storage_used_units(const domain::Inventory& inventory) const;
     [[nodiscard]] double storage_used_units(const domain::StationDefinition& station, const domain::Inventory& inventory) const;
 
-    // Background economies (docs/plans/economy_overhaul.md): what one sells or buys at this
+    // Background economies (docs/modules/economy.md): what one sells or buys at this
     // gateway (nullptr: none). A surface market that sells in any amount keeps the station's
     // stock at surface_depth_units, priced at its ask.
     [[nodiscard]] const domain::SurfaceMarketDefinition* surface_market(
@@ -94,7 +94,7 @@ public:
         double base_price) const;
 
     // The centre of a station's price curve for a good: the landed cost (base price plus the
-    // cost of carrying it from the nearest producer, set by set_reference_prices) at a
+    // cost of carrying it from the nearest producer, data/economy/reference_prices.csv) at a
     // consumer, the base price elsewhere.
     [[nodiscard]] double reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const;
     // Map-level one-way transfer estimate between two stations, in days: a Hohmann half-orbit
@@ -105,7 +105,6 @@ public:
     // The highest multiple of its centre a station's curve for a good reaches (at an empty
     // stock): price_cap. Station orders cap their bids themselves (step 29).
     [[nodiscard]] double price_cap(const domain::StationDefinition& station, const std::string& commodity_id) const;
-    void set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices);
 
     // The profile's recipes and the station's own.
     [[nodiscard]] const std::vector<const domain::RecipeDefinition*>& recipes_of(const domain::StationDefinition& station) const;
@@ -134,7 +133,8 @@ private:
     // Surface markets by station id (economy overhaul), and the flat bids of those that only buy.
     std::unordered_map<std::string, std::vector<const domain::SurfaceMarketDefinition*>> surface_by_station_;
     std::unordered_map<std::string, std::unordered_map<std::string, double>> export_bids_;
-    bool legacy_export_markets_ {false};
+    // Legacy export markets (export_markets.csv): goods Earth takes from a station each day, by station.
+    std::unordered_map<std::string, std::vector<std::string>> legacy_export_goods_;
     std::unordered_set<std::string> science_stations_;   // stations whose budget is science (station_incomes kind science_station)
     double surface_depth_units_ {0.0};
     // Landed-cost reference prices by station id and good (empty: base prices).

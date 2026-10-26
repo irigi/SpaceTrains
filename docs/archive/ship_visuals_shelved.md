@@ -8,7 +8,7 @@ ship visuals proposal. Proposals A (the inspector schematic) and D (map hints) w
 
 ![](fleet_to_scale.png)
 
-(Mock-up from `tools/ship_schematic_mockup.py`.)
+(Mock-up from a one-off script, removed in the 2026-10 clean-up; git history has it.)
 
 - A panel with every hull at one scale. Each row gives Δv (laden and empty), α/κ, crew, hold, price and the
   number in service.
@@ -16,7 +16,7 @@ ship visuals proposal. Proposals A (the inspector schematic) and D (map hints) w
 - It shows the design space the economy chooses from: why fleet investment bought a Plasma Bulk Tanker, or why
   Ganymede ships are plasma.
 - Tank variants appear as ghosted outlines.
-- In tier 2 (`docs/plans/ship_internals.md`) it would become the refit and module browser.
+- In tier 2 (modules and refits, `docs/modules/ships_and_fleet.md`) it would become the refit and module browser.
 - Estimated at half a day, reusing `ShipSchematic` per row.
 
 ## C: a 3D ship close-up built from components

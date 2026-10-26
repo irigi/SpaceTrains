@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <functional>
 #include <iosfwd>
 #include <limits>
@@ -73,7 +74,7 @@ public:
         double round_trip_days {0.0};
     };
     [[nodiscard]] std::vector<ReferencePrice> compute_reference_prices() const;
-    // Passengers (docs/plans/passengers.md): for every station pair, the cheapest cabin carrier's
+    // Passengers (docs/modules/ships_and_fleet.md): for every station pair, the cheapest cabin carrier's
     // cost per berth one way (carrier_margin x (its days out + return_share x the way back, at its
     // daily cost, plus propellant) over berths x fill_ref, plus the passenger's provisions); median
     // over departure dates. Written by `spacetrains_headless --write-reference-fares`.
@@ -199,7 +200,7 @@ public:
     [[nodiscard]] double wear_cr_per_flight_day(const domain::ShipClassDefinition& design) const;
     [[nodiscard]] double wear_cr_per_propellant_kg(const domain::ShipClassDefinition& design) const;
 
-    // Passengers (docs/plans/passengers.md). Fleet investment's probes and route commitments name passenger runs by this pseudo-good.
+    // Passengers (docs/modules/ships_and_fleet.md). Fleet investment's probes and route commitments name passenger runs by this pseudo-good.
     static constexpr const char* PASSENGER_GOOD = "passengers";
     // People per day who would take the trip origin -> destination at about its reference cost:
     // the demand a new carrier on that pair competes for (settlers posted, emigrants, and the
@@ -288,7 +289,7 @@ private:
     void update_market_responses();
     [[nodiscard]] const domain::ShipClassDefinition& get_ship_class(const std::string& class_id) const;
     // The design a ship flies with: its class, or with modules fitted (tier 2,
-    // docs/plans/ship_structures_tier2.md) the design derived from the class and the fit.
+    // docs/modules/ships_and_fleet.md) the design derived from the class and the fit.
     // Ship-level code asks this, never get_ship_class(ship.class_id). Fitted designs must be
     // registered first (serial code only: planning passes read the cache in parallel).
     [[nodiscard]] const domain::ShipClassDefinition& ship_design(const domain::ShipState& ship) const;
@@ -359,7 +360,7 @@ private:
         double stock, double units) const;
     [[nodiscard]] SaleSplit sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
-    // Station purchase orders (step 29, docs/plans/station_orders.md). A station posts an order
+    // Station purchase orders (step 29, docs/modules/economy.md). A station posts an order
     // for a good it is a net consumer of, and for depot fuel where it has no factory, never at
     // an export market; it then has OrderStats for the good.
     [[nodiscard]] bool has_order(const domain::StationDefinition& station, const std::string& commodity_id) const;
@@ -421,6 +422,11 @@ private:
     // the inspector and the audit; quotes compute their own).
     void step_orders();
     // Competitive pricing: each order's market price from the asks of ships near a source (daily).
+    // True on the tick that crosses into a new day (on the 0.1-day grid from midnight, the
+    // tick at midnight; from any other start, the first tick past it).
+    [[nodiscard]] bool first_tick_of_day() const {
+        return std::floor(game_time_s_ / 86400.0) != std::floor((game_time_s_ - TICK_S) / 86400.0);
+    }
     void update_market_prices();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
@@ -544,7 +550,7 @@ private:
         };
         std::vector<CargoOption> cargo_options;
     };
-    // --- Passengers (src/simulation/Passengers.cpp, docs/plans/passengers.md) ---
+    // --- Passengers (src/simulation/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
     [[nodiscard]] bool passengers_on() const { return universe_.passengers.enabled != 0.0; }
     [[nodiscard]] bool passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const;
     [[nodiscard]] bool migration_by_ship() const { return passengers_on() && universe_.passengers.migration != 0.0; }
@@ -658,6 +664,10 @@ private:
     [[nodiscard]] MissionChoice choose_mission_pass(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
         bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans, std::string& trace_text);
+    // load_state_json without the restore on failure.
+    void read_state_json(const std::string& text);
+    class MissionPass;       // MissionPlanning.cpp
+    class InvestmentReview;  // FleetInvestment.cpp
     // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
     struct DeferredPlan {
         std::function<domain::TrajectoryPlan()> compute;
@@ -794,6 +804,10 @@ private:
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;
     std::vector<domain::EventEntry> recent_events_;
+    // Each station's stock at the start (from the data, so a loaded game rebuilds the same):
+    // lifetime profit counts the stock's value gain against it. (Recomputed from today's rates
+    // it grew with the population, and the reported profit drifted.)
+    std::unordered_map<std::string, domain::Inventory> starting_inventories_;
     std::vector<domain::TradeEntry> recent_trades_;
     double delivered_paid_cr_ {0.0};       // audit only, not saved
     RadiationAudit radiation_audit_;       // audit only, not saved

@@ -27,7 +27,15 @@ public:
 };
 ```
 
-`load_universe()` must either return a complete static scenario definition or fail clearly. Partial silent loads are not acceptable once validation is hardened.
+`load_universe()` either returns a complete static scenario definition or throws with the file and line.
+
+**Files:** `DataLoader.cpp` (the loading order, core data: bodies, factions, goods, stations, recipes, events, and
+the cross-file checks), `LoadShips.cpp` (classes, components, modules and hull slots, the starting fleet, spares,
+operations, the ship environment and station radiation), `LoadEconomy.cpp` (labour, fuel, households and colonies,
+incomes, treasuries, investment, liners, growth, pricing, orders, the market, reference prices),
+`LoadPassengers.cpp` (travel settings, reference fares), `Csv.cpp` (CSV reading and the shared checks;
+`LoaderInternal.hpp`). One `load_<file>()` function per data file, called in a fixed order: a file may refer only
+to what an earlier one defined.
 
 ## Data Flow
 
@@ -40,7 +48,10 @@ CSV files -> DataLoader -> UniverseDefinition -> Simulation
 - IDs are unique within each domain type.
 - Every station references an existing body and faction.
 - Every ship seed references an existing station, faction, and ship class.
-- Every recipe references a known economy profile and commodity.
+- Every recipe references a known economy profile and commodity, and every `input:` feeds an output of the same
+  station.
+- Station ids in per-station files (radiation, incomes, orders, surface markets) exist and appear once; goods named
+  in settings (colony essentials, stock days) exist.
 - `stations/works.csv` and `stations/station_systems.csv` (optional) feed the station systems view only; every
   works' staffing must sum to 1. `economy/station_radiation.csv` has a `site` column (orbit, surface,
   underground, aerostat).
@@ -50,10 +61,7 @@ CSV files -> DataLoader -> UniverseDefinition -> Simulation
 
 ## Deferred Work
 
-- Stronger validation reporting
-- Alternative file formats
 - Mod layering / override support
-- Explicit schema versioning
 
 ## Tests
 

@@ -38,7 +38,7 @@ EconomySystem::EconomySystem(const domain::UniverseDefinition& universe) : unive
     for (const auto& market : universe_.export_markets) {
         export_markets_[market.station_id][market.commodity_id] = market.units_per_day;
         export_goods_.insert(market.commodity_id);
-        legacy_export_markets_ = true;
+        legacy_export_goods_[market.station_id].push_back(market.commodity_id);
     }
     // A surface market that only buys (no ask) is an export market at its flat bid; planners
     // see it as a consumer of its daily volume (EXPORT_PLANNING_UNITS where it takes any amount).
@@ -209,11 +209,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
             continue;
         }
 
-        // Earth's economy takes everything delivered to its export markets (surface markets
-        // are settled by the simulation, which pays for them).
-        if (const auto market_it = export_markets_.find(station.station_id);
-            legacy_export_markets_ && market_it != export_markets_.end()) {
-            for (const auto& [commodity_id, units_per_day] : market_it->second) {
+        // Earth's economy takes everything delivered to a legacy export market (export_markets.csv).
+        // Surface markets, also in export_markets_, are settled by the simulation, which pays for them.
+        if (const auto legacy = legacy_export_goods_.find(station.station_id); legacy != legacy_export_goods_.end()) {
+            for (const auto& commodity_id : legacy->second) {
                 double& stock = station.inventory[commodity_id];
                 if (stock > 0.0) {
                     station.market_sold_units[commodity_id] += stock;
@@ -282,7 +281,12 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
                 continue;
             }
             for (const auto& output : recipe->feeds) {
-                auto& run = runs[output];
+                // Only outputs the station makes (the loader checks that inputs feed one).
+                const auto found = runs.find(output);
+                if (found == runs.end()) {
+                    continue;
+                }
+                auto& run = found->second;
                 const double available = availability[recipe->commodity_id];
                 if (available < run.limit) {
                     run.limit = available;
@@ -327,7 +331,11 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
                 // A plant that is not running uses no feedstock.
                 double mean_run = 0.0;
                 for (const auto& output : recipe->feeds) {
-                    const auto& run = runs[output];
+                    const auto found = runs.find(output);
+                    if (found == runs.end()) {
+                        continue;
+                    }
+                    const auto& run = found->second;
                     mean_run += run.run;
                     if (run.limited_by == recipe->commodity_id) {
                         input_shortfall_per_day += ceiling * (1.0 - run.limit);
@@ -379,9 +387,10 @@ void EconomySystem::step(std::vector<domain::StationState>& stations, double dt_
         }
 
         // Machinery wear: independent of recipes, represents physical deterioration.
-        auto& machinery_stock = station.inventory["machinery"];
-        if (machinery_stock > 0.0) {
-            machinery_stock *= std::max(0.0, 1.0 - MACHINERY_WEAR_PER_DAY * dt_days);
+        // (A lookup, not inventory["machinery"], which gave every station a zero entry.)
+        if (const auto machinery = station.inventory.find("machinery");
+            machinery != station.inventory.end() && machinery->second > 0.0) {
+            machinery->second *= std::max(0.0, 1.0 - MACHINERY_WEAR_PER_DAY * dt_days);
         }
     }
 }
@@ -446,7 +455,7 @@ double EconomySystem::get_target_stock(const domain::StationDefinition& station,
     if (commodity_id == FUEL_ID && fuel_factory_output(station) > 0.0) {
         return fuel_buffer_units(station);
     }
-    const auto rates = get_station_net_rates(station);
+    const auto& rates = get_station_net_rates(station);
     const double net_rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
     // A surface economy keeps it stocked at its depth, priced at its ask there.
     if (surface_supplied(station, commodity_id)) {
@@ -514,10 +523,6 @@ bool EconomySystem::makes_itself(const domain::StationDefinition& station, const
 
 double EconomySystem::reference_price(const domain::StationDefinition& station, const std::string& commodity_id) const {
     return curve_centre(station, commodity_id, commodity_base_price(commodity_id));
-}
-
-void EconomySystem::set_reference_prices(std::unordered_map<std::string, std::unordered_map<std::string, double>> prices) {
-    reference_prices_ = std::move(prices);
 }
 
 bool EconomySystem::is_upkeep(const domain::StationDefinition& station, const std::string& commodity_id) const {
