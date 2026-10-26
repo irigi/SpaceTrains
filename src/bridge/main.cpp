@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -7,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "simulation/Simulation.hpp"
 
@@ -139,6 +141,38 @@ std::string read_text_file(const std::string& path) {
         return {};
     }
     return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
+// The opening cache's key: every data file's path and contents (a few hundred KB), and the
+// atlas file's size and time (it lives next to the data, in tests/data). Saves use the
+// narrower Simulation::data_fingerprint, so a save still loads after, say, a price tweak;
+// the opening has to be planned again after any data change.
+std::string opening_fingerprint(const std::filesystem::path& data_root) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    const auto mix = [&](const std::string& text) {
+        for (const char ch : text) {
+            hash ^= static_cast<unsigned char>(ch);
+            hash *= 1099511628211ULL;
+        }
+    };
+    std::error_code error;
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(data_root, error)) {
+        if (entry.is_regular_file(error)) {
+            files.push_back(entry.path());
+        }
+    }
+    std::sort(files.begin(), files.end());
+    for (const auto& file : files) {
+        mix(std::filesystem::relative(file, data_root, error).generic_string());
+        mix("\n" + read_text_file(file.string()) + "\n");
+    }
+    const auto atlas = data_root.parent_path() / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin";
+    if (std::filesystem::exists(atlas, error)) {
+        mix(std::format("atlas|{}|{}", std::filesystem::file_size(atlas, error),
+            std::filesystem::last_write_time(atlas, error).time_since_epoch().count()));
+    }
+    return std::format("{:016x}", hash);
 }
 
 bool parse_bool_flag(const std::string& text, const std::string& key, bool fallback) {
@@ -348,7 +382,7 @@ int main(int argc, char** argv) {
         std::error_code error;
         const auto build_time = std::filesystem::last_write_time(argv[0], error);
         opening_path = (std::filesystem::path(config.opening_cache_dir)
-            / std::format("opening_{}_{}.json", simulation.data_fingerprint(),
+            / std::format("opening_{}_{}.json", opening_fingerprint(config.data_root),
                 error ? 0 : build_time.time_since_epoch().count())).string();
     }
     bool opened_from_cache = false;
