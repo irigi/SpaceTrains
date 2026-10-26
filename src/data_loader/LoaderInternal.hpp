@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "domain/Types.hpp"
+#include "domain/Definitions.hpp"
 
 namespace spacetrains::data_loader::detail {
 

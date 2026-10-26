@@ -4,7 +4,7 @@
 // ordinary ShipClassDefinition whose totals are recomputed from its parts, so every
 // planner and score keeps working on it unchanged.
 
-#include "domain/Types.hpp"
+#include "domain/Definitions.hpp"
 
 #include <string>
 #include <vector>

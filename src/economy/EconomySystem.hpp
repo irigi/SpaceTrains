@@ -4,7 +4,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "domain/Types.hpp"
+#include "domain/State.hpp"
 
 namespace spacetrains::economy {
 

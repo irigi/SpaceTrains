@@ -3,7 +3,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "domain/Types.hpp"
+#include "domain/Definitions.hpp"
 
 namespace spacetrains::celestial {
 

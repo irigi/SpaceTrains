@@ -4,7 +4,7 @@
 // the environment settings, a ship design, the distance from the Sun and the game day.
 // Doses are effective dose (mSv); "hull" means inside a habitat-class pressure hull.
 
-#include "domain/Types.hpp"
+#include "domain/Definitions.hpp"
 
 #include <random>
 
