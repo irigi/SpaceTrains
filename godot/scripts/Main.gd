@@ -31,56 +31,17 @@ const BRIDGE_BUSY_NOTICE_S := 2.0
 const DEFAULT_TIMEWARP := 86400.0
 const TIMEWARP_STEPS := [600.0, 3600.0, 21600.0, 86400.0, 432000.0]
 
-const BODY_ICON_SIZE := {
-    "star":         14.0,
-    "planet":       9.0,
-    "dwarf_planet": 7.0,
-    "moon":         7.0,
-}
-const STATION_ICON_SIZE := 8.0
-const SHIP_ICON_SIZE := 8.0
-const ICON_ALPHA := 0.58
-const BODY_ICON_ALPHA := 0.92
-# Screen-space labels next to the map icons.
-const LABEL_FONT_SIZE := {"body": 14, "station": 12, "ship": 11}
-const LABEL_OFFSET_PX := Vector2(10.0, -9.0)
 const ICON_PICK_PADDING_PX := 6.0
 const DEBUG_SAMPLE_BODY_IDS := ["sun", "mercury", "earth", "mars", "jupiter", "saturn", "neptune"]
 const DEBUG_LOG_INTERVAL_S := 1.0
 const UI_REFRESH_INTERVAL_S := 0.5
 
-const BODY_TYPE := {
-    "sun": "star",
-    "mercury": "planet", "venus": "planet", "earth": "planet",
-    "mars": "planet", "jupiter": "planet", "saturn": "planet",
-    "uranus": "planet", "neptune": "planet",
-    "ceres": "dwarf_planet",
-    "luna": "moon", "europa": "moon", "ganymede": "moon",
-    "titan": "moon", "triton": "moon",
-}
-
-const BODY_ICON_COLOR := {
-    "sun":      Color(1.00, 0.88, 0.30),
-    "mercury":  Color(0.70, 0.65, 0.60),
-    "venus":    Color(0.95, 0.85, 0.50),
-    "earth":    Color(0.20, 0.50, 1.00),
-    "luna":     Color(0.80, 0.80, 0.80),
-    "mars":     Color(0.90, 0.35, 0.20),
-    "ceres":    Color(0.60, 0.55, 0.50),
-    "jupiter":  Color(0.85, 0.65, 0.45),
-    "europa":   Color(0.75, 0.70, 0.65),
-    "ganymede": Color(0.65, 0.60, 0.55),
-    "saturn":   Color(0.90, 0.80, 0.55),
-    "titan":    Color(0.85, 0.65, 0.40),
-    "uranus":   Color(0.50, 0.85, 0.90),
-    "neptune":  Color(0.30, 0.45, 0.95),
-    "triton":   Color(0.60, 0.70, 0.75),
-}
-
 @onready var world_root: Node3D = $WorldRoot
 @onready var camera_rig: Node3D = $CameraRig
 @onready var camera: Camera3D = $CameraRig/Camera3D
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
+var map_icons: MapIconsScript  # the icons and labels over the map
+var economy_history := EconomyHistoryScript.new()  # prices and unmet demand over time
 @onready var scene_light: DirectionalLight3D = $DirectionalLight3D
 
 var bridge_pid := -1
@@ -156,10 +117,6 @@ var faction_colors := {
 }
 var sun_light: OmniLight3D
 var space_env: Node3D
-var map_icon_layer: Control
-var _map_icons: Dictionary = {}
-var _map_labels: Dictionary = {}
-var _icon_textures: Dictionary = {}
 var debug_map_enabled := false
 var debug_log_accum_s := 0.0
 var debug_frame := 0
@@ -179,6 +136,8 @@ const EventTickerPanel := preload("res://scripts/ui/EventTicker.gd")
 const MarketPanelScript := preload("res://scripts/ui/MarketPanel.gd")
 const HelpPanelScript := preload("res://scripts/ui/HelpPanel.gd")
 const StatisticsPanelScript := preload("res://scripts/ui/StatisticsPanel.gd")
+const MapIconsScript := preload("res://scripts/MapIcons.gd")
+const EconomyHistoryScript := preload("res://scripts/EconomyHistory.gd")
 
 var ui_root: Control
 var top_bar: PanelContainer
@@ -191,11 +150,6 @@ var stats_panel: PanelContainer
 var status_label: Label
 var thermal_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
-var price_history: Array[Dictionary] = []
-const PRICE_HISTORY_MAX_SAMPLES := 600
-const PRICE_HISTORY_MIN_DAY_STEP := 0.5
-const PRICE_TREND_LOOKBACK_DAYS := 10.0
-const PRICE_TREND_THRESHOLD := 0.03
 
 func _ready() -> void:
     repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
@@ -215,7 +169,10 @@ func _ready() -> void:
     add_child(entity_root)
     _create_debug_guides()
     _setup_scene_lighting()
-    _setup_map_icon_layer()
+    map_icons = MapIconsScript.new()
+    canvas_layer.add_child(map_icons)
+    canvas_layer.move_child(map_icons, 0)
+    map_icons.setup(camera, entity_nodes, entity_details, entity_kinds, faction_colors)
     _setup_ui()
     if "--debug-map" in OS.get_cmdline_user_args():
         debug_map_enabled = true
@@ -389,7 +346,7 @@ func _process(delta: float) -> void:
     if _profile_enabled: _profiled("update nodes", t)
     _update_camera_focus()
     t = Time.get_ticks_usec()
-    _update_map_icons()
+    map_icons.update(selected_id)
     if _profile_enabled: _profiled("map icons", t)
     _update_map_debug(delta)
     if _profile_enabled:
@@ -698,12 +655,7 @@ func _apply_snapshot() -> void:
                 (history_trail_nodes[entity_id] as Node).queue_free()
                 history_trail_nodes.erase(entity_id)
                 ship_trail_history.erase(entity_id)
-            if _map_icons.has(entity_id):
-                (_map_icons[entity_id] as Node).queue_free()
-                _map_icons.erase(entity_id)
-            if _map_labels.has(entity_id):
-                (_map_labels[entity_id] as Node).queue_free()
-                _map_labels.erase(entity_id)
+            map_icons.remove(entity_id)
             ids_changed = true
             if entity_id == focused_id:
                 focused_id = ""
@@ -745,7 +697,7 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_nodes[entity_id] = container
         entity_targets[entity_id] = Vector3.ZERO
         entity_visual_signatures[entity_id] = ""
-        _attach_map_icon(entity_id, kind, data)
+        map_icons.attach(entity_id, kind, data)
         if entity_id == "saturn":
             container.add_child(SpaceEnvironmentScript.make_planet_ring())
 
@@ -807,12 +759,12 @@ func _update_nodes(delta: float) -> void:
             var node: Node3D = entity_nodes[entity_id]
             var detail: Dictionary = entity_details.get(entity_id, {})
             _update_ship_lod(node, detail)
-            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, _world_size_for_pixels(node, 20.0),
+            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, map_icons.world_size_for_pixels(node, 20.0),
                 _jet_power_w(String(detail.get("design_id", detail.get("class_id", "")))))
     _update_camera_obstacles()
     _update_history_trails(delta)
     if space_env != null:
-        space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, BODY_ICON_COLOR)
+        space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, MapIconsScript.BODY_ICON_COLOR)
     _update_fine_rings()
     _update_fine_paths()
     if sun_light != null and entity_nodes.has("sun"):
@@ -820,7 +772,7 @@ func _update_nodes(delta: float) -> void:
         sun_light.global_position = sun_node.global_position
         if space_env != null:
             space_env.update_sun(sun_node.global_position, sun_node.scale.x,
-                _world_size_for_pixels(sun_node, 110.0))
+                map_icons.world_size_for_pixels(sun_node, 110.0))
     if space_env != null:
         space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
@@ -1614,7 +1566,7 @@ func _ensure_fine_ring(body_id: String) -> MeshInstance3D:
     var material := StandardMaterial3D.new()
     material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
     material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    var color: Color = BODY_ICON_COLOR.get(body_id, Color(0.6, 0.65, 0.7))
+    var color: Color = MapIconsScript.BODY_ICON_COLOR.get(body_id, Color(0.6, 0.65, 0.7))
     material.albedo_color = Color(color.r, color.g, color.b, space_env.ORBIT_RING_ALPHA)
     instance.material_override = material
     instance.extra_cull_margin = 16384.0
@@ -1722,7 +1674,7 @@ func _update_ship_lod(node: Node3D, data: Dictionary) -> void:
     if not node.has_meta("model_key"):
         return
     var lod := int(node.get_meta("lod", ShipModelsScript.COARSE))
-    var pixels := _projected_model_pixels(node)
+    var pixels := map_icons.projected_model_pixels(node)
     var want := lod
     if lod == ShipModelsScript.COARSE and pixels > SHIP_DETAIL_PX:
         want = ShipModelsScript.DETAIL
@@ -1743,7 +1695,7 @@ func _update_station_lod(node: Node3D, data: Dictionary) -> void:
     if data.is_empty() or not node.has_meta("model_key"):
         return
     var lod := int(node.get_meta("lod", StationModelsScript.COARSE))
-    var pixels := _projected_model_pixels(node)
+    var pixels := map_icons.projected_model_pixels(node)
     if lod == StationModelsScript.COARSE and pixels > STATION_DETAIL_PX:
         if StationModelsScript.request_detail(data):
             StationModelsScript.ensure(node, data, StationModelsScript.DETAIL)
@@ -1752,11 +1704,6 @@ func _update_station_lod(node: Node3D, data: Dictionary) -> void:
 
 # A model's size in world units: its bounding radius for ships (built in metres), the
 # container scale for unit-size models (bodies, stations).
-func _model_world_size(node: Node3D) -> float:
-    if node.has_meta("radius_m"):
-        return float(node.get_meta("radius_m")) * node.scale.x
-    return node.scale.x
-
 # Stations are drawn at the ships' scale. A guard for large --model-scale values: a station
 # never reaches more than 60% of the way down to its planet (never binds at true scale).
 func _station_display_scale(data: Dictionary) -> float:
@@ -1810,10 +1757,9 @@ func _refresh_ui(force := false) -> void:
     if _profile_enabled: _profiled("ui refresh", t)
 
 func _refresh_ui_now() -> void:
-    _record_price_history()
-    _record_economy_history()
-    if economy_history.size() >= 2:
-        bridge_state["unmet_30d"] = _recent_unmet_share(30.0)
+    economy_history.record(bridge_state)
+    if economy_history.has_unmet_window():
+        bridge_state["unmet_30d"] = economy_history.recent_unmet_share(30.0)
     top_bar.update_state(bridge_state, bool(bridge_state.get("paused", current_paused)), current_timewarp)
     entity_browser.update_entities(entity_details, entity_kinds, selected_id)
     event_ticker.update_events(bridge_state.get("recent_events", []))
@@ -1824,7 +1770,7 @@ func _refresh_ui_now() -> void:
         "game_time_s": float(bridge_state.get("game_time_s", 0.0)),
         "faction_colors": faction_colors,
         "names": _entity_name_map(),
-        "price_trends": _price_trends_for(selected_id) if selected_kind == "station" else {},
+        "price_trends": economy_history.price_trends_for(selected_id) if selected_kind == "station" else {},
         "ships": bridge_state.get("ships", []),
         "bodies": bridge_state.get("bodies", []),
         "stations": bridge_state.get("stations", []),
@@ -1837,28 +1783,12 @@ func _entity_name_map() -> Dictionary:
         names[entity_id] = String((entity_details[entity_id] as Dictionary).get("name", entity_id))
     return names
 
-func _record_price_history() -> void:
-    var day := float(bridge_state.get("game_time_days", 0.0))
-    if not price_history.is_empty() and day - float(price_history.back()["day"]) < PRICE_HISTORY_MIN_DAY_STEP:
-        return
-    var sample := {}
-    for station in bridge_state.get("stations", []):
-        var prices: Dictionary = station.get("prices", {})
-        if not prices.is_empty():
-            sample[String(station["id"])] = prices.duplicate()
-    if sample.is_empty():
-        return
-    price_history.append({"day": day, "prices": sample})
-    if price_history.size() > PRICE_HISTORY_MAX_SAMPLES:
-        price_history.pop_front()
-
 func _reset_timeline() -> void:
     display_time_s = -1.0
     sim_pace = 0.0
     snapshot_wall_s = 0.0
     ship_paths.clear()
     economy_history.clear()
-    price_history.clear()
     ship_trail_history.clear()
     # The trails drawn from the old timeline go with it (after a load, a ship docked in the
     # save kept its old trail on screen).
@@ -1866,57 +1796,6 @@ func _reset_timeline() -> void:
         (history_trail_nodes[ship_id] as Node).queue_free()
     history_trail_nodes.clear()
     trail_path_signatures.clear()
-
-# Cumulative demand and unmet demand (base value), sampled once per game day, for the
-# share that went short over a recent window.
-var economy_history: Array = []
-
-func _record_economy_history() -> void:
-    var economy: Dictionary = bridge_state.get("economy", {})
-    if economy.is_empty():
-        return
-    var day := float(bridge_state.get("game_time_days", 0.0))
-    if not economy_history.is_empty() and day - float(economy_history.back()["day"]) < 1.0:
-        return
-    economy_history.append({"day": day, "demand": float(economy.get("demand_value", 0.0)), "unmet": float(economy.get("unmet_value", 0.0))})
-    if economy_history.size() > 400:
-        economy_history.pop_front()
-
-func _recent_unmet_share(days: float) -> float:
-    var latest: Dictionary = economy_history.back()
-    var reference: Dictionary = economy_history.front()
-    for i in range(economy_history.size() - 1, -1, -1):
-        reference = economy_history[i]
-        if float(latest["day"]) - float(reference["day"]) >= days:
-            break
-    var demand := float(latest["demand"]) - float(reference["demand"])
-    return (float(latest["unmet"]) - float(reference["unmet"])) / demand if demand > 0.0 else 0.0
-
-func _price_trends_for(station_id: String) -> Dictionary:
-    var trends := {}
-    if price_history.size() < 2:
-        return trends
-    var current: Dictionary = price_history.back()
-    var current_day := float(current["day"])
-    var reference: Dictionary = price_history.front()
-    for i in range(price_history.size() - 2, -1, -1):
-        if current_day - float(price_history[i]["day"]) >= PRICE_TREND_LOOKBACK_DAYS:
-            reference = price_history[i]
-            break
-    var now_prices: Dictionary = (current["prices"] as Dictionary).get(station_id, {})
-    var then_prices: Dictionary = (reference["prices"] as Dictionary).get(station_id, {})
-    for commodity_id in now_prices.keys():
-        var then := float(then_prices.get(commodity_id, 0.0))
-        if then <= 0.0:
-            continue
-        var ratio := float(now_prices[commodity_id]) / then
-        if ratio > 1.0 + PRICE_TREND_THRESHOLD:
-            trends[commodity_id] = 1
-        elif ratio < 1.0 - PRICE_TREND_THRESHOLD:
-            trends[commodity_id] = -1
-        else:
-            trends[commodity_id] = 0
-    return trends
 
 func _pick_entity(mouse_pos: Vector2) -> void:
     var best_id := ""
@@ -1929,7 +1808,7 @@ func _pick_entity(mouse_pos: Vector2) -> void:
         var screen_pos := camera.unproject_position(node.global_position)
         var kind: String = entity_kinds.get(entity_id, "")
         var detail: Dictionary = entity_details.get(entity_id, {})
-        var pick_radius: float = max(_icon_pixel_size(kind, detail) + ICON_PICK_PADDING_PX, 20.0)
+        var pick_radius: float = max(MapIconsScript.icon_pixel_size(kind, detail) + ICON_PICK_PADDING_PX, 20.0)
         var distance := screen_pos.distance_to(mouse_pos)
         # Near the icon: the nearest wins. Up close a ship or station is also hit anywhere on
         # its model (its projected radius); then the smallest model wins, so a docked ship
@@ -1938,7 +1817,7 @@ func _pick_entity(mouse_pos: Vector2) -> void:
         if distance < minf(pick_radius, 28.0):
             score = distance
         elif kind == "ship" or kind == "station":
-            var model_px := _projected_model_pixels(node)
+            var model_px := map_icons.projected_model_pixels(node)
             if distance < model_px:
                 score = 1000.0 + model_px
         if score < best_distance:
@@ -2026,197 +1905,6 @@ func _setup_scene_lighting() -> void:
     space_env.name = "SpaceEnvironment"
     add_child(space_env)
 
-func _setup_map_icon_layer() -> void:
-    map_icon_layer = Control.new()
-    map_icon_layer.name = "MapIconLayer"
-    map_icon_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    map_icon_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
-    canvas_layer.add_child(map_icon_layer)
-    canvas_layer.move_child(map_icon_layer, 0)
-
-func _icon_shape(kind: String, data: Dictionary) -> String:
-    if kind == "body":
-        return "circle"
-    if kind == "station":
-        return "diamond"
-    return "triangle"
-
-func _icon_pixel_size(kind: String, data: Dictionary) -> float:
-    if kind == "body":
-        var body_id := String(data.get("id", ""))
-        return float(BODY_ICON_SIZE.get(BODY_TYPE.get(body_id, "planet"), 22.0))
-    if kind == "station":
-        return STATION_ICON_SIZE
-    return SHIP_ICON_SIZE
-
-func _icon_color(kind: String, data: Dictionary) -> Color:
-    if kind == "body":
-        return BODY_ICON_COLOR.get(String(data.get("id", "")), Color(0.7, 0.7, 0.7)) as Color
-    if kind == "station":
-        return faction_colors.get(String(data.get("faction_id", "")), Color(0.95, 0.82, 0.36)) as Color
-    var phase := String(data.get("phase", "idle"))
-    if phase == "stranded":
-        return Color(1.0, 0.25, 0.22)
-    if phase == "in_transit":
-        return Color(0.70, 1.0, 0.95)
-    return faction_colors.get(String(data.get("faction_id", "")), Color(0.96, 0.97, 1.0)) as Color
-
-func _get_icon_texture(shape: String) -> ImageTexture:
-    if _icon_textures.has(shape):
-        return _icon_textures[shape] as ImageTexture
-    var sz := 96
-    var img := Image.create(sz, sz, false, Image.FORMAT_RGBA8)
-    var center := Vector2(sz * 0.5, sz * 0.5)
-    var outer := sz * 0.36
-    for y in range(sz):
-        for x in range(sz):
-            var p: Vector2 = Vector2(x + 0.5, y + 0.5)
-            var inside := false
-            if shape == "circle":
-                inside = p.distance_to(center) <= outer
-            elif shape == "ring":
-                var d := p.distance_to(center)
-                inside = d <= sz * 0.46 and d >= sz * 0.40
-            elif shape == "diamond":
-                inside = abs(p.x - center.x) + abs(p.y - center.y) <= outer
-            else:
-                var top: Vector2 = Vector2(center.x, center.y - outer)
-                var left: Vector2 = Vector2(center.x - outer * 0.82, center.y + outer * 0.72)
-                var right: Vector2 = Vector2(center.x + outer * 0.82, center.y + outer * 0.72)
-                var area: float = abs((left.x - top.x) * (right.y - top.y) - (right.x - top.x) * (left.y - top.y))
-                var a: float = abs((top.x - p.x) * (left.y - p.y) - (left.x - p.x) * (top.y - p.y)) / area
-                var b: float = abs((left.x - p.x) * (right.y - p.y) - (right.x - p.x) * (left.y - p.y)) / area
-                var c: float = abs((right.x - p.x) * (top.y - p.y) - (top.x - p.x) * (right.y - p.y)) / area
-                inside = a + b + c <= 1.01
-            img.set_pixel(x, y, Color(1.0, 1.0, 1.0, 1.0 if inside else 0.0))
-    var texture: ImageTexture = ImageTexture.create_from_image(img)
-    _icon_textures[shape] = texture
-    return texture
-
-var _selection_ring: Sprite2D
-
-func _ensure_selection_ring() -> Sprite2D:
-    if _selection_ring == null:
-        _selection_ring = Sprite2D.new()
-        _selection_ring.name = "SelectionRing"
-        _selection_ring.texture = _get_icon_texture("ring")
-        _selection_ring.centered = true
-        _selection_ring.modulate = Color(0.85, 0.95, 1.0, 0.9)
-        _selection_ring.visible = false
-        (map_icon_layer if map_icon_layer != null else canvas_layer).add_child(_selection_ring)
-    return _selection_ring
-
-func _attach_map_icon(entity_id: String, kind: String, data: Dictionary) -> void:
-    if _map_icons.has(entity_id):
-        return
-    var icon_node := Sprite2D.new()
-    icon_node.name = "%s_icon" % entity_id
-    icon_node.texture = _get_icon_texture(_icon_shape(kind, data))
-    icon_node.centered = true
-    var icon_color := _icon_color(kind, data)
-    icon_color.a = ICON_ALPHA
-    icon_node.modulate = icon_color
-    if map_icon_layer != null:
-        map_icon_layer.add_child(icon_node)
-    else:
-        canvas_layer.add_child(icon_node)
-    _map_icons[entity_id] = icon_node
-    var label := Label.new()
-    label.name = "%s_label" % entity_id
-    label.text = String(data.get("name", entity_id))
-    label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    label.add_theme_font_size_override("font_size", int(LABEL_FONT_SIZE.get(kind, 11)))
-    var label_color := _icon_color(kind, data).lightened(0.45)
-    label_color.a = 0.9 if kind == "body" else 0.75
-    label.add_theme_color_override("font_color", label_color)
-    label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
-    label.add_theme_constant_override("outline_size", 4)
-    label.visible = false
-    (map_icon_layer if map_icon_layer != null else canvas_layer).add_child(label)
-    _map_labels[entity_id] = label
-
-func _projected_model_pixels(node: Node3D) -> float:
-    var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
-    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-14)
-    return _model_world_size(node) / (2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)) * viewport_height
-
-# Inverse of the above: the world size that projects to target_pixels at the
-# node's current camera distance.
-func _world_size_for_pixels(node: Node3D, target_pixels: float) -> float:
-    var viewport_height: float = max(float(get_viewport().get_visible_rect().size.y), 1.0)
-    var dist: float = max(camera.global_position.distance_to(node.global_position), 1.0e-14)
-    return target_pixels / viewport_height * 2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)
-
-func _update_map_icons() -> void:
-    var viewport_rect := get_viewport().get_visible_rect()
-    # Labels are placed in priority order (bodies, stations, ships; selected first) and
-    # skipped where they would overlap one already placed.
-    var label_candidates: Array = []
-    var ring := _ensure_selection_ring()
-    ring.visible = false
-    for entity_id in _map_icons.keys():
-        var icon: Sprite2D = _map_icons[entity_id]
-        var label: Label = _map_labels.get(entity_id)
-        if label != null:
-            label.visible = false
-        var model: Node3D = entity_nodes.get(entity_id)
-        if not model or not entity_details.has(entity_id) or camera.is_position_behind(model.global_position):
-            icon.visible = false
-            continue
-
-        var kind: String = entity_kinds.get(entity_id, "")
-        var data: Dictionary = entity_details[entity_id]
-        var pixel_size := _icon_pixel_size(kind, data)
-        var selected_scale := 1.25 if entity_id == selected_id else 1.0
-        var target_size := pixel_size * selected_scale
-        var screen_pos := camera.unproject_position(model.global_position)
-        if not viewport_rect.grow(pixel_size).has_point(screen_pos):
-            icon.visible = false
-            continue
-        var model_pixels := _projected_model_pixels(model)
-        # Hand off from map icon to the actual mesh once it is large on screen.
-        # The Sun's halo marks it at every zoom.
-        icon.visible = model_pixels <= target_size * 1.5 and entity_id != "sun"
-        if icon.visible and entity_id == selected_id:
-            # A ring around the selected icon; up close the model itself is the marker.
-            ring.visible = true
-            ring.position = screen_pos
-            ring.scale = Vector2.ONE * ((target_size + 10.0) / (0.92 * float(ring.texture.get_width())))
-        if icon.visible:
-            icon.position = screen_pos
-            var texture_size := Vector2(icon.texture.get_width(), icon.texture.get_height())
-            icon.scale = Vector2.ONE * (target_size / max(texture_size.x, texture_size.y))
-            var color := (_icon_color(kind, data).lightened(0.35) if entity_id == selected_id else _icon_color(kind, data))
-            color.a = BODY_ICON_ALPHA if kind == "body" else ICON_ALPHA
-            icon.modulate = color
-        if label == null:
-            continue
-        var priority := {"body": 0, "station": 1, "ship": 2}.get(kind, 3) as int
-        if entity_id == selected_id:
-            priority = -1
-        elif kind == "ship" and String(data.get("phase", "")) != "in_transit":
-            continue  # docked ships are listed by their station
-        var offset := LABEL_OFFSET_PX
-        if not icon.visible:
-            # Beside the body's disc rather than over it.
-            offset.x += minf(model_pixels, viewport_rect.size.x * 0.25)
-        label_candidates.append({"id": entity_id, "priority": priority, "position": screen_pos + offset})
-    label_candidates.sort_custom(func(a, b): return a["priority"] < b["priority"])
-    var placed: Array[Rect2] = []
-    for candidate in label_candidates:
-        var label: Label = _map_labels[candidate["id"]]
-        var rect := Rect2(candidate["position"], label.get_minimum_size())
-        var free := true
-        for other in placed:
-            if other.grow(2.0).intersects(rect):
-                free = false
-                break
-        if not free:
-            continue
-        label.position = candidate["position"]
-        label.visible = true
-        placed.append(rect)
-
 func _update_map_debug(delta: float) -> void:
     if not debug_map_enabled:
         return
@@ -2252,7 +1940,7 @@ func _debug_map_state(reason: String) -> void:
             continue
         var node: Node3D = entity_nodes[body_id]
         var detail: Dictionary = entity_details.get(body_id, {})
-        var icon: Sprite2D = _map_icons.get(body_id)
+        var icon: Sprite2D = map_icons.icon(body_id)
         var screen := camera.unproject_position(node.global_position)
         var icon_pixels := 0.0
         var icon_visible := false
@@ -2270,9 +1958,9 @@ func _debug_map_state(reason: String) -> void:
             screen.y,
             str(camera.is_position_behind(node.global_position)),
             node.scale.x,
-            _projected_model_pixels(node),
+            map_icons.projected_model_pixels(node),
             icon_pixels,
-            _icon_pixel_size("body", detail),
+            MapIconsScript.icon_pixel_size("body", detail),
             icon_position.x,
             icon_position.y,
             str(icon_visible),
@@ -2532,7 +2220,7 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
             # Inside the habitat ring, close to the docking core.
             min_distance = maxf(min_distance, float(node.get_meta("core_radius_m")) * node.scale.x * 1.6)
         else:
-            min_distance = maxf(min_distance, _model_world_size(node) * (1.6 if entity_kind == "ship" else 2.5))
+            min_distance = maxf(min_distance, MapIconsScript.model_world_size(node) * (1.6 if entity_kind == "ship" else 2.5))
     camera_rig.set("min_distance", min_distance)
     camera_rig.set("distance", maxf(float(camera_rig.get("distance")), min_distance))
     if entity_nodes.has(entity_id):
