@@ -92,6 +92,10 @@ Later (user, 2026-10-26):
 
   It needs a delivery record (from, to, good, units, value, day), booked like the money journal and sampled into
   its monthly history.
+- **Porkchop plots in the info panels with statistics**, for both classes of ships: the Kepler (nuclear-thermal)
+  classes and the variable-Isp classes. Departure date against flight time (or arrival date) for a route, coloured
+  by delta-v for Kepler ships and by propellant (or mission cost) for variable-Isp ships, which have no single
+  delta-v. Details (which panels, routes, ranges) to settle with the user when we get there.
 
 Later (user, 2026-10-22):
 - **Population composition in the style of Victoria 2:** stations and ships hold people of different
