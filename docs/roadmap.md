@@ -21,8 +21,9 @@
 **Status.** `main` holds everything up to the 3D ship and station models at true scale (roadmap steps 5-6, merged as
 PR #22, 2026-10-23; the user approved the models on 2026-10-26). **Tier 3 (station structures) is shelved after its concept** (user, 2026-10-26;
 `docs/plans/station_structures.md`). Instead, a read-only **station systems view** (people, works and jobs by kind,
-needs by tier, site), designed as the seam for the Victoria 2 style populations, is being built on branch
-`feature/station_structures` (same doc, "Light view"). The economy overhaul (plan
+needs by tier, site), designed as the seam for the Victoria 2 style populations, is built on branch
+`feature/station_structures` (2026-10-26, not merged; same doc, "Light view"). The display-only defaults
+(services share, labour shares, staffing mixes, pop kind names) await the user's review. The economy overhaul (plan
 `docs/plans/economy_overhaul.md`, decisions and results `docs/plans/economy_overhaul_log.md`, module doc
 `docs/modules/economy.md` ("Economy overhaul")) brought:
 - real prices: Earth surface price + $100/kg launch at the Earth stations;
