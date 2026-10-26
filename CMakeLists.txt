@@ -31,6 +31,7 @@ add_library(spacetrains_core
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp
     src/simulation/Households.cpp
+    src/simulation/StationSystems.cpp
     src/simulation/MoneyJournal.cpp
     src/simulation/Statistics.cpp
     src/util/Profiling.cpp

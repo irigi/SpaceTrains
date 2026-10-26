@@ -146,6 +146,10 @@ func _run() -> void:
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()
             return
+    if OS.get_cmdline_user_args().has("--shot-station-systems"):
+        await _station_systems_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-arrival"):
         await _arrival_shots(rig)
         get_tree().quit()
@@ -559,3 +563,25 @@ func _cargo_shots(rig: Node3D) -> void:
         if shot >= 4:
             break
     print("[ShotTour] cargo: %d loaded ships in flight shot" % shot)
+
+# The station systems section of the inspector (display only), for stations of each kind of
+# site: scrolled so the section's header is at the top of the panel.
+func _station_systems_shots(rig: Node3D) -> void:
+    for station_id in ["earth_l1", "earth_orbit", "mars_transfer", "ganymede_depot", "venus_cloud", "luna_base"]:
+        if not main.entity_nodes.has(station_id):
+            continue
+        main.select_entity(station_id, "station", true)
+        rig.set("distance", 0.004)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.6).timeout
+        var scroll: ScrollContainer = main.inspector_panel.get("_scroll")
+        var content: VBoxContainer = main.inspector_panel.get("_content")
+        scroll.scroll_vertical = 0
+        await get_tree().process_frame
+        await get_tree().process_frame
+        for child in content.get_children():
+            if child is Button and String(child.text).contains("STATION SYSTEMS"):
+                scroll.scroll_vertical = int(child.position.y)
+                print("[ShotTour] %s: section at %.0f of %.0f px" % [station_id, child.position.y, content.size.y])
+        await get_tree().process_frame
+        await _shoot("station_systems_" + station_id)

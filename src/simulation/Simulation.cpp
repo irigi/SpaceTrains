@@ -6167,6 +6167,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"supply_index\":" << get_station_state(station.id).supply_index << ","
                << station_economy_json(get_station_state(station.id))
                << station_passengers_json(get_station_state(station.id))
+               << station_systems_json(station, get_station_state(station.id))
                << "\"events\":" << [&] {
                       std::string list = "[";
                       for (const auto& active : get_station_state(station.id).events) {

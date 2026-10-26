@@ -118,8 +118,22 @@
   earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: engine state and drive
   radiator temperature, a to-scale top-view schematic (`ui/ShipSchematic.gd`, below), and every part with its mass
   and key numbers in a folded parts list), station (badges, market rows with stock vs target, cover and share
-  short, orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
+  short, a collapsible station systems section (below), orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
   overview (M); comms log.
+- **Station systems** (display only; `Simulation::station_systems_json` in `StationSystems.cpp`, the snapshot's
+  `systems`; design in `docs/plans/station_structures.md`, "Light view"):
+  - the site (orbit, surface, underground or aerostat; `station_radiation.csv`), its gravity and shielding;
+  - housing (the growth cap) against residents;
+  - workers, dependants, spacers on the station's ships, visitors and passengers waiting;
+  - jobs by kind (labourers, technicians, engineers, scientists, service and administration) as a typical staffing;
+  - works per output (`data/stations/works.csv`): capacity, jobs, inputs, and whether they run short or idle;
+  - life support, port, trade and administration jobs;
+  - needs in Victoria 2's tiers: life needs with the share the station's own farms and recycling cover against a
+    reference need per person, station upkeep, everyday goods.
+
+  Works jobs are `works_jobs_per_value` per cr/day of output value × labour share, at most 60% of the jobs
+  (`data/stations/station_systems.csv`). The simulation never reads any of it; a 365-day `--econ-audit` is
+  byte-identical with and without it. `--shot-station-systems` shoots the section for six stations.
 - **Ship schematic** (`ui/ShipSchematic.gd`): drawn from the design's components (the bridge's `.designs` file), bow
   on the left, sizes in metres. The habitat is a 4.5 m cylinder of its pressurized volume, with its rooms and systems
   as bands by mass. The hold is a box of its volume, the tanks a cylinder of the propellant volume. Thermal ships

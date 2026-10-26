@@ -8,6 +8,7 @@ var _scroll: ScrollContainer
 # The ship systems section stays open or closed across selections.
 var _systems_open := true
 var _parts_open := false
+var _station_systems_open := true
 var _schematic: ShipSchematicScript
 var _schematic_used := false
 
@@ -304,6 +305,7 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
         row.add_child(cover_label)
 
     _add_station_production(detail)
+    _add_station_systems(detail, context)
     _add_station_orders(detail)
     _add_station_ships(detail, context)
 
@@ -779,3 +781,138 @@ func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
             stations.append(String(station.get("name", "")))
     if not stations.is_empty():
         _add_label("Stations: " + ", ".join(stations), UiTheme.TEXT_DIM, 12)
+
+# The station systems view (display only; docs/plans/station_structures.md, "Light view"): where
+# the habitat is, its people, the works and their jobs by kind (a typical staffing), and its
+# needs in Victoria 2's tiers. Derived from the economy's numbers; the simulation ignores it.
+const POP_KIND_NAMES := {"labourer": "labourers", "technician": "technicians", "engineer": "engineers",
+    "scientist": "scientists", "service": "service and administration"}
+
+static func _good_name(good: String) -> String:
+    return "reactor consumables" if good == "reactor_fuel" else good.replace("_", " ")
+
+static func _count(value: float) -> String:
+    var n := int(round(value))
+    var text := str(absi(n))
+    var grouped := ""
+    while text.length() > 3:
+        grouped = "," + text.substr(text.length() - 3) + grouped
+        text = text.substr(0, text.length() - 3)
+    return ("-" if n < 0 else "") + text + grouped
+
+static func _rate(value: float) -> String:
+    return ("%.0f" if value >= 10.0 else ("%.1f" if value >= 1.0 else "%.2f")) % value
+
+func _add_station_systems(detail: Dictionary, context: Dictionary) -> void:
+    var systems: Dictionary = detail.get("systems", {})
+    if systems.is_empty():
+        return
+    _add_separator()
+    _add_toggle("STATION SYSTEMS", _station_systems_open, 12, UiTheme.ACCENT, func() -> void:
+        _station_systems_open = not _station_systems_open
+        update_selection(detail, "station", context))
+    if not _station_systems_open:
+        return
+    var body := _resolve_name(context, String(detail.get("parent_body_id", "")))
+    var site := String(systems.get("site", "orbit"))
+    var g := float(systems.get("gravity_g", 1.0))
+    var where := {"orbit": "Orbital station, spin rings at 1 g",
+        "surface": "Surface base on %s, %.2f g" % [body, g],
+        "underground": "Underground base on %s, %.2f g" % [body, g],
+        "aerostat": "Aerostat in the clouds of %s, %.2f g" % [body, g]}
+    var shield := float(systems.get("shield_g_cm2", 0.0))
+    _add_label(String(where.get(site, site)) + (" · shielding %.0f g/cm²" % shield if shield > 0.0 else ""),
+        UiTheme.TEXT_DIM, 12)
+
+    # People.
+    var residents := float(systems.get("residents", 0.0))
+    var housing := float(systems.get("housing", 0.0))
+    _add_gauge("Housing", residents, maxf(housing, 1.0), "%s of %s places" % [_count(residents), _count(housing)],
+        UiTheme.ACCENT)
+    var workers := float(systems.get("workers", 0.0))
+    var employed := float(systems.get("employed", 0.0))
+    var jobs := float(systems.get("jobs", 0.0))
+    var people := "%s workers" % _count(workers)
+    if workers - employed >= 0.5:
+        people += " (%s out of work)" % _count(workers - employed)
+    elif jobs - employed >= 0.5:
+        people += " (%s jobs open)" % _count(jobs - employed)
+    people += " · %s dependants" % _count(float(systems.get("dependants", 0.0)))
+    var spacers := float(systems.get("spacers", 0.0))
+    if spacers > 0.0:
+        people += " · %s spacers on its ships" % _count(spacers)
+    var visitors := float(systems.get("visitors", 0.0))
+    if visitors >= 0.5:
+        people += " · %s visitors" % _count(visitors)
+    var waiting := float(systems.get("waiting", 0.0))
+    if waiting >= 0.5:
+        people += " · %s waiting for a ship" % _count(waiting)
+    _add_label(people, UiTheme.TEXT_PRIMARY, 12)
+    var by_kind: Dictionary = systems.get("jobs_by_kind", {})
+    var kinds: Array = by_kind.keys()
+    kinds.sort_custom(func(a, b) -> bool: return float(by_kind[a]) > float(by_kind[b]))
+    var kind_parts: Array[String] = []
+    for kind in kinds:
+        if float(by_kind[kind]) >= 0.5:
+            kind_parts.append("%s %s" % [_count(float(by_kind[kind])), String(POP_KIND_NAMES.get(kind, kind))])
+    _add_label("Jobs by kind (typical staffing): " + " · ".join(kind_parts), UiTheme.TEXT_DIM, 11)
+
+    # Works.
+    _add_label("Works", UiTheme.TEXT_PRIMARY, 12)
+    for works in systems.get("works", []):
+        var w: Dictionary = works
+        var capacity: Dictionary = w.get("capacity", {})
+        var output: Dictionary = w.get("output", {})
+        var made: Array[String] = []
+        var cap_total := 0.0
+        var out_total := 0.0
+        for good in capacity.keys():
+            made.append("%s %s/day" % [_good_name(String(good)), _rate(float(capacity[good]))])
+            cap_total += float(capacity[good])
+            out_total += float(output.get(good, 0.0))
+        var text := "  %s · %s jobs · %s" % [String(w.get("name", "")), _count(float(w.get("jobs", 0.0))), ", ".join(made)]
+        var color := UiTheme.TEXT_PRIMARY
+        if cap_total > 0.0 and out_total < 0.995 * cap_total:
+            if out_total <= 0.0 and String(w.get("kind", "")) == "fuel_works":
+                text += " · idle, depot full"
+                color = UiTheme.TEXT_DIM
+            else:
+                text += " · running %d%%" % int(round(100.0 * out_total / cap_total))
+                color = UiTheme.WARN
+        _add_label(text, color, 11)
+        var inputs: Dictionary = w.get("inputs", {})
+        if not inputs.is_empty():
+            var used: Array[String] = []
+            for good in inputs.keys():
+                used.append("%s %s/day" % [_good_name(String(good)), _rate(float(inputs[good]))])
+            _add_label("      uses " + ", ".join(used), UiTheme.TEXT_DIM, 11)
+    _add_label("  Life support, port, trade and administration · %s jobs" % _count(float(systems.get("services_jobs", 0.0))),
+        UiTheme.TEXT_PRIMARY, 11)
+
+    # Needs, in tiers.
+    var tiers := {"life": [], "upkeep": [], "everyday": []}
+    for need in systems.get("needs", []):
+        var n: Dictionary = need
+        var good := _good_name(String(n.get("good", "")))
+        var use := float(n.get("use_per_day", 0.0))
+        var text := good
+        if use <= 0.0:
+            if bool(n.get("made_here", false)):
+                text += " made here"
+            elif n.has("need_per_day"):
+                text += " fully recycled"
+            else:
+                continue
+        else:
+            text += " %s/day" % _rate(use)
+            if n.has("need_per_day") and float(n.get("need_per_day", 0.0)) > 0.0:
+                text += " (own farms and recycling cover %d%%)" % int(floor(100.0 * (1.0 - use / float(n["need_per_day"]))))
+            if float(n.get("availability", 1.0)) < 0.999:
+                text += " — short, %d%% of a week in stock" % int(round(100.0 * float(n.get("availability", 0.0))))
+        var tier := String(n.get("tier", "everyday"))
+        tiers[tier].append(text)
+    var titles := {"life": "Life needs", "upkeep": "Station upkeep", "everyday": "Everyday goods"}
+    for tier in ["life", "upkeep", "everyday"]:
+        if not tiers[tier].is_empty():
+            var joined := " · ".join(tiers[tier])
+            _add_label("%s: %s" % [titles[tier], joined], UiTheme.WARN if joined.contains("short") else UiTheme.TEXT_DIM, 11)

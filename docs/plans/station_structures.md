@@ -427,9 +427,12 @@ Later dimensions, not in the view:
    - its inputs;
    - its jobs.
 
-   The station's jobs are split:
-   - a services share (life support, port, administration) of 40%;
-   - the rest between the works, by output value at base price × a labour share for the works' kind.
+   Each works needs 2 jobs per cr/day of output value at base price × a labour share for its kind
+   (`works_jobs_per_value`). Together the works take at most 60% of the station's jobs, so services (life
+   support, port, trade, administration) are at least 40%.
+
+   A first version split all non-service jobs by output share. That gave Mars Transfer 6,300 people making
+   0.9 t of water a day, so it was replaced.
 
    Each works' jobs are split by kind with a **typical staffing** mix. This is a decomposition, like the
    ship habitat split of tier 1: the kinds add up exactly to the jobs. The population work later fills these slots
@@ -456,9 +459,24 @@ added to `station_radiation.csv`.
 - drinking and food water 2.5 kg (hygiene excluded).
 
 **Decisions taken without the user** (to review):
-- the 40% services share;
+- the 40% least services share and 2 jobs per cr/day of weighted output value;
 - the labour shares by kind;
 - the staffing mixes;
 - the pop kind names.
 
 All are display-only.
+
+### Built (2026-10-26)
+
+Code:
+- `src/simulation/StationSystems.cpp` builds the snapshot's `systems` object;
+- `InspectorPanel._add_station_systems` draws it;
+- data in `data/stations/`.
+
+Checks:
+- a 365-day `--econ-audit` is byte-identical with the build before;
+- `tests/test_main.cpp` checks that jobs by kind and by works add up to the station's jobs.
+
+**Finding:** Mars Transfer Port's ~10,000 workers have almost no industry. Its only output is 8.7 water a day, so
+98% of its jobs show as port and services. That fits a gateway to the Mars colony, but it is the clearest case of
+population that the economy does not explain. It is input for the population work.

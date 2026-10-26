@@ -1566,14 +1566,88 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
         const auto stations_radiation_path = root / "economy" / "station_radiation.csv";
         if (std::filesystem::exists(stations_radiation_path)) {
             const auto rows = read_csv_rows(stations_radiation_path);
-            require_header(rows.front(), {"station_id", "location_factor", "shield_g_cm2", "note"}, stations_radiation_path);
+            require_header(rows.front(), {"station_id", "location_factor", "shield_g_cm2", "site", "note"}, stations_radiation_path);
             for (std::size_t i = 1; i < rows.size(); ++i) {
                 const auto& row = rows[i];
-                require_field_count(row, 4, stations_radiation_path, i + 1);
+                require_field_count(row, 5, stations_radiation_path, i + 1);
+                if (row[3] != "orbit" && row[3] != "surface" && row[3] != "underground" && row[3] != "aerostat") {
+                    throw std::runtime_error("Unknown site '" + row[3] + "' in " + stations_radiation_path.string());
+                }
                 universe.station_radiation[row[0]] = {
                     .location_factor = parse_double(row[1], stations_radiation_path, i + 1, "location_factor"),
                     .shield_g_cm2 = parse_double(row[2], stations_radiation_path, i + 1, "shield_g_cm2"),
+                    .site = row[3],
                 };
+            }
+        }
+    }
+
+    {
+        // The station systems view (display only): works per output, the services share and
+        // typical staffing, reference needs. Optional: without works.csv there is no view.
+        const auto works_path = root / "stations" / "works.csv";
+        const auto systems_path = root / "stations" / "station_systems.csv";
+        if (std::filesystem::exists(works_path)) {
+            const auto rows = read_csv_rows(works_path);
+            const std::vector<std::string> kinds {"labourer", "technician", "engineer", "scientist"};
+            require_header(rows.front(), {"profile_id", "commodity_id", "works_id", "name", "kind", "labour_share",
+                "labourer", "technician", "engineer", "scientist"}, works_path);
+            std::unordered_set<std::string> seen;
+            for (std::size_t i = 1; i < rows.size(); ++i) {
+                const auto& row = rows[i];
+                require_field_count(row, 10, works_path, i + 1);
+                require_commodity(row[1], works_path);
+                require_unique_id(row[0] + "|" + row[1], seen, works_path, i + 1);
+                domain::StationWorksDefinition works {
+                    .profile_id = row[0], .commodity_id = row[1], .works_id = row[2], .name = row[3], .kind = row[4],
+                    .labour_share = parse_double(row[5], works_path, i + 1, "labour_share"),
+                };
+                double total = 0.0;
+                for (std::size_t k = 0; k < kinds.size(); ++k) {
+                    const double share = parse_double(row[6 + k], works_path, i + 1, kinds[k].c_str());
+                    works.staffing[kinds[k]] = share;
+                    total += share;
+                }
+                if (std::abs(total - 1.0) > 1e-6 || works.labour_share <= 0.0) {
+                    throw std::runtime_error("Staffing must sum to 1 and labour_share be positive, row "
+                        + std::to_string(i + 1) + " of " + works_path.string());
+                }
+                universe.station_works.push_back(std::move(works));
+            }
+            const auto systems_rows = read_csv_rows(systems_path);
+            require_header(systems_rows.front(), {"key", "value"}, systems_path);
+            auto& systems = universe.station_systems;
+            double services_total = 0.0;
+            for (std::size_t i = 1; i < systems_rows.size(); ++i) {
+                const auto& row = systems_rows[i];
+                require_field_count(row, 2, systems_path, i + 1);
+                if (row[0] == "life_needs") {
+                    for (std::size_t at = 0; at <= row[1].size();) {
+                        const auto end = std::min(row[1].find('|', at), row[1].size());
+                        require_commodity(row[1].substr(at, end - at), systems_path);
+                        systems.life_needs.push_back(row[1].substr(at, end - at));
+                        at = end + 1;
+                    }
+                    continue;
+                }
+                const double value = parse_double(row[1], systems_path, i + 1, row[0].c_str());
+                if (row[0] == "services_share") {
+                    systems.services_share = value;
+                } else if (row[0] == "works_jobs_per_value") {
+                    systems.works_jobs_per_value = value;
+                } else if (row[0].starts_with("services.")) {
+                    systems.services_staffing[row[0].substr(9)] = value;
+                    services_total += value;
+                } else if (row[0].starts_with("need_kg_per_person_day.")) {
+                    require_commodity(row[0].substr(23), systems_path);
+                    systems.need_kg_per_person_day[row[0].substr(23)] = value;
+                } else {
+                    throw std::runtime_error("Unknown key '" + row[0] + "' in " + systems_path.string());
+                }
+            }
+            if (std::abs(services_total - 1.0) > 1e-6 || systems.services_share < 0.0 || systems.services_share >= 1.0) {
+                throw std::runtime_error("services.* must sum to 1 and services_share lie in [0, 1) in "
+                    + systems_path.string());
             }
         }
     }

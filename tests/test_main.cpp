@@ -561,6 +561,32 @@ int main() {
     require(bridge_snapshot_included_destination_body, "bridge snapshot should include destination body at arrival");
     require(bridge_snapshot_included_ship_stats, "bridge snapshot should include ship mass, cargo, and launch timing fields");
 
+    // The station systems view (display only): jobs by kind and by works add up to the station's
+    // jobs exactly, and the site comes from station_radiation.csv.
+    {
+        const auto snapshot = spacetrains::persistence::Json::parse(bridge_json);
+        int checked = 0;
+        for (const auto& station : snapshot.get("stations").items()) {
+            const auto& systems = station.get("systems");
+            const double jobs = systems.get("jobs").number();
+            double by_kind = 0.0;
+            for (const auto& [_, people] : systems.get("jobs_by_kind").fields()) {
+                by_kind += people.number();
+            }
+            double by_works = systems.get("services_jobs").number();
+            for (const auto& works : systems.get("works").items()) {
+                by_works += works.get("jobs").number();
+            }
+            require_near(by_kind, jobs, 1.0, "station systems: jobs by kind must add up to the jobs");
+            require_near(by_works, jobs, 1.0, "station systems: services and works jobs must add up to the jobs");
+            if (station.get("id").string() == "ganymede_depot") {
+                require(systems.get("site").string() == "underground", "Ganymede's habitat is underground");
+            }
+            ++checked;
+        }
+        require(checked > 0, "the snapshot should list stations with their systems");
+    }
+
     bool found_in_transit_or_arrival_signal = false;
     for (const auto& event : after.recent_events) {
         if (event.text.find("departed") != std::string::npos || event.text.find("arrived") != std::string::npos) {
