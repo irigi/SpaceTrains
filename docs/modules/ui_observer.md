@@ -127,12 +127,25 @@
   The old models' hull self-emission, which clipped about 30% of their pixels and made them glare near the Sun, is
   gone. A close-up near Mercury and one at Titan measure the same.
 - **Panels:** top bar (date, pause, timewarp, fleet summary, unmet demand over 30 days, money); registry (ships,
-  stations, bodies); inspector: ship (mission in words, propellant, cargo lots, provisions, transit, expected trip
-  earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: engine state and drive
-  radiator temperature, a to-scale top-view schematic (`ui/ShipSchematic.gd`, below), and every part with its mass
-  and key numbers in a folded parts list), station (badges, market rows with stock vs target, cover and share
-  short, a collapsible station systems section (below), orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
-  overview (M); comms log.
+  stations, bodies); inspector (below); economy and markets overview (M); comms log.
+- **Inspector** (`ui/InspectorPanel.gd`, 390 px; building blocks in `ui/UiWidgets.gd`, shared with the statistics
+  screen): ships, stations and bodies share one layout: header (faction strip, name, class or site), a strip of four
+  key numbers, alerts, then sections that fold; a folded section shows a one-line summary, and the fold state is kept
+  per kind across selections. Numbers sit in tables with column headers; details that would clutter a row are in its
+  tooltip; a ship or body named in a table is a button that selects it (`entity_selected`).
+  - Ship: key numbers (time to arrival or status, propellant, hold, profit to date), the mission in words; Voyage
+    (transit, trajectory, this trip's sale and cost, liner or rotation contract, route commitment), Load (gauges,
+    cargo lots, passengers), Crew and money (folded: the ledger since commissioning), Ship systems (engine, tier 2
+    lines, the schematic, below, and a folded parts list).
+  - Station: key numbers (people and change since founding, cash, share of demand that went short since the start,
+    storage); Market (stock bar against target, price and trend, net rate, days of cover, `export` for export
+    goods; surface trade in one line with prices in its tooltip; production); People (housing, a donut of who lives
+    there, wage and savings, jobs by kind, passengers waiting by kind); Works and needs (folded; below); Orders
+    (folded; one row per good, what the station has learnt about its resupply in the tooltip); Ships (inbound with
+    cargo, arrival and agreed value; docked); Money (profit before the faction, incomes, ledger).
+  - Body: key numbers (radius, distance, period), moons and stations as buttons.
+  - Charts (`ui/DonutChart.gd`, `ui/StackedBar.gd`, `ui/Heatmap.gd`) and the categorical palette
+    (`UiTheme.categorical`) serve both panels.
 - **Station systems** (display only; `Simulation::station_systems_json` in `StationSystems.cpp`, the snapshot's
   `systems`; design in `docs/plans/station_structures.md`, "Light view", the seam for Victoria 2 style
   populations):
@@ -192,7 +205,9 @@
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
-  `--shot-arrival` watches the next ship dock at 600x; `--shot-cargo` shoots up to four loaded ships in flight
+  `--shot-arrival` watches the next ship dock at 600x; `--shot-inspector` saves the inspector page by page (cropped,
+  every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider
+  than the panel; `--shot-cargo` shoots up to four loaded ships in flight
   close up and prints their hold state, `--shot-cargo-angles` adds four views each; `--shot-pause` also checks the
   ring spin stops); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
   - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>

@@ -146,6 +146,10 @@ func _run() -> void:
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()
             return
+    if OS.get_cmdline_user_args().has("--shot-inspector"):
+        await _inspector_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-station-systems"):
         await _station_systems_shots(rig)
         get_tree().quit()
@@ -564,8 +568,8 @@ func _cargo_shots(rig: Node3D) -> void:
             break
     print("[ShotTour] cargo: %d loaded ships in flight shot" % shot)
 
-# The station systems section of the inspector (display only), for stations of each kind of
-# site: scrolled so the section's header is at the top of the panel.
+# The station systems view in the inspector (display only: people, works and needs), for stations
+# of each kind of site: scrolled so the people section's header is at the top of the panel.
 func _station_systems_shots(rig: Node3D) -> void:
     for station_id in ["earth_l1", "earth_orbit", "mars_transfer", "ganymede_depot", "venus_cloud", "luna_base"]:
         if not main.entity_nodes.has(station_id):
@@ -580,8 +584,62 @@ func _station_systems_shots(rig: Node3D) -> void:
         await get_tree().process_frame
         await get_tree().process_frame
         for child in content.get_children():
-            if child is Button and String(child.text).contains("STATION SYSTEMS"):
+            if child is Button and String(child.text).contains("PEOPLE"):
                 scroll.scroll_vertical = int(child.position.y)
                 print("[ShotTour] %s: section at %.0f of %.0f px" % [station_id, child.position.y, content.size.y])
         await get_tree().process_frame
         await _shoot("station_systems_" + station_id)
+
+# The inspector panel, page by page (cropped to the panel), for a docked and a flying ship of
+# each drive and for a few stations: to judge how the panels read.
+func _inspector_shots(rig: Node3D) -> void:
+    var picks: Array = []
+    for station_id in ["earth_orbit", "mars_transfer", "ganymede_depot"]:
+        if main.entity_nodes.has(station_id):
+            picks.append([station_id, "station"])
+    var seen := {}
+    for ship_id in main.entity_details.keys():
+        if main.entity_kinds.get(ship_id, "") != "ship":
+            continue
+        var detail: Dictionary = main.entity_details[ship_id]
+        var key := "%s/%s" % [String(detail.get("propulsion_type", "")),
+            "flying" if String(detail.get("phase", "")) == "in_transit" else "docked"]
+        if seen.has(key):
+            continue
+        seen[key] = true
+        picks.append([ship_id, "ship"])
+        if picks.size() >= 8:
+            break
+    # Every section open, also those folded by default.
+    main.inspector_panel.set("_folded", {"station/works": false, "station/orders": false, "ship/money": false})
+    for pick in picks:
+        main.select_entity(pick[0], pick[1], true)
+        rig.set("distance", 0.004)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.8).timeout
+        var panel: Control = main.inspector_panel
+        var scroll: ScrollContainer = panel.get("_scroll")
+        var content: Control = panel.get("_content")
+        var page := 0
+        var y := 0
+        while page < 6:
+            scroll.scroll_vertical = y
+            await get_tree().process_frame
+            await get_tree().process_frame
+            await get_tree().process_frame
+            var image := get_viewport().get_texture().get_image()
+            var rect := Rect2i(panel.get_global_rect())
+            image = image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size())))
+            var name := "inspector_%s_%s_%d" % [pick[1], pick[0], page]
+            image.save_png(out_dir.path_join(name + ".png"))
+            print("[ShotTour] saved %s (content %.0f x %.0f px, view %.0f x %.0f px)" % [name, content.size.x, content.size.y,
+                scroll.size.x, scroll.size.y])
+            if page == 0:
+                for child in content.get_children():
+                    if (child as Control).get_combined_minimum_size().x > scroll.size.x - 12.0:
+                        print("[ShotTour]   wide: %s %s min %.0f" % [child.get_class(), String(child.get("text")) if child is Label or child is Button else "",
+                            (child as Control).get_combined_minimum_size().x])
+            y += int(scroll.size.y * 0.9)
+            page += 1
+            if y >= content.size.y - scroll.size.y * 0.1:
+                break

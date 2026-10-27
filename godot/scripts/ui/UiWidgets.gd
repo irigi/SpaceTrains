@@ -28,8 +28,8 @@ static func signed_credits(amount: float) -> String:
 static func value_color(value: float) -> Color:
     return UiTheme.GOOD if value > 0.5 else (UiTheme.ALERT if value < -0.5 else UiTheme.TEXT_DIM)
 
-# A table: header strings, rows of cells. A cell is a String, [text, color], [text, color, tooltip]
-# or a Control. The first column is left-aligned, the others right-aligned. widths: minimum width
+# A table: header strings, rows of cells. A cell is a String, [text, color], [text, color, tooltip],
+# [text, color, tooltip, width] (clipped to width, the full text in the tooltip) or a Control. The first column is left-aligned, the others right-aligned. widths: minimum width
 # per column (missing: 170 for the first, 90 for the rest; 0 = as narrow as the text).
 static func table(headers: Array, rows: Array, widths: Array = [], font_size: int = 11) -> GridContainer:
     var grid := GridContainer.new()
@@ -50,8 +50,12 @@ static func table(headers: Array, rows: Array, widths: Array = [], font_size: in
             var color: Color = cell[1] if cell is Array and cell.size() > 1 else UiTheme.TEXT_PRIMARY
             var l := label(text, color, font_size, 0.0, HORIZONTAL_ALIGNMENT_LEFT if i == 0 else HORIZONTAL_ALIGNMENT_RIGHT)
             if cell is Array and cell.size() > 2:
-                l.tooltip_text = String(cell[2])
+                l.tooltip_text = String(cell[2]) if String(cell[2]) != "" else text
                 l.mouse_filter = Control.MOUSE_FILTER_PASS
+            if cell is Array and cell.size() > 3:
+                l.clip_text = true
+                l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+                l.custom_minimum_size.x = float(cell[3])
             grid.add_child(l)
     return grid
 
@@ -101,6 +105,7 @@ static func kpi_strip(items: Array) -> HBoxContainer:
         value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
         box.add_child(value_label)
         var name_label := label(String(item.get("label", "")), UiTheme.TEXT_DIM, 10)
+        name_label.clip_text = true
         name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
         box.add_child(name_label)
         strip.add_child(tile)

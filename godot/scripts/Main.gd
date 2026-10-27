@@ -224,6 +224,7 @@ func _setup_ui() -> void:
     inspector_panel.offset_right = -8.0
     inspector_panel.offset_bottom = -212.0
     inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+    inspector_panel.entity_selected.connect(func(entity_id: String, kind: String) -> void: select_entity(entity_id, kind, true))
     ui_root.add_child(inspector_panel)
 
     event_ticker = EventTickerPanel.new()

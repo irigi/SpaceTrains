@@ -27,7 +27,7 @@ func set_data(chart_title: String, chart_slices: Array, format := "%.0f", center
             slices.append(s)
     value_format = format
     center_text = center
-    custom_minimum_size.y = maxf(140.0, 26.0 + LEGEND_ROW * slices.size())
+    custom_minimum_size.y = maxf(110.0 if title == "" else 126.0, (26.0 if title != "" else 10.0) + LEGEND_ROW * slices.size())
     queue_redraw()
 
 func _total() -> float:
@@ -38,7 +38,7 @@ func _total() -> float:
 
 func _geometry() -> Dictionary:
     var top := 20.0 if title != "" else 4.0
-    var radius := minf(56.0, (size.y - top - 6.0) * 0.5)
+    var radius := minf(48.0, (size.y - top - 6.0) * 0.5)
     return {"center": Vector2(8.0 + radius, top + radius), "radius": radius, "inner": radius * 0.58,
         "legend_x": 22.0 + 2.0 * radius, "top": top}
 
@@ -115,9 +115,9 @@ func _draw() -> void:
         var text_color := Color.WHITE if i == _hover else UiTheme.TEXT_PRIMARY
         draw_rect(Rect2(x, y + 3, 9, 9), s.get("color", UiTheme.ACCENT))
         draw_string(font, Vector2(x + 14, y + 12), String(s.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT,
-            legend_width - 120.0, 11, text_color)
+            legend_width - 104.0, 11, text_color)
         var value := float(s.get("value", 0.0))
-        draw_string(font, Vector2(x + legend_width - 110.0, y + 12), value_format % value, HORIZONTAL_ALIGNMENT_RIGHT,
-            66, 11, UiTheme.TEXT_DIM)
-        draw_string(font, Vector2(x + legend_width - 40.0, y + 12), "%.0f%%" % (100.0 * value / total),
-            HORIZONTAL_ALIGNMENT_RIGHT, 38, 11, text_color)
+        draw_string(font, Vector2(x + legend_width - 90.0, y + 12), value_format % value, HORIZONTAL_ALIGNMENT_RIGHT,
+            52, 11, UiTheme.TEXT_DIM)
+        draw_string(font, Vector2(x + legend_width - 34.0, y + 12), "%.0f%%" % (100.0 * value / total),
+            HORIZONTAL_ALIGNMENT_RIGHT, 32, 11, text_color)
