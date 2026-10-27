@@ -1,5 +1,7 @@
 #include "trajectory/Porkchop.hpp"
 
+#include "PorkchopSourceHash.hpp"   // generated at build time
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -39,7 +41,8 @@ constexpr double kLeftSeedMaxHohmannS = 500.0 * kDay;
 // needs them as seeds).
 constexpr long long kKeepPrimersBehind = 4;
 constexpr float kNone = std::numeric_limits<float>::quiet_NaN();
-// Bump when the cells' meaning or the solver settings change: older cache files are ignored.
+// Bump when the cells' meaning changes. Code changes need no bump: the fingerprint also holds a hash
+// of src/{math,celestial,trajectory,variable_isp} and data/bodies made at every build (cmake/PorkchopSourceHash.cmake).
 constexpr const char* kAlgorithm = "porkchop-3";
 constexpr char kMagic[4] = {'P', 'K', 'C', '2'};
 
@@ -313,7 +316,7 @@ std::vector<PorkchopService::Pair> PorkchopService::expanded_requests() const {
 }
 
 std::uint64_t PorkchopService::fingerprint(const Pair& pair, const PorkchopAxes& axes) const {
-    std::string key = std::format("{}|{}|{}|{:.17g}|{}x{}", kAlgorithm, pair.first, pair.second, mu_sun_, kColumns, kRows);
+    std::string key = std::format("{}|{}|{}|{}|{:.17g}|{}x{}", kAlgorithm, kPorkchopSourceHash, pair.first, pair.second, mu_sun_, kColumns, kRows);
     for (const auto& id : {pair.first, pair.second}) {
         const auto& o = body_by_id(universe_, id).orbit;
         key += std::format("|{:.17g},{:.17g},{:.17g},{:.17g}", o.semi_major_axis_m, o.eccentricity, o.orbital_period_s,

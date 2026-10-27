@@ -207,7 +207,10 @@ inspector's launch windows; nothing in the simulation reads it).
     the prefetch began), inner planets first. Pairs off screen are not kept up to date: at 5 d/s an outer pair needs
     about 0.4 of a core to keep adding columns, so opening one again computes only the days that have passed.
   - Disk cache (`--porkchop-cache`, the UI passes `user://porkchop_cache`): each column is appended to a file per pair
-    with a fingerprint of the orbits, axes and algorithm; a later session reads it back. Every game starts on the same
+    with a fingerprint of the orbits, axes, algorithm tag and a hash of the code and data the plots depend on
+    (`src/{math,celestial,trajectory,variable_isp}`, `data/bodies`; made at every build by
+    `cmake/PorkchopSourceHash.cmake`); a file whose fingerprint differs is ignored and rewritten, so any change there
+    recomputes the plots and nothing else does. A later session reads it back. Every game starts on the same
     date, so the windows of the first years are computed once ever. Columns stay in memory (their primers, the seeds,
     are dropped once well behind the present).
   - Variable-Isp cells are warm-started from the shorter flight below, and for pairs with a Hohmann time under 500 days
