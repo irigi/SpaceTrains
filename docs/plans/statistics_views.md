@@ -1,5 +1,12 @@
 # Plan: statistics views, population charts, inspector redesign, porkchop plots
 
+**Status 2026-10-27: steps 0-5 built on `feature/statistics_views`, for the user's review.** The design as built is in
+`docs/modules/ui_observer.md` (inspector, People, Flows, Routes, overlay), `economy.md` (flow record) and
+`trajectory.md` (porkchop plots). Departures from the plan: no `origin_station_id` on cargo lots (every lot is sold at
+the end of its mission, so the mission's origin is the lot's); the goods balance derives "made net of use" from stock
+snapshots instead of counting production in the economy step; lanes are judged by propellant per unit delivered; the
+"who pays whom" drill-down to accounts is left (the journal keeps sectors only); no disk cache for porkchops.
+
 ## Context
 
 The roadmap's "Later" block (docs/roadmap.md) asks for (a) more views in the statistics screen, first the flows of

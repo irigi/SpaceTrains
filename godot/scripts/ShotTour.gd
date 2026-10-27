@@ -142,6 +142,11 @@ func _run() -> void:
             get_tree().quit()
             return
         if arg.begins_with("--shot-smooth="):
+            if OS.get_cmdline_user_args().has("--shot-with-routes"):
+                # The porkchop worker busy on a slow pair while the game runs at speed.
+                main.stats_panel.show_route("earth", "jupiter")
+                main._update_porkchop_request()
+                await get_tree().create_timer(1.0).timeout
             await _measure_smoothness(float(arg.trim_prefix("--shot-smooth=")), 432000.0)
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()

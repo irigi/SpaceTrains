@@ -174,6 +174,34 @@ Flags (thresholds in `TrajectoryAuditThresholds`):
 
 The headless `--trajectory-audit` and `--trajectory-sweep` flags drive it (see README).
 
+## Porkchop Plots
+
+`trajectory/Porkchop.{hpp,cpp}` (2026-10-27), display only (the statistics screen's Routes tab and the station
+inspector's launch windows; nothing in the simulation reads it).
+
+- **Per pair of planets** (stations around one planet have no windows; a moon's station flies from its planet):
+  departure date × flight time, 96 × 48 cells. Departures at multiples of a step = span / 96, span = min(synodic period,
+  730 days); flight times 0.25-2.0 Hohmann times. Both axes come from the bodies' fixed orbits, so a column is a pure
+  function of (pair, departure index).
+- **Cells are geometry only**, one grid for every ship:
+  - nuclear-thermal: Δv of `KeplerTrajectoryPlanner::lambert_cell`, the same cell the planner's grid uses (against
+    circular speed at both ends; empty when the arc does not solve or passes inside 0.1 AU);
+  - variable-Isp: the effort J = ∫a²dt of the minimum-effort rendezvous between the planets
+    (`general::solve_transfer`, μ = 1, length 1 AU: the atlas's κ scale), rejected inside 0.1 AU. A class's
+    propellant follows in the UI: 1/m_f − 1/m0 = J_SI / 2P, J_SI = J μ^1.5 / AU^2.5, P = specific power × dry mass.
+    Thermal classes use the rocket equation with `thermal_exhaust_velocity_mps`.
+- **Cheap:** one background thread at low priority (nice 15 on Linux) with its own celestial mechanics; only requested
+  pairs; columns kept while in the window, so as time moves only new columns are solved; nearest departures first.
+  Variable-Isp cells are warm-started from the shorter flight below, and for pairs with a Hohmann time under 500 days
+  also from the same flight one departure earlier, keeping the lower effort (the two seeds can land on different local
+  minima, which showed as speckle). Measured (one core): inner pairs 30-50 ms a column (a whole window in 4-11 s
+  in game), Jupiter and Saturn 0.6-0.7 s (about 50 s). Tolerance 1e-7 as the planner's refinement.
+- **Bridge:** the UI names pairs in the command file (`"porkchop":"earth>mars;earth>venus"`); the bridge writes
+  `<snapshot>.porkchop` (+ `.seq`) as columns arrive, at most twice a second, with the classes' masses, exhaust speed and
+  power and each station's planet.
+- **Left out:** a disk cache across restarts (not needed at these costs); remaining stripes where the solver finds a
+  costlier branch for a few departures.
+
 ## Deferred Work
 
 - Patched-conic handoffs and richer local orbital transfers

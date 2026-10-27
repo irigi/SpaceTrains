@@ -37,6 +37,7 @@ var route_destination := "mars"
 var _route_measure := "dv"
 var porkchops: Dictionary = {}
 var ships: Array = []
+var _route_map: Control = null   # the Routes tab's plot while it is shown
 var _labels: Dictionary = {}   # category id -> label
 var _tab_bar: TabBar
 var _period_buttons: Array = []
@@ -130,7 +131,8 @@ func update_stats(data: Dictionary) -> void:
     # Not while the mouse is held over the panel: a rebuild between press and release frees the
     # button being clicked (the next stats file comes about a second later).
     var held := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and get_global_rect().has_point(get_global_mouse_position())
-    if visible and not held:
+    # The Routes tab does not use the statistics file (its plot follows the porkchop file).
+    if visible and not held and _tab != ROUTES_TAB:
         _rebuild()
 
 # --- building blocks ---
@@ -976,8 +978,14 @@ func show_route(origin: String, destination: String) -> void:
 func update_porkchops(data: Dictionary, ship_list: Array) -> void:
     porkchops = data
     ships = ship_list
+    if not visible or _tab != ROUTES_TAB:
+        return
+    # New columns: refill the plot in place; rebuild only when there was no plot yet.
+    if is_instance_valid(_route_map) and _route_map.is_inside_tree():
+        _fill_route_map(_route_map)
+        return
     var held := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and get_global_rect().has_point(get_global_mouse_position())
-    if visible and _tab == ROUTES_TAB and not held:
+    if not held:
         _rebuild()
 
 func _route_pair() -> Dictionary:
@@ -1062,17 +1070,29 @@ func _route_controls() -> HBoxContainer:
 
 func _build_routes() -> void:
     var names := PLANET_NAMES
+    _route_map = null
     _heading("Launch windows: %s to %s" % [names.get(route_origin, route_origin), names.get(route_destination, route_destination)])
     _content.add_child(_route_controls())
     if route_origin == route_destination:
         _note("Pick two different planets: stations around one planet have no launch windows.")
         return
     var pair := _route_pair()
-    var columns: Array = pair.get("columns", [])
-    var rows: Array = pair.get("transit_days", [])
-    if pair.is_empty() or columns.is_empty():
+    if pair.is_empty() or (pair.get("columns", []) as Array).is_empty():
         _note("Computing… the first columns appear within seconds (the outer planets take about a minute for the whole window).")
         return
+    var map := HeatmapScript.new()
+    map.custom_minimum_size = Vector2(1000, 460)
+    map.x_label = "departure (game day)"
+    map.y_label = "flight (days)"
+    _fill_route_map(map)
+    _route_map = map
+    _content.add_child(map)
+    _route_note()
+# The plot's data from the porkchop file: refilled in place as columns arrive (no rebuild of the tab).
+func _fill_route_map(map: Control) -> void:
+    var pair := _route_pair()
+    var columns: Array = pair.get("columns", [])
+    var rows: Array = pair.get("transit_days", [])
     var grid: Array = []
     var xs: Array = []
     var lo := INF
@@ -1089,10 +1109,6 @@ func _build_routes() -> void:
                 lo = minf(lo, v)
                 hi = maxf(hi, v)
         grid.append(values)
-    var map := HeatmapScript.new()
-    map.custom_minimum_size = Vector2(1000, 460)
-    map.x_label = "departure (game day)"
-    map.y_label = "flight (days)"
     map.now_x = float(porkchops.get("now_day", NAN))
     var title := ""
     var c := _route_class()
@@ -1153,7 +1169,10 @@ func _build_routes() -> void:
             "effort":
                 return text + "\neffort κ " + HeatmapScript.significant(v, 4)
         return text + "\npropellant %s of the tank%s" % ["%.0f%%" % (100.0 * v) if v < 9.9 else "far more than", "" if v <= 1.0 else " — not possible"]
-    _content.add_child(map)
+    map.queue_redraw()
+
+func _route_note() -> void:
+    var pair := _route_pair()
     _note("Each column is a departure date, each row a flight time; the plot covers one synodic period (at most two years) "
         + "from now. Δv is what the nuclear-thermal planner charges for the arc (against circular speed at both ends; the "
         + "planner searches 0.3 to 1.5 Hohmann times). The plasma effort is the minimum-effort rendezvous between the planets, "
