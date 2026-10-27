@@ -29,6 +29,8 @@ var markers: Array = []
 var now_x := NAN
 # Optional: func(col: int, row: int) -> String for the read-out (default: axis values and the value).
 var readout: Callable
+# Rows spaced on a log scale (the plasma flight times): markers are placed by the logarithm.
+var y_log := false
 var x_format := "%.0f"
 var y_format := "%.0f"
 var _hover := Vector2i(-1, -1)
@@ -108,6 +110,10 @@ func _axis_to_y(y: float) -> float:
         return area.end.y
     var y0 := float(y_values[0])
     var y1 := float(y_values[y_values.size() - 1])
+    if y_log and y0 > 0.0 and y > 0.0:
+        y0 = log(y0)
+        y1 = log(y1)
+        y = log(y)
     var half := (y1 - y0) / (y_values.size() - 1) * 0.5
     return area.end.y - (y - (y0 - half)) / maxf(y1 - y0 + 2.0 * half, 1e-12) * area.size.y
 
@@ -154,13 +160,14 @@ func _draw() -> void:
                 var v := _value(col, row)
                 var inside := not is_nan(v) and v <= level
                 var rect := _cell_rect(col, row)
+                # Not around cells without a value (a hole inside a region is not its edge).
                 if col + 1 < values.size():
                     var right := _value(col + 1, row)
-                    if inside != (not is_nan(right) and right <= level):
+                    if not is_nan(v) and not is_nan(right) and inside != (right <= level):
                         draw_line(Vector2(rect.end.x, rect.position.y), rect.end, color, 1.5)
                 if row + 1 < rows:
                     var up := _value(col, row + 1)
-                    if inside != (not is_nan(up) and up <= level):
+                    if not is_nan(v) and not is_nan(up) and inside != (up <= level):
                         draw_line(rect.position, Vector2(rect.end.x, rect.position.y), color, 1.5)
     draw_rect(area, Color(0.35, 0.85, 0.95, 0.25), false, 1.0)
     if not is_nan(now_x):

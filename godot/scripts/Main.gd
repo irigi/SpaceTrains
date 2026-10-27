@@ -557,18 +557,8 @@ func _update_porkchop_request() -> void:
     if stats_panel != null and stats_panel.visible and stats_panel.get("_tab") == stats_panel.ROUTES_TAB:
         pairs.append("%s>%s" % [stats_panel.route_origin, stats_panel.route_destination])
     if selected_kind == "station" and entity_details.has(selected_id):
-        var here := _planet_of(String(entity_details[selected_id].get("parent_body_id", "")))
-        var planets: Array[String] = []
-        for station in bridge_state.get("stations", []):
-            var planet := _planet_of(String(station.get("parent_body_id", "")))
-            if planet != here and not planets.has(planet):
-                planets.append(planet)
-        # Nearest the Sun first: the inner pairs take seconds, the outer planets about a minute.
-        const ORDER := ["mercury", "venus", "earth", "mars", "ceres", "jupiter", "saturn", "uranus", "neptune"]
-        planets.sort_custom(func(a, b) -> bool: return ORDER.find(a) < ORDER.find(b))
-        for planet in planets:
-            if not pairs.has("%s>%s" % [here, planet]):
-                pairs.append("%s>%s" % [here, planet])
+        # The routes flown from here (the bridge expands "*", nearest the Sun first).
+        pairs.append("%s>*" % _planet_of(String(entity_details[selected_id].get("parent_body_id", ""))))
     var text := ";".join(pairs)
     if text != porkchop_request:
         porkchop_request = text

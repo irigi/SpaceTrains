@@ -1027,12 +1027,14 @@ func _build_body(detail: Dictionary, context: Dictionary = {}) -> void:
 
 # --- Launch windows (porkchop plots, trajectory/Porkchop.hpp) -----------------
 
+const PorkchopsScript := preload("res://scripts/ui/Porkchops.gd")
 const PLANET_NAMES := {"mercury": "Mercury", "venus": "Venus", "earth": "Earth", "mars": "Mars", "ceres": "Ceres",
     "jupiter": "Jupiter", "saturn": "Saturn", "uranus": "Uranus", "neptune": "Neptune"}
 
-# From this station's planet to every other planet with a station: when the next good window opens
-# for a nuclear-thermal ship (within 10% of the window's lowest Δv) and the cheapest departure for a
-# plasma ship flying about a Hohmann time; a button opens the full plot (Statistics, Routes).
+# From this station's planet along the routes ships flew in the last year (the bridge expands
+# "here>*"): for the busiest nuclear-thermal and plasma class on each, the fastest flight with a full
+# hold if it leaves now (or when it next can), and the earliest arrival in the window in the tooltip;
+# a button opens the full chart (Statistics, Routes).
 func _add_station_windows(context: Dictionary) -> void:
     var here := String(context.get("planet", ""))
     var data: Dictionary = context.get("porkchops", {})
@@ -1044,61 +1046,49 @@ func _add_station_windows(context: Dictionary) -> void:
     for pair in pairs:
         var destination := String(pair.get("destination", ""))
         var columns: Array = pair.get("columns", [])
-        var transit: Array = pair.get("transit_days", [])
         var button := Button.new()
         button.focus_mode = Control.FOCUS_NONE
         button.text = "plot"
         button.add_theme_font_size_override("font_size", 11)
         button.pressed.connect(func() -> void: route_requested.emit(here, destination))
         if columns.size() < 8:
-            rows.append([String(PLANET_NAMES.get(destination, destination)), ["computing…", UiTheme.TEXT_DIM], "", "", button])
+            rows.append([String(PLANET_NAMES.get(destination, destination)), ["computing…", UiTheme.TEXT_DIM], "", button])
             continue
-        # Nuclear-thermal: per departure the cheapest flight; the first within 10% of the best.
-        var best_per_column: Array = []
-        var lowest := INF
-        for column in columns:
-            var best := [INF, 0.0]
-            var dv: Array = column.get("dv", [])
-            for r in range(dv.size()):
-                if dv[r] != null and float(dv[r]) < best[0]:
-                    best = [float(dv[r]), float(transit[r])]
-            best_per_column.append([float(column.get("day", 0.0)), best[0], best[1]])
-            lowest = minf(lowest, best[0])
-        var thermal := ["none", UiTheme.TEXT_DIM, "No single arc in this window"]
-        var thermal_dv := ""
-        for entry in best_per_column:
-            if entry[1] <= lowest * 1.1:
-                thermal = ["in %.0f d" % maxf(0.0, entry[0] - now_day), UiTheme.TEXT_PRIMARY,
-                    "Depart day %.0f, %.0f d flight, Δv %.1f km/s (best in the window %.1f)" % [entry[0], entry[2], entry[1] / 1000.0,
-                    lowest / 1000.0]]
-                thermal_dv = "%.1f" % (entry[1] / 1000.0)
+        var classes := PorkchopsScript.route_classes(data, here, destination, [], 12)
+        var cells: Array = []
+        for plasma in [false, true]:
+            var cell := ["—", UiTheme.TEXT_DIM, "No %s ship flew this route in the last year" % ("plasma" if plasma else "nuclear-thermal")]
+            for entry in classes:
+                var c: Dictionary = entry["class"]
+                if PorkchopsScript.is_plasma(c) != plasma:
+                    continue
+                var fastest := PorkchopsScript.frontier(data, pair, c, true)
+                var first := -1
+                var soonest := [INF, 0.0, 0.0]   # arrival day, departure day, flight
+                for k in range(fastest.size()):
+                    if is_nan(float(fastest[k])):
+                        continue
+                    var dep := float(columns[k].get("day", 0.0))
+                    if first == -1:
+                        first = k
+                    if dep + float(fastest[k]) < soonest[0]:
+                        soonest = [dep + float(fastest[k]), dep, float(fastest[k])]
+                if first == -1:
+                    cell = ["cannot", UiTheme.WARN, "%s cannot make this trip with a full hold in the coming window" % String(c.get("name", ""))]
+                    break
+                var wait := maxf(0.0, float(columns[first].get("day", 0.0)) - now_day)
+                var now_ok := wait < float(pair.get("step_days", 1.0))
+                var text := "%.0f d" % float(fastest[first]) if now_ok else "in %.0f d · %.0f d" % [wait, float(fastest[first])]
+                cell = [text, UiTheme.TEXT_PRIMARY, "%s (busiest %s class here), full hold: %s, %.0f-day flight.\nEarliest arrival in the window: leave in %.0f d, %.0f-day flight, arrive day %.0f." % [
+                    String(c.get("name", "")), "plasma" if plasma else "thermal",
+                    "leave now" if now_ok else "leave in %.0f d" % wait, float(fastest[first]),
+                    maxf(0.0, soonest[1] - now_day), soonest[2], soonest[0]]]
                 break
-        # Plasma: at the flight time nearest the Hohmann time, the departure with the least effort.
-        var hohmann := float(pair.get("hohmann_days", 0.0))
-        var row_index := 0
-        for r in range(transit.size()):
-            if absf(float(transit[r]) - hohmann) < absf(float(transit[row_index]) - hohmann):
-                row_index = r
-        var plasma := ["none", UiTheme.TEXT_DIM, ""]
-        var least := INF
-        var mean := 0.0
-        var count := 0
-        for column in columns:
-            var effort: Array = column.get("effort", [])
-            if row_index < effort.size() and effort[row_index] != null:
-                mean += float(effort[row_index])
-                count += 1
-                if float(effort[row_index]) < least:
-                    least = float(effort[row_index])
-                    plasma = ["in %.0f d" % maxf(0.0, float(column.get("day", 0.0)) - now_day), UiTheme.TEXT_PRIMARY, ""]
-        if count > 0:
-            plasma[2] = "For a %.0f-day flight: the least effort is %.0f%% of the window's average" % [float(transit[row_index]),
-                100.0 * least / (mean / count)]
-        rows.append([String(PLANET_NAMES.get(destination, destination)), thermal, [thermal_dv, UiTheme.TEXT_DIM, thermal[2]],
-            plasma, button])
-    if not _section("windows", "LAUNCH WINDOWS", "%d destinations" % rows.size(), false):
+            cells.append(cell)
+        rows.append([String(PLANET_NAMES.get(destination, destination)), cells[0], cells[1], button])
+    if not _section("windows", "LAUNCH WINDOWS", "%d routes" % rows.size(), false):
         _free_cells(rows)
         return
-    _table(["To", "Thermal", "Δv km/s", "Plasma", ""], rows, [74.0, 70.0, 56.0, 64.0, 40.0])
-    _add_note("Thermal: the next departure within 10% of the lowest Δv in the coming window. Plasma: the cheapest departure "
-        + "for a flight of about a Hohmann time. Hover for details; plot opens the full chart.")
+    _table(["To", "Thermal", "Plasma", ""], rows, [80.0, 104.0, 104.0, 40.0])
+    _add_note("The fastest flight with a full hold for the busiest class of each drive on the routes flown from here in the "
+        + "last year, leaving now or when it next can. Hover for the class and the earliest arrival; plot opens the full chart.")

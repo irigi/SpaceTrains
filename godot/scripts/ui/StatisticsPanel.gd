@@ -30,11 +30,13 @@ var _monthly := false   # charts: balances (false) or net flow per month (true)
 var _selected_station := ""
 var _flow_good := ""          # Flows tab: one good, or all ("")
 var _flow_value := false      # Flows tab: credits (true) or units (false)
-# Routes tab: the planet pair shown, what colours the cells ("dv", "effort" or a class id), and the
-# porkchop file and ships from Main.
+# Routes tab: the planet pair shown (the busiest route until one is picked), the view ("fastest",
+# "thermal" or "plasma"), and the porkchop file and ships from Main.
 var route_origin := "earth"
 var route_destination := "mars"
-var _route_measure := "dv"
+var _route_view := "fastest"
+var _route_picked := false
+var _route_other := false
 var porkchops: Dictionary = {}
 var ships: Array = []
 var _route_map: Control = null   # the Routes tab's plot while it is shown
@@ -971,14 +973,27 @@ func _build_lanes(names: Dictionary) -> void:
         + "that burn the most are shown.")
 
 # --- Routes: porkchop plots (trajectory/Porkchop.hpp; the bridge fills them in the background) ---
+#
+# What a player asks of a route is "if I leave on day X with this ship, how long will it take?":
+# both planners trade propellant against time (thermal: the cheapest of the arcs by fuel and time
+# cost; plasma: the fastest trip for each of four fuel loads, the load by the same cost), so the
+# first view is each class's fastest trip by departure date, with the ships on the route as dots
+# (a dot above its line: the planner saved fuel). The maps behind it show one grid per drive, each
+# class as the line its tank reaches. Classes shown: those that flew the route in the last year.
 
 const PLANET_NAMES := {"mercury": "Mercury", "venus": "Venus", "earth": "Earth", "mars": "Mars", "ceres": "Ceres",
     "jupiter": "Jupiter", "saturn": "Saturn", "uranus": "Uranus", "neptune": "Neptune"}
+const PorkchopsScript := preload("res://scripts/ui/Porkchops.gd")
+const UiWidgets := preload("res://scripts/ui/UiWidgets.gd")
+const FrontierChartScript := preload("res://scripts/ui/FrontierChart.gd")
+const ROUTE_VIEWS := [["fastest", "Fastest trip by departure"], ["thermal", "Nuclear-thermal: Δv map"],
+    ["plasma", "Plasma: effort map"]]
 
 # Open the Routes tab on a pair (from the inspector's windows).
 func show_route(origin: String, destination: String) -> void:
     route_origin = origin
     route_destination = destination
+    _route_picked = true
     if not visible:
         toggle()
     set_tab(ROUTES_TAB)
@@ -988,9 +1003,18 @@ func update_porkchops(data: Dictionary, ship_list: Array) -> void:
     ships = ship_list
     if not visible or _tab != ROUTES_TAB:
         return
+    # Until a route is picked, show the busiest one.
+    var routes := PorkchopsScript.routes(porkchops)
+    if not _route_picked and not routes.is_empty():
+        _route_picked = true
+        if String(routes[0].get("origin", "")) != route_origin or String(routes[0].get("destination", "")) != route_destination:
+            route_origin = String(routes[0].get("origin", ""))
+            route_destination = String(routes[0].get("destination", ""))
+            _rebuild()
+            return
     # New columns: refill the plot in place; rebuild only when there was no plot yet.
     if is_instance_valid(_route_map) and _route_map.is_inside_tree():
-        _fill_route_map(_route_map)
+        _fill_route_view(_route_map)
         return
     var held := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and get_global_rect().has_point(get_global_mouse_position())
     if not held:
@@ -1002,188 +1026,240 @@ func _route_pair() -> Dictionary:
             return pair
     return {}
 
-func _route_class() -> Dictionary:
-    for c in porkchops.get("classes", []):
-        if String(c.get("id", "")) == _route_measure:
-            return c
-    return {}
-
-# A cell as the chosen measure: Δv (km/s), effort (κ), or a class's propellant as a share of its
-# tank for the trip with an empty hold (> 1: more than it can carry; NAN: impossible).
-func _route_value(dv_mps, effort) -> float:
-    match _route_measure:
-        "dv":
-            return NAN if dv_mps == null else float(dv_mps) / 1000.0
-        "effort":
-            return NAN if effort == null else float(effort)
-    var c := _route_class()
-    if c.is_empty():
-        return NAN
-    var dry := float(c.get("dry_mass_kg", 0.0))
-    var tank := maxf(1.0, float(c.get("propellant_capacity_kg", 0.0)))
-    if String(c.get("propulsion_type", "")) == "variable_isp":
-        if effort == null:
-            return NAN
-        var au := float(porkchops.get("au_m", 1.495978707e11))
-        var mu := float(porkchops.get("mu_sun", 1.32712440018e20))
-        var j_si := float(effort) * pow(mu, 1.5) / pow(au, 2.5)
-        var inv_m0 := 1.0 / dry - j_si / (2.0 * maxf(1.0, float(c.get("power_w", 0.0))))
-        return 9.99 if inv_m0 <= 0.0 else (1.0 / inv_m0 - dry) / tank
-    if dv_mps == null:
-        return NAN
-    var ve := maxf(1.0, float(c.get("exhaust_velocity_mps", 0.0)))
-    return dry * (exp(float(dv_mps) / ve) - 1.0) / tank
+func _planet_name(id: String) -> String:
+    return String(PLANET_NAMES.get(id, id.capitalize()))
 
 func _route_controls() -> HBoxContainer:
     var row := HBoxContainer.new()
     row.add_theme_constant_override("separation", 6)
-    var planets: Array = []
-    for station_id in porkchops.get("stations", {}).keys():
-        var planet := String(porkchops["stations"][station_id])
-        if not planets.has(planet):
-            planets.append(planet)
-    for planet in [route_origin, route_destination]:
-        if not planets.has(planet):
-            planets.append(planet)
-    for which in ["origin", "destination"]:
-        var picker := OptionButton.new()
-        picker.focus_mode = Control.FOCUS_NONE
-        for i in range(planets.size()):
-            picker.add_item(("from " if which == "origin" else "to ") + String(PLANET_NAMES.get(planets[i], planets[i])))
-            if planets[i] == (route_origin if which == "origin" else route_destination):
-                picker.select(i)
-        picker.item_selected.connect(func(index: int) -> void:
-            if which == "origin":
-                route_origin = planets[index]
-            else:
-                route_destination = planets[index]
-            _rebuild())
-        row.add_child(picker)
-    var measure := OptionButton.new()
-    measure.focus_mode = Control.FOCUS_NONE
-    var ids: Array = ["dv", "effort"]
-    measure.add_item("Nuclear-thermal Δv (km/s)")
-    measure.add_item("Plasma drive effort κ (any ship)")
-    for c in porkchops.get("classes", []):
-        ids.append(String(c.get("id", "")))
-        measure.add_item("%s: propellant / tank" % String(c.get("name", "")))
-    for i in range(ids.size()):
-        if ids[i] == _route_measure:
-            measure.select(i)
-    measure.item_selected.connect(func(index: int) -> void:
-        _route_measure = ids[index]
+    # The routes ships fly, busiest first; "other pair" opens free pickers.
+    var routes := PorkchopsScript.routes(porkchops)
+    var picker := OptionButton.new()
+    picker.focus_mode = Control.FOCUS_NONE
+    var selected := -1
+    for i in range(routes.size()):
+        var r: Dictionary = routes[i]
+        var trips := float(r.get("trips", 0.0))
+        picker.add_item("%s → %s · %.0f %s in the last year" % [_planet_name(String(r.get("origin", ""))),
+            _planet_name(String(r.get("destination", ""))), trips, "trip" if trips == 1.0 else "trips"])
+        if String(r.get("origin", "")) == route_origin and String(r.get("destination", "")) == route_destination:
+            selected = i
+    picker.add_item("Other pair…")
+    var other := _route_other or selected == -1
+    picker.select(routes.size() if other else selected)
+    picker.item_selected.connect(func(index: int) -> void:
+        _route_picked = true
+        if index < routes.size():
+            _route_other = false
+            route_origin = String(routes[index].get("origin", ""))
+            route_destination = String(routes[index].get("destination", ""))
+        else:
+            _route_other = true
         _rebuild())
-    row.add_child(measure)
+    row.add_child(picker)
+    if other:
+        var planets: Array = []
+        for station_id in porkchops.get("stations", {}).keys():
+            var planet := String(porkchops["stations"][station_id])
+            if not planets.has(planet):
+                planets.append(planet)
+        for planet in [route_origin, route_destination]:
+            if not planets.has(planet):
+                planets.append(planet)
+        for which in ["origin", "destination"]:
+            var pick := OptionButton.new()
+            pick.focus_mode = Control.FOCUS_NONE
+            for i in range(planets.size()):
+                pick.add_item(("from " if which == "origin" else "to ") + _planet_name(String(planets[i])))
+                if planets[i] == (route_origin if which == "origin" else route_destination):
+                    pick.select(i)
+            pick.item_selected.connect(func(index: int) -> void:
+                if which == "origin":
+                    route_origin = planets[index]
+                else:
+                    route_destination = planets[index]
+                _rebuild())
+            row.add_child(pick)
+    var view := OptionButton.new()
+    view.focus_mode = Control.FOCUS_NONE
+    for i in range(ROUTE_VIEWS.size()):
+        view.add_item(String(ROUTE_VIEWS[i][1]))
+        if ROUTE_VIEWS[i][0] == _route_view:
+            view.select(i)
+    view.item_selected.connect(func(index: int) -> void:
+        _route_view = String(ROUTE_VIEWS[index][0])
+        _rebuild())
+    row.add_child(view)
     return row
 
+# The classes on show, each with its colour: [{class, count, flown, color}].
+func _route_classes() -> Array:
+    var out := PorkchopsScript.route_classes(porkchops, route_origin, route_destination, ships)
+    for i in range(out.size()):
+        out[i]["color"] = UiTheme.categorical(i)
+    return out
+
 func _build_routes() -> void:
-    var names := PLANET_NAMES
     _route_map = null
-    _heading("Launch windows: %s to %s" % [names.get(route_origin, route_origin), names.get(route_destination, route_destination)])
+    _heading("Routes: %s to %s" % [_planet_name(route_origin), _planet_name(route_destination)])
     _content.add_child(_route_controls())
     if route_origin == route_destination:
         _note("Pick two different planets: stations around one planet have no launch windows.")
         return
     var pair := _route_pair()
     if pair.is_empty() or (pair.get("columns", []) as Array).is_empty():
-        _note("Computing… the first columns appear within seconds (the outer planets take about a minute for the whole window).")
+        _note("Computing… the first columns appear within seconds (the outer planets take about a minute for the whole window; "
+            + "routes ships fly are computed ahead and kept on disk, so they open at once next time).")
         return
-    var map := HeatmapScript.new()
-    map.custom_minimum_size = Vector2(1000, 460)
-    map.x_label = "departure (game day)"
-    map.y_label = "flight (days)"
-    _fill_route_map(map)
-    _route_map = map
-    _content.add_child(map)
-    _route_note()
+    var classes := _route_classes()
+    var view: Control
+    if _route_view == "fastest":
+        view = FrontierChartScript.new()
+        view.custom_minimum_size = Vector2(1000, 420)
+    else:
+        view = HeatmapScript.new()
+        view.custom_minimum_size = Vector2(1000, 460)
+        view.x_label = "departure (game day)"
+        view.y_label = "flight (days)"
+    _fill_route_view(view)
+    _route_map = view
+    _content.add_child(view)
+    _content.add_child(_route_legend(classes))
+    _route_note(classes)
+
+func _route_legend(classes: Array) -> Control:
+    var flow := HFlowContainer.new()
+    flow.add_theme_constant_override("h_separation", 14)
+    for entry in classes:
+        var item := HBoxContainer.new()
+        var swatch := ColorRect.new()
+        swatch.color = entry["color"]
+        swatch.custom_minimum_size = Vector2(14, 4)
+        swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+        item.add_child(swatch)
+        var c: Dictionary = entry["class"]
+        var count := float(entry["count"])
+        var reachable := PorkchopsScript.frontier(porkchops, _route_pair(), c, false).any(func(v): return not is_nan(float(v)))
+        var label := UiWidgets.label("%s (%s) · %.0f %s%s" % [String(c.get("name", "")),
+            "plasma" if PorkchopsScript.is_plasma(c) else "thermal", count,
+            ("trip" if count == 1.0 else "trips") if bool(entry["flown"]) else "in the fleet",
+            "" if reachable else " · cannot make this trip in the window"], UiTheme.TEXT_PRIMARY if reachable else UiTheme.TEXT_DIM, 11)
+        item.add_child(label)
+        flow.add_child(item)
+    return flow
+
+# The ships on the route now (waiting for their window or flying it): [{x, y, color, class_id}].
+func _route_ships(classes: Array, drive := "") -> Array:
+    var stations: Dictionary = porkchops.get("stations", {})
+    var out: Array = []
+    for ship in ships:
+        var phase := String(ship.get("phase", ""))
+        if phase != "awaiting_departure" and phase != "in_transit":
+            continue
+        if String(stations.get(String(ship.get("origin_station_id", "")), "")) != route_origin \
+                or String(stations.get(String(ship.get("destination_station_id", "")), "")) != route_destination:
+            continue
+        var plasma := String(ship.get("propulsion_type", "")) == "variable_isp"
+        if (drive == "plasma" and not plasma) or (drive == "thermal" and plasma):
+            continue
+        var color := Color(0.6, 0.6, 0.6)
+        for entry in classes:
+            if String(entry["class"].get("id", "")) == String(ship.get("class_id", "")):
+                color = entry["color"]
+        var dep := float(ship.get("departure_time_s", 0.0)) / 86400.0
+        var arr := float(ship.get("arrival_time_s", 0.0)) / 86400.0
+        out.append({"x": dep, "y": arr - dep, "color": color, "name": String(ship.get("name", ""))})
+    return out
+
 # The plot's data from the porkchop file: refilled in place as columns arrive (no rebuild of the tab).
-func _fill_route_map(map: Control) -> void:
+func _fill_route_view(view: Control) -> void:
     var pair := _route_pair()
+    var classes := _route_classes()
     var columns: Array = pair.get("columns", [])
-    var rows: Array = pair.get("transit_days", [])
-    var grid: Array = []
     var xs: Array = []
+    for column in columns:
+        xs.append(float(column.get("day", 0.0)))
+    var now_day := float(porkchops.get("now_day", NAN))
+    if _route_view == "fastest":
+        var series: Array = []
+        for entry in classes:
+            var c: Dictionary = entry["class"]
+            series.append({"name": String(c.get("name", "")), "color": entry["color"],
+                "values": PorkchopsScript.frontier(porkchops, pair, c, true)})
+            series.append({"name": String(c.get("name", "")) + ", empty", "color": Color(entry["color"], 0.7), "dashed": true,
+                "values": PorkchopsScript.frontier(porkchops, pair, c, false)})
+        view.set_data("Fastest trip by departure date: solid with a full hold, dashed empty (fuel kept back: the planner's 10% "
+            + "reserve); dots: ships on the route", xs, series, _route_ships(classes), now_day)
+        return
+    var plasma := _route_view == "plasma"
+    var rows: Array = pair.get("plasma_transit_days" if plasma else "transit_days", [])
+    var grid: Array = []
     var lo := INF
     var hi := -INF
     for column in columns:
-        xs.append(float(column.get("day", 0.0)))
+        var raw: Array = column.get("effort" if plasma else "dv", [])
         var values: Array = []
-        var dv: Array = column.get("dv", [])
-        var effort: Array = column.get("effort", [])
         for r in range(rows.size()):
-            var v := _route_value(dv[r] if r < dv.size() else null, effort[r] if r < effort.size() else null)
+            var v := NAN if r >= raw.size() or raw[r] == null else float(raw[r]) / (1.0 if plasma else 1000.0)
             values.append(v)
             if not is_nan(v):
                 lo = minf(lo, v)
                 hi = maxf(hi, v)
         grid.append(values)
-    map.now_x = float(porkchops.get("now_day", NAN))
-    var title := ""
-    var c := _route_class()
-    match _route_measure:
-        "dv":
-            title = "Δv for a nuclear-thermal ship (both burns, km/s); blank: no single arc or it passes inside 0.1 AU"
-            map.value_format = "%.1f"
-            map.unit = "km/s"
-            hi = minf(hi, lo * 2.5)
-            map.contours = [{"level": lo * 1.15, "color": Color.WHITE}]
-        "effort":
-            title = "Plasma drive effort κ = ∫a²dt (the same for every ship; fuel follows from its power)"
-            map.format_value = func(v: float) -> String: return HeatmapScript.significant(v, 3)
-            hi = minf(hi, lo * 50.0)
-            map.contours = [{"level": lo * 1.5, "color": Color.WHITE}]
-        _:
-            title = "%s: propellant as a share of its tank (empty hold); white line: a full tank" % String(c.get("name", ""))
-            map.value_format = "%.0f%%"
-            lo = 0.0
-            hi = 1.5
-            map.contours = [{"level": 1.0, "color": Color.WHITE}]
-    var log_scale: bool = _route_measure == "effort"
-    if _route_measure != "dv" and _route_measure != "effort":
-        # Shares as percent on the legend.
+    var contours: Array = []
+    var drive_classes := classes.filter(func(e): return PorkchopsScript.is_plasma(e["class"]) == plasma)
+    for entry in drive_classes:
+        var level := PorkchopsScript.reach(porkchops, entry["class"], true) / (1.0 if plasma else 1000.0)
+        contours.append({"level": level / (lo if plasma else 1.0), "color": entry["color"]})
+    if plasma:
+        # Effort relative to the window's best: class free and readable (×2: twice the best).
         for col in grid:
             for r in range(col.size()):
                 if not is_nan(col[r]):
-                    col[r] = minf(float(col[r]), 9.99)
-        map.value_format = "%.2f"
-        map.unit = "of tank"
-    map.set_grid(title, grid, xs, rows, lo, hi, log_scale)
-    # Ships waiting on this route (their departure is ahead), as dots.
-    var stations: Dictionary = porkchops.get("stations", {})
-    var markers: Array = []
-    for ship in ships:
-        if String(ship.get("phase", "")) != "awaiting_departure" and String(ship.get("phase", "")) != "in_transit":
-            continue
-        if String(stations.get(String(ship.get("origin_station_id", "")), "")) != route_origin \
-                or String(stations.get(String(ship.get("destination_station_id", "")), "")) != route_destination:
-            continue
-        var dep := float(ship.get("departure_time_s", 0.0)) / 86400.0
-        var arr := float(ship.get("arrival_time_s", 0.0)) / 86400.0
-        markers.append({"x": dep, "y": arr - dep,
-            "color": Color(0.85, 0.65, 0.95) if String(ship.get("propulsion_type", "")) == "variable_isp" else Color(1.0, 0.6, 0.3)})
-    map.markers = markers
-    var measure := _route_measure
-    map.readout = func(col: int, row: int) -> String:
+                    col[r] = float(col[r]) / lo
+        hi = minf(hi / lo, 1000.0)
+        view.format_value = func(v: float) -> String: return "×" + HeatmapScript.significant(v, 2)
+        view.unit = "of best"
+        view.y_log = true
+        view.set_grid("Plasma drive effort, relative to the window's best (log scale); lines: what each class's tank reaches "
+            + "with a full hold (inside the line it can go)", grid, xs, rows, 1.0, hi, true)
+    else:
+        view.value_format = "%.1f"
+        view.unit = "km/s"
+        view.y_log = false
+        view.set_grid("Nuclear-thermal Δv (both burns, km/s); lines: what each class's tank reaches with a full hold (inside the "
+            + "line it can go)", grid, xs, rows, lo, minf(hi, lo * 2.5), false)
+    view.contours = contours
+    view.now_x = now_day
+    view.markers = _route_ships(classes, "plasma" if plasma else "thermal")
+    var best := lo
+    view.readout = func(col: int, row: int) -> String:
         var dep := float(xs[col])
         var flight := float(rows[row])
         var v: float = grid[col][row]
-        var text := "depart day %.0f (in %.0f d) · flight %.0f d · arrive day %.0f" % [dep, dep - float(porkchops.get("now_day", 0.0)),
-            flight, dep + flight]
+        var text := "depart day %.0f (in %.0f d) · flight %.0f d · arrive day %.0f" % [dep, dep - now_day, flight, dep + flight]
         if is_nan(v):
             return text + "\nno transfer"
-        match measure:
-            "dv":
-                return text + "\nΔv %.2f km/s" % v
-            "effort":
-                return text + "\neffort κ " + HeatmapScript.significant(v, 4)
-        return text + "\npropellant %s of the tank%s" % ["%.0f%%" % (100.0 * v) if v < 9.9 else "far more than", "" if v <= 1.0 else " — not possible"]
-    map.queue_redraw()
+        text += ("\neffort ×%s of the best" % HeatmapScript.significant(v, 3)) if plasma else ("\nΔv %.2f km/s" % v)
+        for entry in drive_classes:
+            var share := PorkchopsScript.propellant_share(porkchops, entry["class"], v * best if plasma else v * 1000.0, true)
+            text += "\n%s: %s" % [String(entry["class"].get("name", "")),
+                "%.0f%% of the tank" % (100.0 * share) if share <= 1.0 else "cannot (needs %s the tank)" % (
+                    "%.1f×" % share if share < 50.0 else "far more than")]
+        return text
+    view.queue_redraw()
 
-func _route_note() -> void:
+func _route_note(classes: Array) -> void:
     var pair := _route_pair()
-    _note("Each column is a departure date, each row a flight time; the plot covers one synodic period (at most two years) "
-        + "from now. Δv is what the nuclear-thermal planner charges for the arc (against circular speed at both ends; the "
-        + "planner searches 0.3 to 1.5 Hohmann times). The plasma effort is the minimum-effort rendezvous between the planets, "
-        + "the same for every ship: a class's propellant follows from its drive power (1/m_final − 1/m_start = effort / 2P). "
-        + "Dots: ships of this route waiting for their window (orange nuclear-thermal, violet plasma). Hohmann time %.0f d, "
-        % float(pair.get("hohmann_days", 0.0)) + "synodic period %.0f d." % float(pair.get("synodic_days", 0.0)))
+    var text := "Classes: those that flew this route in the last year (the busiest six), else the commonest in the fleet. "
+    if _route_view == "fastest":
+        text += "Each line is the shortest flight the class's tank allows at each departure (gaps: it cannot go); both planners "
+        text += "trade propellant against time, so a ship's dot above its line means the planner chose to save fuel. "
+    else:
+        text += "Each column is a departure date, each row a flight time. Thermal Δv is what the planner charges for the arc "
+        text += "(against circular speed at both ends; it searches 0.3 to 1.5 Hohmann times). Plasma effort is the minimum-effort "
+        text += "rendezvous, the same for every ship: a class's propellant follows from its drive power (1/m_final − 1/m_start = "
+        text += "effort / 2P); hover for each class's share of its tank. "
+    text += "Full hold: cargo at 100 kg a unit. The plot covers one synodic period (at most two years) from now. Hohmann time "
+    text += "%.0f d, synodic period %.0f d." % [float(pair.get("hohmann_days", 0.0)), float(pair.get("synodic_days", 0.0))]
+    _note(text)

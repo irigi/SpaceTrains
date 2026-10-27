@@ -728,33 +728,31 @@ func _routes_shots(rig: Node3D) -> void:
             break
     print("[ShotTour] earth>mars: %d columns after %.1f s" % [(panel.call("_route_pair").get("columns", []) as Array).size(),
         (Time.get_ticks_msec() - started) / 1000.0])
-    var thermal := ""
-    var plasma := ""
-    for c in main.porkchop_data.get("classes", []):
-        if thermal == "" and String(c.get("propulsion_type", "")) != "variable_isp":
-            thermal = String(c.get("id", ""))
-        if plasma == "" and String(c.get("propulsion_type", "")) == "variable_isp":
-            plasma = String(c.get("id", ""))
-    for measure in ["dv", "effort", thermal, plasma]:
-        panel.set("_route_measure", measure)
+    var routes: Array = main.porkchop_data.get("routes", [])
+    print("[ShotTour] %d routes in use, busiest %s" % [routes.size(), ", ".join(routes.slice(0, 6).map(func(r):
+        return "%s>%s %.0f" % [r.get("origin", ""), r.get("destination", ""), float(r.get("trips", 0.0))]))])
+    for view in ["fastest", "thermal", "plasma"]:
+        panel.set("_route_view", view)
         panel.call("_rebuild")
         await get_tree().create_timer(0.5).timeout
-        await _shoot("routes_earth_mars_" + (measure if measure.length() < 12 else measure.left(12)))
-    started = Time.get_ticks_msec()
-    panel.show_route("earth", "jupiter")
-    panel.set("_route_measure", "effort")
-    main._update_porkchop_request()
-    waited = 0.0
-    while waited < 150.0:
-        await get_tree().create_timer(1.0).timeout
-        waited += 1.0
-        if (panel.call("_route_pair").get("columns", []) as Array).size() >= 96:
-            break
-    print("[ShotTour] earth>jupiter: %d columns after %.1f s" % [(panel.call("_route_pair").get("columns", []) as Array).size(),
-        (Time.get_ticks_msec() - started) / 1000.0])
-    panel.call("_rebuild")
-    await get_tree().create_timer(0.5).timeout
-    await _shoot("routes_earth_jupiter_effort")
+        await _shoot("routes_earth_mars_" + view)
+    for far in ["jupiter", "saturn"]:
+        started = Time.get_ticks_msec()
+        panel.show_route("earth", far)
+        main._update_porkchop_request()
+        waited = 0.0
+        while waited < 150.0:
+            await get_tree().create_timer(1.0).timeout
+            waited += 1.0
+            if (panel.call("_route_pair").get("columns", []) as Array).size() >= 96:
+                break
+        print("[ShotTour] earth>%s: %d columns after %.1f s" % [far, (panel.call("_route_pair").get("columns", []) as Array).size(),
+            (Time.get_ticks_msec() - started) / 1000.0])
+        for view in ["fastest", "plasma"]:
+            panel.set("_route_view", view)
+            panel.call("_rebuild")
+            await get_tree().create_timer(0.5).timeout
+            await _shoot("routes_earth_%s_%s" % [far, view])
     panel.toggle()
     main.inspector_panel.set("_folded", {"station/windows": false, "station/market": true, "station/people": true})
     main.select_entity("earth_orbit", "station", true)
