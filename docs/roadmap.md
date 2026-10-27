@@ -96,6 +96,14 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
+Later (user, 2026-10-27), visuals:
+- **Planet textures:** most planets (Earth and perhaps Mars aside) look oversaturated on the lit side and visibly
+  low resolution. Needs better textures and/or tuned lighting and tone mapping.
+- **Stations orbiting their planets:** at 5 days/s real orbital speeds are impractical (a low Earth orbit would
+  be ~80 revolutions a second), but a station hovering at a fixed point over the planet looks wrong too. Needs
+  a display convention, e.g. a visual orbital rate capped to a few seconds per revolution (or slowed by a
+  fixed factor), with the true rate at low time speeds; display only, the simulation stays as is.
+
 Later (user, 2026-10-22):
 - **Population composition in the style of Victoria 2:** stations and ships hold people of different
   kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from Victoria 2). To be designed
