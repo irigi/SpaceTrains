@@ -235,7 +235,8 @@ as well while stations pay about a third less, and ships still earn several time
     fleets, `tests/test_main.cpp`), with the destination it was bought for;
   - passengers landed (settlers, rotation, visitors, emigrants) with their fares; a colony's recruits are counted
     going on to its surface;
-  - lanes: each arrival, its cargo unit-days and the propellant its plan burned.
+  - lanes: each arrival by ship class, its cargo unit-days and the propellant its plan burned (the class since
+    2026-10-27, for the porkchop plots' routes in use; older saves have none).
 
   It only records (the 365-day audit is byte-identical with it); saved with the game (save version 21; a version 20
   save loads with an empty record). The statistics file carries it per period with the stocks at the period's start

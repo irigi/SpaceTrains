@@ -180,27 +180,40 @@ The headless `--trajectory-audit` and `--trajectory-sweep` flags drive it (see R
 inspector's launch windows; nothing in the simulation reads it).
 
 - **Per pair of planets** (stations around one planet have no windows; a moon's station flies from its planet):
-  departure date × flight time, 96 × 48 cells. Departures at multiples of a step = span / 96, span = min(synodic period,
-  730 days); flight times 0.25-2.0 Hohmann times. Both axes come from the bodies' fixed orbits, so a column is a pure
-  function of (pair, departure index).
+  departures at multiples of a step = span / 96, span = min(synodic period, 730 days), 48 rows per drive. The axes
+  come from the bodies' fixed orbits, so a column is a pure function of (pair, departure index).
+  - Nuclear-thermal rows: 0.3-1.5 Hohmann times, the planner's Lambert search range.
+  - Variable-Isp rows: log spaced from 0.08 Hohmann times (at least 20 days) to 4 (at most Hohmann + 730 days).
+    Measured over two game years (2026-10-27): plasma trips take 0.12-0.25 Hohmann times to and between the outer
+    planets and up to 3 between Mercury and Venus, while thermal trips stay at 0.97-1.23. The first version shared
+    the thermal axis (0.25-2.0), which wasted most plasma rows on flights nobody makes and left holes.
 - **Cells are geometry only**, one grid for every ship:
   - nuclear-thermal: Δv of `KeplerTrajectoryPlanner::lambert_cell`, the same cell the planner's grid uses (against
     circular speed at both ends; empty when the arc does not solve or passes inside 0.1 AU);
   - variable-Isp: the effort J = ∫a²dt of the minimum-effort rendezvous between the planets
-    (`general::solve_transfer`, μ = 1, length 1 AU: the atlas's κ scale), rejected inside 0.1 AU. A class's
-    propellant follows in the UI: 1/m_f − 1/m0 = J_SI / 2P, J_SI = J μ^1.5 / AU^2.5, P = specific power × dry mass.
-    Thermal classes use the rocket equation with `thermal_exhaust_velocity_mps`.
-- **Cheap:** one background thread at low priority (nice 15 on Linux) with its own celestial mechanics; only requested
-  pairs; columns kept while in the window, so as time moves only new columns are solved; nearest departures first.
-  Variable-Isp cells are warm-started from the shorter flight below, and for pairs with a Hohmann time under 500 days
-  also from the same flight one departure earlier, keeping the lower effort (the two seeds can land on different local
-  minima, which showed as speckle). Measured (one core): inner pairs 30-50 ms a column (a whole window in 4-11 s
-  in game), Jupiter and Saturn 0.6-0.7 s (about 50 s). Tolerance 1e-7 as the planner's refinement.
-- **Bridge:** the UI names pairs in the command file (`"porkchop":"earth>mars;earth>venus"`); the bridge writes
-  `<snapshot>.porkchop` (+ `.seq`) as columns arrive, at most twice a second, with the classes' masses, exhaust speed and
-  power and each station's planet.
-- **Left out:** a disk cache across restarts (not needed at these costs); remaining stripes where the solver finds a
-  costlier branch for a few departures.
+    (`general::solve_transfer`, μ = 1, length 1 AU: the atlas's κ scale), rejected inside 0.1 AU. Fast settings first
+    (no fallbacks, two branches); a cell they miss is solved again with the full portfolio (Earth-Saturn: 6% of cells
+    on the old axis, all solved, ~0.2 s each). Holes left: at most 3 of 4,608 cells per pair measured.
+  - A class's reach (UI, `ui/Porkchops.gd`), with the planner's 10% reserve kept back: thermal Δv = v_e ln(m0/m_f);
+    plasma 1/m_f − 1/m0 = J_SI / 2P, J_SI = J μ^1.5 / AU^2.5, P = specific power × dry mass. Its fastest trip at a
+    departure is the shortest row it reaches (interpolated: Δv linearly, effort on log scales).
+- **Routes in use:** the bridge sums the flow record's lanes (by class) over the last year, planet to planet, once a game
+  day (`set_routes`). The UI's request may say `earth>*` for every route flown from Earth (the station inspector).
+- **Cheap:** one background thread at low priority (nice 15 on Linux) with its own celestial mechanics.
+  - Pairs on screen first, nearest departures first; when idle, each route in use is filled once (its window from when
+    the prefetch began), inner planets first. Pairs off screen are not kept up to date: at 5 d/s an outer pair needs
+    about 0.4 of a core to keep adding columns, so opening one again computes only the days that have passed.
+  - Disk cache (`--porkchop-cache`, the UI passes `user://porkchop_cache`): each column is appended to a file per pair
+    with a fingerprint of the orbits, axes and algorithm; a later session reads it back. Every game starts on the same
+    date, so the windows of the first years are computed once ever. Columns stay in memory (their primers, the seeds,
+    are dropped once well behind the present).
+  - Variable-Isp cells are warm-started from the shorter flight below, and for pairs with a Hohmann time under 500 days
+    also from the same flight one departure earlier, keeping the lower effort (the two seeds can land on different
+    local minima, which showed as speckle).
+  - Measured (one core, whole window): Earth-Mars 12 s, Mercury-Earth 30 s, Earth-Jupiter 18 s, Earth-Saturn 65 s.
+- **Bridge:** the UI names pairs in the command file (`"porkchop":"earth>mars;earth>*"`); the bridge writes
+  `<snapshot>.porkchop` (+ `.seq`) as columns arrive, at most twice a second, with both row axes, the routes in use, the
+  classes' masses, cargo units, exhaust speed and power, and each station's planet.
 
 ## Deferred Work
 

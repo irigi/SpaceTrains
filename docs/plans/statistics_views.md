@@ -5,7 +5,16 @@
 `trajectory.md` (porkchop plots). Departures from the plan: no `origin_station_id` on cargo lots (every lot is sold at
 the end of its mission, so the mission's origin is the lot's); the goods balance derives "made net of use" from stock
 snapshots instead of counting production in the economy step; lanes are judged by propellant per unit delivered; the
-"who pays whom" drill-down to accounts is left (the journal keeps sectors only); no disk cache for porkchops.
+"who pays whom" drill-down to accounts is left (the journal keeps sectors only).
+
+**Review round 1 (2026-10-27), after the user's questions:** plasma rows got their own log axis (from measured trip
+times; the holes in Earth-Saturn were cells the fast solver settings missed, now retried with the full portfolio);
+the Routes tab shows each class's fastest trip by departure (both planners trade fuel against time, so minimum fuel
+was the wrong question) with ships as dots, and one map per drive with classes as reach lines instead of a plot per
+class (54 colour choices before); routes in use from the flow record (lanes now by class) pick the pairs, for the
+tab, the inspector (`here>*`) and an idle prefetch; a disk cache keeps columns across sessions. The inspector
+rebuilt every section twice a second (40-80 ms, the slow frames with a station selected, also on main): it now
+refreshes one part a frame and copies values into the shown controls.
 
 ## Context
 

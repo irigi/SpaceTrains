@@ -144,8 +144,14 @@
     (folded; one row per good, what the station has learnt about its resupply in the tooltip); Ships (inbound with
     cargo, arrival and agreed value; docked); Money (profit before the faction, incomes, ledger).
   - Body: key numbers (radius, distance, period), moons and stations as buttons.
-  - Charts (`ui/DonutChart.gd`, `ui/StackedBar.gd`, `ui/Heatmap.gd`) and the categorical palette
-    (`UiTheme.categorical`) serve both panels.
+  - Charts (`ui/DonutChart.gd`, `ui/StackedBar.gd`, `ui/Heatmap.gd`, `ui/FrontierChart.gd`) and the categorical
+    palette (`UiTheme.categorical`) serve both panels.
+  - Refreshes (2026-10-27): the view is built in parts (the header, then one per section), each in its own box. A new
+    selection or a fold builds them all; a refresh of the same selection rebuilds one part a frame, and when the part
+    has the same shape (the same controls; buttons with the same text) its values are copied into the shown controls
+    instead of replacing them (building a part off the tree takes ~2 ms, adding it ~20 ms for the market). The ship
+    schematic has its own part, updated in place (re-adding it would drop its hover). Measured at 5 d/s with a station
+    selected: 109 frames over 50 ms a minute before (100 on main), 13 after; 8 with nothing selected.
 - **Station systems** (display only; `Simulation::station_systems_json` in `StationSystems.cpp`, the snapshot's
   `systems`; design in `docs/plans/station_structures.md`, "Light view", the seam for Victoria 2 style
   populations):
@@ -203,15 +209,22 @@
       table of goods delivered, cells coloured by amount (stations, then Earth and colony surfaces); the goods balance
       by station (imported, exported, stock change, made net of use); passengers landed by route and kind with fares;
       the 20 lanes that burn the most propellant, with trips, cargo units and unit-days and kg per unit delivered.
-    - Routes (porkchop plots, docs/modules/trajectory.md): origin and destination planets; colour by nuclear-thermal Δv,
-      plasma effort κ (log scale), or a class's propellant as a share of its tank for the trip with an empty hold
-      (white line: a full tank); "now" marked; hover for departure, flight, arrival and the value; ships of the route
-      waiting for their window as dots. The bridge computes the pair in the background; the plot fills in, refilled in
-      place as columns arrive (rebuilding the tab twice a second cost ~2 frames over 50 ms a second), and the tab ignores
-      the statistics file. `--shot-smooth=30 --shot-with-routes` measures smoothness with the worker busy on Earth-Jupiter.
-  - Station inspector, Launch windows (folded): per planet with a station, the next nuclear-thermal departure within 10%
-    of the window's lowest Δv and the cheapest plasma departure for a Hohmann-length flight; plot opens the Routes tab.
-    Pairs are asked nearest the Sun first (inner pairs take seconds, Jupiter and Saturn about a minute).
+    - Routes (porkchop plots, docs/modules/trajectory.md; reading a class's reach in `ui/Porkchops.gd`): the routes ships
+      flew in the last year, busiest first, or any other pair of planets; the busiest route until one is picked. Classes
+      shown: those that flew the route in the last year (the busiest six), else the commonest in the fleet. Three views:
+      - Fastest trip by departure (`ui/FrontierChart.gd`, the default): per class the shortest flight its tank allows at
+        each departure, solid with a full hold (cargo at 100 kg a unit), dashed empty, the planner's 10% reserve kept
+        back; gaps where it cannot go; ships on the route as dots at (their departure, their flight): both planners trade
+        propellant against time, so a dot above its line is a ship that saved fuel. Hover: each line's flight and arrival.
+      - Nuclear-thermal Δv map and plasma effort map (relative to the window's best, log scale, rows log spaced): each
+        class of that drive as the line its tank reaches with a full hold; hover adds each class's share of its tank.
+      The legend names the classes with their trips and says when one cannot make the trip in the window. The bridge
+      computes the pair in the background; the plot fills in, refilled in place as columns arrive (rebuilding the tab
+      twice a second cost ~2 frames over 50 ms a second), and the tab ignores the statistics file. `--shot-smooth=30 --shot-with-routes` measures smoothness with the worker busy on Earth-Jupiter.
+  - Station inspector, Launch windows (folded): the routes flown from the station's planet in the last year (the UI asks
+    for `here>*`, the bridge expands it, nearest the Sun first); per drive the busiest class's fastest flight with a full
+    hold, leaving now or when it next can, and in the tooltip the earliest arrival in the window; plot opens the Routes
+    tab.
 - **Flow overlay** (G, `MapIcons.gd`): goods delivered between stations as lines on the map, width by amount (square
   root), each direction offset to its own side with an arrow; period, good and measure as set in the Flows tab. While
   it is on, the bridge writes the statistics file as for the open screen; a label at the bottom says what is shown.
@@ -225,7 +238,7 @@
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
-  `--shot-arrival` watches the next ship dock at 600x; `--shot-routes` shoots the Routes tab (Earth-Mars by each measure, Earth-Jupiter) and the inspector's windows, printing
+  `--shot-arrival` watches the next ship dock at 600x; `--shot-routes` shoots the Routes tab (Earth-Mars in each view, Earth-Jupiter and Earth-Saturn) and the inspector's windows, printing
   how long the windows took; `--shot-flows` turns the flow overlay on and shoots the inner system and Earth's; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
   every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider
   than the panel; `--shot-cargo` shoots up to four loaded ships in flight
