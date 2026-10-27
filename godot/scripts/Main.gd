@@ -149,6 +149,14 @@ var help_panel: PanelContainer
 var stats_panel: PanelContainer
 var status_label: Label
 var thermal_label: Label
+# Flow overlay (G): goods between stations as lines on the map, from the statistics file (the
+# Flows tab's period, good and measure). The bridge writes that file while the overlay is on.
+var flow_overlay := false
+# Porkchop plots: the planet pairs asked of the bridge ("a>b;c>d"), and its latest file.
+var porkchop_request := ""
+var porkchop_seq := -1
+var porkchop_data: Dictionary = {}
+var flow_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 
 func _ready() -> void:
@@ -224,6 +232,10 @@ func _setup_ui() -> void:
     inspector_panel.offset_right = -8.0
     inspector_panel.offset_bottom = -212.0
     inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+    inspector_panel.entity_selected.connect(func(entity_id: String, kind: String) -> void: select_entity(entity_id, kind, true))
+    inspector_panel.route_requested.connect(func(origin: String, destination: String) -> void:
+        stats_panel.show_route(origin, destination)
+        _update_porkchop_request())
     ui_root.add_child(inspector_panel)
 
     event_ticker = EventTickerPanel.new()
@@ -263,6 +275,7 @@ func _setup_ui() -> void:
     stats_panel.ship_selected.connect(func(ship_id: String) -> void: select_entity(ship_id, "ship", true))
     # The bridge writes its statistics file only while the screen is open.
     stats_panel.visibility_toggled.connect(func(_open: bool) -> void: _write_bridge_commands())
+    stats_panel.route_changed.connect(_update_porkchop_request)
     stats_center.add_child(stats_panel)
 
     status_label = Label.new()
@@ -284,6 +297,12 @@ func _setup_ui() -> void:
     thermal_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
     thermal_label.visible = false
     ui_root.add_child(thermal_label)
+    flow_label = thermal_label.duplicate()
+    flow_label.name = "FlowOverlay"
+    flow_label.offset_top = -88.0
+    flow_label.offset_bottom = -64.0
+    flow_label.add_theme_color_override("font_color", UiTheme.ACCENT)
+    ui_root.add_child(flow_label)
 
 func _set_status(text: String) -> void:
     if _print_status and status_label != null and text != status_label.text and text != "":
@@ -319,6 +338,7 @@ func _exit_tree() -> void:
             snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp",
             snapshot_path + ".designs", snapshot_path + ".designs.tmp", snapshot_path + ".designs.seq", snapshot_path + ".designs.seq.tmp",
             snapshot_path + ".stats", snapshot_path + ".stats.tmp", snapshot_path + ".stats.seq", snapshot_path + ".stats.seq.tmp",
+            snapshot_path + ".porkchop", snapshot_path + ".porkchop.tmp", snapshot_path + ".porkchop.seq", snapshot_path + ".porkchop.seq.tmp",
             command_path, command_path + ".tmp"]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
@@ -384,6 +404,11 @@ func _unhandled_input(event: InputEvent) -> void:
             market_panel.toggle()
             if market_panel.visible:
                 market_panel.update_market(bridge_state)
+        elif event.keycode == KEY_G:
+            flow_overlay = not flow_overlay
+            flow_label.visible = flow_overlay
+            _write_bridge_commands()
+            _update_flow_overlay()
         elif event.keycode == KEY_T:
             ModelMaterialsScript.set_thermal_view(not ModelMaterialsScript.thermal_view)
             thermal_label.visible = ModelMaterialsScript.thermal_view
@@ -425,6 +450,8 @@ func _start_bridge() -> void:
         "--command-file", command_path,
         "--step-seconds", str(BRIDGE_STEP_SECONDS),
         "--opening-cache", ProjectSettings.globalize_path("user://opening_cache"),
+        # Porkchop columns computed in earlier sessions (every game starts on the same date).
+        "--porkchop-cache", ProjectSettings.globalize_path("user://porkchop_cache"),
         # The bridge exits when this process is gone (no orphan if the UI crashes).
         "--parent-pid", str(OS.get_process_id())
     ]
@@ -485,7 +512,8 @@ func _write_bridge_commands() -> void:
         "request": command_request,
         "save_path": command_save_path,
         "load_path": command_load_path,
-        "stats_open": stats_panel != null and stats_panel.visible,
+        "stats_open": (stats_panel != null and stats_panel.visible) or flow_overlay,
+        "porkchop": porkchop_request,
     }
     file.store_string(JSON.stringify(payload))
     file.close()
@@ -523,11 +551,38 @@ func _read_designs() -> void:
     bridge_designs = json.data.get("designs", {})
     jet_power_by_class.clear()
 
+# The pairs to ask for: the Routes tab's, and the selected station's planet to every other planet
+# with a station (the inspector's launch windows).
+func _update_porkchop_request() -> void:
+    var pairs: Array[String] = []
+    if stats_panel != null and stats_panel.visible and stats_panel.get("_tab") == stats_panel.ROUTES_TAB:
+        pairs.append("%s>%s" % [stats_panel.route_origin, stats_panel.route_destination])
+    if selected_kind == "station" and entity_details.has(selected_id):
+        # The routes flown from here (the bridge expands "*", nearest the Sun first).
+        pairs.append("%s>*" % _planet_of(String(entity_details[selected_id].get("parent_body_id", ""))))
+    var text := ";".join(pairs)
+    if text != porkchop_request:
+        porkchop_request = text
+        _write_bridge_commands()
+
+func _read_porkchops() -> void:
+    if porkchop_request == "":
+        return
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".porkchop.seq")
+    if seq_text == "" or int(seq_text) == porkchop_seq:
+        return
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".porkchop")) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return
+    porkchop_seq = int(seq_text)
+    porkchop_data = json.data
+    stats_panel.update_porkchops(porkchop_data, bridge_state.get("ships", []))
+
 # The statistics side file (money journal), written by the bridge while the Statistics screen is open.
 var stats_seq := -1
 
 func _read_stats() -> void:
-    if stats_panel == null or not stats_panel.visible:
+    if stats_panel == null or not (stats_panel.visible or flow_overlay):
         return
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".stats.seq")
     if seq_text == "" or int(seq_text) == stats_seq:
@@ -537,6 +592,36 @@ func _read_stats() -> void:
         return
     stats_seq = int(seq_text)
     stats_panel.update_stats(json.data)
+    _update_flow_overlay()
+
+# The overlay's lines: goods delivered from station to station (surface trade left out), for the
+# Flows tab's period, good and measure.
+func _update_flow_overlay() -> void:
+    if map_icons == null:
+        return
+    if not flow_overlay:
+        map_icons.flow_lines = []
+        return
+    var period := String(stats_panel.get("_period"))
+    var good := String(stats_panel.get("_flow_good"))
+    var by_value := bool(stats_panel.get("_flow_value"))
+    var sums := {}
+    for e in stats_panel.stats.get("flows", {}).get(period, {}).get("entries", []):
+        if String(e[0]) != "delivered" or String(e[1]).begins_with("surface:") or String(e[2]).begins_with("surface:"):
+            continue
+        if good != "" and String(e[3]) != good:
+            continue
+        var key := String(e[1]) + "|" + String(e[2])
+        sums[key] = float(sums.get(key, 0.0)) + (float(e[5]) if by_value else float(e[4]))
+    var lines: Array = []
+    var color := UiTheme.commodity_color(good) if good != "" else UiTheme.ACCENT
+    for key in sums.keys():
+        var parts: PackedStringArray = String(key).split("|")
+        lines.append({"from": parts[0], "to": parts[1], "amount": float(sums[key]), "color": color})
+    map_icons.flow_lines = lines
+    var names := {"lifetime": "since the start", "last_year": "last year", "last_30": "last 30 days"}
+    flow_label.text = "Flows (G): %s, %s, %s · set in Statistics → Flows" % [good.replace("_", " ") if good != "" else "all goods",
+        "credits" if by_value else "units", String(names.get(period, period))]
 
 # Ships in flight carry only a path id; attach the planned path from the paths file.
 # Returns how many ships name a path the paths file does not have.
@@ -559,6 +644,7 @@ func _read_snapshot() -> void:
     _read_paths()
     _read_designs()
     _read_stats()
+    _read_porkchops()
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
     if seq_text != "" and int(seq_text) == current_snapshot_seq:
@@ -1757,6 +1843,7 @@ func _refresh_ui(force := false) -> void:
     if _profile_enabled: _profiled("ui refresh", t)
 
 func _refresh_ui_now() -> void:
+    _update_porkchop_request()
     economy_history.record(bridge_state)
     if economy_history.has_unmet_window():
         bridge_state["unmet_30d"] = economy_history.recent_unmet_share(30.0)
@@ -1766,6 +1853,7 @@ func _refresh_ui_now() -> void:
     market_panel.update_market(bridge_state)
 
     var detail: Dictionary = entity_details.get(selected_id, {})
+    var inspector_started := Time.get_ticks_usec()
     inspector_panel.update_selection(detail, selected_kind, {
         "game_time_s": float(bridge_state.get("game_time_s", 0.0)),
         "faction_colors": faction_colors,
@@ -1775,7 +1863,10 @@ func _refresh_ui_now() -> void:
         "bodies": bridge_state.get("bodies", []),
         "stations": bridge_state.get("stations", []),
         "designs": bridge_designs,
+        "porkchops": porkchop_data,
+        "planet": _planet_of(String(detail.get("parent_body_id", ""))) if selected_kind == "station" else "",
     })
+    if _profile_enabled: _profiled("  inspector", inspector_started)
 
 func _entity_name_map() -> Dictionary:
     var names := {}

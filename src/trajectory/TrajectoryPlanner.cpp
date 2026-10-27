@@ -338,35 +338,42 @@ std::shared_ptr<const std::vector<KeplerTrajectoryPlanner::LambertCell>> KeplerT
     return lambert_grids_.emplace(key, std::move(cells)).first->second;
 }
 
-std::vector<KeplerTrajectoryPlanner::LambertCell> KeplerTrajectoryPlanner::lambert_row(
+std::optional<KeplerTrajectoryPlanner::LambertCell> KeplerTrajectoryPlanner::lambert_cell(
     const std::string& origin_body_id, const std::string& destination_body_id,
-    double departure_s, double hohmann_time_s, double mu) const {
-    std::vector<LambertCell> row;
+    double departure_s, double transit_s, double mu) const {
     const auto r1_pos = mechanics_.get_body_position(origin_body_id, departure_s);
     const double r1_m_k = std::max(1.0, r1_pos.length());
     const double vc1 = std::sqrt(mu / r1_m_k);
     const math::Vec3d v_circ1{-r1_pos.z / r1_m_k * vc1, 0.0, r1_pos.x / r1_m_k * vc1};
+    const auto r2_pos = mechanics_.get_body_position(destination_body_id, departure_s + transit_s);
+    const double r2_m_k = std::max(1.0, r2_pos.length());
+
+    const auto lam = solve_lambert(r1_pos, r2_pos, transit_s, mu);
+    if (!lam.found) return std::nullopt;
+    if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) return std::nullopt;
+
+    const double vc2 = std::sqrt(mu / r2_m_k);
+    const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
+    return LambertCell {
+        .wait_s = 0.0,
+        .transit_s = transit_s,
+        .dv_departure = (lam.v1 - v_circ1).length(),
+        .dv_arrival = (lam.v2 - v_circ2).length(),
+        .r1 = r1_pos,
+        .r2 = r2_pos,
+        .v1 = lam.v1,
+    };
+}
+
+std::vector<KeplerTrajectoryPlanner::LambertCell> KeplerTrajectoryPlanner::lambert_row(
+    const std::string& origin_body_id, const std::string& destination_body_id,
+    double departure_s, double hohmann_time_s, double mu) const {
+    std::vector<LambertCell> row;
     for (int ti = 0; ti < N_TRANSIT_CELLS; ++ti) {
         const double frac = 0.3 + 1.2 * static_cast<double>(ti) / (N_TRANSIT_CELLS - 1);
-        const double transit_k = hohmann_time_s * frac;
-        const auto r2_pos = mechanics_.get_body_position(destination_body_id, departure_s + transit_k);
-        const double r2_m_k = std::max(1.0, r2_pos.length());
-
-        const auto lam = solve_lambert(r1_pos, r2_pos, transit_k, mu);
-        if (!lam.found) continue;
-        if (conic_arc_min_radius(r1_pos, lam.v1, r2_pos, mu) < kMinPerihelionM) continue;
-
-        const double vc2 = std::sqrt(mu / r2_m_k);
-        const math::Vec3d v_circ2{-r2_pos.z / r2_m_k * vc2, 0.0, r2_pos.x / r2_m_k * vc2};
-        row.push_back({
-            .wait_s = 0.0,
-            .transit_s = transit_k,
-            .dv_departure = (lam.v1 - v_circ1).length(),
-            .dv_arrival = (lam.v2 - v_circ2).length(),
-            .r1 = r1_pos,
-            .r2 = r2_pos,
-            .v1 = lam.v1,
-        });
+        if (auto cell = lambert_cell(origin_body_id, destination_body_id, departure_s, hohmann_time_s * frac, mu)) {
+            row.push_back(*cell);
+        }
     }
     return row;
 }

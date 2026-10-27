@@ -142,10 +142,37 @@ func _run() -> void:
             get_tree().quit()
             return
         if arg.begins_with("--shot-smooth="):
+            if OS.get_cmdline_user_args().has("--shot-with-routes"):
+                # The porkchop worker busy on a slow pair while the game runs at speed.
+                main.stats_panel.show_route("earth", "jupiter")
+                main._update_porkchop_request()
+                await get_tree().create_timer(1.0).timeout
+            for a in OS.get_cmdline_user_args():
+                # --shot-select=<station id>: keep a station in the inspector (it rebuilds on refreshes).
+                if a.begins_with("--shot-select="):
+                    var id := a.trim_prefix("--shot-select=")
+                    main.select_entity(id, "station", not OS.get_cmdline_user_args().has("--shot-nofocus"))
             await _measure_smoothness(float(arg.trim_prefix("--shot-smooth=")), 432000.0)
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()
             return
+    for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-stats"):
+            await _stats_shots(arg.trim_prefix("--shot-stats=") if arg.contains("=") else "")
+            get_tree().quit()
+            return
+    if OS.get_cmdline_user_args().has("--shot-routes"):
+        await _routes_shots(rig)
+        get_tree().quit()
+        return
+    if OS.get_cmdline_user_args().has("--shot-flows"):
+        await _flow_overlay_shots(rig)
+        get_tree().quit()
+        return
+    if OS.get_cmdline_user_args().has("--shot-inspector"):
+        await _inspector_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-station-systems"):
         await _station_systems_shots(rig)
         get_tree().quit()
@@ -317,7 +344,7 @@ func _run() -> void:
     # The Statistics screen, every tab (the bridge writes its file once the screen is open).
     main.stats_panel.toggle()
     await get_tree().create_timer(2.5).timeout
-    for tab in range(6):
+    for tab in range(int(main.stats_panel.get("TABS").size())):
         main.stats_panel.set_tab(tab)
         await get_tree().create_timer(0.8).timeout
         await _shoot("stats_%d" % tab)
@@ -564,8 +591,8 @@ func _cargo_shots(rig: Node3D) -> void:
             break
     print("[ShotTour] cargo: %d loaded ships in flight shot" % shot)
 
-# The station systems section of the inspector (display only), for stations of each kind of
-# site: scrolled so the section's header is at the top of the panel.
+# The station systems view in the inspector (display only: people, works and needs), for stations
+# of each kind of site: scrolled so the people section's header is at the top of the panel.
 func _station_systems_shots(rig: Node3D) -> void:
     for station_id in ["earth_l1", "earth_orbit", "mars_transfer", "ganymede_depot", "venus_cloud", "luna_base"]:
         if not main.entity_nodes.has(station_id):
@@ -579,9 +606,184 @@ func _station_systems_shots(rig: Node3D) -> void:
         scroll.scroll_vertical = 0
         await get_tree().process_frame
         await get_tree().process_frame
-        for child in content.get_children():
-            if child is Button and String(child.text).contains("STATION SYSTEMS"):
-                scroll.scroll_vertical = int(child.position.y)
-                print("[ShotTour] %s: section at %.0f of %.0f px" % [station_id, child.position.y, content.size.y])
+        for box in content.get_children():
+            for child in box.get_children():
+                if child is Button and String(child.text).contains("PEOPLE"):
+                    var y: float = (box as Control).position.y + (child as Control).position.y
+                    scroll.scroll_vertical = int(y)
+                    print("[ShotTour] %s: section at %.0f of %.0f px" % [station_id, y, content.size.y])
         await get_tree().process_frame
         await _shoot("station_systems_" + station_id)
+
+# The inspector panel, page by page (cropped to the panel), for a docked and a flying ship of
+# each drive and for a few stations: to judge how the panels read.
+func _inspector_shots(rig: Node3D) -> void:
+    var picks: Array = []
+    for station_id in ["earth_orbit", "mars_transfer", "ganymede_depot"]:
+        if main.entity_nodes.has(station_id):
+            picks.append([station_id, "station"])
+    var seen := {}
+    for ship_id in main.entity_details.keys():
+        if main.entity_kinds.get(ship_id, "") != "ship":
+            continue
+        var detail: Dictionary = main.entity_details[ship_id]
+        var key := "%s/%s" % [String(detail.get("propulsion_type", "")),
+            "flying" if String(detail.get("phase", "")) == "in_transit" else "docked"]
+        if seen.has(key):
+            continue
+        seen[key] = true
+        picks.append([ship_id, "ship"])
+        if picks.size() >= 8:
+            break
+    # Every section open, also those folded by default.
+    main.inspector_panel.set("_folded", {"station/works": false, "station/orders": false, "ship/money": false})
+    for pick in picks:
+        main.select_entity(pick[0], pick[1], true)
+        rig.set("distance", 0.004)
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.8).timeout
+        var panel: Control = main.inspector_panel
+        var scroll: ScrollContainer = panel.get("_scroll")
+        var content: Control = panel.get("_content")
+        var page := 0
+        var y := 0
+        while page < 6:
+            scroll.scroll_vertical = y
+            await get_tree().process_frame
+            await get_tree().process_frame
+            await get_tree().process_frame
+            var image := get_viewport().get_texture().get_image()
+            var rect := Rect2i(panel.get_global_rect())
+            image = image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size())))
+            var name := "inspector_%s_%s_%d" % [pick[1], pick[0], page]
+            image.save_png(out_dir.path_join(name + ".png"))
+            print("[ShotTour] saved %s (content %.0f x %.0f px, view %.0f x %.0f px)" % [name, content.size.x, content.size.y,
+                scroll.size.x, scroll.size.y])
+            if page == 0:
+                for child in content.get_children():
+                    if (child as Control).get_combined_minimum_size().x > scroll.size.x - 12.0:
+                        print("[ShotTour]   wide: %s %s min %.0f" % [child.get_class(), String(child.get("text")) if child is Label or child is Button else "",
+                            (child as Control).get_combined_minimum_size().x])
+            y += int(scroll.size.y * 0.9)
+            page += 1
+            if y >= content.size.y - scroll.size.y * 0.1:
+                break
+
+# The Statistics screen, page by page: every tab, or only those listed (--shot-stats=3,4).
+func _stats_shots(only: String) -> void:
+    main.stats_panel.toggle()
+    await get_tree().create_timer(2.5).timeout
+    var panel: Control = main.stats_panel
+    var scroll: ScrollContainer = panel.get("_scroll")
+    var content: Control = panel.get("_content")
+    for tab in range(int(panel.get("TABS").size())):
+        if only != "" and not only.split(",").has(str(tab)):
+            continue
+        main.stats_panel.set_tab(tab)
+        await get_tree().create_timer(0.8).timeout
+        var y := 0
+        var page := 0
+        while page < 6:
+            scroll.scroll_vertical = y
+            await get_tree().process_frame
+            await get_tree().process_frame
+            await get_tree().process_frame
+            var image := get_viewport().get_texture().get_image()
+            var rect := Rect2i(panel.get_global_rect())
+            image = image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size())))
+            image.save_png(out_dir.path_join("stats_tab%d_%d.png" % [tab, page]))
+            print("[ShotTour] saved stats_tab%d_%d (content %.0f px, view %.0f px)" % [tab, page, content.size.y, scroll.size.y])
+            y += int(scroll.size.y * 0.9)
+            page += 1
+            if y >= content.size.y - scroll.size.y * 0.1:
+                break
+    main.stats_panel.toggle()
+
+# The flow overlay (G) over the inner system and the Earth-Moon system.
+func _flow_overlay_shots(rig: Node3D) -> void:
+    var key := InputEventKey.new()
+    key.keycode = KEY_G
+    key.pressed = true
+    Input.parse_input_event(key)
+    await get_tree().create_timer(3.0).timeout
+    print("[ShotTour] flow overlay: %d lines" % (main.map_icons.get("flow_lines") as Array).size())
+    for stop in [["sun", "body", 30.0, "flows_inner"], ["earth", "body", 0.12, "flows_earth"]]:
+        main.select_entity(stop[0], stop[1], true)
+        rig.set("distance", stop[2])
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.8).timeout
+        await _shoot(stop[3])
+
+# Porkchop plots: Earth to Mars by Δv, plasma effort and a class of each drive, Earth to Jupiter;
+# then the launch windows in Low Earth Logistics' inspector. Prints how long the windows took.
+func _routes_shots(rig: Node3D) -> void:
+    var panel: Control = main.stats_panel
+    var started := Time.get_ticks_msec()
+    panel.show_route("earth", "mars")
+    main._update_porkchop_request()
+    var waited := 0.0
+    while waited < 60.0:
+        await get_tree().create_timer(0.5).timeout
+        waited += 0.5
+        var pair: Dictionary = panel.call("_route_pair")
+        if (pair.get("columns", []) as Array).size() >= 96:
+            break
+    print("[ShotTour] earth>mars: %d columns after %.1f s" % [(panel.call("_route_pair").get("columns", []) as Array).size(),
+        (Time.get_ticks_msec() - started) / 1000.0])
+    var routes: Array = main.porkchop_data.get("routes", [])
+    print("[ShotTour] %d routes in use, busiest %s" % [routes.size(), ", ".join(routes.slice(0, 6).map(func(r):
+        return "%s>%s %.0f" % [r.get("origin", ""), r.get("destination", ""), float(r.get("trips", 0.0))]))])
+    for view in ["fastest", "thermal", "plasma"]:
+        panel.set("_route_view", view)
+        panel.call("_rebuild")
+        await get_tree().create_timer(0.5).timeout
+        await _shoot("routes_earth_mars_" + view)
+    for far in ["jupiter", "saturn"]:
+        started = Time.get_ticks_msec()
+        panel.show_route("earth", far)
+        main._update_porkchop_request()
+        waited = 0.0
+        while waited < 150.0:
+            await get_tree().create_timer(1.0).timeout
+            waited += 1.0
+            if (panel.call("_route_pair").get("columns", []) as Array).size() >= 96:
+                break
+        print("[ShotTour] earth>%s: %d columns after %.1f s" % [far, (panel.call("_route_pair").get("columns", []) as Array).size(),
+            (Time.get_ticks_msec() - started) / 1000.0])
+        for view in ["fastest", "plasma"]:
+            panel.set("_route_view", view)
+            panel.call("_rebuild")
+            await get_tree().create_timer(0.5).timeout
+            await _shoot("routes_earth_%s_%s" % [far, view])
+    # Switching away and back: the last grid of a pair shows at once, without waiting for the bridge.
+    panel.show_route("earth", "jupiter")
+    main._update_porkchop_request()
+    await get_tree().create_timer(2.0).timeout
+    panel.show_route("earth", "saturn")
+    print("[ShotTour] back to earth>saturn: %d columns at once" % (panel.call("_route_pair").get("columns", []) as Array).size())
+    # Earth-Mercury: the from/to pickers and the 0.1 AU step in the plasma map.
+    started = Time.get_ticks_msec()
+    panel.show_route("earth", "mercury")
+    main._update_porkchop_request()
+    waited = 0.0
+    while waited < 90.0:
+        await get_tree().create_timer(1.0).timeout
+        waited += 1.0
+        if (panel.call("_route_pair").get("columns", []) as Array).size() >= 96:
+            break
+    print("[ShotTour] earth>mercury: %d columns after %.1f s" % [(panel.call("_route_pair").get("columns", []) as Array).size(),
+        (Time.get_ticks_msec() - started) / 1000.0])
+    panel.set("_route_view", "plasma")
+    panel.call("_rebuild")
+    await get_tree().create_timer(0.5).timeout
+    await _shoot("routes_earth_mercury_plasma")
+    panel.toggle()
+    main.inspector_panel.set("_folded", {"station/windows": false, "station/market": true, "station/people": true})
+    main.select_entity("earth_orbit", "station", true)
+    await get_tree().create_timer(20.0).timeout
+    main._refresh_ui(true)
+    await get_tree().create_timer(1.0).timeout
+    var image := get_viewport().get_texture().get_image()
+    var rect := Rect2i(main.inspector_panel.get_global_rect())
+    image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size()))).save_png(out_dir.path_join("routes_inspector.png"))
+    print("[ShotTour] saved routes_inspector")

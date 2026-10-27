@@ -17,6 +17,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/Types.hpp"
 #include "economy/EconomySystem.hpp"
+#include "simulation/FlowRecord.hpp"
 #include "simulation/MoneyJournal.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -168,6 +169,8 @@ public:
     [[nodiscard]] double station_profit_last_year(const domain::StationState& station) const;
     // The money journal (MoneyJournal.hpp): every transfer by account and category, and its history.
     [[nodiscard]] const MoneyJournal& money_journal() const { return journal_; }
+    // What moved where (FlowRecord.hpp): goods, passengers, lanes, with a monthly history.
+    [[nodiscard]] const FlowRecord& flow_record() const { return flows_; }
     // The real balance of a journal account (Earth, a colony, a faction, a station, its residents,
     // or a faction's fleet: the sum of its ships' cash).
     [[nodiscard]] double account_balance(int account) const;
@@ -753,12 +756,15 @@ private:
     std::map<std::string, double> faction_treasuries_;
     // The money journal and its account indices (MoneyJournal.hpp).
     MoneyJournal journal_;
+    FlowRecord flows_;
     std::unordered_map<std::string, int> colony_accounts_;
     std::unordered_map<std::string, int> faction_accounts_;
     std::unordered_map<std::string, int> fleet_accounts_;
     int first_station_account_ {0};
     int first_household_account_ {0};
     void setup_money_journal();
+    // Every station's stock of every good, in the flow record's order.
+    [[nodiscard]] std::vector<std::vector<double>> flow_stocks() const;
     void close_journal_period();
     [[nodiscard]] static constexpr int account_earth() { return 0; }
     [[nodiscard]] int account_economy(const std::string& economy_id) const;   // Earth or a colony

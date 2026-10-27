@@ -236,6 +236,7 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
         origin_state.credits += cost;
         origin_state.ledger.ship_sales += cost;
         journal_.record(account_fleet(ship.faction_id), account_station(origin_state), MoneyCategory::Cargo, cost);
+        flows_.record(FlowKind::Loaded, origin_state.station_id, best_destination->id, lot.commodity_id, lot.units, cost);
         purchase_cost += cost;
         record_trade({
             .time_s = game_time_s_,
@@ -592,6 +593,8 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             ship.ledger.cargo_revenue += revenue;
             total_revenue += revenue;
             if (arrived > 0.0) {
+                flows_.record(FlowKind::Delivered, ship.active_mission.origin_station_id, destination.station_id,
+                    lot.commodity_id, arrived, revenue);
                 record_trade({
                     .time_s = game_time_s_,
                     .ship_id = ship.id,
@@ -613,6 +616,16 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
             "arrival");
     } else {
         add_event(std::format("{} arrived at {}", ship.name, get_station_definition(ship.current_station_id).name), "arrival");
+    }
+    {
+        // The lane's transport work: cargo unit-days and the propellant the plan burned, by class
+        // (the porkchop plots show the classes that fly a route).
+        double unit_days = 0.0;
+        for (const auto& lot : ship.active_mission.cargo) {
+            unit_days += lot.units * std::max(0.0, ship.active_mission.total_travel_time_s) / 86400.0;
+        }
+        flows_.record(FlowKind::Lane, ship.active_mission.origin_station_id, destination.station_id, ship.class_id, unit_days,
+            ship.active_mission.propellant_cost_kg);
     }
     land_passengers(ship, destination);
     ship.active_mission = {};

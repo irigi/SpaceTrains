@@ -46,6 +46,30 @@ void Simulation::setup_money_journal() {
         journal_.set_seed(i, account_balance(i));
     }
     journal_.set_next_close_day(game_time_s_ / 86400.0 + MoneyJournal::kPeriodDays);
+    // The flow record closes its months with the journal's.
+    std::vector<std::string> station_ids;
+    for (const auto& station : stations_) {
+        station_ids.push_back(station.station_id);
+    }
+    std::vector<std::string> goods;
+    for (const auto& commodity : universe_.commodities) {
+        goods.push_back(commodity.id);
+    }
+    flows_.reset(std::move(station_ids), std::move(goods), {});
+    flows_.start_stocks_mutable() = flow_stocks();
+}
+
+std::vector<std::vector<double>> Simulation::flow_stocks() const {
+    std::vector<std::vector<double>> stocks;
+    for (const auto& station : stations_) {
+        std::vector<double> row;
+        for (const auto& good : flows_.goods()) {
+            const auto it = station.inventory.find(good);
+            row.push_back(it == station.inventory.end() ? 0.0 : it->second);
+        }
+        stocks.push_back(std::move(row));
+    }
+    return stocks;
 }
 
 int Simulation::account_economy(const std::string& economy_id) const {
@@ -151,6 +175,7 @@ void Simulation::close_journal_period() {
             sample.colony_people.push_back(it == background_population_.end() ? 0.0 : it->second);
         }
     }
+    flows_.close_period(sample.day, flow_stocks());
     journal_.close_period(std::move(sample));
 }
 
@@ -299,10 +324,17 @@ std::string Simulation::build_stats_json() const {
         const auto& station = stations_[s];
         const auto& definition = get_station_definition(station.station_id);
         const double profit = station_lifetime_profit(station);
+        // People at each closed period, and the station systems view (display only) for the people charts.
+        std::vector<double> people_series;
+        for (const auto& sample : history) {
+            people_series.push_back(s < sample.stations.size() ? sample.stations[s].population : 0.0);
+        }
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"credits\":{},\"profit\":{},\"profit_last_year\":{},"
+            "\"people_history\":{},{}"   // station_systems_json writes "systems":{...}, (or nothing)
             "\"red_days\":{},\"population\":{},\"workers\":{},\"jobs\":{},\"wage\":{},\"labour_market\":{},\"household_credits\":{}}}",
             s > 0 ? "," : "", json_escape(station.station_id), json_escape(definition.name), json_escape(definition.faction_id),
-            number(station.credits), number(profit), number(station_profit_last_year(station)), number(station.ledger.days_in_red),
+            number(station.credits), number(profit), number(station_profit_last_year(station)), numbers_json(people_series),
+            station_systems_json(definition, station), number(station.ledger.days_in_red),
             number(station.population), number(station_workers(station)),
             number(in_labour_market(station) ? station.jobs : station_workers(station)), fine(station_wage_cr_per_day(station)),
             in_labour_market(station) ? "true" : "false", number(station.household_credits));
@@ -349,6 +381,83 @@ std::string Simulation::build_stats_json() const {
         first_colony = false;
     }
     out += "],";
+
+    // Flows (FlowRecord.hpp): places, goods, and per period what moved and the stations' stocks at
+    // its start and end (the goods balance: net made here = stock change - imported + exported).
+    {
+        out += "\"flows\":{\"nodes\":[";
+        bool first_node = true;
+        for (const auto& station : universe_.stations) {
+            out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"kind\":\"station\",\"faction\":\"{}\"}}",
+                first_node ? "" : ",", json_escape(station.id), json_escape(station.name), json_escape(station.faction_id));
+            first_node = false;
+        }
+        for (const auto& economy : universe_.background_economies) {
+            out += std::format(",{{\"id\":\"surface:{}\",\"name\":\"{}\",\"kind\":\"surface\",\"faction\":\"\"}}",
+                json_escape(economy.id), json_escape(economy.name));
+        }
+        out += "],\"goods\":[";
+        for (std::size_t g = 0; g < flows_.goods().size(); ++g) {
+            out += std::format("{}\"{}\"", g > 0 ? "," : "", json_escape(flows_.goods()[g]));
+        }
+        out += "],";
+        const auto table_json = [](const std::vector<const FlowTable*>& tables) {
+            FlowTable sum;
+            for (const auto* table : tables) {
+                for (const auto& [key, amount] : *table) {
+                    auto& total = sum[key];
+                    total.units += amount.units;
+                    total.value += amount.value;
+                    total.count += amount.count;
+                }
+            }
+            std::string json = "[";
+            bool first = true;
+            for (const auto& [key, amount] : sum) {
+                json += std::format("{}[\"{}\",\"{}\",\"{}\",\"{}\",{},{},{}]", first ? "" : ",", flow_kind_id(key.kind),
+                    json_escape(key.from), json_escape(key.to), json_escape(key.item), fine(amount.units), fine(amount.value),
+                    fine(amount.count));
+                first = false;
+            }
+            return json + "]";
+        };
+        const auto stocks_json = [](const std::vector<std::vector<double>>& stocks) {
+            std::string json = "[";
+            for (std::size_t s = 0; s < stocks.size(); ++s) {
+                json += (s > 0 ? "," : "") + numbers_json(stocks[s]);
+            }
+            return json + "]";
+        };
+        const auto& flow_history = flows_.history();
+        const auto now = flow_stocks();
+        // Since the start: every closed month and the running one.
+        std::vector<const FlowTable*> all;
+        for (const auto& sample : flow_history) {
+            all.push_back(&sample.flows);
+        }
+        all.push_back(&flows_.period());
+        // Last year: the last 12 closed months; last 30 days: the last closed month (as the journal).
+        std::vector<const FlowTable*> year;
+        for (std::size_t k = flow_history.size() > 12 ? flow_history.size() - 12 : 0; k < flow_history.size(); ++k) {
+            year.push_back(&flow_history[k].flows);
+        }
+        std::vector<const FlowTable*> month;
+        if (!flow_history.empty()) {
+            month.push_back(&flow_history.back().flows);
+        } else {
+            month.push_back(&flows_.period());
+        }
+        const auto& start = flows_.start_stocks();
+        const auto& year_start = flow_history.size() > 12 ? flow_history[flow_history.size() - 13].stocks : start;
+        const auto& closed_end = flow_history.empty() ? now : flow_history.back().stocks;
+        const auto& month_start = flow_history.size() > 1 ? flow_history[flow_history.size() - 2].stocks : start;
+        out += std::format("\"lifetime\":{{\"entries\":{},\"stock_start\":{},\"stock_end\":{}}},",
+            table_json(all), stocks_json(start), stocks_json(now));
+        out += std::format("\"last_year\":{{\"entries\":{},\"stock_start\":{},\"stock_end\":{}}},",
+            table_json(year), stocks_json(year_start), stocks_json(closed_end));
+        out += std::format("\"last_30\":{{\"entries\":{},\"stock_start\":{},\"stock_end\":{}}}}},",
+            table_json(month), stocks_json(flow_history.empty() ? start : month_start), stocks_json(closed_end));
+    }
 
     // Factions: treasury and credit.
     out += "\"factions\":[";

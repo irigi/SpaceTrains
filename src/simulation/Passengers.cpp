@@ -894,6 +894,22 @@ void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& 
     const auto& definition = get_station_definition(destination.station_id);
     for (const auto& lot : ship.passengers) {
         const auto kind = static_cast<std::size_t>(lot.kind);
+        {
+            const char* group = "visitors";
+            switch (lot.kind) {
+            case domain::PassengerKind::Migrant: group = "settlers"; break;
+            case domain::PassengerKind::Emigrant: group = "emigrants"; break;
+            case domain::PassengerKind::RotationOut:
+            case domain::PassengerKind::RotationHome: group = "rotation"; break;
+            case domain::PassengerKind::Visitor:
+            case domain::PassengerKind::VisitorHome: break;
+            }
+            // A colony's recruits go on down to its surface.
+            const bool recruits = lot.kind == domain::PassengerKind::Migrant && colony_employer(lot.work_station_id);
+            flows_.record(FlowKind::Passengers, lot.origin_id,
+                recruits ? "surface:" + lot.work_station_id.substr(std::string("colony:").size()) : destination.station_id,
+                group, lot.count, lot.count * lot.fare_cr);
+        }
         passenger_audit_.landed[kind] += lot.count;
         passenger_audit_.flight_days[kind] += lot.count * std::max(0.0, game_time_s_ - lot.boarded_s) / 86400.0;
         {

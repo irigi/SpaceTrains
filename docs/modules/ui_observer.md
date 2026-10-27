@@ -127,12 +127,31 @@
   The old models' hull self-emission, which clipped about 30% of their pixels and made them glare near the Sun, is
   gone. A close-up near Mercury and one at Titan measure the same.
 - **Panels:** top bar (date, pause, timewarp, fleet summary, unmet demand over 30 days, money); registry (ships,
-  stations, bodies); inspector: ship (mission in words, propellant, cargo lots, provisions, transit, expected trip
-  earnings, crew, home, route commitment, ledger, and a collapsible ship systems section: engine state and drive
-  radiator temperature, a to-scale top-view schematic (`ui/ShipSchematic.gd`, below), and every part with its mass
-  and key numbers in a folded parts list), station (badges, market rows with stock vs target, cover and share
-  short, a collapsible station systems section (below), orders, inbound and docked ships, money since start), body (orbit, moons, stations); economy and markets
-  overview (M); comms log.
+  stations, bodies); inspector (below); economy and markets overview (M); comms log.
+- **Inspector** (`ui/InspectorPanel.gd`, 390 px; building blocks in `ui/UiWidgets.gd`, shared with the statistics
+  screen): ships, stations and bodies share one layout: header (faction strip, name, class or site), a strip of four
+  key numbers, alerts, then sections that fold; a folded section shows a one-line summary, and the fold state is kept
+  per kind across selections. Numbers sit in tables with column headers; details that would clutter a row are in its
+  tooltip; a ship or body named in a table is a button that selects it (`entity_selected`).
+  - Ship: key numbers (time to arrival or status, propellant, hold, profit to date), the mission in words; Voyage
+    (transit, trajectory, this trip's sale and cost, liner or rotation contract, route commitment), Load (gauges,
+    cargo lots, passengers), Crew and money (folded: the ledger since commissioning), Ship systems (engine, tier 2
+    lines, the schematic, below, and a folded parts list).
+  - Station: key numbers (people and change since founding, cash, share of demand that went short since the start,
+    storage); Market (stock bar against target, price and trend, net rate, days of cover, `export` for export
+    goods; surface trade in one line with prices in its tooltip; production); People (housing, a donut of who lives
+    there, wage and savings, jobs by kind, passengers waiting by kind); Works and needs (folded; below); Orders
+    (folded; one row per good, what the station has learnt about its resupply in the tooltip); Ships (inbound with
+    cargo, arrival and agreed value; docked); Money (profit before the faction, incomes, ledger).
+  - Body: key numbers (radius, distance, period), moons and stations as buttons.
+  - Charts (`ui/DonutChart.gd`, `ui/StackedBar.gd`, `ui/Heatmap.gd`, `ui/FrontierChart.gd`) and the categorical
+    palette (`UiTheme.categorical`) serve both panels.
+  - Refreshes (2026-10-27): the view is built in parts (the header, then one per section), each in its own box. A new
+    selection or a fold builds them all; a refresh of the same selection rebuilds one part a frame, and when the part
+    has the same shape (the same controls; buttons with the same text) its values are copied into the shown controls
+    instead of replacing them (building a part off the tree takes ~2 ms, adding it ~20 ms for the market). The ship
+    schematic has its own part, updated in place (re-adding it would drop its hover). Measured at 5 d/s with a station
+    selected: 109 frames over 50 ms a minute before (100 on main), 13 after; 8 with nothing selected.
 - **Station systems** (display only; `Simulation::station_systems_json` in `StationSystems.cpp`, the snapshot's
   `systems`; design in `docs/plans/station_structures.md`, "Light view", the seam for Victoria 2 style
   populations):
@@ -179,20 +198,54 @@
       category;
     - Stations: cash, profit before the faction, top income and expense, red days; a station's and its
       residents' flows;
-    - Residents: people, workers, open jobs, wage, savings, savings rate;
+    - People: donuts of where people live (stations and colony surfaces) and what station people do (jobs by
+      kind, dependants, spacers, travellers); stacked bars of residents by station against housing and of jobs by
+      kind; the share of each life need a station covers itself; people over time (stacked areas, stations then
+      colony surfaces); then the residents' money (people, workers, open jobs, wage, savings, savings rate). The
+      station systems view comes with each station in the stats file (`systems`, `people_history`), display only;
     - Colonies & Earth: accounts against credit lines, wage p10/p50/p90, hiring up and down, Earth's flows;
-    - Fleet: by faction and class, the best and worst ships (click to select one).
+    - Fleet: by faction and class, the best and worst ships (click to select one);
+    - Flows (the flow record, docs/modules/economy.md): measure (units or credits) and good (all or one); a from × to
+      table of goods delivered, cells coloured by amount (stations, then Earth and colony surfaces); the goods balance
+      by station (imported, exported, stock change, made net of use); passengers landed by route and kind with fares;
+      the 20 lanes that burn the most propellant, with trips, cargo units and unit-days and kg per unit delivered.
+    - Routes (porkchop plots, docs/modules/trajectory.md; reading a class's reach in `ui/Porkchops.gd`): a "from" and a
+      "to" picker over the planets with stations (a destination shows the trips flown to it from the origin in the
+      last year); the busiest route until one is picked. Classes
+      shown: those that flew the route in the last year (the busiest six), else the commonest in the fleet. Three views:
+      - Fastest trip by departure (`ui/FrontierChart.gd`, the default): per class the shortest flight its tank allows at
+        each departure, solid with a full hold (cargo at 100 kg a unit), dashed empty, the planner's 10% reserve kept
+        back; gaps where it cannot go; ships on the route as dots at (their departure, their flight): both planners trade
+        propellant against time, so a dot above its line is a ship that saved fuel. Hover: each line's flight and arrival.
+      - Nuclear-thermal Δv map and plasma effort map (relative to the window's best, log scale, rows log spaced): each
+        class of that drive as the line its tank reaches with a full hold; hover adds each class's share of its tank.
+      The legend names the classes with their trips and says when one cannot make the trip in the window. The bridge
+      computes the pair in the background; the plot fills in, refilled in place as columns arrive (rebuilding the tab
+      twice a second cost ~2 frames over 50 ms a second), and the tab ignores the statistics file. `--shot-smooth=30 --shot-with-routes` measures smoothness with the worker busy on Earth-Jupiter.
+      Measured 2026-10-27 at 5 d/s, 60 s, nothing selected: main 5-6 frames over 50 ms; this branch the same once the
+      routes in use are in the disk cache, 9-17 while the worker computes them in a fresh cache (no stalls, ~59 fps).
+      Neither idle priority (SCHED_IDLE) nor a half-duty prefetch changed it, so it was left.
+  - Station inspector, Launch windows (folded): the routes flown from the station's planet in the last year (the UI asks
+    for `here>*`, the bridge expands it, nearest the Sun first); per drive the busiest class's fastest flight with a full
+    hold, leaving now or when it next can, and in the tooltip the earliest arrival in the window; plot opens the Routes
+    tab.
+- **Flow overlay** (G, `MapIcons.gd`): goods delivered between stations as lines on the map, width by amount (square
+  root), each direction offset to its own side with an arrow; period, good and measure as set in the Flows tab. While
+  it is on, the bridge writes the statistics file as for the open screen; a label at the bottom says what is shown.
   - The station inspector shows its profit before the faction, since the start and over the last year.
-- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, F focus, T thermal view, Space pause, `,` `.`
+- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, G flow overlay, F focus, T thermal view, Space pause, `,` `.`
   timewarp, F11 map debug.
 - **Dev** (a tour opens a real window; parse-check scripts first with `godot4 --headless --path godot --check-only
   --script res://scripts/<file>.gd`): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
-  `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
+  `--shot-smooth=SECONDS` counts stalled frames (`--shot-select=<station>` keeps a station in the inspector, `--shot-nofocus` without moving the camera); the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
-  `--shot-arrival` watches the next ship dock at 600x; `--shot-cargo` shoots up to four loaded ships in flight
+  `--shot-arrival` watches the next ship dock at 600x; `--shot-routes` shoots the Routes tab (Earth-Mars in each view, Earth-Jupiter and Earth-Saturn) and the inspector's windows, printing
+  how long the windows took; `--shot-flows` turns the flow overlay on and shoots the inner system and Earth's; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
+  every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider
+  than the panel; `--shot-cargo` shoots up to four loaded ships in flight
   close up and prints their hold state, `--shot-cargo-angles` adds four views each; `--shot-pause` also checks the
   ring spin stops); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
   - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>
@@ -217,7 +270,7 @@ SimulationBridge snapshot/query -> UI widgets and 3D nodes -> player observation
 ## Deferred Work
 
 - Trajectory progress as a shader instead of rebuilt lines
-- More statistics views (roadmap: flows of goods from station to station)
+- Statistics: the "who pays whom" sector matrix drilled down to accounts (the journal keeps sectors only)
 
 ## Tests
 

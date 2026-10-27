@@ -16,17 +16,32 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
-## Current Plan (updated 2026-10-26) — start here
+## Current Plan (updated 2026-10-27) — start here
 
-**Status.** `main` holds the game up to the economy overhaul (PR #21), the 3D models at true scale (PR #22) and the
-station systems view (PR #23); the user approved the overhaul's decisions and the models on 2026-10-26. The clean-up
-review (step 8) is on `feature/cleanup_review`: code restructured with identical results, the review's fixes, and
-these docs rewritten (log: `docs/plans/cleanup_review_log.md`). The design as it stands is in `docs/modules/`
-(start with `docs/architecture_overview.md`); the economy in `economy.md`, ships, dispatch and passengers in
-`ships_and_fleet.md`.
+**Status.** `main` holds the game up to the economy overhaul (PR #21), the 3D models at true scale (PR #22), the
+station systems view (PR #23), the clean-up review (PR #24, merged 2026-10-26) and the statistics views (2026-10-27,
+below). The design as it stands is in `docs/modules/` (start with `docs/architecture_overview.md`); the economy in
+`economy.md`, ships, dispatch and passengers in `ships_and_fleet.md`, the statistics screen and inspector in
+`ui_observer.md`, porkchop plots in `trajectory.md`.
 
 Benchmark, 4 starts × 1,460 days (before the review's result-changing fixes, 2026-10-26): unmet demand
 0.2 ± 0.2%, last fifth 0.0%; 87 of 131 ships profitable; ~4,500 boardings; drift 0; ~150 s per run.
+
+**Statistics views (2026-10-27, the "Later" block below, reviewed by the user in three rounds):**
+- inspector redesign: ships and stations share one layout (key numbers, folding sections, tables with headers),
+  rebuilt one part a frame;
+- People tab (where people live, what they do, residents against housing, jobs by kind, life needs met, people over
+  time) and the residents' donut in the inspector;
+- flow record and Flows tab (from × to goods, goods balance by station, passengers by route, lane costs) and the flow
+  overlay on the map (G);
+- porkchop plots (Routes tab: from/to planets, fastest trip by departure per class, Δv and effort maps with each
+  class's reach; launch windows in the station inspector), computed in the background per planet pair and kept on
+  disk, keyed by a hash of the trajectory code.
+All display only: the 365-day economy audit is byte-identical to before; saves are version 21 (20 still loads).
+Departures from the plan: no origin on cargo lots (every lot is sold at the end of its mission); "made net of use" from
+stock snapshots. Known: sharp steps in plasma maps where the cheapest path would pass inside 0.1 AU (a filter, not a
+solver constraint); a few blocky cells at flights of a Hohmann time or more; while the porkchop worker fills a fresh
+cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 
 **Open for the user:**
 - **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person
@@ -79,23 +94,7 @@ Benchmark, 4 starts × 1,460 days (before the review's result-changing fixes, 20
    snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
    The user can run Claude on a Windows machine to build and test there.
 
-Later (user, 2026-10-26):
-- **More views in the statistics decomposition.** First, **flows of goods from station to station**: an N × N
-  table (from × to), in units or value, for one good or all, over a month, a year or since the start.
-  Recommended with it, when we get there:
-  - Earth and the colonies as rows and columns, so the gateways' surface trade shows in the same table;
-  - the same table for passengers (settlers, crew rotation, visitors) and for money between accounts (a drill-down
-    of today's 6 × 6 "who pays whom");
-  - a per-station goods balance: made, used, imported, exported, stock change;
-  - transport work per lane (tonne-days and propellant), to see which lanes are costly;
-  - the flows drawn on the map as lines between stations, thickness by flow.
-
-  It needs a delivery record (from, to, good, units, value, day), booked like the money journal and sampled into
-  its monthly history.
-- **Porkchop plots in the info panels with statistics**, for both classes of ships: the Kepler (nuclear-thermal)
-  classes and the variable-Isp classes. Departure date against flight time (or arrival date) for a route, coloured
-  by delta-v for Kepler ships and by propellant (or mission cost) for variable-Isp ships, which have no single
-  delta-v. Details (which panels, routes, ranges) to settle with the user when we get there.
+Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
 Later (user, 2026-10-22):
 - **Population composition in the style of Victoria 2:** stations and ships hold people of different

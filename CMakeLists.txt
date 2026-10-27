@@ -24,6 +24,7 @@ add_library(spacetrains_core
     src/celestial/CelestialMechanics.cpp
     src/trajectory/ChaseSolver.cpp
     src/trajectory/Lambert.cpp
+    src/trajectory/Porkchop.cpp
     src/trajectory/PathSampling.cpp
     src/trajectory/TrajectoryAudit.cpp
     src/trajectory/TrajectoryPlanner.cpp
@@ -44,6 +45,7 @@ add_library(spacetrains_core
     src/simulation/Households.cpp
     src/simulation/StationSystems.cpp
     src/simulation/MoneyJournal.cpp
+    src/simulation/FlowRecord.cpp
     src/simulation/Statistics.cpp
     src/util/Profiling.cpp
     src/util/ThreadPool.cpp
@@ -52,6 +54,17 @@ add_library(spacetrains_core
 )
 
 target_include_directories(spacetrains_core PUBLIC src)
+# The porkchop cache's fingerprint includes a hash of the code and data the plots depend on.
+set(PORKCHOP_HASH_HEADER "${CMAKE_BINARY_DIR}/generated/PorkchopSourceHash.hpp")
+execute_process(COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_SOURCE_DIR} -DOUT=${PORKCHOP_HASH_HEADER}
+    -P ${CMAKE_SOURCE_DIR}/cmake/PorkchopSourceHash.cmake)
+add_custom_target(porkchop_source_hash
+    COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_SOURCE_DIR} -DOUT=${PORKCHOP_HASH_HEADER}
+        -P ${CMAKE_SOURCE_DIR}/cmake/PorkchopSourceHash.cmake
+    BYPRODUCTS ${PORKCHOP_HASH_HEADER}
+    COMMENT "Hashing the porkchop sources")
+add_dependencies(spacetrains_core porkchop_source_hash)
+target_include_directories(spacetrains_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
 find_package(Threads REQUIRED)
 target_link_libraries(spacetrains_core PUBLIC Threads::Threads)
 # Warnings for GCC and Clang. Designated initializers leave the members they do not name at their

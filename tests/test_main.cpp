@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cstdint>
 #include <cmath>
 #include <limits>
@@ -19,6 +20,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "trajectory/Porkchop.hpp"
 #include "simulation/CrewEnvironment.hpp"
 #include "simulation/Simulation.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
@@ -1433,6 +1435,125 @@ int main() {
                 bad_rejected = true;
             }
             require(bad_rejected, "a fit the hull cannot take should be rejected on load");
+        }
+    }
+
+    // --- Porkchop plots: the Earth-Mars window's cheapest Lambert cell is near the Hohmann Δv,
+    // longer flights need less variable-Isp effort, a column is a pure function of its departure,
+    // and a requested pair's window fills completely. ---
+    {
+        const auto universe = spacetrains::data_loader::DataLoader {}.load_universe(repo_root / "data");
+        spacetrains::trajectory::PorkchopService porkchops(universe, false);
+        const auto axes = porkchops.axes("earth", "mars");
+        require(std::abs(axes.synodic_s / 86400.0 - 780.0) < 10.0, "Earth-Mars synodic period should be about 780 days");
+        double best_dv = 1e9;
+        int effort_falls = 0;
+        int columns_with_effort = 0;
+        for (long long k = 0; k < spacetrains::trajectory::PorkchopService::kColumns; k += 4) {
+            const auto column = porkchops.compute_column("earth", "mars", axes, k);
+            for (const float dv : column.dv_mps) {
+                if (std::isfinite(dv)) {
+                    best_dv = std::min(best_dv, static_cast<double>(dv));
+                }
+            }
+            const auto first = std::find_if(column.effort.begin(), column.effort.end(), [](float e) { return std::isfinite(e); });
+            if (first != column.effort.end() && std::isfinite(column.effort.back())) {
+                ++columns_with_effort;
+                effort_falls += column.effort.back() < *first ? 1 : 0;
+            }
+        }
+        if (!(best_dv > 5300.0 && best_dv < 6500.0)) {
+            std::cerr << std::format("Earth-Mars porkchop minimum {:.0f} m/s\n", best_dv);
+        }
+        require(best_dv > 5300.0 && best_dv < 6500.0, "Earth-Mars porkchop minimum should be near the Hohmann 5.6 km/s");
+        require(columns_with_effort > 0 && effort_falls == columns_with_effort,
+            "a longer flight should need less variable-Isp effort at every departure");
+        const auto once = porkchops.compute_column("earth", "mars", axes, 17);
+        const auto again = porkchops.compute_column("earth", "mars", axes, 17);
+        bool same = once.dv_mps.size() == again.dv_mps.size();
+        for (std::size_t r = 0; same && r < once.dv_mps.size(); ++r) {
+            same = (once.dv_mps[r] == again.dv_mps[r] || (std::isnan(once.dv_mps[r]) && std::isnan(again.dv_mps[r])))
+                && (once.effort[r] == again.effort[r] || (std::isnan(once.effort[r]) && std::isnan(again.effort[r])));
+        }
+        require(same, "a porkchop column should be the same each time it is computed");
+        // A request "mercury>*" is every route in use from Mercury; the window fills and goes to
+        // the disk cache, from which a new service (a later session) reads it without computing.
+        const auto cache_dir = std::filesystem::temp_directory_path() / std::format("spacetrains_porkchop_test_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        std::filesystem::remove_all(cache_dir);
+        porkchops.set_cache_dir(cache_dir.string());
+        porkchops.set_routes({{.origin = "mercury", .destination = "venus", .trips = 3, .classes = {{"plasma_courier", 3}}},
+            {.origin = "luna", .destination = "earth", .trips = 9, .classes = {}}});
+        porkchops.request({{"mercury", "*"}, {"luna", "earth"}}, 400.0 * 86400.0);
+        porkchops.compute_all_now();
+        const auto json = spacetrains::persistence::Json::parse(porkchops.json());
+        const auto& pairs = json.get("pairs").items();
+        require(pairs.size() == 1 && pairs.at(0).get("destination").string() == "venus",
+            "only pairs of planets get porkchops (a moon's station flies from its planet), and * stands for the routes in use");
+        require(pairs.at(0).get("columns").items().size() == static_cast<std::size_t>(spacetrains::trajectory::PorkchopService::kColumns),
+            "a requested pair's window should fill completely");
+        require(json.get("routes").items().size() == 1, "routes in use are between planets");
+        {
+            spacetrains::trajectory::PorkchopService later(universe, false);
+            later.set_cache_dir(cache_dir.string());
+            // Not requested: the routes' prefetch reads the cached window (nothing left to compute).
+            later.set_routes({{.origin = "mercury", .destination = "venus", .trips = 1, .classes = {}}});
+            later.request({}, 400.0 * 86400.0);
+            later.compute_all_now();
+            later.request({{"mercury", "venus"}}, 400.0 * 86400.0);
+            const auto cached = spacetrains::persistence::Json::parse(later.json());
+            require(cached.get("pairs").items().at(0).get("columns").items().size()
+                    == static_cast<std::size_t>(spacetrains::trajectory::PorkchopService::kColumns),
+                "a later session should read the window from the disk cache");
+            require(cached.get("pairs").items().at(0).get("columns").items().at(5).get("effort").items().at(20).number()
+                    == pairs.at(0).get("columns").items().at(5).get("effort").items().at(20).number(),
+                "cached cells should be the cells computed");
+        }
+        std::filesystem::remove_all(cache_dir);
+    }
+
+    // --- Flow record: what fleets paid for cargo is the value of the goods loaded, and the monthly
+    // samples plus the running month add up to the totals since the start. ---
+    {
+        using spacetrains::simulation::FlowKind;
+        using spacetrains::simulation::MoneyCategory;
+        auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        sim.set_timewarp(86400.0);
+        for (int day = 0; day < 100; ++day) {
+            sim.step(1.0);
+        }
+        const auto& record = sim.flow_record();
+        double loaded = 0.0;
+        double delivered = 0.0;
+        for (const auto& [key, amount] : record.lifetime()) {
+            if (key.kind == FlowKind::Loaded) {
+                loaded += amount.value;
+            }
+            if (key.kind == FlowKind::Delivered && !key.from.starts_with("surface:") && !key.to.starts_with("surface:")) {
+                delivered += amount.units;
+            }
+        }
+        double fleets_paid = 0.0;
+        const auto& journal = sim.money_journal();
+        for (int i = 0; i < static_cast<int>(journal.accounts().size()); ++i) {
+            if (journal.accounts()[static_cast<std::size_t>(i)].kind == spacetrains::simulation::AccountKind::Fleet) {
+                fleets_paid += journal.lifetime(i)[static_cast<std::size_t>(MoneyCategory::Cargo)].out;
+            }
+        }
+        require(loaded > 0.0 && delivered > 0.0, "ships should load and deliver cargo in 100 days");
+        require(std::abs(loaded - fleets_paid) <= 1e-6 * fleets_paid, "goods loaded should be valued at what fleets paid for cargo");
+        require(record.history().size() == journal.history().size(), "the flow record closes its months with the journal");
+        for (const auto& [key, amount] : record.lifetime()) {
+            double units = 0.0;
+            for (const auto& sample : record.history()) {
+                if (const auto it = sample.flows.find(key); it != sample.flows.end()) {
+                    units += it->second.units;
+                }
+            }
+            if (const auto it = record.period().find(key); it != record.period().end()) {
+                units += it->second.units;
+            }
+            require(std::abs(units - amount.units) <= 1e-6 * std::max(1.0, amount.units),
+                "monthly flows should add up to the flows since the start");
         }
     }
 

@@ -1,7 +1,9 @@
 extends Control
 
 # A small line chart for the Statistics screen: several series over game days, a zero line,
-# credit labels on the y axis, and a read-out of every series at the mouse.
+# credit labels on the y axis (or `format_value`), and a read-out of every series at the mouse.
+# `stacked`: the series are drawn as areas on top of each other (parts of a total), the read-out
+# gives each part and the total.
 
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 
@@ -10,6 +12,9 @@ var days: Array = []
 # [{name: String, color: Color, values: Array, dashed: bool}]
 var series: Array = []
 var _hover_x := -1.0
+var stacked := false
+# func(value: float) -> String for the axis and read-out; credits when not set.
+var format_value: Callable
 
 const PAD_LEFT := 74.0
 const PAD_RIGHT := 12.0
@@ -19,6 +24,9 @@ const PAD_BOTTOM := 20.0
 func _init() -> void:
     custom_minimum_size = Vector2(560, 210)
     mouse_filter = Control.MOUSE_FILTER_STOP
+
+func _fmt(value: float) -> String:
+    return String(format_value.call(value)) if format_value.is_valid() else UiTheme.format_credits(value)
 
 func set_data(chart_title: String, chart_days: Array, chart_series: Array) -> void:
     title = chart_title
@@ -50,10 +58,24 @@ func _draw() -> void:
         return
     var lo := 0.0
     var hi := 0.0
-    for s in series:
-        for v in s.get("values", []):
-            lo = min(lo, float(v))
-            hi = max(hi, float(v))
+    var tops: Array = []   # stacked: the running total under and including each series
+    if stacked:
+        var running: Array = []
+        running.resize(days.size())
+        running.fill(0.0)
+        for s in series:
+            var values: Array = s.get("values", [])
+            var top: Array = running.duplicate()
+            for i in range(mini(values.size(), days.size())):
+                top[i] = float(running[i]) + maxf(0.0, float(values[i]))
+                hi = max(hi, float(top[i]))
+            tops.append(top)
+            running = top
+    else:
+        for s in series:
+            for v in s.get("values", []):
+                lo = min(lo, float(v))
+                hi = max(hi, float(v))
     if hi - lo < 1.0:
         hi = lo + 1.0
     var margin := (hi - lo) * 0.05
@@ -73,14 +95,27 @@ func _draw() -> void:
         if value != 0.0 and abs(y - zero_y) < 14.0:
             continue   # too close to the zero line's label
         draw_line(Vector2(area.position.x, y), Vector2(area.end.x, y), Color(0.55, 0.63, 0.72, 0.35 if value == 0.0 else 0.15), 1.0)
-        draw_string(font, Vector2(4, y + 4), UiTheme.format_credits(value), HORIZONTAL_ALIGNMENT_LEFT, PAD_LEFT - 8, 10, UiTheme.TEXT_DIM)
+        draw_string(font, Vector2(4, y + 4), _fmt(value), HORIZONTAL_ALIGNMENT_LEFT, PAD_LEFT - 8, 10, UiTheme.TEXT_DIM)
     draw_string(font, Vector2(area.position.x, size.y - 5), "day %.0f" % d0, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UiTheme.TEXT_DIM)
     draw_string(font, Vector2(area.end.x - 70, size.y - 5), "day %.0f" % d1, HORIZONTAL_ALIGNMENT_RIGHT, 70, 10, UiTheme.TEXT_DIM)
     # Series and legend.
     var legend_x := 24.0 + font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+    if stacked:
+        for k in range(series.size()):
+            var color: Color = series[k].get("color", UiTheme.ACCENT)
+            var top: Array = tops[k]
+            var polygon := PackedVector2Array()
+            for i in range(days.size()):
+                polygon.append(to_point.call(float(days[i]), float(top[i])))
+            for i in range(days.size() - 1, -1, -1):
+                polygon.append(to_point.call(float(days[i]), float(tops[k - 1][i]) if k > 0 else 0.0))
+            if polygon.size() >= 3:
+                draw_colored_polygon(polygon, Color(color, 0.75))
     for s in series:
         var values: Array = s.get("values", [])
         var color: Color = s.get("color", UiTheme.ACCENT)
+        if stacked:
+            values = tops[series.find(s)]
         var points := PackedVector2Array()
         for i in range(min(values.size(), days.size())):
             points.append(to_point.call(float(days[i]), float(values[i])))
@@ -104,10 +139,14 @@ func _draw() -> void:
         var x: float = to_point.call(float(days[index]), 0.0).x
         draw_line(Vector2(x, area.position.y), Vector2(x, area.end.y), Color(1, 1, 1, 0.25), 1.0)
         var lines: Array[String] = ["day %.0f" % float(days[index])]
+        var total := 0.0
         for s in series:
             var values: Array = s.get("values", [])
             if index < values.size():
-                lines.append("%s %s" % [String(s.get("name", "")), UiTheme.format_credits(float(values[index]))])
+                lines.append("%s %s" % [String(s.get("name", "")), _fmt(float(values[index]))])
+                total += float(values[index])
+        if stacked:
+            lines.append("total %s" % _fmt(total))
         var box_x: float = x + 8.0 if x < area.end.x - 190.0 else x - 190.0
         draw_rect(Rect2(box_x, area.position.y + 4, 182, 14 * lines.size() + 6), Color(0.06, 0.09, 0.14, 0.92))
         for i in range(lines.size()):

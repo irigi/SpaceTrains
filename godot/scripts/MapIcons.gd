@@ -53,6 +53,10 @@ var icons: Dictionary = {}  # entity_id -> Sprite2D
 var labels: Dictionary = {}  # entity_id -> Label
 var _icon_textures: Dictionary = {}
 var _selection_ring: Sprite2D
+# Flow overlay (G): [{from: station id, to: station id, amount: float, color: Color}], drawn under
+# the icons as lines between the stations, width by amount; empty = off.
+var flow_lines: Array = []
+var _flow_points: Array = []   # [[from px, to px, width, color]] for _draw
 
 func _init() -> void:
     name = "MapIconLayer"
@@ -193,6 +197,7 @@ func world_size_for_pixels(node: Node3D, target_pixels: float) -> float:
     return target_pixels / viewport_height * 2.0 * dist * tan(deg_to_rad(camera.fov) * 0.5)
 
 func update(selected_id: String) -> void:
+    _place_flow_lines()
     var viewport_rect := get_viewport().get_visible_rect()
     # Labels are placed in priority order (bodies, stations, ships; selected first) and
     # skipped where they would overlap one already placed.
@@ -261,3 +266,43 @@ func update(selected_id: String) -> void:
         label.position = candidate["position"]
         label.visible = true
         placed.append(rect)
+
+# The flow overlay's lines at the stations' screen positions (called each frame from update()).
+func _place_flow_lines() -> void:
+    var before := _flow_points.size()
+    _flow_points.clear()
+    if flow_lines.is_empty():
+        if before > 0:
+            queue_redraw()
+        return
+    var top := 0.0
+    for line in flow_lines:
+        top = maxf(top, float(line.get("amount", 0.0)))
+    for line in flow_lines:
+        var a: Node3D = entity_nodes.get(String(line.get("from", "")))
+        var b: Node3D = entity_nodes.get(String(line.get("to", "")))
+        if a == null or b == null or camera.is_position_behind(a.global_position) or camera.is_position_behind(b.global_position):
+            continue
+        var pa := camera.unproject_position(a.global_position)
+        var pb := camera.unproject_position(b.global_position)
+        if pa.distance_to(pb) < 6.0:
+            continue
+        var width := 1.0 + 9.0 * sqrt(float(line.get("amount", 0.0)) / maxf(top, 1e-9))
+        _flow_points.append([pa, pb, width, line.get("color", Color(0.35, 0.85, 0.95))])
+    queue_redraw()
+
+func _draw() -> void:
+    for p in _flow_points:
+        var a: Vector2 = p[0]
+        var b: Vector2 = p[1]
+        var width: float = p[2]
+        var color: Color = p[3]
+        # Each direction on its own side of the line between the stations, with an arrow at its middle.
+        var along := (b - a).normalized()
+        var side := Vector2(-along.y, along.x) * (width * 0.5 + 1.5)
+        var c := Color(color, 0.55)
+        draw_line(a + side, b + side, c, width, true)
+        var mid := (a + b) * 0.5 + side
+        var head := 5.0 + width
+        draw_colored_polygon(PackedVector2Array([mid + along * head, mid - along * head * 0.3 + side.normalized() * head * 0.8,
+            mid - along * head * 0.3 - side.normalized() * head * 0.2]), Color(color, 0.8))

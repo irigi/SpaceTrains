@@ -23,6 +23,14 @@ const CATEGORY_COLORS := {
     "general": Color(0.7, 0.75, 0.8),
 }
 
+# Parts of a whole and series in charts (distinct hues, similar lightness on the dark panels).
+const CATEGORICAL := [Color(0.35, 0.75, 0.95), Color(0.95, 0.7, 0.3), Color(0.45, 0.85, 0.5), Color(0.9, 0.45, 0.55),
+    Color(0.7, 0.55, 0.95), Color(0.35, 0.85, 0.75), Color(0.85, 0.85, 0.4), Color(0.95, 0.55, 0.85),
+    Color(0.6, 0.65, 0.72), Color(0.55, 0.45, 0.35)]
+
+static func categorical(index: int) -> Color:
+    return CATEGORICAL[posmod(index, CATEGORICAL.size())]
+
 # Cargo in the ship schematic's hold.
 const COMMODITY_COLORS := {
     "food": Color(0.55, 0.78, 0.35),
