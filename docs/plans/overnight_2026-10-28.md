@@ -5,7 +5,25 @@ Switches: `data/economy/failures.csv` (and `patrols.csv` if step 6 is reached).
 
 ## Morning summary
 
-(written at the end of the night)
+All planned steps are built, tested and committed on `feature/failures_salvage` (not pushed, not merged):
+a75290f failures and salvage, 6901bb4 UI and docs, bcf09c7 police inspections, plus this log.
+
+- **Failures:** Weibull hull lives (shape 3, mean 33 y = 30 y amortisation × 1.10, computed so capital charges cover
+  hull and cargo losses in expectation). A ship that fails in flight becomes a derelict drifting on its orbit;
+  near a planet it is towed in. The owner loses hull, cargo and delivery and may replace the ship first (180 days).
+- **Salvage races:** ships weigh a wreck (cargo + 20% scrap) against their missions; the first to reach it wins.
+  Seen: 5 racers for one wreck, 3 losing.
+- **Police:** 4 faction cutters meet ships bound for their stations at the cheapest point of the path (a new
+  meeting solver) and ride alongside 3 days; the inspected ship keeps its course. ~110 inspections per 4 years,
+  ~950 cr each to the treasuries.
+- **Final benchmark** (4 × 1,460 d, everything on): unmet 0.4 ± 0.6% (baseline 0.3 ± 0.4), profitable 86.2 ± 6.1
+  (88.5 ± 1.3), boarded 4,608 ± 405 (4,793 ± 433), run 173 s (175): all within noise; drift 0 in every run.
+  Emergency premiums 953 ± 1,171 cr (baseline 0) — one run, likely noise.
+- **Checks:** tests pass (new: Kepler propagation, failures, meeting solver, patrols); `failures,0` and `patrols,0`
+  reproduce the old game exactly; save/load byte-identical mid-race and with cutters mid-sortie; Godot shot tours
+  (`--shot-derelict` with `--shot-load`) show the wreck card, a racer and a cutter.
+- **To review first:** decisions 2 (mean life factor, purchase cost), 4 (failures are rare: ~2 per 4 years now),
+  11 (salvage in dispatch), 15-17 (cutters, jurisdiction, meeting point). Open points below.
 
 ## Baseline (before the branch)
 
@@ -85,5 +103,6 @@ ships, boarded 4,793 ± 433, faction profit -1,199 ± 1,108 k, ~175 s a run.
 - 23:35 step 4 (salvage): idle-only racing found almost no racers (plasma ships never idle; NTR cannot afford the
   rendezvous) → salvage weighed in dispatch. Committed a75290f. Benchmark at real settings within noise.
 - 23:45 save/load round trip mid-race byte-identical; derelict shot tour checked. UI + docs committed 6901bb4.
+- 00:05 final benchmark (above); summary.
 - 23:55 step 6 (police): meeting solver, cutters; round trip with cutters mid-sortie byte-identical; shot tour
   checked (a first version wrote cutters into the bodies list; fixed).
