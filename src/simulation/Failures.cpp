@@ -81,9 +81,14 @@ void Simulation::init_failure_clocks() {
     if (!failures_on()) {
         return;
     }
+    static const bool trace = std::getenv("SPACETRAINS_TRACE_FAILURES") != nullptr;
     for (auto& ship : ships_) {
         if (ship.fails_at_s <= 0.0) {
             draw_failure_clock(ship, ship.commissioned_s <= 0.0);
+            if (trace) {
+                std::cerr << std::format("[FAILURE] clock {}: built day {:.0f}, fails day {:.0f}\n", ship.name,
+                    ship.built_s / 86400.0, ship.fails_at_s / 86400.0);
+            }
         }
     }
 }

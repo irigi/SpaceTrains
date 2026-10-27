@@ -239,6 +239,8 @@ func _plan(kind: String) -> Array:
                 {"fn": func() -> void: _add_station_money(d.call())},
             ]
         "ship":
+            if String(_last_detail.get("phase", "")) == "derelict":
+                return [{"fn": func() -> void: _build_derelict(d.call(), c.call())}]
             return [
                 {"fn": func() -> void: _build_ship(d.call(), c.call())},
                 {"fn": func() -> void: _add_ship_voyage(d.call(), c.call())},
@@ -379,6 +381,8 @@ func _phase_word(phase: String) -> String:
             return "stranded"
         "refueling":
             return "refuelling"
+        "derelict":
+            return "drifting wreck"
     return phase
 
 func _trajectory_label(trajectory_type: String) -> String:
@@ -836,6 +840,13 @@ func _mission_sentence(detail: Dictionary, context: Dictionary) -> String:
     match phase:
         "in_transit", "awaiting_departure":
             var text := ""
+            var target := String(detail.get("salvage_target_name", ""))
+            if target != "":
+                text = "Racing to salvage the wreck of %s: meets it in %s, then to %s" % [target,
+                    _days(maxf(float(detail.get("rendezvous_time_s", 0.0)) - game_time_s, 0.0) / 86400.0), destination]
+                if load != "":
+                    text += " (carrying %s)" % load
+                return text + "."
             if load != "":
                 text = "Carrying %s to %s to sell" % [load, destination]
             elif String(detail.get("pickup_commodity_id", "")) != "":
@@ -860,6 +871,37 @@ func _mission_sentence(detail: Dictionary, context: Dictionary) -> String:
         "stranded":
             return "Stranded at %s: not enough fuel for sale to leave." % here
     return phase
+
+# A derelict (failures and salvage): a ship that failed in flight, drifting with its cargo until
+# a salvager reaches it or it is written off.
+func _build_derelict(detail: Dictionary, context: Dictionary) -> void:
+    var game_time_s := float(context.get("game_time_s", 0.0))
+    _add_header(String(detail.get("name", detail.get("id", ""))),
+        "%s · %s · derelict" % [String(detail.get("class_name", detail.get("class_id", "ship"))),
+            _faction_name(String(detail.get("faction_id", "")))],
+        _faction_color(detail, context))
+    var drifting := maxf(game_time_s - float(detail.get("failed_at_s", 0.0)), 0.0) / 86400.0
+    var left := maxf(float(detail.get("expires_s", 0.0)) - game_time_s, 0.0) / 86400.0
+    _add(UiWidgets.kpi_strip([
+        {"label": "drifting", "value": _days(drifting)},
+        {"label": "written off in", "value": _days(left), "color": UiTheme.WARN if left < 30.0 else UiTheme.TEXT_PRIMARY},
+        {"label": "cargo", "value": "%.0f u" % float(detail.get("cargo_units", 0.0))},
+        {"label": "scrap", "value": UiWidgets.signed_credits(float(detail.get("scrap_value_cr", 0.0)))},
+    ]))
+    var load := _cargo_text(detail)
+    _add_label("Failed on its way from %s to %s; drifting with %s." % [
+        _resolve_name(context, String(detail.get("origin_station_id", ""))),
+        _resolve_name(context, String(detail.get("destination_station_id", ""))),
+        load if load != "" else "an empty hold"], UiTheme.TEXT_PRIMARY, 13)
+    var claimant := String(detail.get("claimant_ship_id", ""))
+    if claimant != "":
+        _add_label("Salvage: %s meets it in %s (%d racer%s so far). The first to reach it takes the cargo and the scrap." % [
+            _resolve_name(context, claimant),
+            _days(maxf(float(detail.get("claim_eta_s", 0.0)) - game_time_s, 0.0) / 86400.0),
+            int(detail.get("racers", 0)), "" if int(detail.get("racers", 0)) == 1 else "s"], UiTheme.ACCENT, 12)
+    else:
+        _add_label("No salvager has set out yet: ships weigh the wreck against their regular work.", UiTheme.TEXT_DIM, 12)
+    _add_note("Crew and passengers left in the lifeboat. The owner lost the hull and the cargo; it may replace the ship first.")
 
 func _build_ship(detail: Dictionary, context: Dictionary) -> void:
     var phase := String(detail.get("phase", "idle"))
@@ -929,7 +971,8 @@ func _add_ship_voyage(detail: Dictionary, context: Dictionary) -> void:
         var revenue := float(detail.get("expected_revenue", 0.0))
         if revenue > 0.0:
             _table(["This trip", "Credits"], [
-                ["Contracted sale", UiWidgets.credits(revenue)],
+                ["Salvage (cargo and scrap, est.)" if String(detail.get("salvage_target_name", "")) != "" else "Contracted sale",
+                    UiWidgets.credits(revenue)],
                 ["Cargo bought", UiWidgets.credits(-float(detail.get("purchase_cost", 0.0)))],
                 ["Expected to earn", [UiWidgets.signed_credits(mission_value), UiWidgets.value_color(mission_value)]],
             ], [170.0, 90.0])

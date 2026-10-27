@@ -830,7 +830,7 @@ func _update_nodes(delta: float) -> void:
             StationModelsScript.spin_rings(node, spin_time)
         elif kind == "ship":
             var detail: Dictionary = entity_details.get(entity_id, {})
-            if String(detail.get("phase", "idle")) != "in_transit":
+            if not String(detail.get("phase", "idle")) in ["in_transit", "derelict"]:
                 docked.append(entity_id)
             _orient_ship(node, entity_id, _ship_heading(entity_id))
     # Docked ships, and ships near a station, after every station has its position for this frame.
@@ -1326,7 +1326,7 @@ var _last_berth: Dictionary = {}      # ship id -> [station id, slot] of its las
 func _rebuild_docked_slots() -> void:
     var by_station := {}
     for ship in bridge_state.get("ships", []):
-        if String(ship.get("phase", "idle")) == "in_transit":
+        if String(ship.get("phase", "idle")) in ["in_transit", "derelict"]:
             continue
         var station_id := String(ship.get("current_station_id", ""))
         if not by_station.has(station_id):

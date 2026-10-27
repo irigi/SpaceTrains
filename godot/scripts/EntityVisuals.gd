@@ -94,8 +94,13 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
         return
     else:
         # Ships: the faction band, red when stranded; the rest is ShipModels' shared paint.
-        var stranded := String(data.get("phase", "idle")) == "stranded"
-        Materials.set_band(ShipModels.instance_materials(container)["band"], Color(0.85, 0.25, 0.2) if stranded else faction_color)
+        var phase := String(data.get("phase", "idle"))
+        var band := faction_color
+        if phase == "stranded":
+            band = Color(0.85, 0.25, 0.2)
+        elif phase == "derelict":
+            band = Color(0.25, 0.22, 0.2)   # a dead hull: no lights, scorched band
+        Materials.set_band(ShipModels.instance_materials(container)["band"], band)
         return
     for child in container.get_children():
         var key := "wing" if String(child.name).begins_with("wing") else String(child.name)

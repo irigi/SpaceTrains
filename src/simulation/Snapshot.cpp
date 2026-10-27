@@ -713,6 +713,20 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"refit_class_id\":\"" << json_escape(ship.refit_class_id) << "\","
                << "\"refit_done_s\":" << ship.refit_done_s << ","
                << "\"commissioned_s\":" << ship.commissioned_s << ","
+               << "\"built_s\":" << ship.built_s << ","
+               << "\"salvage_derelict_id\":\"" << json_escape(ship.active_mission.salvage_done ? std::string() : ship.active_mission.salvage_derelict_id) << "\","
+               << "\"salvage_target_name\":\"" << [&] {
+                      if (ship.active_mission.salvage_derelict_id.empty() || ship.active_mission.salvage_done) {
+                          return std::string();
+                      }
+                      for (const auto& derelict : derelicts_) {
+                          if (derelict.id == ship.active_mission.salvage_derelict_id) {
+                              return json_escape(derelict.name);
+                          }
+                      }
+                      return std::string();
+                  }() << "\","
+               << "\"rendezvous_time_s\":" << ship.active_mission.rendezvous_time_s << ","
                << "\"ledger\":{"
                << "\"cargo_revenue\":" << ship.ledger.cargo_revenue << ","
                << "\"cargo_purchases\":" << ship.ledger.cargo_purchases << ","
@@ -731,6 +745,42 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
             }
         }
         output << "}";
+    }
+    // Derelicts (failures and salvage) ride with the ships, phase "derelict", at their coast's
+    // position now; the racers name them in salvage_target_name.
+    for (const auto& derelict : derelicts_) {
+        const auto position = interpolate_timed_sampled_path(derelict.sampled_path, derelict.sampled_times_s, game_time_s_);
+        const auto& design = get_ship_class(derelict.class_id);
+        output << (ships_.empty() && &derelict == &derelicts_.front() ? "" : ",") << "{"
+               << "\"id\":\"" << json_escape(derelict.id) << "\","
+               << "\"name\":\"" << json_escape("Wreck of " + derelict.name) << "\","
+               << "\"faction_id\":\"" << json_escape(derelict.faction_id) << "\","
+               << "\"class_id\":\"" << json_escape(derelict.class_id) << "\","
+               << "\"design_id\":\"" << json_escape(derelict.class_id) << "\","
+               << "\"class_name\":\"" << json_escape(design.name) << "\","
+               << "\"hull_id\":\"" << json_escape(design.hull_id.empty() ? design.id : design.hull_id) << "\","
+               << "\"propulsion_type\":\"" << json_escape(design.propulsion_type) << "\","
+               << "\"phase\":\"derelict\","
+               << "\"current_station_id\":\"\","
+               << "\"origin_station_id\":\"" << json_escape(derelict.origin_station_id) << "\","
+               << "\"destination_station_id\":\"" << json_escape(derelict.destination_station_id) << "\","
+               << "\"home_station_id\":\"" << json_escape(derelict.home_station_id) << "\","
+               << "\"commodity_id\":\"" << json_escape(largest_lot(derelict.cargo)) << "\","
+               << "\"cargo_units\":" << domain::total_units(derelict.cargo) << ","
+               << "\"cargo\":" << cargo_json(derelict.cargo) << ","
+               << "\"cargo_capacity_units\":" << design.cargo_capacity_units << ","
+               << "\"dry_mass_kg\":" << design.dry_mass_kg << ","
+               << "\"crew_size\":0,"
+               << "\"failed_at_s\":" << derelict.failed_at_s << ","
+               << "\"expires_s\":" << derelict.expires_s << ","
+               << "\"claimant_ship_id\":\"" << json_escape(derelict.claimant_ship_id) << "\","
+               << "\"claim_eta_s\":" << derelict.claim_eta_s << ","
+               << "\"racers\":" << derelict.racers << ","
+               << "\"scrap_value_cr\":" << universe_.failures.scrap_fraction * derelict.ship_value_cr << ","
+               << "\"x\":" << position.x << ","
+               << "\"y\":" << position.y << ","
+               << "\"z\":" << position.z
+               << "}";
     }
     output << "],";
 

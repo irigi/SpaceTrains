@@ -123,7 +123,7 @@ fresh "leave now" row), shared across plans and steps.
 ## General-Boundary Variable-Isp Transfers (prototype)
 
 `variable_isp/GeneralTransfer.hpp` solves constant-power transfers between arbitrary states — the primitive
-for chases (pirates, police). Minimum propellant is minimum effort J = ∫|a|²dt, so the path never depends on
+for chases (salvage runs to derelicts; police later). Minimum propellant is minimum effort J = ∫|a|²dt, so the path never depends on
 the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised units: μ = 1, caller's length.
 
 - `shoot` — Levenberg-Marquardt shooting on (p0, w0[, T]); rendezvous (match r, v) or intercept (match r,
@@ -135,13 +135,17 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
 - `solve_min_time` — earliest arrival for an effort budget (fuel load), never shorter than its lower bound
   `T_lo` (a first grid point that already fits is kept as it is).
 - `trajectory/ChaseSolver.hpp` — SI adapter: `path_target` follows another ship's `TrajectoryPlan` samples,
-  `plan_chase` returns the earliest interception or rendezvous for a ship's power and propellant.
+  `kepler_target` a two-body coast (a derelict), `plan_chase` returns the earliest interception or rendezvous for a
+  ship's power and propellant. Used by salvage runs (`ships_and_fleet.md`, "Failures and salvage").
 
 Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (`tools/visp_bench/main.cpp`: A/R atlas cells as
 intercepts and rendezvous, AG the same through the general solver, B-F general-boundary sets). The solver's design
 brief is `docs/plans/variable-isp-solver-directions.md`.
 
 ## Shared Helpers
+
+`trajectory/KeplerPropagation.hpp`: universal-variable two-body propagation (`propagate_kepler`, any conic, whole
+revolutions of an ellipse removed first) and `sample_kepler`; the Stumpff functions the Lambert solver shares.
 
 `trajectory/OrbitMath.hpp`: `positive_mod`, a body's orbital rate, and the heliocentric rate a moon's station
 phases with (its planet's). `VariableIspAtlas::lower_cell_index` is the one grid lookup (planner and atlas).
