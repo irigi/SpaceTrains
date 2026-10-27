@@ -112,6 +112,8 @@ func icon_color(kind: String, data: Dictionary) -> Color:
         return Color(1.0, 0.25, 0.22)
     if phase == "derelict":
         return Color(1.0, 0.62, 0.25)
+    if phase == "patrol":
+        return Color(0.55, 0.75, 1.0)
     if phase == "in_transit":
         return Color(0.70, 1.0, 0.95)
     return faction_colors.get(String(data.get("faction_id", "")), Color(0.96, 0.97, 1.0)) as Color
@@ -246,7 +248,7 @@ func update(selected_id: String) -> void:
         var priority := {"body": 0, "station": 1, "ship": 2}.get(kind, 3) as int
         if entity_id == selected_id:
             priority = -1
-        elif kind == "ship" and not String(data.get("phase", "")) in ["in_transit", "derelict"]:
+        elif kind == "ship" and not String(data.get("phase", "")) in ["in_transit", "derelict", "patrol"]:
             continue  # docked ships are listed by their station
         var offset := LABEL_OFFSET_PX
         if not icon.visible:

@@ -143,6 +143,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
     }
     seed_order_stats();
     init_failure_clocks();
+    init_patrols();
 }
 
 
@@ -192,6 +193,9 @@ void Simulation::start_at(double time_s) {
         ship.fails_at_s = 0.0;  // drawn again below, relative to the new start
     }
     init_failure_clocks();
+    for (std::size_t i = 0; i < patrols_.size(); ++i) {
+        patrols_[i].next_review_s = time_s + 0.25 * 86400.0 * static_cast<double>(i + 1);
+    }
 }
 
 void Simulation::set_timewarp(double timewarp_factor) {
@@ -532,6 +536,7 @@ void Simulation::tick() {
     step_orders();
     step_fleet_investment();
     step_failures();
+    step_patrols(dt_s);
 
     for (auto& ship : ships_) {
         accrue_operating_costs(ship, dt_s);

@@ -123,7 +123,7 @@ fresh "leave now" row), shared across plans and steps.
 ## General-Boundary Variable-Isp Transfers (prototype)
 
 `variable_isp/GeneralTransfer.hpp` solves constant-power transfers between arbitrary states — the primitive
-for chases (salvage runs to derelicts; police later). Minimum propellant is minimum effort J = ∫|a|²dt, so the path never depends on
+for chases (salvage runs to derelicts, police cutters meeting ships). Minimum propellant is minimum effort J = ∫|a|²dt, so the path never depends on
 the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised units: μ = 1, caller's length.
 
 - `shoot` — Levenberg-Marquardt shooting on (p0, w0[, T]); rendezvous (match r, v) or intercept (match r,
@@ -137,6 +137,9 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
 - `trajectory/ChaseSolver.hpp` — SI adapter: `path_target` follows another ship's `TrajectoryPlan` samples,
   `kepler_target` a two-body coast (a derelict), `plan_chase` returns the earliest interception or rendezvous for a
   ship's power and propellant. Used by salvage runs (`ships_and_fleet.md`, "Failures and salvage").
+  `plan_meeting` picks the best place on a target's path to meet it: fixed-time rendezvous (`solve_transfer`, no
+  fallbacks) at a grid of meeting times over a window, warm-started in turn, least propellant + a time weight
+  (police inspections).
 
 Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (`tools/visp_bench/main.cpp`: A/R atlas cells as
 intercepts and rendezvous, AG the same through the general solver, B-F general-boundary sets). The solver's design

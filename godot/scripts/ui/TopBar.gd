@@ -108,9 +108,14 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
     var refitting := 0
     var in_transit := 0
     var wrecks := 0
+    var cutters_out := 0
     for ship in state.get("ships", []):
         var phase := String(ship.get("phase", "idle"))
-        if phase == "derelict":
+        if phase == "patrol_docked":
+            continue
+        if phase == "patrol":
+            cutters_out += 1
+        elif phase == "derelict":
             wrecks += 1
         elif phase == "in_transit" or phase == "awaiting_departure":
             in_transit += 1
@@ -131,6 +136,8 @@ func update_state(state: Dictionary, paused: bool, timewarp: float) -> void:
         fleet_text += " / %d in the yard" % refitting
     if stranded > 0:
         fleet_text += " / %d STRANDED" % stranded
+    if cutters_out > 0:
+        fleet_text += " / %d cutter%s out" % [cutters_out, "" if cutters_out == 1 else "s"]
     if wrecks > 0:
         fleet_text += " / %d wreck%s adrift" % [wrecks, "" if wrecks == 1 else "s"]
     _fleet_label.text = fleet_text

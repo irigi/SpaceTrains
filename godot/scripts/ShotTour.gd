@@ -626,6 +626,7 @@ func _station_systems_shots(rig: Node3D) -> void:
 func _derelict_shots(rig: Node3D) -> void:
     var wreck := ""
     var racer := ""
+    var cutter := ""
     for ship_id in main.entity_details.keys():
         if main.entity_kinds.get(ship_id, "") != "ship":
             continue
@@ -634,8 +635,14 @@ func _derelict_shots(rig: Node3D) -> void:
             wreck = ship_id
         if racer == "" and String(detail.get("salvage_target_name", "")) != "":
             racer = ship_id
-    print("[ShotTour] derelict %s, racer %s" % [wreck, racer])
-    for pick in [[wreck, "derelict"], [racer, "salvage_racer"]]:
+        if cutter == "" and String(detail.get("phase", "")) == "patrol":
+            cutter = ship_id
+    var phases := {}
+    for ship in main.bridge_state.get("ships", []):
+        var phase := String(ship.get("phase", ""))
+        phases[phase] = int(phases.get(phase, 0)) + 1
+    print("[ShotTour] derelict %s, racer %s, cutter %s; phases %s" % [wreck, racer, cutter, phases])
+    for pick in [[wreck, "derelict"], [racer, "salvage_racer"], [cutter, "patrol"]]:
         if pick[0] == "":
             continue
         main.select_entity(pick[0], "ship", true)

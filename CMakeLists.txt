@@ -41,6 +41,7 @@ add_library(spacetrains_core
     src/simulation/Contracts.cpp
     src/simulation/FleetInvestment.cpp
     src/simulation/Failures.cpp
+    src/simulation/Patrols.cpp
     src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp

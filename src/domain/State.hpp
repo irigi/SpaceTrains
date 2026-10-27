@@ -235,6 +235,33 @@ struct ShipState {
     bool fault_pending {false};
     double fault_leg_fraction {0.5};
     double next_salvage_look_s {0.0};   // a ship that passed on the derelicts looks again from then
+    double last_inspected_s {-1.0e18};  // police inspections: when a cutter last inspected it
+};
+
+// A police cutter (police inspections): at its home port, on its way to meet a ship, alongside it
+// for the inspection, or on its way home. Not in the fleet.
+enum class PatrolPhase { Docked, Outbound, Inspecting, Returning };
+
+struct PatrolState {
+    std::string id;
+    std::string name;
+    std::string faction_id;
+    std::string class_id;
+    std::string home_station_id;
+    PatrolPhase phase {PatrolPhase::Docked};
+    double propellant_kg {0.0};
+    std::string target_ship_id;
+    std::string target_name;
+    double meet_s {0.0};
+    double inspect_until_s {0.0};
+    double arrive_s {0.0};
+    math::Vec3d meet_position_m;        // the target's state when the inspection began
+    math::Vec3d meet_velocity_mps;
+    std::vector<math::Vec3d> path;      // the leg flown now (outbound or home)
+    std::vector<double> times;
+    std::vector<double> propellant;
+    double next_review_s {0.0};
+    int inspections {0};
 };
 
 // A ship that failed in flight (failures and salvage): it coasts on the orbit it had, with its

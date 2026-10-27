@@ -107,6 +107,10 @@ func _ship_status(detail: Dictionary) -> Array:
             return ["◌", UiTheme.TEXT_DIM]
         "derelict":
             return ["✕", UiTheme.WARN]
+        "patrol":
+            return ["◈", UiTheme.ACCENT]
+        "patrol_docked":
+            return ["◈", UiTheme.TEXT_DIM]
         _:
             return ["●", UiTheme.GOOD]
 
@@ -136,6 +140,8 @@ func _tooltip(entity_id: String, kind: String, detail: Dictionary) -> String:
         var destination := String((_last_details.get(destination_id, {}) as Dictionary).get("name", destination_id))
         if phase == "derelict":
             return "drifting wreck (%s)" % hold
+        if phase == "patrol" or phase == "patrol_docked":
+            return "police cutter: %s" % String(detail.get("patrol_status", ""))
         if String(detail.get("salvage_target_name", "")) != "":
             return "racing to salvage %s, then → %s" % [String(detail.get("salvage_target_name", "")), destination]
         if phase == "in_transit" or phase == "awaiting_departure":

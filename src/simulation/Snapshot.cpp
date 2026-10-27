@@ -782,6 +782,53 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"z\":" << position.z
                << "}";
     }
+    // Police cutters: phase "patrol" when out, "patrol_docked" at their home port.
+    bool any_ship = !ships_.empty() || !derelicts_.empty();
+    for (const auto& patrol : patrols_) {
+        const auto position = patrol_position(patrol);
+        const auto& design = get_ship_class(patrol.class_id);
+        const bool docked = patrol.phase == domain::PatrolPhase::Docked;
+        std::string status;
+        switch (patrol.phase) {
+            case domain::PatrolPhase::Docked:
+                status = "in port";
+                break;
+            case domain::PatrolPhase::Outbound:
+                status = std::format("on its way to inspect {}", patrol.target_name);
+                break;
+            case domain::PatrolPhase::Inspecting:
+                status = std::format("alongside {}, inspecting", patrol.target_name);
+                break;
+            case domain::PatrolPhase::Returning:
+                status = "on its way home";
+                break;
+        }
+        output << (any_ship ? "," : "") << "{"
+               << "\"id\":\"" << json_escape(patrol.id) << "\","
+               << "\"name\":\"" << json_escape(patrol.name) << "\","
+               << "\"faction_id\":\"" << json_escape(patrol.faction_id) << "\","
+               << "\"class_id\":\"" << json_escape(patrol.class_id) << "\","
+               << "\"design_id\":\"" << json_escape(patrol.class_id) << "\","
+               << "\"class_name\":\"Patrol Cutter\","
+               << "\"hull_id\":\"" << json_escape(design.hull_id.empty() ? design.id : design.hull_id) << "\","
+               << "\"propulsion_type\":\"" << json_escape(design.propulsion_type) << "\","
+               << "\"phase\":\"" << (docked ? "patrol_docked" : "patrol") << "\","
+               << "\"patrol_status\":\"" << json_escape(status) << "\","
+               << "\"patrol_target_id\":\"" << json_escape(patrol.target_ship_id) << "\","
+               << "\"inspections\":" << patrol.inspections << ","
+               << "\"current_station_id\":\"" << json_escape(docked ? patrol.home_station_id : std::string()) << "\","
+               << "\"home_station_id\":\"" << json_escape(patrol.home_station_id) << "\","
+               << "\"propellant_kg\":" << patrol.propellant_kg << ","
+               << "\"propellant_capacity_kg\":" << design.propellant_capacity_kg << ","
+               << "\"dry_mass_kg\":" << design.dry_mass_kg << ","
+               << "\"crew_size\":" << design.crew_size << ","
+               << "\"cargo\":[],\"cargo_units\":0,\"cargo_capacity_units\":0,"
+               << "\"x\":" << position.x << ","
+               << "\"y\":" << position.y << ","
+               << "\"z\":" << position.z
+               << "}";
+        any_ship = true;
+    }
     output << "],";
 
     {

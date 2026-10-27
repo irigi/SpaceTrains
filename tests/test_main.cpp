@@ -20,6 +20,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "trajectory/ChaseSolver.hpp"
 #include "trajectory/KeplerPropagation.hpp"
 #include "trajectory/Porkchop.hpp"
 #include "simulation/CrewEnvironment.hpp"
@@ -1791,6 +1792,49 @@ int main() {
         require(first == run(), "the same seed should fail the same ships");
         std::cout << std::format("Failures: {} in 200 days with 1.5-year lives ({} derelicts, {} towed in)\n",
             std::get<0>(first), std::get<1>(first), std::get<2>(first));
+    }
+
+    // --- Police inspections: the meeting solver finds a rendezvous on a coasting target's path
+    // within the window; cutters inspect ships and the run repeats exactly. ---
+    {
+        const double mu = 1.32712440018e20;
+        const double au = 1.495978707e11;
+        spacetrains::trajectory::ChaseUnits units;
+        units.length_m = au;
+        const spacetrains::math::Vec3d r0 {au, 0.0, 0.0};
+        const spacetrains::math::Vec3d v0 {0.0, 0.0, std::sqrt(mu / au)};
+        // The target: a coast from 1.1 AU, sampled every day for a year.
+        spacetrains::domain::TrajectoryPlan target;
+        const spacetrains::math::Vec3d rt {0.0, 0.0, 1.1 * au};
+        const spacetrains::math::Vec3d vt {-std::sqrt(mu / (1.1 * au)), 0.0, 0.0};
+        spacetrains::trajectory::sample_kepler(rt, vt, 0.0, 365.0 * 86400.0, 86400.0, mu, target.sampled_path, target.sampled_times_s);
+        const spacetrains::trajectory::ChaseRequest request {
+            .position_m = r0, .velocity_mps = v0, .depart_time_s = 0.0, .power_w = 18.0e6,
+            .initial_mass_kg = 40000.0, .dry_mass_kg = 30000.0,
+            .end_condition = spacetrains::variable_isp::general::EndCondition::Rendezvous};
+        const auto meet = spacetrains::trajectory::plan_meeting(request, spacetrains::trajectory::path_target(target, 0.0, units), units,
+            20.0 * 86400.0, 200.0 * 86400.0, 0.0);
+        require(meet.feasible, "a cutter should find a meeting with a nearby coasting ship");
+        require(meet.transfer_time_s >= 20.0 * 86400.0 - 1.0 && meet.transfer_time_s <= 200.0 * 86400.0 + 1.0,
+            "the meeting should fall in the window");
+        const auto at_meet = spacetrains::trajectory::propagate_kepler(rt, vt, meet.transfer_time_s, mu);
+        require(distance_between(meet.path_m.back(), at_meet.position_m) < 2.0e8, "the cutter should end where the target is");
+        require(meet.propellant_kg > 0.0 && meet.propellant_kg < 10000.0, "the meeting should fit the load");
+
+        const auto run = [&] {
+            auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string(),
+                [](spacetrains::domain::UniverseDefinition& universe) { universe.patrols.patrols = true; });
+            sim.set_timewarp(86400.0);
+            for (int day = 0; day < 250; ++day) {
+                sim.step(1.0);
+            }
+            return std::pair {sim.patrol_audit().inspections, sim.patrol_audit().sorties};
+        };
+        const auto first = run();
+        require(first.first > 0, "cutters should inspect ships within 250 days");
+        require(first == run(), "inspections should repeat exactly");
+        std::cout << std::format("Police: meeting after {:.0f} days for {:.0f} kg; {} inspections in 250 days ({} sorties)\n",
+            meet.transfer_time_s / 86400.0, meet.propellant_kg, first.first, first.second);
     }
 
     std::cout << "All SpaceTrains tests passed.\n";

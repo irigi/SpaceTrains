@@ -474,6 +474,7 @@ Json ship_to_json(const domain::ShipState& s) {
     out.set("fault_pending", s.fault_pending);
     out.set("fault_leg_fraction", s.fault_leg_fraction);
     out.set("next_salvage_look_s", s.next_salvage_look_s);
+    out.set("last_inspected_s", s.last_inspected_s);
     if (!s.contract.stops.empty()) {
         auto contract = Json::object();
         auto stops = Json::array();
@@ -564,6 +565,9 @@ domain::ShipState ship_from_json(const Json& j) {
         s.fault_pending = j.get("fault_pending").boolean();
         s.fault_leg_fraction = j.get("fault_leg_fraction").number();
         s.next_salvage_look_s = j.get("next_salvage_look_s").number();
+        if (const auto* inspected = j.find("last_inspected_s"); inspected != nullptr) {
+            s.last_inspected_s = inspected->number();
+        }
     }
     if (const auto* contract = j.find("contract"); contract != nullptr) {
         for (const auto& stop : contract->get("stops").items()) {
@@ -1023,6 +1027,30 @@ std::string Simulation::save_state_json() const {
     root.set("replacement_claims", std::move(claims));
     root.set("next_salvage_review_s", next_salvage_review_s_);
     root.set("replacement_tried", replacement_tried_);
+    auto patrols = Json::array();
+    for (const auto& p : patrols_) {
+        auto out = Json::object();
+        out.set("id", p.id);
+        out.set("name", p.name);
+        out.set("faction_id", p.faction_id);
+        out.set("class_id", p.class_id);
+        out.set("home_station_id", p.home_station_id);
+        out.set("phase", static_cast<double>(static_cast<int>(p.phase)));
+        out.set("propellant_kg", p.propellant_kg);
+        out.set("target_ship_id", p.target_ship_id);
+        out.set("target_name", p.target_name);
+        out.set("meet_s", p.meet_s);
+        out.set("inspect_until_s", p.inspect_until_s);
+        out.set("arrive_s", p.arrive_s);
+        out.set("meet_state", points_to_json({p.meet_position_m, p.meet_velocity_mps}));
+        out.set("path", points_to_json(p.path));
+        out.set("times", numbers_to_json(p.times));
+        out.set("propellant", numbers_to_json(p.propellant));
+        out.set("next_review_s", p.next_review_s);
+        out.set("inspections", static_cast<double>(p.inspections));
+        patrols.push(std::move(out));
+    }
+    root.set("patrols", std::move(patrols));
     auto events = Json::array();
     for (const auto& event : recent_events_) {
         auto e = Json::object();
@@ -1152,6 +1180,39 @@ void Simulation::read_state_json(const std::string& text) {
         }
         next_salvage_review_s = root.get("next_salvage_review_s").number();
         replacement_tried = root.get("replacement_tried").boolean();
+    }
+    std::vector<domain::PatrolState> patrols;
+    bool patrols_saved = false;
+    if (const auto* list = root.find("patrols"); list != nullptr) {
+        patrols_saved = true;
+        for (const auto& item : list->items()) {
+            domain::PatrolState p;
+            p.id = item.get("id").string();
+            p.name = item.get("name").string();
+            p.faction_id = item.get("faction_id").string();
+            p.class_id = item.get("class_id").string();
+            (void)get_ship_class(p.class_id);  // throws on an unknown class
+            p.home_station_id = item.get("home_station_id").string();
+            (void)get_station_definition(p.home_station_id);
+            p.phase = static_cast<domain::PatrolPhase>(static_cast<int>(item.get("phase").number()));
+            p.propellant_kg = item.get("propellant_kg").number();
+            p.target_ship_id = item.get("target_ship_id").string();
+            p.target_name = item.get("target_name").string();
+            p.meet_s = item.get("meet_s").number();
+            p.inspect_until_s = item.get("inspect_until_s").number();
+            p.arrive_s = item.get("arrive_s").number();
+            const auto meet = points_from_json(item.get("meet_state"));
+            if (meet.size() == 2) {
+                p.meet_position_m = meet[0];
+                p.meet_velocity_mps = meet[1];
+            }
+            p.path = points_from_json(item.get("path"));
+            p.times = numbers_from_json(item.get("times"));
+            p.propellant = numbers_from_json(item.get("propellant"));
+            p.next_review_s = item.get("next_review_s").number();
+            p.inspections = static_cast<int>(item.get("inspections").number());
+            patrols.push_back(std::move(p));
+        }
     }
     std::map<std::string, double> treasuries;
     for (const auto& [faction_id, balance] : root.get("faction_treasuries").fields()) {
@@ -1284,6 +1345,9 @@ void Simulation::read_state_json(const std::string& text) {
     replacement_claims_ = std::move(replacement_claims);
     next_salvage_review_s_ = next_salvage_review_s;
     replacement_tried_ = replacement_tried;
+    if (patrols_saved) {
+        patrols_ = std::move(patrols);
+    }  // (an older save keeps the cutters this game started with)
     init_failure_clocks();  // saves before version 22 have none
     recent_events_ = std::move(events);
     recent_trades_ = std::move(trades);

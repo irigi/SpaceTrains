@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace spacetrains::trajectory {
 
@@ -98,6 +99,58 @@ ChasePlan plan_chase(const ChaseRequest& request, const g::Target& target, const
     const double final_mass = 1.0 / (1.0 / request.initial_mass_kg + effort_si / (2.0 * request.power_w));
     plan.propellant_kg = request.initial_mass_kg - final_mass;
     for (const auto& sample : propagator.sample(transfer.start, solution.primer, solution.T, std::max<std::size_t>(2, path_samples))) {
+        plan.path_m.push_back(units.position_m(sample.state.r));
+        plan.times_s.push_back(request.depart_time_s + sample.t * tu);
+    }
+    return plan;
+}
+
+ChasePlan plan_meeting(const ChaseRequest& request, const g::Target& target, const ChaseUnits& units, double earliest_s,
+    double latest_s, double kg_per_s, std::size_t grid, std::size_t path_samples) {
+    ChasePlan plan;
+    if (!(request.power_w > 0.0) || !(request.initial_mass_kg > request.dry_mass_kg) || !(request.dry_mass_kg > 0.0)
+        || !(latest_s > earliest_s) || !(earliest_s > 0.0) || grid < 2) {
+        return plan;
+    }
+    const double tu = units.time_s();
+    const double au = units.accel_mps2();
+    const double budget = 2.0 * request.power_w * (1.0 / request.dry_mass_kg - 1.0 / request.initial_mass_kg) / (au * au * tu);
+    const g::Propagator propagator;
+    const g::TransferRequest transfer {units.to_normalised(request.position_m, request.velocity_mps), target, request.end_condition,
+        request.min_perihelion_m / units.length_m};
+    g::SolveOptions options;
+    options.fallbacks = false;   // a grid point that will not solve quickly is skipped
+    double best_objective = std::numeric_limits<double>::infinity();
+    g::Solution best;
+    g::Primer warm {};
+    bool have_warm = false;
+    for (std::size_t i = 0; i < grid; ++i) {
+        const double t_s = earliest_s + (latest_s - earliest_s) * static_cast<double>(i) / static_cast<double>(grid - 1);
+        const auto solution = g::solve_transfer(propagator, transfer, t_s / tu, options, have_warm ? &warm : nullptr);
+        if (!solution.converged || !solution.end.ok) {
+            continue;
+        }
+        warm = solution.primer;
+        have_warm = true;
+        if (solution.end.effort > budget) {
+            continue;
+        }
+        const double effort_si = solution.end.effort * au * au * tu;
+        const double final_mass = 1.0 / (1.0 / request.initial_mass_kg + effort_si / (2.0 * request.power_w));
+        const double objective = request.initial_mass_kg - final_mass + kg_per_s * t_s;
+        if (objective < best_objective) {
+            best_objective = objective;
+            best = solution;
+        }
+    }
+    if (!best.converged) {
+        return plan;
+    }
+    plan.feasible = true;
+    plan.transfer_time_s = best.T * tu;
+    const double effort_si = best.end.effort * au * au * tu;
+    plan.propellant_kg = request.initial_mass_kg - 1.0 / (1.0 / request.initial_mass_kg + effort_si / (2.0 * request.power_w));
+    for (const auto& sample : propagator.sample(transfer.start, best.primer, best.T, std::max<std::size_t>(2, path_samples))) {
         plan.path_m.push_back(units.position_m(sample.state.r));
         plan.times_s.push_back(request.depart_time_s + sample.t * tu);
     }

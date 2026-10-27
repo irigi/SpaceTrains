@@ -80,9 +80,18 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 
 ### Next steps, in order
 
-1. **Space chases in the game:** wire `trajectory/ChaseSolver` (`plan_chase`, ~1-3 ms; replanning ~0.4 ms)
-   into events, e.g. a rescue of a stranded ship, a courier racing a deadline, then piracy and police
-   (below). Needs the game design: who chases whom, triggers, what happens at intercept.
+1. **Space chases in the game** — built 2026-10-28 overnight on `feature/failures_salvage`, awaiting review
+   (decisions in `docs/plans/overnight_2026-10-28.md`; design in `docs/modules/ships_and_fleet.md`, "Failures and
+   salvage" and "Police inspections"):
+   - **Failures:** Weibull hull lives (shape 3, mean 30 y × 1.10, exact in expectation against the capital charge);
+     a ship that fails in flight becomes a derelict coasting on its orbit; its owner may replace it first.
+   - **Salvage races:** ships weigh a wreck's cargo and scrap against their missions; the first to reach it wins.
+   - **Police inspections:** faction cutters meet ships bound for their stations at the cheapest point of their path
+     and ride alongside for 3 days; the inspected ship keeps its course (legal assumption).
+   - Later: insurance (maybe; it only smooths owners' losses), customs and smuggling (on the inspection seam), a timed
+     crew rescue, losers of a race turning back mid-flight, the wreck's drift drawn on the map.
+   - **Piracy** as hidden raiders does not fit (burns are visible across the inner system and raiders need an openly
+     complicit port): if it comes back, as open conflict between factions (blockades, commerce raiding), later.
 
 2. **Deployment on Linux and Windows 11** (user, 2026-10-26): one robust way to install and run SpaceTrains on
    both systems, as an installer or a documented process. Today it needs a Godot built from source with double
@@ -109,10 +118,8 @@ Later (user, 2026-10-22):
   kinds (classes, jobs, purposes of travel, tuned to a space setting rather than copied from Victoria 2). To be designed
   in detail together when we get there; the user wants help with the concept.
 
-Deferred (user, 2026-10-08):
-- **Piracy and police:** later. A first version needs no chase game: on a ballistic coast a ship's path is known,
-  so an intercept is a rendezvous problem (Lambert), costly in delta-v and likeliest near departure and arrival.
-  It could start as an expected-loss cost per route that police presence lowers.
+Deferred (user, 2026-10-08; revised 2026-10-27):
+- **Piracy:** not as hidden raiders (see step 1); perhaps later as open faction conflict.
 
 ### Done (details in the module docs and git history)
 

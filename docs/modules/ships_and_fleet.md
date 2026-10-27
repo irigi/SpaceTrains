@@ -11,10 +11,11 @@ orders and money: `economy.md`.
   refits;
 - `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
 - `src/simulation/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
+- `src/simulation/Patrols.cpp`: police cutters and inspections;
 - `src/simulation/Passengers.cpp`, `CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
 
 **Data:** `data/economy/` (`ship_operations.csv`, `fleet_investment.csv`, `open_economy.csv`, `fuel_supply.csv`,
-`ship_environment.csv`, `passengers.csv`, `failures.csv`), `data/ship_classes/` (classes, components, modules, hull slots, spares;
+`ship_environment.csv`, `passengers.csv`, `failures.csv`, `patrols.csv`, `patrol_bases.csv`), `data/ship_classes/` (classes, components, modules, hull slots, spares;
 written by `build_ship_classes.py`). Sources for the physics: `docs/ship_technology.md`.
 
 ## Operating costs
@@ -264,6 +265,32 @@ before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's 
   the benchmark's noise.
 - **UI:** derelicts ride in the snapshot's ship list with phase `derelict` (map icon orange, a wreck card in the
   inspector); racers carry `salvage_target_name`; the top bar counts wrecks adrift.
+
+## Police inspections (`Patrols.cpp`, `data/economy/patrols.csv`, `patrol_bases.csv`)
+
+Switch: `patrols`. Bases: Sol Federation 2 cutters at Low Earth Logistics, Mars Corporation 1 at Mars Transfer Port,
+the Independents 1 at Ceres Deep Depot.
+
+- **Cutters** are plasma couriers in faction service (`class_id`), outside the trading fleet and its cap. Their
+  faction pays their capital charge, crew and fuel to the home port (journal category `Patrols`); they refuel from
+  the port's stock.
+- **Legal assumption:** an inspected ship complies but the law does not require it to change its trajectory; the
+  cutter matches it (it rides alongside on the ship's planned path for `inspection_days`, 3). The inspection has no
+  economic effect yet: it is the seam for customs and smuggling.
+- **Jurisdiction:** a faction inspects ships bound for its stations, on an interplanetary leg, not inspected in the
+  last `reinspect_days` (120) and not already another cutter's target.
+- **Meeting point:** `trajectory::plan_meeting` (`ChaseSolver.hpp`) solves fixed-time rendezvous with the ship's
+  planned (thrusting) path at 8 times spread over its remaining flight (less the inspection), warm-started in turn,
+  and takes the least propellant + time (the cutter's daily cost at the home port's fuel price). The way there may
+  burn `outbound_share` (40%) of a full load, and a way home from where the inspection ends must exist with
+  `return_reserve` (10%) left, else the target is skipped. Late meetings cost least, so cutters mostly meet ships on
+  their approach: in effect, customs at the border.
+- **Cycle:** in port a cutter looks every `review_days` (2) at the 3 nearest eligible ships; after an inspection it
+  goes on to another target if 60% of its load is left, else home (`plan_chase` to the home planet). Matching the
+  target costs the effort of the velocity the target gained over a coast (Δv² / T on the cutter's power).
+- At 400 days: ~18 sorties and ~14 inspections, ~2,000 cr of treasury money an inspection; no measurable run time.
+- **UI:** cutters ride in the snapshot's ship list with phase `patrol` (out) or `patrol_docked`, a light-blue icon,
+  a cutter card in the inspector, "cutters out" in the top bar. Excluded from the trading fleet's counts.
 
 ## Money around ships
 

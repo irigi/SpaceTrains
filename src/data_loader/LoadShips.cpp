@@ -419,6 +419,62 @@ void load_failures(const std::filesystem::path& root, domain::UniverseDefinition
     }
 }
 
+// Police inspections (optional files).
+void load_patrols(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
+    const auto path = root / "economy" / "patrols.csv";
+    if (!std::filesystem::exists(path)) {
+        return;
+    }
+    auto& p = universe.patrols;
+    const auto rows = read_csv_rows(path);
+    require_header(rows.front(), {"key", "value"}, path);
+    std::unordered_set<std::string> seen_keys;
+    double patrols = p.patrols ? 1.0 : 0.0;
+    const std::unordered_map<std::string, double*> fields {
+        {"patrols", &patrols},
+        {"inspection_days", &p.inspection_days},
+        {"reinspect_days", &p.reinspect_days},
+        {"review_days", &p.review_days},
+        {"outbound_share", &p.outbound_share},
+        {"return_reserve", &p.return_reserve},
+    };
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        require_field_count(row, 2, path, i + 1);
+        require_unique_id(row[0], seen_keys, path, i + 1);
+        if (row[0] == "class_id") {
+            p.class_id = row[1];
+            continue;
+        }
+        const auto field = fields.find(row[0]);
+        if (field == fields.end()) {
+            throw std::runtime_error("Unknown key '" + row[0] + "' in " + path.string());
+        }
+        *field->second = parse_double(row[1], path, i + 1, row[0].c_str());
+    }
+    p.patrols = patrols != 0.0;
+    if (p.inspection_days <= 0.0 || p.reinspect_days < 0.0 || p.review_days <= 0.0 || p.outbound_share <= 0.0
+        || p.outbound_share >= 1.0 || p.return_reserve < 0.0 || p.return_reserve >= 1.0) {
+        throw std::runtime_error(path.string() + ": a patrol setting is out of range");
+    }
+    if (std::none_of(universe.ship_classes.begin(), universe.ship_classes.end(), [&](const auto& c) { return c.id == p.class_id; })) {
+        throw std::runtime_error(path.string() + ": unknown cutter class " + p.class_id);
+    }
+    const auto bases_path = root / "economy" / "patrol_bases.csv";
+    if (!std::filesystem::exists(bases_path)) {
+        return;
+    }
+    const auto base_rows = read_csv_rows(bases_path);
+    require_header(base_rows.front(), {"faction_id", "station_id", "ships"}, bases_path);
+    for (std::size_t i = 1; i < base_rows.size(); ++i) {
+        const auto& row = base_rows[i];
+        require_field_count(row, 3, bases_path, i + 1);
+        require_station(universe, row[1], bases_path);
+        p.bases.push_back({.faction_id = row[0], .station_id = row[1],
+            .ships = static_cast<int>(parse_double(row[2], bases_path, i + 1, "ships"))});
+    }
+}
+
 // Ship environment (tier 2): crew radiation and the other effects modules answer. Optional
 // file and keys; the defaults in domain::ShipEnvironmentDefinition are the sourced values,
 // with every mechanism switched off.

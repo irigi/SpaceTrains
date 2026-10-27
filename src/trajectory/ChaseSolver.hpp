@@ -59,4 +59,11 @@ struct ChasePlan {
 ChasePlan plan_chase(const ChaseRequest& request, const variable_isp::general::Target& target, const ChaseUnits& units,
     std::size_t path_samples = 200);
 
+// The best place on a target's path to meet it (police inspections): rendezvous at fixed times
+// spread over [earliest_s, latest_s] after departure (`grid` of them, warm-started in turn),
+// each at minimum effort; the one with the least propellant + `kg_per_s` × time that the load
+// allows. `transfer_time_s` is the meeting time after departure.
+ChasePlan plan_meeting(const ChaseRequest& request, const variable_isp::general::Target& target, const ChaseUnits& units,
+    double earliest_s, double latest_s, double kg_per_s, std::size_t grid = 10, std::size_t path_samples = 60);
+
 }  // namespace spacetrains::trajectory

@@ -20,6 +20,7 @@
 #include "economy/EconomySystem.hpp"
 #include "simulation/FlowRecord.hpp"
 #include "simulation/MoneyJournal.hpp"
+#include "trajectory/ChaseSolver.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
 #include "trajectory/VariableIspTrajectoryPlanner.hpp"
@@ -158,6 +159,19 @@ public:
         double hull_value_cr_days {0.0};
     };
     [[nodiscard]] const FailureAudit& failure_audit() const { return failure_audit_; }
+    // Audit (police inspections): since start or load, not saved.
+    struct PatrolAudit {
+        int inspections {0};
+        int sorties {0};
+        int no_target_reviews {0};
+        int returns_replanned_short {0};   // a way home that needed the reserve, or none found
+        double meeting_days_sum {0.0};     // from setting out to meeting
+        double propellant_kg {0.0};
+        double costs_cr {0.0};             // running costs and fuel, paid by the treasuries
+        std::map<std::string, int> by_faction;
+    };
+    [[nodiscard]] const PatrolAudit& patrol_audit() const { return patrol_audit_; }
+    [[nodiscard]] const std::vector<domain::PatrolState>& patrols() const { return patrols_; }
     [[nodiscard]] const std::vector<domain::DerelictState>& derelicts() const { return derelicts_; }
     // Audit (passengers): since start or load, not saved. Index by PassengerKind.
     struct PassengerAudit {
@@ -581,6 +595,31 @@ private:
     bool consider_salvage(domain::ShipState& ship, double spot_per_day);
     void reach_derelict(domain::ShipState& ship);
     [[nodiscard]] int fleet_places_held_for_others(const std::string& faction_id) const;
+    // Police inspections (Patrols.cpp).
+    void init_patrols();
+    void step_patrols(double dt_s);
+    struct PatrolSortie {
+        bool feasible {false};
+        std::string target_ship_id;
+        double meet_s {0.0};
+        double propellant_kg {0.0};
+        std::vector<math::Vec3d> path;
+        std::vector<double> times;
+        std::vector<double> propellant;
+        double objective {0.0};
+    };
+    // Pure (runs in parallel): the cheapest meeting with `target` from the cutter's state now,
+    // with a way home after the inspection.
+    [[nodiscard]] PatrolSortie plan_sortie(const domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v,
+        const domain::ShipState& target) const;
+    // The way home from (r, v) now with the load aboard, keeping `reserve_kg` (plan_chase to the
+    // home planet).
+    [[nodiscard]] trajectory::ChasePlan plan_patrol_home(const domain::PatrolState& patrol, const math::Vec3d& r,
+        const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg) const;
+    bool start_sortie(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
+    void send_patrol_home(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
+    [[nodiscard]] math::Vec3d patrol_position(const domain::PatrolState& patrol) const;
+    void pay_patrol(const domain::PatrolState& patrol, double amount);
     // One step of a fleet review: probes a batch of candidates (their cargo runs from the
     // yard, kept in review_probes_ for the rest of the review), or, once every candidate that
     // could still win has been probed, buys the best one.
@@ -894,6 +933,8 @@ private:
     bool replacement_tried_ {false};   // this review's replacement purchase found nothing worth buying
     double next_exposure_sample_s_ {0.0};
     FailureAudit failure_audit_;           // audit only, not saved
+    std::vector<domain::PatrolState> patrols_;   // police cutters (saved)
+    PatrolAudit patrol_audit_;             // audit only, not saved
     double timewarp_factor_ {3600.0};
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;

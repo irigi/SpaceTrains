@@ -42,6 +42,29 @@ ships, boarded 4,793 ± 433, faction profit -1,199 ± 1,108 k, ~175 s a run.
     is the oldest claim's faction's (priced against its own money, any yard); if nothing passes its hurdle the claim
     waits for the next review and others may buy into places nobody holds. Claims count as taken places under the
     130-ship cap. Test with 1.5-year lives: 14 failures and 12 replacements in 400 days, drift 0.
+11. **Salvage competes in dispatch** (not only idle ships): plasma ships are almost never idle, so at each docked
+    review a ship weighs its best salvage run per day against its best mission (looking at most every 5 days, saved,
+    so planning stays cheap). Ships with nothing to do (idle, laid up) also look every half day; a laid-up ship
+    rehires its crew for it.
+12. **Rendezvous is dear:** matching a wreck's velocity costs ~8 km/s from Mars for a wreck on a transfer arc, so
+    nuclear-thermal ships rarely can; plasma ships do the salvage. Plasma way out: half the load, then 35%, 20% if no
+    way home is left.
+13. **The race:** a new racer must meet the wreck ≥5% sooner than the current claimant; at most 3 racers. Losers fly
+    on to their port empty (no mid-flight replanning yet). The salvager sells the cargo at market and gets the scrap
+    from Earth at the rendezvous.
+14. **Salvage value is modest:** wreck cargo + 20% scrap (8-30 k) usually pays less per day than trade, so salvage
+    happens mainly when ships have little else. At real settings 7 of 8 wrecks were salvaged in 4 starts.
+15. **Police cutters are plasma couriers** in faction service (no new class: `ship_classes.csv` is written by
+    `build_ship_classes.py`), outside the trading fleet and its cap: Sol Federation 2 at Low Earth Logistics, Mars
+    Corporation 1 at Mars Transfer Port, Independents 1 at Ceres. The faction pays hull, crew and fuel to the home
+    port (new journal category `Patrols`).
+16. **Jurisdiction:** ships bound for the faction's stations, interplanetary legs, not inspected in 120 days.
+    **Legal assumption** (in the module doc): the inspected ship complies but need not change course; the cutter
+    matches it for 3 days.
+17. **Meeting point:** least propellant + time (the cutter's daily cost at the port's fuel price) over 8 fixed-time
+    rendezvous along the target's remaining path; a way home after the inspection must exist. Late meetings are
+    cheapest, so cutters mostly meet ships on their approach (customs at the border).
+18. **Inspections have no economic effect yet** (no contraband): the seam for customs and smuggling.
 
 ## Open points
 
@@ -49,5 +72,18 @@ ships, boarded 4,793 ± 433, faction profit -1,199 ± 1,108 k, ~175 s a run.
   them on screen, the lever that keeps the economics honest is a shorter amortisation (`lifetime_years`), which
   raises capital charges; a hazard multiplier alone would make ships unprofitable in expectation.
 - A lost liner (scheduled loop) is replaced by an ordinary purchase; its loop is not resumed.
+- The wreck's drift is not drawn on the map (only its marker): the ship-path rails code bends paths toward their
+  planets and would need a derelict mode.
+- Racers that lose keep flying to the rendezvous point and on to their port; turning back needs planning from a
+  mid-flight state (the plasma `plan_chase` can do it; Kepler legs would need a Lambert search from a state).
+- Cutters pick from the 3 nearest eligible ships: a cheap, local choice; a faction-wide schedule could do better.
 
 ## Log
+
+- 23:10 branch, baseline benchmark.
+- 23:20 step 1 (clocks): c measured 0.098 → factor 1.10. Tests pass. Steps 2-3 (derelicts, replacement).
+- 23:35 step 4 (salvage): idle-only racing found almost no racers (plasma ships never idle; NTR cannot afford the
+  rendezvous) → salvage weighed in dispatch. Committed a75290f. Benchmark at real settings within noise.
+- 23:45 save/load round trip mid-race byte-identical; derelict shot tour checked. UI + docs committed 6901bb4.
+- 23:55 step 6 (police): meeting solver, cutters; round trip with cutters mid-sortie byte-identical; shot tour
+  checked (a first version wrote cutters into the bodies list; fixed).

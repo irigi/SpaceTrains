@@ -246,6 +246,7 @@ int main(int argc, char** argv) {
                 print_passenger_audit(snap, sim.universe(), sim.passenger_audit(), sim.rotation_tours());
                 print_capacity_balance(sim.universe(), sim.economy_system(), snap);
                 print_failure_audit(sim);
+                print_patrol_audit(sim);
                 print_accounts_audit(sim);
             }
             if (!verbose) {

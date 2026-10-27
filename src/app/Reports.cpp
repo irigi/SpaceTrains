@@ -890,6 +890,23 @@ void print_failure_audit(const spacetrains::simulation::Simulation& sim) {
         a.cargo_recovered_cr, a.scrap_paid_cr, a.replacements_bought, a.replacement_claims_lapsed);
 }
 
+void print_patrol_audit(const spacetrains::simulation::Simulation& sim) {
+    if (!sim.universe().patrols.patrols) {
+        return;
+    }
+    const auto& a = sim.patrol_audit();
+    std::cout << "\n  Police inspections:\n";
+    std::string by_faction;
+    for (const auto& [faction, count] : a.by_faction) {
+        by_faction += std::format("{}{} {}", by_faction.empty() ? "" : ", ", faction, count);
+    }
+    std::cout << std::format("    Cutters {}: sorties {}, inspections {} ({}), mean {:.1f} days to a meeting, reviews without a target {}\n",
+        sim.patrols().size(), a.sorties, a.inspections, by_faction.empty() ? "none" : by_faction,
+        a.sorties > 0 ? a.meeting_days_sum / a.sorties : 0.0, a.no_target_reviews);
+    std::cout << std::format("    Costs to the treasuries {:.0f} cr ({:.0f} cr an inspection); matching targets burned {:.0f} kg; ways home on the reserve {}\n",
+        a.costs_cr, a.inspections > 0 ? a.costs_cr / a.inspections : 0.0, a.propellant_kg, a.returns_replanned_short);
+}
+
 void print_accounts_audit(const spacetrains::simulation::Simulation& sim) {
     using spacetrains::simulation::AccountKind;
     using spacetrains::simulation::MoneyCategory;

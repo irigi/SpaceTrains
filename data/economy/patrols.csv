@@ -1,0 +1,8 @@
+key,value
+patrols,1
+class_id,plasma_courier
+inspection_days,3
+reinspect_days,120
+review_days,2
+outbound_share,0.4
+return_reserve,0.1

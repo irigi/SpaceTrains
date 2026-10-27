@@ -169,6 +169,27 @@ struct FailureDefinition {
     double replacement_days {180.0};    // the owner's first right to the lost ship's place under the cap
 };
 
+// Police inspections (data/economy/patrols.csv and patrol_bases.csv; docs/modules/ships_and_fleet.md,
+// "Police inspections"): faction cutters meet ships bound for the faction's stations in flight and
+// inspect them for a few days. The inspected ship keeps its trajectory (the law does not make it
+// change course); the cutter matches it.
+struct PatrolBaseDefinition {
+    std::string faction_id;
+    std::string station_id;
+    int ships {1};
+};
+
+struct PatrolDefinition {
+    bool patrols {false};
+    std::string class_id {"plasma_courier"};   // cutters are couriers in faction service
+    double inspection_days {3.0};
+    double reinspect_days {120.0};     // a ship inspected is left alone this long
+    double review_days {2.0};          // a cutter in port looks for a target this often
+    double outbound_share {0.4};       // of the load the way to a meeting may burn
+    double return_reserve {0.1};       // of the load kept when back home
+    std::vector<PatrolBaseDefinition> bases;
+};
+
 // The space environment acting on ships and crews (data/economy/ship_environment.csv, tier 2;
 // sources and derivations in docs/ship_technology.md, "Crew radiation"). Every mechanism is a
 // switch; with all off the economy is the reference.
@@ -645,6 +666,7 @@ struct UniverseDefinition {
     std::vector<ShipModuleDefinition> ship_modules;
     ShipEnvironmentDefinition ship_environment;
     FailureDefinition failures;
+    PatrolDefinition patrols;
     LabourDefinition labour;
     std::unordered_map<std::string, SparePartDefinition> spare_parts;  // by sub-part kind
     std::unordered_map<std::string, StationRadiationDefinition> station_radiation;

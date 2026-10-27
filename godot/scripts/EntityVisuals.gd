@@ -163,7 +163,9 @@ static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s:
     var phase := String(data.get("phase", "idle"))
     var plasma := String(data.get("propulsion_type", "nuclear_thermal")) == "variable_isp"
     var engine_on := false
-    if phase == "in_transit":
+    if phase == "patrol":
+        engine_on = plasma   # cutters are plasma ships, always under way when out
+    elif phase == "in_transit":
         if plasma:
             engine_on = true
         else:

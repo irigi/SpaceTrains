@@ -241,6 +241,8 @@ func _plan(kind: String) -> Array:
         "ship":
             if String(_last_detail.get("phase", "")) == "derelict":
                 return [{"fn": func() -> void: _build_derelict(d.call(), c.call())}]
+            if String(_last_detail.get("phase", "")) in ["patrol", "patrol_docked"]:
+                return [{"fn": func() -> void: _build_patrol(d.call(), c.call())}]
             return [
                 {"fn": func() -> void: _build_ship(d.call(), c.call())},
                 {"fn": func() -> void: _add_ship_voyage(d.call(), c.call())},
@@ -383,6 +385,8 @@ func _phase_word(phase: String) -> String:
             return "refuelling"
         "derelict":
             return "drifting wreck"
+        "patrol", "patrol_docked":
+            return "police patrol"
     return phase
 
 func _trajectory_label(trajectory_type: String) -> String:
@@ -902,6 +906,28 @@ func _build_derelict(detail: Dictionary, context: Dictionary) -> void:
     else:
         _add_label("No salvager has set out yet: ships weigh the wreck against their regular work.", UiTheme.TEXT_DIM, 12)
     _add_note("Crew and passengers left in the lifeboat. The owner lost the hull and the cargo; it may replace the ship first.")
+
+# A police cutter (police inspections): meets ships bound for its faction's stations in flight
+# and inspects them alongside for a few days; the inspected ship keeps its course.
+func _build_patrol(detail: Dictionary, context: Dictionary) -> void:
+    _add_header(String(detail.get("name", detail.get("id", ""))),
+        "Patrol Cutter · %s · police" % _faction_name(String(detail.get("faction_id", ""))),
+        _faction_color(detail, context))
+    var propellant := float(detail.get("propellant_kg", 0.0))
+    var capacity := maxf(float(detail.get("propellant_capacity_kg", 1.0)), 0.001)
+    _add(UiWidgets.kpi_strip([
+        {"label": "status", "value": "in port" if String(detail.get("phase", "")) == "patrol_docked" else "out"},
+        {"label": "propellant", "value": "%.0f%%" % (100.0 * propellant / capacity)},
+        {"label": "inspections", "value": "%d" % int(detail.get("inspections", 0))},
+    ]))
+    var status := String(detail.get("patrol_status", ""))
+    if status != "":
+        status = status.substr(0, 1).to_upper() + status.substr(1)
+    _add_label("%s, based at %s." % [status,
+        _resolve_name(context, String(detail.get("home_station_id", "")))], UiTheme.TEXT_PRIMARY, 13)
+    _add_note("Cutters meet ships bound for their faction's stations at the cheapest point of their path and ride alongside "
+        + "for the inspection. The law does not make the inspected ship change course: the cutter matches it. "
+        + "The faction pays the cutter's hull, crew and fuel.")
 
 func _build_ship(detail: Dictionary, context: Dictionary) -> void:
     var phase := String(detail.get("phase", "idle"))
