@@ -131,12 +131,19 @@ PorkchopColumn PorkchopService::compute_column(const std::string& origin, const 
             from_left = {{p[0], p[1]}, {p[2], p[3]}};
             seed = &from_left;
         }
+        const auto valid = [&](const general::Solution& s) {
+            return s.converged && s.end.ok && s.end.min_radius >= request.min_radius;
+        };
         auto solution = general::solve_transfer(propagator, request, T, options, seed);
-        bool ok = solution.converged && solution.end.ok && solution.end.min_radius >= request.min_radius;
-        if (!ok && seed == &from_left) {
-            // The neighbour's branch dives under the limit here: start again from the row below.
-            solution = general::solve_transfer(propagator, request, T, options, have_warm ? &warm : nullptr);
-            ok = solution.converged && solution.end.ok && solution.end.min_radius >= request.min_radius;
+        bool ok = valid(solution);
+        if (seed == &from_left) {
+            // Each seed can land on its own local minimum (speckle in the plot): also solve from the
+            // row below and keep the lower effort. Twice the work, for the inner pairs only.
+            auto other = general::solve_transfer(propagator, request, T, options, have_warm ? &warm : nullptr);
+            if (valid(other) && (!ok || other.end.effort < solution.end.effort)) {
+                solution = std::move(other);
+                ok = true;
+            }
         }
         column.effort.push_back(ok ? static_cast<float>(solution.end.effort) : kNone);
         const double nan = std::numeric_limits<double>::quiet_NaN();

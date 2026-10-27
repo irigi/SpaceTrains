@@ -19,6 +19,8 @@ var color_lo := 0.0
 var color_hi := 1.0
 var log_scale := false
 var value_format := "%.2f"
+# Optional func(value: float) -> String instead of value_format (Godot has no %g).
+var format_value: Callable
 var unit := ""
 # [{level: float, color: Color, name: String}]: a line along the cell edges where values cross level.
 var contours: Array = []
@@ -33,7 +35,7 @@ var _hover := Vector2i(-1, -1)
 
 const PAD_LEFT := 52.0
 const PAD_RIGHT := 64.0
-const PAD_TOP := 22.0
+const PAD_TOP := 34.0
 const PAD_BOTTOM := 34.0
 
 func _init() -> void:
@@ -64,6 +66,16 @@ func _t(value: float) -> float:
         var hi := log(maxf(color_hi, color_lo * 1.0001 + 1e-12))
         return (log(maxf(value, 1e-12)) - lo) / maxf(hi - lo, 1e-12)
     return (value - color_lo) / maxf(color_hi - color_lo, 1e-12)
+
+func _fmt(value: float) -> String:
+    return String(format_value.call(value)) if format_value.is_valid() else value_format % value
+
+# A number with `digits` significant digits (for values spanning decades).
+static func significant(value: float, digits := 3) -> String:
+    if value == 0.0 or is_nan(value) or is_inf(value):
+        return str(value)
+    var decimals := maxi(0, digits - 1 - int(floor(log(absf(value)) / log(10.0))))
+    return String.num(value, decimals)
 
 func _area() -> Rect2:
     return Rect2(PAD_LEFT, PAD_TOP, size.x - PAD_LEFT - PAD_RIGHT, size.y - PAD_TOP - PAD_BOTTOM)
@@ -173,7 +185,7 @@ func _draw() -> void:
             var y := _axis_to_y(float(y_values[i]))
             draw_string(font, Vector2(2, y + 4), y_format % float(y_values[i]), HORIZONTAL_ALIGNMENT_RIGHT, PAD_LEFT - 6, 10,
                 UiTheme.TEXT_DIM)
-    draw_string(font, Vector2(2, PAD_TOP - 4), y_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UiTheme.TEXT_DIM)
+    draw_string(font, Vector2(8, PAD_TOP - 6), y_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UiTheme.TEXT_DIM)
     # Colour legend on the right.
     var lx := area.end.x + 10.0
     var steps := 40
@@ -181,8 +193,8 @@ func _draw() -> void:
         var t := float(k) / (steps - 1)
         var y := area.end.y - area.size.y * (k + 1) / steps
         draw_rect(Rect2(lx, y, 10, area.size.y / steps + 0.6), scale_color(t))
-    var hi_text := value_format % color_hi
-    var lo_text := value_format % color_lo
+    var hi_text := _fmt(color_hi)
+    var lo_text := _fmt(color_lo)
     draw_string(font, Vector2(lx + 13, area.position.y + 8), hi_text, HORIZONTAL_ALIGNMENT_LEFT, PAD_RIGHT - 24, 10, UiTheme.TEXT_DIM)
     draw_string(font, Vector2(lx + 13, area.end.y), lo_text, HORIZONTAL_ALIGNMENT_LEFT, PAD_RIGHT - 24, 10, UiTheme.TEXT_DIM)
     if unit != "":
@@ -197,7 +209,7 @@ func _draw() -> void:
         else:
             var v := _value(_hover.x, _hover.y)
             text = "%s %s · %s %s · %s" % [x_label, x_format % float(x_values[_hover.x]), y_label,
-                y_format % float(y_values[_hover.y]), "—" if is_nan(v) else (value_format % v) + " " + unit]
+                y_format % float(y_values[_hover.y]), "—" if is_nan(v) else _fmt(v) + " " + unit]
         var lines := text.split("\n")
         var box_w := 10.0
         for line in lines:

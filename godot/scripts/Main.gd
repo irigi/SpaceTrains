@@ -152,6 +152,10 @@ var thermal_label: Label
 # Flow overlay (G): goods between stations as lines on the map, from the statistics file (the
 # Flows tab's period, good and measure). The bridge writes that file while the overlay is on.
 var flow_overlay := false
+# Porkchop plots: the planet pairs asked of the bridge ("a>b;c>d"), and its latest file.
+var porkchop_request := ""
+var porkchop_seq := -1
+var porkchop_data: Dictionary = {}
 var flow_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 
@@ -229,6 +233,9 @@ func _setup_ui() -> void:
     inspector_panel.offset_bottom = -212.0
     inspector_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
     inspector_panel.entity_selected.connect(func(entity_id: String, kind: String) -> void: select_entity(entity_id, kind, true))
+    inspector_panel.route_requested.connect(func(origin: String, destination: String) -> void:
+        stats_panel.show_route(origin, destination)
+        _update_porkchop_request())
     ui_root.add_child(inspector_panel)
 
     event_ticker = EventTickerPanel.new()
@@ -330,6 +337,7 @@ func _exit_tree() -> void:
             snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp",
             snapshot_path + ".designs", snapshot_path + ".designs.tmp", snapshot_path + ".designs.seq", snapshot_path + ".designs.seq.tmp",
             snapshot_path + ".stats", snapshot_path + ".stats.tmp", snapshot_path + ".stats.seq", snapshot_path + ".stats.seq.tmp",
+            snapshot_path + ".porkchop", snapshot_path + ".porkchop.tmp", snapshot_path + ".porkchop.seq", snapshot_path + ".porkchop.seq.tmp",
             command_path, command_path + ".tmp"]:
         if FileAccess.file_exists(path):
             DirAccess.remove_absolute(path)
@@ -502,6 +510,7 @@ func _write_bridge_commands() -> void:
         "save_path": command_save_path,
         "load_path": command_load_path,
         "stats_open": (stats_panel != null and stats_panel.visible) or flow_overlay,
+        "porkchop": porkchop_request,
     }
     file.store_string(JSON.stringify(payload))
     file.close()
@@ -538,6 +547,43 @@ func _read_designs() -> void:
     designs_seq = int(seq_text)
     bridge_designs = json.data.get("designs", {})
     jet_power_by_class.clear()
+
+# The pairs to ask for: the Routes tab's, and the selected station's planet to every other planet
+# with a station (the inspector's launch windows).
+func _update_porkchop_request() -> void:
+    var pairs: Array[String] = []
+    if stats_panel != null and stats_panel.visible and stats_panel.get("_tab") == stats_panel.ROUTES_TAB:
+        pairs.append("%s>%s" % [stats_panel.route_origin, stats_panel.route_destination])
+    if selected_kind == "station" and entity_details.has(selected_id):
+        var here := _planet_of(String(entity_details[selected_id].get("parent_body_id", "")))
+        var planets: Array[String] = []
+        for station in bridge_state.get("stations", []):
+            var planet := _planet_of(String(station.get("parent_body_id", "")))
+            if planet != here and not planets.has(planet):
+                planets.append(planet)
+        # Nearest the Sun first: the inner pairs take seconds, the outer planets about a minute.
+        const ORDER := ["mercury", "venus", "earth", "mars", "ceres", "jupiter", "saturn", "uranus", "neptune"]
+        planets.sort_custom(func(a, b) -> bool: return ORDER.find(a) < ORDER.find(b))
+        for planet in planets:
+            if not pairs.has("%s>%s" % [here, planet]):
+                pairs.append("%s>%s" % [here, planet])
+    var text := ";".join(pairs)
+    if text != porkchop_request:
+        porkchop_request = text
+        _write_bridge_commands()
+
+func _read_porkchops() -> void:
+    if porkchop_request == "":
+        return
+    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".porkchop.seq")
+    if seq_text == "" or int(seq_text) == porkchop_seq:
+        return
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".porkchop")) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return
+    porkchop_seq = int(seq_text)
+    porkchop_data = json.data
+    stats_panel.update_porkchops(porkchop_data, bridge_state.get("ships", []))
 
 # The statistics side file (money journal), written by the bridge while the Statistics screen is open.
 var stats_seq := -1
@@ -605,6 +651,7 @@ func _read_snapshot() -> void:
     _read_paths()
     _read_designs()
     _read_stats()
+    _read_porkchops()
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
     if seq_text != "" and int(seq_text) == current_snapshot_seq:
@@ -1803,6 +1850,7 @@ func _refresh_ui(force := false) -> void:
     if _profile_enabled: _profiled("ui refresh", t)
 
 func _refresh_ui_now() -> void:
+    _update_porkchop_request()
     economy_history.record(bridge_state)
     if economy_history.has_unmet_window():
         bridge_state["unmet_30d"] = economy_history.recent_unmet_share(30.0)
@@ -1821,6 +1869,8 @@ func _refresh_ui_now() -> void:
         "bodies": bridge_state.get("bodies", []),
         "stations": bridge_state.get("stations", []),
         "designs": bridge_designs,
+        "porkchops": porkchop_data,
+        "planet": _planet_of(String(detail.get("parent_body_id", ""))) if selected_kind == "station" else "",
     })
 
 func _entity_name_map() -> Dictionary:

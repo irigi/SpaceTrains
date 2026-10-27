@@ -151,6 +151,10 @@ func _run() -> void:
             await _stats_shots(arg.trim_prefix("--shot-stats=") if arg.contains("=") else "")
             get_tree().quit()
             return
+    if OS.get_cmdline_user_args().has("--shot-routes"):
+        await _routes_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-flows"):
         await _flow_overlay_shots(rig)
         get_tree().quit()
@@ -697,3 +701,57 @@ func _flow_overlay_shots(rig: Node3D) -> void:
         rig.call("_update_transform")
         await get_tree().create_timer(0.8).timeout
         await _shoot(stop[3])
+
+# Porkchop plots: Earth to Mars by Δv, plasma effort and a class of each drive, Earth to Jupiter;
+# then the launch windows in Low Earth Logistics' inspector. Prints how long the windows took.
+func _routes_shots(rig: Node3D) -> void:
+    var panel: Control = main.stats_panel
+    var started := Time.get_ticks_msec()
+    panel.show_route("earth", "mars")
+    main._update_porkchop_request()
+    var waited := 0.0
+    while waited < 60.0:
+        await get_tree().create_timer(0.5).timeout
+        waited += 0.5
+        var pair: Dictionary = panel.call("_route_pair")
+        if (pair.get("columns", []) as Array).size() >= 96:
+            break
+    print("[ShotTour] earth>mars: %d columns after %.1f s" % [(panel.call("_route_pair").get("columns", []) as Array).size(),
+        (Time.get_ticks_msec() - started) / 1000.0])
+    var thermal := ""
+    var plasma := ""
+    for c in main.porkchop_data.get("classes", []):
+        if thermal == "" and String(c.get("propulsion_type", "")) != "variable_isp":
+            thermal = String(c.get("id", ""))
+        if plasma == "" and String(c.get("propulsion_type", "")) == "variable_isp":
+            plasma = String(c.get("id", ""))
+    for measure in ["dv", "effort", thermal, plasma]:
+        panel.set("_route_measure", measure)
+        panel.call("_rebuild")
+        await get_tree().create_timer(0.5).timeout
+        await _shoot("routes_earth_mars_" + (measure if measure.length() < 12 else measure.left(12)))
+    started = Time.get_ticks_msec()
+    panel.show_route("earth", "jupiter")
+    panel.set("_route_measure", "effort")
+    main._update_porkchop_request()
+    waited = 0.0
+    while waited < 150.0:
+        await get_tree().create_timer(1.0).timeout
+        waited += 1.0
+        if (panel.call("_route_pair").get("columns", []) as Array).size() >= 96:
+            break
+    print("[ShotTour] earth>jupiter: %d columns after %.1f s" % [(panel.call("_route_pair").get("columns", []) as Array).size(),
+        (Time.get_ticks_msec() - started) / 1000.0])
+    panel.call("_rebuild")
+    await get_tree().create_timer(0.5).timeout
+    await _shoot("routes_earth_jupiter_effort")
+    panel.toggle()
+    main.inspector_panel.set("_folded", {"station/windows": false, "station/market": true, "station/people": true})
+    main.select_entity("earth_orbit", "station", true)
+    await get_tree().create_timer(20.0).timeout
+    main._refresh_ui(true)
+    await get_tree().create_timer(1.0).timeout
+    var image := get_viewport().get_texture().get_image()
+    var rect := Rect2i(main.inspector_panel.get_global_rect())
+    image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size()))).save_png(out_dir.path_join("routes_inspector.png"))
+    print("[ShotTour] saved routes_inspector")
