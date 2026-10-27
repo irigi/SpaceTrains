@@ -377,6 +377,48 @@ void load_ship_operations(const std::filesystem::path& root, domain::UniverseDef
     }
 }
 
+// Ship failures and salvage (optional file; every key optional, defaults in FailureDefinition).
+void load_failures(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
+    const auto path = root / "economy" / "failures.csv";
+    if (!std::filesystem::exists(path)) {
+        return;
+    }
+    const auto rows = read_csv_rows(path);
+    require_header(rows.front(), {"key", "value"}, path);
+    std::unordered_set<std::string> seen_keys;
+    auto& f = universe.failures;
+    double failures = f.failures ? 1.0 : 0.0;
+    double salvage = f.salvage ? 1.0 : 0.0;
+    const std::unordered_map<std::string, double*> fields {
+        {"failures", &failures},
+        {"salvage", &salvage},
+        {"weibull_shape", &f.weibull_shape},
+        {"mean_life_factor", &f.mean_life_factor},
+        {"scrap_fraction", &f.scrap_fraction},
+        {"claim_days", &f.claim_days},
+        {"max_racers", &f.max_racers},
+        {"racer_margin", &f.racer_margin},
+        {"salvage_review_days", &f.salvage_review_days},
+        {"replacement_days", &f.replacement_days},
+    };
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        require_field_count(row, 2, path, i + 1);
+        require_unique_id(row[0], seen_keys, path, i + 1);
+        const auto field = fields.find(row[0]);
+        if (field == fields.end()) {
+            throw std::runtime_error("Unknown key '" + row[0] + "' in " + path.string());
+        }
+        *field->second = parse_double(row[1], path, i + 1, row[0].c_str());
+    }
+    f.failures = failures != 0.0;
+    f.salvage = salvage != 0.0;
+    if (f.weibull_shape <= 0.0 || f.mean_life_factor <= 0.0 || f.scrap_fraction < 0.0 || f.claim_days <= 0.0
+        || f.max_racers < 0.0 || f.racer_margin < 0.0 || f.salvage_review_days <= 0.0 || f.replacement_days < 0.0) {
+        throw std::runtime_error(path.string() + ": a failure setting is out of range");
+    }
+}
+
 // Ship environment (tier 2): crew radiation and the other effects modules answer. Optional
 // file and keys; the defaults in domain::ShipEnvironmentDefinition are the sourced values,
 // with every mechanism switched off.

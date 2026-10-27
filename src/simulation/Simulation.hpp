@@ -6,6 +6,7 @@
 #include <iosfwd>
 #include <limits>
 #include <map>
+#include <optional>
 #include <memory>
 #include <random>
 #include <string>
@@ -133,6 +134,31 @@ public:
         double repair_days {0.0};
     };
     [[nodiscard]] const RadiationAudit& radiation_audit() const { return radiation_audit_; }
+    // Audit (failures and salvage): since start or load, not saved.
+    struct FailureAudit {
+        int failures {0};
+        int local_recoveries {0};          // failed on a leg near one planet: towed in by the station
+        int faults_armed_in_port {0};      // clocks that ran out docked (the fault shows on the next leg)
+        double age_years_sum {0.0};
+        std::map<std::string, int> by_class;
+        double hulls_lost_cr {0.0};
+        double cargo_lost_cr {0.0};        // what the owners paid for the cargo aboard at failure
+        int derelicts {0};
+        int salvaged {0};
+        int expired {0};
+        int racers_sent {0};
+        int races_lost {0};
+        double cargo_recovered_cr {0.0};   // at reference value at the salvager's destination
+        double scrap_paid_cr {0.0};
+        int replacements_bought {0};
+        int replacement_claims_lapsed {0};
+        // Exposure: daily samples of the cargo value aboard ships in flight and of the fleet's hull
+        // value, for the mean-life factor (cargo at risk per unit of hull value).
+        double cargo_aboard_cr_days {0.0};
+        double hull_value_cr_days {0.0};
+    };
+    [[nodiscard]] const FailureAudit& failure_audit() const { return failure_audit_; }
+    [[nodiscard]] const std::vector<domain::DerelictState>& derelicts() const { return derelicts_; }
     // Audit (passengers): since start or load, not saved. Index by PassengerKind.
     struct PassengerAudit {
         std::array<double, 6> posted {};       // people who began to wait
@@ -501,6 +527,60 @@ private:
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);
+    // Failures and salvage (Failures.cpp; docs/modules/ships_and_fleet.md, "Failures and salvage").
+    [[nodiscard]] bool failures_on() const { return universe_.failures.failures; }
+    // A uniform draw in (0, 1] from the ship's own stream (data seed, ship id, salt).
+    [[nodiscard]] double ship_uniform(const std::string& ship_id, const std::string& salt) const;
+    [[nodiscard]] double weibull_scale_s() const;
+    // Draws the ship's failure age: as a new hull, or (starting fleet) at an age from the
+    // fleet's steady state, conditional on having lived that long.
+    void draw_failure_clock(domain::ShipState& ship, bool aged);
+    void init_failure_clocks();
+    void step_failures();
+    void fail_ship(std::size_t index);
+    [[nodiscard]] bool local_leg(const domain::MissionAssignment& mission) const;
+    [[nodiscard]] double sun_mu() const;
+    [[nodiscard]] double cargo_value_cr(const std::vector<domain::CargoLot>& cargo, const std::string& station_id) const;
+    void step_derelicts();
+    // A salvage run: from the ship's port to the derelict (rendezvous) and on to a station.
+    struct SalvagePlan {
+        bool feasible {false};
+        std::string destination_id;
+        double depart_s {0.0};
+        double rendezvous_s {0.0};
+        double arrival_s {0.0};
+        double propellant_load_kg {0.0};
+        double propellant_used_kg {0.0};
+        std::vector<math::Vec3d> path;
+        std::vector<double> times;
+        std::vector<double> propellant;   // aboard (plasma ships burn as they go)
+        std::string trajectory_type;
+        double best_dv_mps {0.0};        // diagnostics: cheapest way out found, and what the ship has
+        double dv_available_mps {0.0};
+    };
+    // Pure (runs in parallel): leg one only, or both legs (to the first port reachable of the
+    // ship's home, the derelict's destination and its origin, earliest arrival).
+    [[nodiscard]] SalvagePlan plan_salvage(const domain::ShipState& ship, const domain::DerelictState& derelict,
+        bool both_legs) const;
+    [[nodiscard]] std::string primary_body_id(const std::string& station_id) const;
+    [[nodiscard]] bool can_race(const domain::ShipState& ship) const;
+    void start_salvage_run(domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
+        double value_cr, double cost_cr);
+    void review_salvage();
+    // The ship's best salvage run now (dispatch compares it with its best mission): profit per
+    // day over the run, or nothing.
+    struct SalvageOption {
+        std::size_t derelict_index {0};
+        SalvagePlan plan;
+        double value_cr {0.0};
+        double cost_cr {0.0};
+        double per_day {0.0};
+    };
+    [[nodiscard]] std::optional<SalvageOption> best_salvage_for(const domain::ShipState& ship, double spot_per_day) const;
+    // Dispatch hook: sets out on a salvage run if one pays more per day than `spot_per_day`.
+    bool consider_salvage(domain::ShipState& ship, double spot_per_day);
+    void reach_derelict(domain::ShipState& ship);
+    [[nodiscard]] int fleet_places_held_for_others(const std::string& faction_id) const;
     // One step of a fleet review: probes a batch of candidates (their cargo runs from the
     // yard, kept in review_probes_ for the rest of the review), or, once every candidate that
     // could still win has been probed, buys the best one.
@@ -806,6 +886,14 @@ private:
     std::map<std::string, int> events_started_;
     double emergency_paid_ {0.0};   // by the faction treasuries, in premiums
     std::vector<domain::ShipState> sold_ships_;
+    // Failures and salvage: derelicts drifting now, and each faction's replacement claims (when
+    // each runs out). Saved.
+    std::vector<domain::DerelictState> derelicts_;
+    std::map<std::string, std::vector<double>> replacement_claims_;
+    double next_salvage_review_s_ {0.0};
+    bool replacement_tried_ {false};   // this review's replacement purchase found nothing worth buying
+    double next_exposure_sample_s_ {0.0};
+    FailureAudit failure_audit_;           // audit only, not saved
     double timewarp_factor_ {3600.0};
     std::vector<domain::StationState> stations_;
     std::vector<domain::ShipState> ships_;

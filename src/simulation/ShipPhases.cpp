@@ -107,6 +107,11 @@ void Simulation::step_idle_ship(domain::ShipState& ship) {
     if (scheduled_stops(ship) == nullptr && consider_refit(ship, choice, trace)) {
         return;
     }
+    // Failures: a derelict within reach may pay more than the best mission.
+    if (universe_.failures.salvage && !derelicts_.empty()
+        && consider_salvage(ship, choice.kind == MissionChoice::Kind::Mission ? choice.score : 0.0)) {
+        return;
+    }
 
     auto& origin_state = get_station_state(ship.current_station_id);
     const auto& origin_def = get_station_definition(ship.current_station_id);
@@ -485,6 +490,10 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         ship.propellant_kg = std::max(0.0, ship.propellant_kg);
     }
 
+    if (!ship.active_mission.salvage_derelict_id.empty() && !ship.active_mission.salvage_done
+        && game_time_s_ >= ship.active_mission.rendezvous_time_s) {
+        reach_derelict(ship);
+    }
     if (ship.active_mission.remaining_travel_time_s > 0.0) {
         return;
     }

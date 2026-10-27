@@ -20,6 +20,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "trajectory/KeplerPropagation.hpp"
 #include "trajectory/Porkchop.hpp"
 #include "simulation/CrewEnvironment.hpp"
 #include "simulation/Simulation.hpp"
@@ -1731,6 +1732,65 @@ int main() {
         require(total > 0, "events should strike within 400 days");
         require(first == run(), "the same seed should strike the same events");
         std::cout << std::format("Events: {} struck in 400 days\n", total);
+    }
+
+    // --- Kepler propagation (failures and salvage): a circular orbit a quarter period on, and
+    // there and back again. ---
+    {
+        const double mu = 1.32712440018e20;
+        const double r = 1.495978707e11;
+        const double v = std::sqrt(mu / r);
+        const double period = 2.0 * PI * std::sqrt(r * r * r / mu);
+        const spacetrains::math::Vec3d r0 {r, 0.0, 0.0};
+        const spacetrains::math::Vec3d v0 {0.0, 0.0, v};
+        const auto quarter = spacetrains::trajectory::propagate_kepler(r0, v0, 0.25 * period, mu);
+        require_near(quarter.position_m.x, 0.0, 1.0e3, "a quarter orbit should be at 90 degrees (x)");
+        require_near(quarter.position_m.z, r, 1.0e3, "a quarter orbit should be at 90 degrees (z)");
+        require_near(quarter.velocity_mps.length(), v, 1.0e-3, "a circular orbit keeps its speed");
+        // An eccentric orbit, forward and back over several revolutions.
+        const spacetrains::math::Vec3d v1 {3000.0, 0.0, 1.2 * v};
+        const auto out = spacetrains::trajectory::propagate_kepler(r0, v1, 3.7 * period, mu);
+        const auto back = spacetrains::trajectory::propagate_kepler(out.position_m, out.velocity_mps, -3.7 * period, mu);
+        require_near(distance_between(back.position_m, r0), 0.0, 1.0e4, "propagation there and back should return");
+        // A hyperbolic coast conserves energy.
+        const spacetrains::math::Vec3d v2 {0.0, 0.0, 1.6 * v};
+        const auto far = spacetrains::trajectory::propagate_kepler(r0, v2, 200.0 * 86400.0, mu);
+        const double e0 = 0.5 * v2.length() * v2.length() - mu / r;
+        const double e1 = 0.5 * far.velocity_mps.length() * far.velocity_mps.length() - mu / far.position_m.length();
+        require_near(e1, e0, 1.0e-6 * std::abs(e0), "a hyperbolic coast should conserve energy");
+        std::cout << "Kepler propagation: circular, eccentric and hyperbolic coasts OK\n";
+    }
+
+    // --- Failures (data/economy/failures.csv): with a short life ships fail, derelicts coast on
+    // a conic, the run repeats exactly and money is conserved. ---
+    {
+        const auto run = [&] {
+            auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string(),
+                [](spacetrains::domain::UniverseDefinition& universe) {
+                    universe.failures.failures = true;
+                    universe.failures.salvage = false;
+                    universe.failures.mean_life_factor = 0.05;  // 1.5-year lives
+                });
+            sim.set_timewarp(86400.0);
+            for (int day = 0; day < 200; ++day) {
+                sim.step(1.0);
+            }
+            const auto& audit = sim.failure_audit();
+            for (const auto& derelict : sim.derelicts()) {
+                require(derelict.sampled_path.size() == derelict.sampled_times_s.size() && derelict.sampled_path.size() > 2,
+                    "a derelict should carry its sampled coast");
+                // (Plasma ships thrust all the way, so a wreck can be on an escape orbit.)
+                require(distance_between(derelict.sampled_path.front(), derelict.epoch_position_m) < 1.0,
+                    "a derelict's coast should start where it failed");
+                require(derelict.sampled_times_s.front() == derelict.failed_at_s, "a derelict's coast should start when it failed");
+            }
+            return std::tuple {audit.failures, audit.derelicts, audit.local_recoveries, sim.derelicts().size()};
+        };
+        const auto first = run();
+        require(std::get<0>(first) > 5, "short lives should make ships fail within 200 days");
+        require(first == run(), "the same seed should fail the same ships");
+        std::cout << std::format("Failures: {} in 200 days with 1.5-year lives ({} derelicts, {} towed in)\n",
+            std::get<0>(first), std::get<1>(first), std::get<2>(first));
     }
 
     std::cout << "All SpaceTrains tests passed.\n";

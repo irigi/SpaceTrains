@@ -72,6 +72,7 @@ void load_modules_and_hull_slots(const std::filesystem::path& root, domain::Univ
 void load_ship_seeds(const std::filesystem::path& root, domain::UniverseDefinition& universe);
 void load_spares(const std::filesystem::path& root, domain::UniverseDefinition& universe);
 void load_ship_operations(const std::filesystem::path& root, domain::UniverseDefinition& universe);
+void load_failures(const std::filesystem::path& root, domain::UniverseDefinition& universe);
 void load_ship_environment(const std::filesystem::path& root, domain::UniverseDefinition& universe);
 void load_passengers(const std::filesystem::path& root, domain::UniverseDefinition& universe);
 void load_reference_fares(const std::filesystem::path& root, domain::UniverseDefinition& universe);

@@ -869,6 +869,27 @@ void print_ship_phases(
 // supply needs rate x round trip units in holds (loaded out, empty back).
 // The money journal's accounts (MoneyJournal.hpp): balances, lifetime flows and the main sources
 // of income and expense, by sector; factions split into operating result and investment.
+void print_failure_audit(const spacetrains::simulation::Simulation& sim) {
+    if (!sim.universe().failures.failures) {
+        return;
+    }
+    const auto& a = sim.failure_audit();
+    std::cout << "\n  Failures and salvage:\n";
+    std::cout << std::format("    Failures {} (towed in near a planet {}, derelicts {}), faults found in port {}, mean age {:.1f} y\n",
+        a.failures, a.local_recoveries, a.derelicts, a.faults_armed_in_port, a.failures > 0 ? a.age_years_sum / a.failures : 0.0);
+    std::cout << std::format("    Lost: hulls {:.0f} cr, cargo {:.0f} cr; cargo at risk / hull value (time average) {:.4f}\n",
+        a.hulls_lost_cr, a.cargo_lost_cr, a.hull_value_cr_days > 0.0 ? a.cargo_aboard_cr_days / a.hull_value_cr_days : 0.0);
+    std::string classes;
+    for (const auto& [hull, count] : a.by_class) {
+        classes += std::format("{}{} {}", classes.empty() ? "" : ", ", hull, count);
+    }
+    std::cout << "    By hull: " << (classes.empty() ? "none" : classes) << "\n";
+    std::cout << std::format("    Derelicts: salvaged {}, written off {}, drifting {}; racers sent {}, lost races {}\n",
+        a.salvaged, a.expired, sim.derelicts().size(), a.racers_sent, a.races_lost);
+    std::cout << std::format("    Salvage: cargo recovered {:.0f} cr, scrap paid {:.0f} cr; replacements bought {}, claims lapsed {}\n",
+        a.cargo_recovered_cr, a.scrap_paid_cr, a.replacements_bought, a.replacement_claims_lapsed);
+}
+
 void print_accounts_audit(const spacetrains::simulation::Simulation& sim) {
     using spacetrains::simulation::AccountKind;
     using spacetrains::simulation::MoneyCategory;

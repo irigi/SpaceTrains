@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 21;  // 21: flow record (version 20 loads with an empty one); 20: colony welfare (satisfaction, income, wage); 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
+constexpr int kSaveVersion = 22;  // 22: failure clocks, derelicts, replacement claims, salvage runs (21 loads with clocks drawn on load); 21: flow record (version 20 loads with an empty one); 20: colony welfare (satisfaction, income, wage); 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -316,6 +316,11 @@ Json mission_to_json(const domain::MissionAssignment& m) {
     out.set("boiled_propellant_kg", m.boiled_propellant_kg);
     out.set("pickup_commodity_id", m.pickup_commodity_id);
     out.set("pickup_units", m.pickup_units);
+    if (!m.salvage_derelict_id.empty()) {
+        out.set("salvage_derelict_id", m.salvage_derelict_id);
+        out.set("rendezvous_time_s", m.rendezvous_time_s);
+        out.set("salvage_done", m.salvage_done);
+    }
     return out;
 }
 
@@ -347,6 +352,11 @@ domain::MissionAssignment mission_from_json(const Json& j) {
     m.boiled_propellant_kg = j.get("boiled_propellant_kg").number();
     m.pickup_commodity_id = j.get("pickup_commodity_id").string();
     m.pickup_units = j.get("pickup_units").number();
+    if (const auto* salvage = j.find("salvage_derelict_id"); salvage != nullptr) {
+        m.salvage_derelict_id = salvage->string();
+        m.rendezvous_time_s = j.get("rendezvous_time_s").number();
+        m.salvage_done = j.get("salvage_done").boolean();
+    }
     return m;
 }
 
@@ -459,6 +469,11 @@ Json ship_to_json(const domain::ShipState& s) {
     out.set("route_units_per_day", s.route_units_per_day);
     out.set("route_until_s", s.route_until_s);
     out.set("next_contract_review_s", s.next_contract_review_s);
+    out.set("built_s", s.built_s);
+    out.set("fails_at_s", s.fails_at_s);
+    out.set("fault_pending", s.fault_pending);
+    out.set("fault_leg_fraction", s.fault_leg_fraction);
+    out.set("next_salvage_look_s", s.next_salvage_look_s);
     if (!s.contract.stops.empty()) {
         auto contract = Json::object();
         auto stops = Json::array();
@@ -542,6 +557,13 @@ domain::ShipState ship_from_json(const Json& j) {
     s.route_until_s = j.get("route_until_s").number();
     if (const auto* review = j.find("next_contract_review_s"); review != nullptr) {
         s.next_contract_review_s = review->number();
+    }
+    if (const auto* fails = j.find("fails_at_s"); fails != nullptr) {
+        s.built_s = j.get("built_s").number();
+        s.fails_at_s = fails->number();
+        s.fault_pending = j.get("fault_pending").boolean();
+        s.fault_leg_fraction = j.get("fault_leg_fraction").number();
+        s.next_salvage_look_s = j.get("next_salvage_look_s").number();
     }
     if (const auto* contract = j.find("contract"); contract != nullptr) {
         for (const auto& stop : contract->get("stops").items()) {
@@ -964,6 +986,43 @@ std::string Simulation::save_state_json() const {
         sold.push(ship_to_json(ship));
     }
     root.set("sold_ships", std::move(sold));
+    auto derelicts = Json::array();
+    for (const auto& d : derelicts_) {
+        auto out = Json::object();
+        out.set("id", d.id);
+        out.set("name", d.name);
+        out.set("faction_id", d.faction_id);
+        out.set("class_id", d.class_id);
+        auto fit = Json::array();
+        for (const auto& module : d.fit) {
+            fit.push(Json(module));
+        }
+        out.set("fit", std::move(fit));
+        out.set("home_station_id", d.home_station_id);
+        out.set("origin_station_id", d.origin_station_id);
+        out.set("destination_station_id", d.destination_station_id);
+        domain::MissionAssignment cargo_only;
+        cargo_only.cargo = d.cargo;
+        out.set("cargo", mission_to_json(cargo_only).get("cargo"));
+        out.set("ship_value_cr", d.ship_value_cr);
+        out.set("failed_at_s", d.failed_at_s);
+        out.set("expires_s", d.expires_s);
+        out.set("epoch", points_to_json({d.epoch_position_m, d.epoch_velocity_mps}));
+        out.set("sampled_path", points_to_json(d.sampled_path));
+        out.set("sampled_times_s", numbers_to_json(d.sampled_times_s));
+        out.set("claimant_ship_id", d.claimant_ship_id);
+        out.set("claim_eta_s", d.claim_eta_s);
+        out.set("racers", d.racers);
+        derelicts.push(std::move(out));
+    }
+    root.set("derelicts", std::move(derelicts));
+    auto claims = Json::object();
+    for (const auto& [faction_id, expiries] : replacement_claims_) {
+        claims.set(faction_id, numbers_to_json(expiries));
+    }
+    root.set("replacement_claims", std::move(claims));
+    root.set("next_salvage_review_s", next_salvage_review_s_);
+    root.set("replacement_tried", replacement_tried_);
     auto events = Json::array();
     for (const auto& event : recent_events_) {
         auto e = Json::object();
@@ -1008,7 +1067,7 @@ void Simulation::load_state_json(const std::string& text) {
 void Simulation::read_state_json(const std::string& text) {
     const auto root = Json::parse(text);
     const int version = static_cast<int>(root.get("version").number());
-    if (version != kSaveVersion && version != 20) {
+    if (version != kSaveVersion && version != 21 && version != 20) {
         throw std::runtime_error(std::format("save: version {} is not supported (expected {})", version, kSaveVersion));
     }
     if (root.get("data_fingerprint").string() != data_fingerprint()) {
@@ -1050,6 +1109,49 @@ void Simulation::read_state_json(const std::string& text) {
     for (const auto& item : root.get("sold_ships").items()) {
         sold.push_back(ship_from_json(item));
         (void)register_design(sold.back().class_id, sold.back().fit, radiator_bucket(sold.back()));
+    }
+    std::vector<domain::DerelictState> derelicts;
+    std::map<std::string, std::vector<double>> replacement_claims;
+    double next_salvage_review_s = 0.0;
+    bool replacement_tried = false;
+    if (const auto* list = root.find("derelicts"); list != nullptr) {
+        for (const auto& item : list->items()) {
+            domain::DerelictState d;
+            d.id = item.get("id").string();
+            d.name = item.get("name").string();
+            d.faction_id = item.get("faction_id").string();
+            d.class_id = item.get("class_id").string();
+            for (const auto& module : item.get("fit").items()) {
+                d.fit.push_back(module.string());
+            }
+            d.home_station_id = item.get("home_station_id").string();
+            d.origin_station_id = item.get("origin_station_id").string();
+            d.destination_station_id = item.get("destination_station_id").string();
+            for (const auto& entry : item.get("cargo").items()) {
+                d.cargo.push_back({.commodity_id = entry.get("commodity_id").string(), .units = entry.get("units").number(),
+                    .contract_value = entry.get("contract_value").number(),
+                    .emergency_premium = entry.get("emergency_premium").number()});
+            }
+            d.ship_value_cr = item.get("ship_value_cr").number();
+            d.failed_at_s = item.get("failed_at_s").number();
+            d.expires_s = item.get("expires_s").number();
+            const auto epoch = points_from_json(item.get("epoch"));
+            if (epoch.size() == 2) {
+                d.epoch_position_m = epoch[0];
+                d.epoch_velocity_mps = epoch[1];
+            }
+            d.sampled_path = points_from_json(item.get("sampled_path"));
+            d.sampled_times_s = numbers_from_json(item.get("sampled_times_s"));
+            d.claimant_ship_id = item.get("claimant_ship_id").string();
+            d.claim_eta_s = item.get("claim_eta_s").number();
+            d.racers = static_cast<int>(item.get("racers").number());
+            derelicts.push_back(std::move(d));
+        }
+        for (const auto& [faction_id, expiries] : root.get("replacement_claims").fields()) {
+            replacement_claims[faction_id] = numbers_from_json(expiries);
+        }
+        next_salvage_review_s = root.get("next_salvage_review_s").number();
+        replacement_tried = root.get("replacement_tried").boolean();
     }
     std::map<std::string, double> treasuries;
     for (const auto& [faction_id, balance] : root.get("faction_treasuries").fields()) {
@@ -1178,6 +1280,11 @@ void Simulation::read_state_json(const std::string& text) {
     }
     ships_ = std::move(ships);
     sold_ships_ = std::move(sold);
+    derelicts_ = std::move(derelicts);
+    replacement_claims_ = std::move(replacement_claims);
+    next_salvage_review_s_ = next_salvage_review_s;
+    replacement_tried_ = replacement_tried;
+    init_failure_clocks();  // saves before version 22 have none
     recent_events_ = std::move(events);
     recent_trades_ = std::move(trades);
     // Caches are pure functions of their keys; empty ones refill with the same values.

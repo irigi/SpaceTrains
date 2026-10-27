@@ -1,32 +1,11 @@
 #include "trajectory/Lambert.hpp"
+#include "trajectory/KeplerPropagation.hpp"
 
 #include <algorithm>
 #include <cmath>
 
 namespace spacetrains::trajectory {
 
-namespace {
-
-// Stumpff functions with series fallback near z=0
-double stumpff_c(double z) {
-    if (z > 1e-4) return (1.0 - std::cos(std::sqrt(z))) / z;
-    if (z < -1e-4) return (std::cosh(std::sqrt(-z)) - 1.0) / (-z);
-    return 0.5 - z / 24.0 + z * z / 720.0;
-}
-
-double stumpff_s(double z) {
-    if (z > 1e-4) {
-        const double sq = std::sqrt(z);
-        return (sq - std::sin(sq)) / (z * sq);
-    }
-    if (z < -1e-4) {
-        const double sq = std::sqrt(-z);
-        return (std::sinh(sq) - sq) / ((-z) * sq);
-    }
-    return 1.0 / 6.0 - z / 120.0 + z * z / 5040.0;
-}
-
-}  // namespace
 
 LambertResult solve_lambert(
     const math::Vec3d& r1,

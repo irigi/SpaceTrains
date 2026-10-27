@@ -24,6 +24,7 @@ add_library(spacetrains_core
     src/celestial/CelestialMechanics.cpp
     src/trajectory/ChaseSolver.cpp
     src/trajectory/Lambert.cpp
+    src/trajectory/KeplerPropagation.cpp
     src/trajectory/Porkchop.cpp
     src/trajectory/PathSampling.cpp
     src/trajectory/TrajectoryAudit.cpp
@@ -39,6 +40,7 @@ add_library(spacetrains_core
     src/simulation/ShipPhases.cpp
     src/simulation/Contracts.cpp
     src/simulation/FleetInvestment.cpp
+    src/simulation/Failures.cpp
     src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp

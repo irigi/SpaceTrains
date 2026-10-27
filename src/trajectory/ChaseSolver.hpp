@@ -30,6 +30,10 @@ struct ChaseUnits {
 // Past the path's ends it holds the end samples' motion (linear extrapolation).
 variable_isp::general::Target path_target(const domain::TrajectoryPlan& plan, double depart_time_s, const ChaseUnits& units);
 
+// Target coasting on a two-body orbit from the SI state (r, v) at the chaser's departure
+// (analytic, trajectory/KeplerPropagation.hpp): a derelict.
+variable_isp::general::Target kepler_target(const math::Vec3d& r_m, const math::Vec3d& v_mps, const ChaseUnits& units);
+
 struct ChaseRequest {
     math::Vec3d position_m;
     math::Vec3d velocity_mps;

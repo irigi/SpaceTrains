@@ -1,4 +1,5 @@
 #include "trajectory/ChaseSolver.hpp"
+#include "trajectory/KeplerPropagation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -60,6 +61,18 @@ g::Target path_target(const domain::TrajectoryPlan& plan, double depart_time_s, 
         out.state.v = (1.0 / h) * (d00 * a.r + d01 * b.r) + d10 * a.v + d11 * b.v;
         out.velocity = out.state.v;
         out.acceleration = (1.0 / (h * h)) * (e00 * a.r + e01 * b.r) + (1.0 / h) * (e10 * a.v + e11 * b.v);
+        return out;
+    };
+}
+
+g::Target kepler_target(const math::Vec3d& r_m, const math::Vec3d& v_mps, const ChaseUnits& units) {
+    return [r_m, v_mps, units](double T) {
+        const auto s = propagate_kepler(r_m, v_mps, T * units.time_s(), units.mu_m3_s2);
+        g::TargetPoint out;
+        out.state = units.to_normalised(s.position_m, s.velocity_mps);
+        out.velocity = out.state.v;
+        const double r = norm(out.state.r);
+        out.acceleration = (-1.0 / (r * r * r)) * out.state.r;
         return out;
     };
 }

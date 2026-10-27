@@ -152,6 +152,23 @@ struct ShipOperationsDefinition {
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
 
+// Ship failures, derelicts and salvage (data/economy/failures.csv; docs/modules/ships_and_fleet.md,
+// "Failures and salvage"). Off by default: with `failures` off nothing below acts.
+struct FailureDefinition {
+    bool failures {false};
+    bool salvage {false};               // derelicts can be salvaged (otherwise they drift until they expire)
+    double weibull_shape {3.0};         // k: hazard grows as age^(k-1), so new ships rarely fail
+    // Mean life = lifetime_years (the capital charge's amortisation) x this factor: the charge then
+    // covers, in expectation, the hull and the cargo lost with it (see the module doc).
+    double mean_life_factor {1.1};
+    double scrap_fraction {0.2};        // of the ship value, paid by the outside economy to the salvager
+    double claim_days {365.0};          // an unsalvaged derelict is written off after this
+    double max_racers {3.0};            // ships that may set out for one derelict
+    double racer_margin {0.05};         // a new racer must beat the best rendezvous time by this share
+    double salvage_review_days {0.5};   // how often idle ships look at open derelicts
+    double replacement_days {180.0};    // the owner's first right to the lost ship's place under the cap
+};
+
 // The space environment acting on ships and crews (data/economy/ship_environment.csv, tier 2;
 // sources and derivations in docs/ship_technology.md, "Crew radiation"). Every mechanism is a
 // switch; with all off the economy is the reference.
@@ -627,6 +644,7 @@ struct UniverseDefinition {
     std::vector<ShipClassDefinition> ship_classes;
     std::vector<ShipModuleDefinition> ship_modules;
     ShipEnvironmentDefinition ship_environment;
+    FailureDefinition failures;
     LabourDefinition labour;
     std::unordered_map<std::string, SparePartDefinition> spare_parts;  // by sub-part kind
     std::unordered_map<std::string, StationRadiationDefinition> station_radiation;

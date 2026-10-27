@@ -142,6 +142,7 @@ Simulation::Simulation(domain::UniverseDefinition universe)
         }
     }
     seed_order_stats();
+    init_failure_clocks();
 }
 
 
@@ -188,7 +189,9 @@ void Simulation::start_at(double time_s) {
         ship.next_review_s = time_s;
         ship.idle_since_s = time_s;
         ship.next_refit_review_s = time_s;
+        ship.fails_at_s = 0.0;  // drawn again below, relative to the new start
     }
+    init_failure_clocks();
 }
 
 void Simulation::set_timewarp(double timewarp_factor) {
@@ -528,6 +531,7 @@ void Simulation::tick() {
     update_market_prices();
     step_orders();
     step_fleet_investment();
+    step_failures();
 
     for (auto& ship : ships_) {
         accrue_operating_costs(ship, dt_s);

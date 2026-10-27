@@ -108,6 +108,11 @@ struct MissionAssignment {
     // other ships' forecasts leave it to this ship.
     std::string pickup_commodity_id;
     double pickup_units {0.0};
+    // A salvage run (failures and salvage): the derelict the ship races for and when its path
+    // meets it; salvage_done once it got there (won or lost).
+    std::string salvage_derelict_id;
+    double rendezvous_time_s {0.0};
+    bool salvage_done {false};
 };
 
 // Where a ship's money went over its lifetime (all amounts positive, in credits).
@@ -222,6 +227,38 @@ struct ShipState {
     ShipContract contract;
     double next_contract_review_s {0.0};
     std::vector<PassengerLot> passengers;  // aboard (only in flight)
+    // Failures (data/economy/failures.csv): when the hull was built (before the start for the
+    // starting fleet) and when it fails (0: no clock). A clock that runs out in port arms
+    // fault_pending: the fault then shows on the next interplanetary leg, at fault_leg_fraction of it.
+    double built_s {0.0};
+    double fails_at_s {0.0};
+    bool fault_pending {false};
+    double fault_leg_fraction {0.5};
+    double next_salvage_look_s {0.0};   // a ship that passed on the derelicts looks again from then
+};
+
+// A ship that failed in flight (failures and salvage): it coasts on the orbit it had, with its
+// cargo, until a salvager reaches it or the claim period runs out. Not in the fleet.
+struct DerelictState {
+    std::string id;
+    std::string name;
+    std::string faction_id;
+    std::string class_id;
+    std::vector<std::string> fit;
+    std::string home_station_id;
+    std::string origin_station_id;       // of the leg it failed on
+    std::string destination_station_id;
+    std::vector<CargoLot> cargo;
+    double ship_value_cr {0.0};
+    double failed_at_s {0.0};
+    double expires_s {0.0};
+    math::Vec3d epoch_position_m;        // heliocentric state at failure; the coast follows from it
+    math::Vec3d epoch_velocity_mps;
+    std::vector<math::Vec3d> sampled_path;   // the coast, for display and the racers' targets
+    std::vector<double> sampled_times_s;
+    std::string claimant_ship_id;        // the racer with the earliest rendezvous
+    double claim_eta_s {0.0};
+    int racers {0};
 };
 
 // A station's money flows with the world outside the simulated trade (the open economy),
