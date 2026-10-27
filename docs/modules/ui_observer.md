@@ -198,9 +198,16 @@
       colony surfaces); then the residents' money (people, workers, open jobs, wage, savings, savings rate). The
       station systems view comes with each station in the stats file (`systems`, `people_history`), display only;
     - Colonies & Earth: accounts against credit lines, wage p10/p50/p90, hiring up and down, Earth's flows;
-    - Fleet: by faction and class, the best and worst ships (click to select one).
+    - Fleet: by faction and class, the best and worst ships (click to select one);
+    - Flows (the flow record, docs/modules/economy.md): measure (units or credits) and good (all or one); a from × to
+      table of goods delivered, cells coloured by amount (stations, then Earth and colony surfaces); the goods balance
+      by station (imported, exported, stock change, made net of use); passengers landed by route and kind with fares;
+      the 20 lanes that burn the most propellant, with trips, cargo units and unit-days and kg per unit delivered.
+- **Flow overlay** (G, `MapIcons.gd`): goods delivered between stations as lines on the map, width by amount (square
+  root), each direction offset to its own side with an arrow; period, good and measure as set in the Flows tab. While
+  it is on, the bridge writes the statistics file as for the open screen; a label at the bottom says what is shown.
   - The station inspector shows its profit before the faction, since the start and over the last year.
-- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, F focus, T thermal view, Space pause, `,` `.`
+- **Keys:** F5 quick save, F9 quick load, M economy, S statistics, G flow overlay, F focus, T thermal view, Space pause, `,` `.`
   timewarp, F11 map debug.
 - **Dev** (a tour opens a real window; parse-check scripts first with `godot4 --headless --path godot --check-only
   --script res://scripts/<file>.gd`): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
@@ -209,7 +216,7 @@
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
-  `--shot-arrival` watches the next ship dock at 600x; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
+  `--shot-arrival` watches the next ship dock at 600x; `--shot-flows` turns the flow overlay on and shoots the inner system and Earth's; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
   every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider
   than the panel; `--shot-cargo` shoots up to four loaded ships in flight
   close up and prints their hold state, `--shot-cargo-angles` adds four views each; `--shot-pause` also checks the
@@ -236,7 +243,7 @@ SimulationBridge snapshot/query -> UI widgets and 3D nodes -> player observation
 ## Deferred Work
 
 - Trajectory progress as a shader instead of rebuilt lines
-- More statistics views (roadmap: flows of goods from station to station)
+- Statistics: the "who pays whom" sector matrix drilled down to accounts (the journal keeps sectors only)
 
 ## Tests
 

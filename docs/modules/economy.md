@@ -227,6 +227,19 @@ as well while stations pay about a third less, and ships still earn several time
 - **History:** every 30 game days, balances, the month's flows by account and category, a 6 × 6 sector matrix
   ("who pays whom"), each station's people, workers, jobs, wage and lifetime profit, the colonies' people. Saved with
   the game.
+- **Flow record** (`FlowRecord.{hpp,cpp}`, 2026-10-27): what moved where, by place pair and item, summed since the
+  start and per month (closed with the journal's months, with every station's stock at each close):
+  - delivered goods: ship cargo as it arrived (units after spoilage, the price paid), and surface trade between a
+    gateway and Earth or its colony (places `surface:<economy id>`);
+  - loaded goods: cargo bought at a ship's origin, valued at what the fleet paid (equals the journal's Cargo paid by
+    fleets, `tests/test_main.cpp`), with the destination it was bought for;
+  - passengers landed (settlers, rotation, visitors, emigrants) with their fares; a colony's recruits are counted
+    going on to its surface;
+  - lanes: each arrival, its cargo unit-days and the propellant its plan burned.
+
+  It only records (the 365-day audit is byte-identical with it); saved with the game (save version 21; a version 20
+  save loads with an empty record). The statistics file carries it per period with the stocks at the period's start
+  and end, so a station's goods balance follows: made net of use = stock change − imported + exported.
 - **Profit definitions:** a station's is cash gained + taxes − subsidies + its stock's value gain against the stock
   it started with (before the faction's transfers); a faction's operating result is everything but investment
   (hulls, working capital, salvage); a ship's is `lifetime_profit` (dividends and liner top-ups are owner transfers).

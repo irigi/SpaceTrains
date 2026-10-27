@@ -14,6 +14,7 @@ const BINDINGS := [
     {"group": "Map", "keys": "Mouse wheel", "inputs": [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT],
         "action": "Zoom the map (planets keep the camera out); over a panel, scroll it"},
     {"group": "Map", "keys": "T", "inputs": [KEY_T], "action": "Thermal view: radiators in false colour by temperature"},
+    {"group": "Map", "keys": "G", "inputs": [KEY_G], "action": "Flows: goods between stations as lines (period, good and measure from Statistics → Flows)"},
     {"group": "Panels", "keys": "M", "inputs": [KEY_M], "action": "Economy & markets table (red = scarce, green = cheap)"},
     {"group": "Panels", "keys": "S", "inputs": [KEY_S], "action": "Statistics: money by account and source, with history"},
     {"group": "Panels", "keys": "H", "inputs": [KEY_H], "action": "This list of key bindings"},

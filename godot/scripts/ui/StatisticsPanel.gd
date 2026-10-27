@@ -12,7 +12,7 @@ const LineChartScript := preload("res://scripts/ui/LineChart.gd")
 const DonutChartScript := preload("res://scripts/ui/DonutChart.gd")
 const StackedBarScript := preload("res://scripts/ui/StackedBar.gd")
 
-const TABS := ["Overview", "Factions", "Stations", "People", "Colonies & Earth", "Fleet"]
+const TABS := ["Overview", "Factions", "Stations", "People", "Colonies & Earth", "Fleet", "Flows"]
 const PERIODS := [["lifetime", "Since the start"], ["last_year", "Last year"], ["last_30", "Last 30 days"]]
 const SECTOR_NAMES := {"earth": "Earth", "colony": "Colonies", "faction": "Factions", "station": "Stations",
     "households": "Residents", "fleet": "Fleets"}
@@ -27,6 +27,8 @@ var _tab := 0
 var _period := "last_year"
 var _monthly := false   # charts: balances (false) or net flow per month (true)
 var _selected_station := ""
+var _flow_good := ""          # Flows tab: one good, or all ("")
+var _flow_value := false      # Flows tab: credits (true) or units (false)
 var _labels: Dictionary = {}   # category id -> label
 var _tab_bar: TabBar
 var _period_buttons: Array = []
@@ -315,6 +317,7 @@ func _rebuild() -> void:
         3: _build_people()
         4: _build_colonies()
         5: _build_fleet()
+        6: _build_flows()
 
 func _build_overview() -> void:
     _heading("Money by sector")
@@ -724,3 +727,226 @@ func _build_fleet() -> void:
             "values": _series("fleet:" + id, true)})
     _content.add_child(tables)
     _chart("Fleets' cash" if not _monthly else "Fleets' result (owner transfers left out)", chart_series)
+
+# --- Flows: what moved from place to place (the flow record) ---
+
+const HeatmapScript := preload("res://scripts/ui/Heatmap.gd")
+const PASSENGER_GROUPS := ["settlers", "rotation", "visitors", "emigrants"]
+
+func _node_names() -> Dictionary:
+    var names := {}
+    for node in stats.get("flows", {}).get("nodes", []):
+        names[String(node.get("id", ""))] = String(node.get("name", ""))
+    return names
+
+# A short column title for a place: "Low Earth", "Mars surface".
+static func _short_place(name: String) -> String:
+    var words := name.split(" ")
+    var short := words[0]
+    if words.size() > 1 and (short.length() <= 4 or words[1] == "surface" or words[0] == "Earth"):
+        short += " " + words[1]
+    return short.left(12)
+
+func _flow_entries() -> Array:
+    return stats.get("flows", {}).get(_period, {}).get("entries", [])
+
+func _flow_controls() -> HBoxContainer:
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 6)
+    var measure := Button.new()
+    measure.focus_mode = Control.FOCUS_NONE  # keys stay with the map (Space, shortcuts)
+    measure.text = "Measure: credits" if _flow_value else "Measure: units"
+    measure.pressed.connect(func() -> void:
+        _flow_value = not _flow_value
+        _rebuild())
+    row.add_child(measure)
+    var goods := OptionButton.new()
+    goods.focus_mode = Control.FOCUS_NONE
+    goods.add_item("All goods")
+    var ids: Array = stats.get("flows", {}).get("goods", [])
+    for i in range(ids.size()):
+        goods.add_item(String(ids[i]).replace("_", " "))
+        if String(ids[i]) == _flow_good:
+            goods.select(i + 1)
+    goods.item_selected.connect(func(index: int) -> void:
+        _flow_good = "" if index == 0 else String(ids[index - 1])
+        _rebuild())
+    row.add_child(goods)
+    return row
+
+func _build_flows() -> void:
+    var flows: Dictionary = stats.get("flows", {})
+    if flows.is_empty():
+        _note("No flow record in this statistics file.")
+        return
+    var names := _node_names()
+    var period_name := {"lifetime": "since the start", "last_year": "over the last year", "last_30": "over the last 30 days"}
+    _heading("Goods from place to place, %s" % String(period_name.get(_period, _period)))
+    _content.add_child(_flow_controls())
+
+    # From x to: goods delivered (ships' cargo as it arrived, and surface trade).
+    var matrix := {}
+    var froms := {}
+    var tos := {}
+    var total := 0.0
+    for e in _flow_entries():
+        if String(e[0]) != "delivered" or (_flow_good != "" and String(e[3]) != _flow_good):
+            continue
+        var amount := float(e[5]) if _flow_value else float(e[4])
+        var key := String(e[1]) + "|" + String(e[2])
+        matrix[key] = float(matrix.get(key, 0.0)) + amount
+        froms[String(e[1])] = float(froms.get(String(e[1]), 0.0)) + amount
+        tos[String(e[2])] = float(tos.get(String(e[2]), 0.0)) + amount
+        total += amount
+    var order: Array = []
+    for node in flows.get("nodes", []):
+        order.append(String(node.get("id", "")))
+    var row_ids := order.filter(func(id): return froms.has(id))
+    var col_ids := order.filter(func(id): return tos.has(id))
+    if total <= 0.0:
+        _note("Nothing delivered in this period.")
+    else:
+        var top := 0.0
+        for key in matrix.keys():
+            top = maxf(top, float(matrix[key]))
+        var grid := GridContainer.new()
+        grid.columns = col_ids.size() + 2
+        grid.add_theme_constant_override("h_separation", 2)
+        grid.add_theme_constant_override("v_separation", 2)
+        grid.add_child(_label("from \\ to", UiTheme.TEXT_DIM, 11, 150.0))
+        for id in col_ids:
+            var head := _label(_short_place(String(names.get(id, id))), UiTheme.TEXT_DIM, 10, 66.0, HORIZONTAL_ALIGNMENT_CENTER)
+            head.tooltip_text = String(names.get(id, id))
+            head.mouse_filter = Control.MOUSE_FILTER_PASS
+            grid.add_child(head)
+        grid.add_child(_label("total", UiTheme.TEXT_DIM, 11, 70.0, HORIZONTAL_ALIGNMENT_RIGHT))
+        var fmt := func(v: float) -> String: return _cr(v) if _flow_value else _count(v)
+        for from_id in row_ids:
+            grid.add_child(_label(String(names.get(from_id, from_id)), UiTheme.TEXT_PRIMARY, 11, 150.0))
+            for to_id in col_ids:
+                var v := float(matrix.get(String(from_id) + "|" + String(to_id), 0.0))
+                var cell := PanelContainer.new()
+                cell.custom_minimum_size = Vector2(66, 18)
+                var bg := Color(0.06, 0.08, 0.11)
+                if v > 0.0:
+                    bg = HeatmapScript.scale_color(sqrt(v / top)).darkened(0.25)
+                cell.add_theme_stylebox_override("panel", UiTheme.flat_style(bg))
+                cell.tooltip_text = "%s → %s: %s" % [names.get(from_id, from_id), names.get(to_id, to_id), fmt.call(v)]
+                if v > 0.0:
+                    var text := _label(fmt.call(v), Color.WHITE if sqrt(v / top) < 0.6 else Color.BLACK, 10, 0.0,
+                        HORIZONTAL_ALIGNMENT_CENTER)
+                    text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+                    cell.add_child(text)
+                grid.add_child(cell)
+            grid.add_child(_label(fmt.call(float(froms[from_id])), UiTheme.TEXT_PRIMARY, 11, 70.0, HORIZONTAL_ALIGNMENT_RIGHT))
+        grid.add_child(_label("total", UiTheme.TEXT_DIM, 11, 150.0))
+        for to_id in col_ids:
+            grid.add_child(_label(fmt.call(float(tos[to_id])), UiTheme.TEXT_PRIMARY, 10, 66.0, HORIZONTAL_ALIGNMENT_CENTER))
+        grid.add_child(_label(fmt.call(total), UiTheme.ACCENT, 11, 70.0, HORIZONTAL_ALIGNMENT_RIGHT))
+        _content.add_child(grid)
+        _note("Ships' cargo as it arrived (after spoilage), and the trade of Earth and the colonies' surfaces with their gateways. "
+            + "Units of different goods are added as they are (a unit is the game's standard lot). Hover a cell for its places.")
+
+    # Goods balance per station: imported, exported, stock change, and what it made net of use.
+    _build_goods_balance(flows, names)
+    _build_passenger_flows(names)
+    _build_lanes(names)
+
+func _build_goods_balance(flows: Dictionary, names: Dictionary) -> void:
+    var period: Dictionary = flows.get(_period, {})
+    var goods: Array = flows.get("goods", [])
+    var start: Array = period.get("stock_start", [])
+    var finish: Array = period.get("stock_end", [])
+    var stations: Array = (flows.get("nodes", []) as Array).filter(func(n): return String(n.get("kind", "")) == "station")
+    var imported := {}
+    var exported := {}
+    var spoiled := {}
+    for e in _flow_entries():
+        var kind := String(e[0])
+        if _flow_good != "" and String(e[3]) != _flow_good:
+            continue
+        if kind == "delivered":
+            imported[String(e[2])] = float(imported.get(String(e[2]), 0.0)) + float(e[4])
+            if String(e[2]).begins_with("surface:"):
+                exported[String(e[1])] = float(exported.get(String(e[1]), 0.0)) + float(e[4])
+            elif not String(e[1]).begins_with("surface:"):
+                spoiled[String(e[1])] = float(spoiled.get(String(e[1]), 0.0)) - float(e[4])
+        elif kind == "loaded":
+            exported[String(e[1])] = float(exported.get(String(e[1]), 0.0)) + float(e[4])
+            spoiled[String(e[1])] = float(spoiled.get(String(e[1]), 0.0)) + float(e[4])
+    var rows: Array = []
+    for i in range(stations.size()):
+        var id := String(stations[i].get("id", ""))
+        var change := 0.0
+        for g in range(goods.size()):
+            if _flow_good != "" and String(goods[g]) != _flow_good:
+                continue
+            if i < start.size() and i < finish.size():
+                change += float(finish[i][g]) - float(start[i][g])
+        var imp := float(imported.get(id, 0.0))
+        var exp := float(exported.get(id, 0.0))
+        var made := change - imp + exp
+        rows.append([String(names.get(id, id)), _count(imp), _count(exp), [_count(change), _value_color(change)],
+            [_count(made), _value_color(made)]])
+    _heading("Goods balance by station (units%s)" % ("" if _flow_good == "" else ", " + _flow_good.replace("_", " ")))
+    _content.add_child(_table(["Station", "Imported", "Exported", "Stock change", "Made net of use"], rows,
+        [170.0, 90.0, 90.0, 100.0, 120.0]))
+    _note("Imported: cargo arriving and surface goods bought; exported: cargo loaded and goods sold to the surface. "
+        + "Made net of use = stock change - imported + exported: positive for a producer, negative for a consumer "
+        + "(it includes residents' use and any spoilage in store).")
+
+func _build_passenger_flows(names: Dictionary) -> void:
+    var routes := {}
+    for e in _flow_entries():
+        if String(e[0]) != "passengers":
+            continue
+        var key := String(e[1]) + "|" + String(e[2])
+        var entry: Dictionary = routes.get(key, {"fares": 0.0})
+        entry[String(e[3])] = float(entry.get(String(e[3]), 0.0)) + float(e[4])
+        entry["fares"] = float(entry["fares"]) + float(e[5])
+        routes[key] = entry
+    _heading("Passengers landed, from place to place")
+    if routes.is_empty():
+        _note("No passengers landed in this period.")
+        return
+    var keys := routes.keys()
+    keys.sort_custom(func(a, b): return float(routes[a]["fares"]) > float(routes[b]["fares"]))
+    var rows: Array = []
+    for key in keys:
+        var parts: PackedStringArray = String(key).split("|")
+        var entry: Dictionary = routes[key]
+        var row: Array = [String(names.get(parts[0], parts[0])), String(names.get(parts[1], parts[1]))]
+        for group in PASSENGER_GROUPS:
+            row.append(_count(float(entry.get(group, 0.0))) if float(entry.get(group, 0.0)) > 0.0 else "")
+        row.append(_cr(float(entry["fares"])))
+        rows.append(row)
+    _content.add_child(_table(["From", "To", "Settlers", "Crew rotation", "Visitors", "Emigrants", "Fares"], rows,
+        [170.0, 170.0, 80.0, 100.0, 80.0, 80.0, 90.0]))
+    _note("Settlers recruited by a colony are shown going on to its surface.")
+
+func _build_lanes(names: Dictionary) -> void:
+    var rows: Array = []
+    var lanes: Array = []
+    var carried := {}
+    for e in _flow_entries():
+        if String(e[0]) == "lane":
+            lanes.append(e)
+        elif String(e[0]) == "delivered" and not String(e[1]).begins_with("surface:") and not String(e[2]).begins_with("surface:"):
+            var key := String(e[1]) + "|" + String(e[2])
+            carried[key] = float(carried.get(key, 0.0)) + float(e[4])
+    _heading("Lanes: transport work and propellant")
+    if lanes.is_empty():
+        _note("No arrivals in this period.")
+        return
+    lanes.sort_custom(func(a, b): return float(a[5]) > float(b[5]))
+    for e in lanes.slice(0, 20):
+        var units := float(carried.get(String(e[1]) + "|" + String(e[2]), 0.0))
+        var propellant_kg := float(e[5])
+        rows.append([String(names.get(String(e[1]), e[1])), [String(names.get(String(e[2]), e[2])), UiTheme.TEXT_PRIMARY, "", 170.0],
+            "%.0f" % float(e[6]), _count(units), _count(float(e[4])), "%.1f" % (propellant_kg / 1000.0),
+            ["%.0f" % (propellant_kg / units), UiTheme.TEXT_PRIMARY] if units > 0.0 else ["empty", UiTheme.WARN]])
+    _content.add_child(_table(["From", "To", "Trips", "Cargo units", "Unit-days", "Propellant t", "kg per unit"], rows,
+        [170.0, 170.0, 60.0, 90.0, 100.0, 100.0, 90.0]))
+    _note("Every arrival on the lane, loaded or not, with the propellant planned for the trip; cargo as it arrived. "
+        + "kg per unit: the propellant burned for each unit delivered (empty legs count against the lane). The 20 lanes "
+        + "that burn the most are shown.")

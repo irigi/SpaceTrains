@@ -151,6 +151,10 @@ func _run() -> void:
             await _stats_shots(arg.trim_prefix("--shot-stats=") if arg.contains("=") else "")
             get_tree().quit()
             return
+    if OS.get_cmdline_user_args().has("--shot-flows"):
+        await _flow_overlay_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-inspector"):
         await _inspector_shots(rig)
         get_tree().quit()
@@ -326,7 +330,7 @@ func _run() -> void:
     # The Statistics screen, every tab (the bridge writes its file once the screen is open).
     main.stats_panel.toggle()
     await get_tree().create_timer(2.5).timeout
-    for tab in range(6):
+    for tab in range(int(main.stats_panel.get("TABS").size())):
         main.stats_panel.set_tab(tab)
         await get_tree().create_timer(0.8).timeout
         await _shoot("stats_%d" % tab)
@@ -678,3 +682,18 @@ func _stats_shots(only: String) -> void:
             if y >= content.size.y - scroll.size.y * 0.1:
                 break
     main.stats_panel.toggle()
+
+# The flow overlay (G) over the inner system and the Earth-Moon system.
+func _flow_overlay_shots(rig: Node3D) -> void:
+    var key := InputEventKey.new()
+    key.keycode = KEY_G
+    key.pressed = true
+    Input.parse_input_event(key)
+    await get_tree().create_timer(3.0).timeout
+    print("[ShotTour] flow overlay: %d lines" % (main.map_icons.get("flow_lines") as Array).size())
+    for stop in [["sun", "body", 30.0, "flows_inner"], ["earth", "body", 0.12, "flows_earth"]]:
+        main.select_entity(stop[0], stop[1], true)
+        rig.set("distance", stop[2])
+        rig.call("_update_transform")
+        await get_tree().create_timer(0.8).timeout
+        await _shoot(stop[3])

@@ -149,6 +149,10 @@ var help_panel: PanelContainer
 var stats_panel: PanelContainer
 var status_label: Label
 var thermal_label: Label
+# Flow overlay (G): goods between stations as lines on the map, from the statistics file (the
+# Flows tab's period, good and measure). The bridge writes that file while the overlay is on.
+var flow_overlay := false
+var flow_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 
 func _ready() -> void:
@@ -285,6 +289,12 @@ func _setup_ui() -> void:
     thermal_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
     thermal_label.visible = false
     ui_root.add_child(thermal_label)
+    flow_label = thermal_label.duplicate()
+    flow_label.name = "FlowOverlay"
+    flow_label.offset_top = -88.0
+    flow_label.offset_bottom = -64.0
+    flow_label.add_theme_color_override("font_color", UiTheme.ACCENT)
+    ui_root.add_child(flow_label)
 
 func _set_status(text: String) -> void:
     if _print_status and status_label != null and text != status_label.text and text != "":
@@ -385,6 +395,11 @@ func _unhandled_input(event: InputEvent) -> void:
             market_panel.toggle()
             if market_panel.visible:
                 market_panel.update_market(bridge_state)
+        elif event.keycode == KEY_G:
+            flow_overlay = not flow_overlay
+            flow_label.visible = flow_overlay
+            _write_bridge_commands()
+            _update_flow_overlay()
         elif event.keycode == KEY_T:
             ModelMaterialsScript.set_thermal_view(not ModelMaterialsScript.thermal_view)
             thermal_label.visible = ModelMaterialsScript.thermal_view
@@ -486,7 +501,7 @@ func _write_bridge_commands() -> void:
         "request": command_request,
         "save_path": command_save_path,
         "load_path": command_load_path,
-        "stats_open": stats_panel != null and stats_panel.visible,
+        "stats_open": (stats_panel != null and stats_panel.visible) or flow_overlay,
     }
     file.store_string(JSON.stringify(payload))
     file.close()
@@ -528,7 +543,7 @@ func _read_designs() -> void:
 var stats_seq := -1
 
 func _read_stats() -> void:
-    if stats_panel == null or not stats_panel.visible:
+    if stats_panel == null or not (stats_panel.visible or flow_overlay):
         return
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".stats.seq")
     if seq_text == "" or int(seq_text) == stats_seq:
@@ -538,6 +553,36 @@ func _read_stats() -> void:
         return
     stats_seq = int(seq_text)
     stats_panel.update_stats(json.data)
+    _update_flow_overlay()
+
+# The overlay's lines: goods delivered from station to station (surface trade left out), for the
+# Flows tab's period, good and measure.
+func _update_flow_overlay() -> void:
+    if map_icons == null:
+        return
+    if not flow_overlay:
+        map_icons.flow_lines = []
+        return
+    var period := String(stats_panel.get("_period"))
+    var good := String(stats_panel.get("_flow_good"))
+    var by_value := bool(stats_panel.get("_flow_value"))
+    var sums := {}
+    for e in stats_panel.stats.get("flows", {}).get(period, {}).get("entries", []):
+        if String(e[0]) != "delivered" or String(e[1]).begins_with("surface:") or String(e[2]).begins_with("surface:"):
+            continue
+        if good != "" and String(e[3]) != good:
+            continue
+        var key := String(e[1]) + "|" + String(e[2])
+        sums[key] = float(sums.get(key, 0.0)) + (float(e[5]) if by_value else float(e[4]))
+    var lines: Array = []
+    var color := UiTheme.commodity_color(good) if good != "" else UiTheme.ACCENT
+    for key in sums.keys():
+        var parts: PackedStringArray = String(key).split("|")
+        lines.append({"from": parts[0], "to": parts[1], "amount": float(sums[key]), "color": color})
+    map_icons.flow_lines = lines
+    var names := {"lifetime": "since the start", "last_year": "last year", "last_30": "last 30 days"}
+    flow_label.text = "Flows (G): %s, %s, %s · set in Statistics → Flows" % [good.replace("_", " ") if good != "" else "all goods",
+        "credits" if by_value else "units", String(names.get(period, period))]
 
 # Ships in flight carry only a path id; attach the planned path from the paths file.
 # Returns how many ships name a path the paths file does not have.
