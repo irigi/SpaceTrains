@@ -146,6 +146,11 @@ func _run() -> void:
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()
             return
+    for arg in OS.get_cmdline_user_args():
+        if arg.begins_with("--shot-stats"):
+            await _stats_shots(arg.trim_prefix("--shot-stats=") if arg.contains("=") else "")
+            get_tree().quit()
+            return
     if OS.get_cmdline_user_args().has("--shot-inspector"):
         await _inspector_shots(rig)
         get_tree().quit()
@@ -643,3 +648,33 @@ func _inspector_shots(rig: Node3D) -> void:
             page += 1
             if y >= content.size.y - scroll.size.y * 0.1:
                 break
+
+# The Statistics screen, page by page: every tab, or only those listed (--shot-stats=3,4).
+func _stats_shots(only: String) -> void:
+    main.stats_panel.toggle()
+    await get_tree().create_timer(2.5).timeout
+    var panel: Control = main.stats_panel
+    var scroll: ScrollContainer = panel.get("_scroll")
+    var content: Control = panel.get("_content")
+    for tab in range(int(panel.get("TABS").size())):
+        if only != "" and not only.split(",").has(str(tab)):
+            continue
+        main.stats_panel.set_tab(tab)
+        await get_tree().create_timer(0.8).timeout
+        var y := 0
+        var page := 0
+        while page < 6:
+            scroll.scroll_vertical = y
+            await get_tree().process_frame
+            await get_tree().process_frame
+            await get_tree().process_frame
+            var image := get_viewport().get_texture().get_image()
+            var rect := Rect2i(panel.get_global_rect())
+            image = image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size())))
+            image.save_png(out_dir.path_join("stats_tab%d_%d.png" % [tab, page]))
+            print("[ShotTour] saved stats_tab%d_%d (content %.0f px, view %.0f px)" % [tab, page, content.size.y, scroll.size.y])
+            y += int(scroll.size.y * 0.9)
+            page += 1
+            if y >= content.size.y - scroll.size.y * 0.1:
+                break
+    main.stats_panel.toggle()

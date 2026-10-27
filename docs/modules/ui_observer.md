@@ -192,7 +192,11 @@
       category;
     - Stations: cash, profit before the faction, top income and expense, red days; a station's and its
       residents' flows;
-    - Residents: people, workers, open jobs, wage, savings, savings rate;
+    - People: donuts of where people live (stations and colony surfaces) and what station people do (jobs by
+      kind, dependants, spacers, travellers); stacked bars of residents by station against housing and of jobs by
+      kind; the share of each life need a station covers itself; people over time (stacked areas, stations then
+      colony surfaces); then the residents' money (people, workers, open jobs, wage, savings, savings rate). The
+      station systems view comes with each station in the stats file (`systems`, `people_history`), display only;
     - Colonies & Earth: accounts against credit lines, wage p10/p50/p90, hiring up and down, Earth's flows;
     - Fleet: by faction and class, the best and worst ships (click to select one).
   - The station inspector shows its profit before the faction, since the start and over the last year.
@@ -205,7 +209,7 @@
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
-  `--shot-arrival` watches the next ship dock at 600x; `--shot-inspector` saves the inspector page by page (cropped,
+  `--shot-arrival` watches the next ship dock at 600x; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
   every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider
   than the panel; `--shot-cargo` shoots up to four loaded ships in flight
   close up and prints their hold state, `--shot-cargo-angles` adds four views each; `--shot-pause` also checks the

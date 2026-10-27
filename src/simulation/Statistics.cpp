@@ -299,10 +299,17 @@ std::string Simulation::build_stats_json() const {
         const auto& station = stations_[s];
         const auto& definition = get_station_definition(station.station_id);
         const double profit = station_lifetime_profit(station);
+        // People at each closed period, and the station systems view (display only) for the people charts.
+        std::vector<double> people_series;
+        for (const auto& sample : history) {
+            people_series.push_back(s < sample.stations.size() ? sample.stations[s].population : 0.0);
+        }
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"credits\":{},\"profit\":{},\"profit_last_year\":{},"
+            "\"people_history\":{},{}"   // station_systems_json writes "systems":{...}, (or nothing)
             "\"red_days\":{},\"population\":{},\"workers\":{},\"jobs\":{},\"wage\":{},\"labour_market\":{},\"household_credits\":{}}}",
             s > 0 ? "," : "", json_escape(station.station_id), json_escape(definition.name), json_escape(definition.faction_id),
-            number(station.credits), number(profit), number(station_profit_last_year(station)), number(station.ledger.days_in_red),
+            number(station.credits), number(profit), number(station_profit_last_year(station)), numbers_json(people_series),
+            station_systems_json(definition, station), number(station.ledger.days_in_red),
             number(station.population), number(station_workers(station)),
             number(in_labour_market(station) ? station.jobs : station_workers(station)), fine(station_wage_cr_per_day(station)),
             in_labour_market(station) ? "true" : "false", number(station.household_credits));

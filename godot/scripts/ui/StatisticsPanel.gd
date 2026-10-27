@@ -9,8 +9,10 @@ signal visibility_toggled(open: bool)
 
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 const LineChartScript := preload("res://scripts/ui/LineChart.gd")
+const DonutChartScript := preload("res://scripts/ui/DonutChart.gd")
+const StackedBarScript := preload("res://scripts/ui/StackedBar.gd")
 
-const TABS := ["Overview", "Factions", "Stations", "Residents", "Colonies & Earth", "Fleet"]
+const TABS := ["Overview", "Factions", "Stations", "People", "Colonies & Earth", "Fleet"]
 const PERIODS := [["lifetime", "Since the start"], ["last_year", "Last year"], ["last_30", "Last 30 days"]]
 const SECTOR_NAMES := {"earth": "Earth", "colony": "Colonies", "faction": "Factions", "station": "Stations",
     "households": "Residents", "fleet": "Fleets"}
@@ -310,7 +312,7 @@ func _rebuild() -> void:
         0: _build_overview()
         1: _build_factions()
         2: _build_stations()
-        3: _build_residents()
+        3: _build_people()
         4: _build_colonies()
         5: _build_fleet()
 
@@ -455,11 +457,142 @@ func _build_stations() -> void:
                 "values": profit_series if not _monthly else monthly_profit},
         ])
 
-func _build_residents() -> void:
-    _heading("Residents (workers) by station")
-    var rows: Array = []
-    var chart_series: Array = []
+# --- People: who lives where and what they do (the station systems view, display only) ---
+
+const POP_KIND_NAMES := {"labourer": "labourers", "technician": "technicians", "engineer": "engineers",
+    "scientist": "scientists", "service": "service and administration"}
+const POP_KINDS := ["labourer", "technician", "engineer", "scientist", "service"]
+const LIFE_GOODS := ["food", "water", "oxygen", "medicine"]
+
+static func _count(value: float) -> String:
+    var n := int(round(value))
+    var text := str(absi(n))
+    var grouped := ""
+    while text.length() > 3:
+        grouped = "," + text.substr(text.length() - 3) + grouped
+        text = text.substr(0, text.length() - 3)
+    return ("-" if n < 0 else "") + text + grouped
+
+func _donut(title: String, slices: Array, width := 380.0) -> Control:
+    var donut := DonutChartScript.new()
+    donut.custom_minimum_size.x = width
+    donut.set_data(title, slices, "%.0f")
+    return donut
+
+func _build_people() -> void:
     var stations: Array = stats.get("stations", [])
+    var colonies: Array = stats.get("colonies", [])
+    _heading("People")
+    # Where people live, and what they do (all stations).
+    var where: Array = []
+    for i in range(stations.size()):
+        var station: Dictionary = stations[i]
+        where.append({"name": String(station.get("name", "")), "value": float(station.get("population", 0.0)),
+            "color": UiTheme.categorical(i)})
+    for i in range(colonies.size()):
+        var colony: Dictionary = colonies[i]
+        where.append({"name": String(colony.get("name", "")) + " (surface)", "value": float(colony.get("people", 0.0)),
+            "color": UiTheme.categorical(stations.size() + i).darkened(0.25)})
+    var what := {}
+    var out_of_work := 0.0
+    var dependants := 0.0
+    var spacers := 0.0
+    var visitors := 0.0
+    for station in stations:
+        var systems: Dictionary = station.get("systems", {})
+        var by_kind: Dictionary = systems.get("jobs_by_kind", {})
+        for kind in by_kind.keys():
+            what[kind] = float(what.get(kind, 0.0)) + float(by_kind[kind])
+        out_of_work += maxf(0.0, float(systems.get("workers", 0.0)) - float(systems.get("employed", 0.0)))
+        dependants += float(systems.get("dependants", 0.0))
+        spacers += float(systems.get("spacers", 0.0))
+        visitors += float(systems.get("visitors", 0.0)) + float(systems.get("waiting", 0.0))
+    var doing: Array = []
+    for k in range(POP_KINDS.size()):
+        doing.append({"name": String(POP_KIND_NAMES[POP_KINDS[k]]), "value": float(what.get(POP_KINDS[k], 0.0)),
+            "color": UiTheme.categorical(k)})
+    doing.append({"name": "out of work", "value": out_of_work, "color": UiTheme.ALERT})
+    doing.append({"name": "dependants", "value": dependants, "color": UiTheme.categorical(8)})
+    doing.append({"name": "spacers (crews)", "value": spacers, "color": UiTheme.categorical(5)})
+    doing.append({"name": "visitors and travellers", "value": visitors, "color": UiTheme.categorical(7)})
+    var donuts := _flow_row()
+    donuts.add_child(_donut("Where people live (stations and colony surfaces)", where, 440.0))
+    donuts.add_child(_donut("What station people do (jobs by kind, typical staffing)", doing, 440.0))
+    _content.add_child(donuts)
+    _note("Earth (billions) is left out. Jobs by kind are a typical staffing of each station's works and services, "
+        + "derived from the economy's numbers; the simulation itself counts workers and jobs only.")
+
+    # Residents by station: who they are, against housing.
+    var parts := [{"name": "workers in jobs", "color": UiTheme.categorical(0)}, {"name": "out of work", "color": UiTheme.ALERT},
+        {"name": "dependants", "color": UiTheme.categorical(8)}, {"name": "spacers", "color": UiTheme.categorical(5)},
+        {"name": "visitors", "color": UiTheme.categorical(4)}, {"name": "waiting to travel", "color": UiTheme.categorical(7)}]
+    var rows: Array = []
+    var kind_rows: Array = []
+    var needs_rows: Array = []
+    for station in stations:
+        var systems: Dictionary = station.get("systems", {})
+        if systems.is_empty():
+            continue
+        var name := String(station.get("name", ""))
+        var workers := float(systems.get("workers", 0.0))
+        var employed := float(systems.get("employed", 0.0))
+        rows.append({"name": name, "values": [employed, maxf(0.0, workers - employed), float(systems.get("dependants", 0.0)),
+            float(systems.get("spacers", 0.0)), float(systems.get("visitors", 0.0)), float(systems.get("waiting", 0.0))],
+            "marker": float(systems.get("housing", -1.0))})
+        var by_kind: Dictionary = systems.get("jobs_by_kind", {})
+        var kind_values: Array = []
+        for kind in POP_KINDS:
+            kind_values.append(float(by_kind.get(kind, 0.0)))
+        kind_rows.append({"name": name, "values": kind_values})
+        # Life needs: the share the station's own farms and recycling cover.
+        var cover := {}
+        for need in systems.get("needs", []):
+            var n: Dictionary = need
+            if String(n.get("tier", "")) == "life" and float(n.get("need_per_day", 0.0)) > 0.0:
+                cover[String(n.get("good", ""))] = 1.0 - float(n.get("use_per_day", 0.0)) / float(n["need_per_day"])
+            elif String(n.get("tier", "")) == "life" and bool(n.get("made_here", false)):
+                cover[String(n.get("good", ""))] = 1.0
+        var row: Array = [_station_buttons_row(station)]
+        for good in LIFE_GOODS:
+            if cover.has(good):
+                var c := float(cover[good])
+                row.append(["%.0f%%" % (100.0 * c), UiTheme.GOOD if c >= 0.9 else (UiTheme.WARN if c >= 0.5 else UiTheme.ALERT)])
+            else:
+                row.append(["imported", UiTheme.TEXT_DIM])
+        needs_rows.append(row)
+    var residents := StackedBarScript.new()
+    residents.custom_minimum_size.x = 900.0
+    residents.set_data("Residents by station (white line: housing)", parts, rows, false, "%.0f", "housing")
+    _content.add_child(residents)
+    var kind_parts: Array = []
+    for k in range(POP_KINDS.size()):
+        kind_parts.append({"name": String(POP_KIND_NAMES[POP_KINDS[k]]), "color": UiTheme.categorical(k)})
+    var kinds := StackedBarScript.new()
+    kinds.custom_minimum_size.x = 900.0
+    kinds.set_data("Jobs by kind (typical staffing)", kind_parts, kind_rows, false, "%.0f")
+    _content.add_child(kinds)
+    _heading("Life needs met by the station itself (own farms and recycling)")
+    _content.add_child(_table(["Station", "Food", "Water", "Oxygen", "Medicine"], needs_rows, [170.0, 80.0, 80.0, 80.0, 80.0]))
+    _note("The rest is imported. Water and oxygen are mostly recycled; a station without farms imports all its food.")
+
+    # People over time, stacked: stations and colony surfaces.
+    var people_series: Array = []
+    for i in range(stations.size()):
+        people_series.append({"name": String(stations[i].get("name", "")).left(14), "color": UiTheme.categorical(i),
+            "values": stations[i].get("people_history", [])})
+    for i in range(colonies.size()):
+        people_series.append({"name": String(colonies[i].get("name", "")).left(14),
+            "color": UiTheme.categorical(stations.size() + i).darkened(0.25), "values": colonies[i].get("people_history", [])})
+    var people_chart := LineChartScript.new()
+    people_chart.custom_minimum_size = Vector2(900, 300)
+    people_chart.stacked = true
+    people_chart.format_value = func(v: float) -> String: return _count(v)
+    _content.add_child(people_chart)
+    people_chart.set_data("People over time (stations, then colony surfaces)", _history_days(), people_series)
+
+    _heading("Residents' money by station")
+    rows = []
+    var chart_series: Array = []
     for i in range(stations.size()):
         var station: Dictionary = stations[i]
         var id := String(station.get("id", ""))
