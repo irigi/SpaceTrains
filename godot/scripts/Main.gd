@@ -1852,6 +1852,7 @@ func _refresh_ui_now() -> void:
     market_panel.update_market(bridge_state)
 
     var detail: Dictionary = entity_details.get(selected_id, {})
+    var inspector_started := Time.get_ticks_usec()
     inspector_panel.update_selection(detail, selected_kind, {
         "game_time_s": float(bridge_state.get("game_time_s", 0.0)),
         "faction_colors": faction_colors,
@@ -1864,6 +1865,7 @@ func _refresh_ui_now() -> void:
         "porkchops": porkchop_data,
         "planet": _planet_of(String(detail.get("parent_body_id", ""))) if selected_kind == "station" else "",
     })
+    if _profile_enabled: _profiled("  inspector", inspector_started)
 
 func _entity_name_map() -> Dictionary:
     var names := {}

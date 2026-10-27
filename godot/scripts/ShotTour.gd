@@ -606,10 +606,12 @@ func _station_systems_shots(rig: Node3D) -> void:
         scroll.scroll_vertical = 0
         await get_tree().process_frame
         await get_tree().process_frame
-        for child in content.get_children():
-            if child is Button and String(child.text).contains("PEOPLE"):
-                scroll.scroll_vertical = int(child.position.y)
-                print("[ShotTour] %s: section at %.0f of %.0f px" % [station_id, child.position.y, content.size.y])
+        for box in content.get_children():
+            for child in box.get_children():
+                if child is Button and String(child.text).contains("PEOPLE"):
+                    var y: float = (box as Control).position.y + (child as Control).position.y
+                    scroll.scroll_vertical = int(y)
+                    print("[ShotTour] %s: section at %.0f of %.0f px" % [station_id, y, content.size.y])
         await get_tree().process_frame
         await _shoot("station_systems_" + station_id)
 

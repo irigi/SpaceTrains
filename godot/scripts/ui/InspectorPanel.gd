@@ -20,7 +20,16 @@ var _scroll: ScrollContainer
 var _folded: Dictionary = {}
 var _parts_open := false
 var _schematic: ShipSchematicScript
-var _schematic_used := false
+# The view is built in parts (the header, then one per section), each in its own box. A new
+# selection builds them all at once; a refresh of the same selection rebuilds one part a frame
+# (measured 2026-10-27: a whole station took 40-80 ms, the market table alone 17 ms, which made
+# a slow frame twice a second while a station was selected). Parts marked "keep" are updated in
+# their box instead (the ship schematic: re-adding it would drop its hover).
+var _target: Container
+var _parts: Array = []       # [{fn: Callable, keep: bool}]
+var _boxes: Array = []       # the parts' boxes, in _content
+var _stage := -1             # the next part to refresh, -1 when none
+var _shown_key := ""         # "kind/id" of what is shown
 # The last selection, rebuilt when a section is folded or unfolded.
 var _last_detail: Dictionary = {}
 var _last_kind := ""
@@ -47,6 +56,7 @@ func _ready() -> void:
     _content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _content.add_theme_constant_override("separation", 5)
     margin.add_child(_content)
+    _target = _content
     _show_help()
 
 func _exit_tree() -> void:
@@ -54,23 +64,29 @@ func _exit_tree() -> void:
         _schematic.free()
 
 func _clear() -> void:
-    # The schematic stays in the tree across refreshes (removing it would drop its hover and
-    # make the hovered part blink); it is detached only if the rebuilt view has no schematic.
-    _schematic_used = false
+    _detach_schematic(_content)
     for child in _content.get_children():
-        if child != _schematic:
-            child.queue_free()
-    if _schematic != null and _schematic.get_parent() == _content:
-        _park_schematic.call_deferred()
+        child.queue_free()
+    _parts = []
+    _boxes = []
+    _stage = -1
+    _target = _content
 
-func _park_schematic() -> void:
-    if not _schematic_used and _schematic != null and _schematic.get_parent() == _content:
-        _content.remove_child(_schematic)
+# The schematic outlives the boxes it is shown in: take it out before a box is freed.
+func _detach_schematic(container: Node) -> void:
+    if _schematic != null and _schematic.get_parent() != null and container.is_ancestor_of(_schematic):
+        _schematic.get_parent().remove_child(_schematic)
+
+static func _new_box() -> VBoxContainer:
+    var box := VBoxContainer.new()
+    box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    box.add_theme_constant_override("separation", 5)
+    return box
 
 # --- building blocks -----------------------------------------------------------
 
 func _add(control: Control) -> Control:
-    _content.add_child(control)
+    _target.add_child(control)
     return control
 
 func _add_label(text: String, color := UiTheme.TEXT_PRIMARY, font_size := 12) -> Label:
@@ -92,18 +108,147 @@ func _add_gauge(title: String, value: float, max_value: float, suffix: String, c
     _add(UiWidgets.gauge(title, value, max_value, suffix, color))
 
 # A section heading; returns whether the section is open (then the caller adds its body).
+func _is_open(id: String, open_by_default := true) -> bool:
+    return not bool(_folded.get("%s/%s" % [_last_kind, id], not open_by_default))
+
 func _section(id: String, title: String, summary := "", open_by_default := true) -> bool:
     var key := "%s/%s" % [_last_kind, id]
-    var open := not bool(_folded.get(key, not open_by_default))
+    var open := _is_open(id, open_by_default)
     _add(UiWidgets.separator())
     _add(UiWidgets.section_header(title, open, summary, func() -> void:
         _folded[key] = open
         _rebuild_last()))
     return open
 
+# Build every part now (a new selection, a fold or unfold).
 func _rebuild_last() -> void:
     _clear()
-    _build(_last_detail, _last_kind, _last_context)
+    _parts = _plan(_last_kind)
+    for part in _parts:
+        var box := _new_box()
+        _content.add_child(box)
+        _boxes.append(box)
+        _target = box
+        (part["fn"] as Callable).call()
+        box.visible = box.get_child_count() > 0
+    _target = _content
+
+# A refresh of the same selection: one part a frame.
+func _process(_delta: float) -> void:
+    if _stage < 0 or _pointer_held_here():
+        return
+    if _stage >= _parts.size() or _stage >= _boxes.size():
+        _stage = -1
+        return
+    var part: Dictionary = _parts[_stage]
+    var old: Control = _boxes[_stage]
+    if bool(part.get("keep", false)):
+        _target = old
+        (part["fn"] as Callable).call()
+        old.visible = old.get_child_count() > 0
+    else:
+        var box := _new_box()
+        _target = box
+        (part["fn"] as Callable).call()
+        box.visible = box.get_child_count() > 0
+        if _same_shape(old, box):
+            # Measured 2026-10-27: building a part off the tree takes ~2 ms, adding it ~20 ms
+            # (the market): when only values changed, they are copied into the shown controls.
+            _copy_values(old, box)
+            box.free()
+        else:
+            _content.add_child(box)
+            _content.move_child(box, old.get_index())
+            _detach_schematic(old)
+            old.queue_free()
+            _boxes[_stage] = box
+    _target = _content
+    _stage += 1
+    if _stage >= _parts.size():
+        _stage = -1
+
+# Whether a freshly built part has the shown one's shape: the same controls in the same places
+# (buttons with the same text: a button's action is not compared, only what it says).
+static func _same_shape(shown: Node, fresh: Node) -> bool:
+    if shown.get_class() != fresh.get_class() or shown.get_script() != fresh.get_script() \
+            or shown.get_child_count() != fresh.get_child_count():
+        return false
+    if shown is Button and (shown as Button).text != (fresh as Button).text:
+        return false
+    for i in range(shown.get_child_count()):
+        if not _same_shape(shown.get_child(i), fresh.get_child(i)):
+            return false
+    return true
+
+# Copy what may change between refreshes into the shown controls (only what differs: each change
+# costs a relayout or a redraw).
+static func _copy_values(shown: Node, fresh: Node) -> void:
+    if shown is Control:
+        var a := shown as Control
+        var b := fresh as Control
+        if a.visible != b.visible:
+            a.visible = b.visible
+        if a.tooltip_text != b.tooltip_text:
+            a.tooltip_text = b.tooltip_text
+        if a.custom_minimum_size != b.custom_minimum_size:
+            a.custom_minimum_size = b.custom_minimum_size
+        if a is Label:
+            var la := a as Label
+            var lb := b as Label
+            if la.text != lb.text:
+                la.text = lb.text
+            if lb.has_theme_color_override("font_color") and la.get_theme_color("font_color") != lb.get_theme_color("font_color"):
+                la.add_theme_color_override("font_color", lb.get_theme_color("font_color"))
+        elif a is ColorRect:
+            if (a as ColorRect).color != (b as ColorRect).color:
+                (a as ColorRect).color = (b as ColorRect).color
+        elif a is Range:
+            var ra := a as Range
+            var rb := b as Range
+            if ra.max_value != rb.max_value:
+                ra.max_value = rb.max_value
+            if ra.value != rb.value:
+                ra.value = rb.value
+            var fa := ra.get_theme_stylebox("fill") as StyleBoxFlat
+            var fb := rb.get_theme_stylebox("fill") as StyleBoxFlat
+            if fa != null and fb != null and fa.bg_color != fb.bg_color:
+                ra.add_theme_stylebox_override("fill", fb)
+        elif a.get_script() != null:
+            # Drawn widgets (donut, bars): their script's data.
+            for property in a.get_property_list():
+                if int(property["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE and not String(property["name"]).begins_with("_"):
+                    a.set(property["name"], b.get(property["name"]))
+            a.queue_redraw()
+    for i in range(shown.get_child_count()):
+        _copy_values(shown.get_child(i), fresh.get_child(i))
+
+# The parts of each kind's view, in order; each reads _last_detail and _last_context.
+func _plan(kind: String) -> Array:
+    var d := func() -> Dictionary: return _last_detail
+    var c := func() -> Dictionary: return _last_context
+    match kind:
+        "station":
+            return [
+                {"fn": func() -> void: _build_station(d.call(), c.call())},
+                {"fn": func() -> void: _add_station_market(d.call(), c.call())},
+                {"fn": func() -> void: _add_station_people(d.call(), c.call())},
+                {"fn": func() -> void: _add_station_works(d.call(), c.call())},
+                {"fn": func() -> void: _add_station_orders(d.call())},
+                {"fn": func() -> void: _add_station_ships(d.call(), c.call())},
+                {"fn": func() -> void: _add_station_windows(c.call())},
+                {"fn": func() -> void: _add_station_money(d.call())},
+            ]
+        "ship":
+            return [
+                {"fn": func() -> void: _build_ship(d.call(), c.call())},
+                {"fn": func() -> void: _add_ship_voyage(d.call(), c.call())},
+                {"fn": func() -> void: _add_ship_load(d.call(), c.call())},
+                {"fn": func() -> void: _add_ship_money(d.call(), c.call())},
+                {"fn": func() -> void: _add_ship_systems(d.call(), c.call())},
+                {"fn": func() -> void: _add_ship_schematic(d.call(), c.call()), "keep": true},
+                {"fn": func() -> void: _add_ship_parts(d.call(), c.call())},
+            ]
+    return [{"fn": func() -> void: _build_body(d.call(), c.call())}]
 
 # Rows built before their section turned out folded: their controls never join the tree, so free them.
 static func _free_cells(rows: Array) -> void:
@@ -153,22 +298,18 @@ func update_selection(detail: Dictionary, kind: String, context: Dictionary) -> 
     if _pointer_held_here():
         return
     if detail.is_empty():
+        _shown_key = ""
         _show_help()
         return
-    _clear()
-    _build(detail, kind, context)
-
-func _build(detail: Dictionary, kind: String, context: Dictionary) -> void:
     _last_detail = detail
     _last_kind = kind
     _last_context = context
-    match kind:
-        "station":
-            _build_station(detail, context)
-        "ship":
-            _build_ship(detail, context)
-        _:
-            _build_body(detail, context)
+    var key := "%s/%s" % [kind, String(detail.get("id", ""))]
+    if key == _shown_key and not _boxes.is_empty():
+        _stage = 0   # the same selection: refresh a part a frame (restarts if one was under way)
+        return
+    _shown_key = key
+    _rebuild_last()
 
 # --- words and numbers ---------------------------------------------------------
 
@@ -311,14 +452,6 @@ func _build_station(detail: Dictionary, context: Dictionary) -> void:
             "tooltip": "%s of %s u" % [_count(used), _count(capacity)]},
     ]))
     _add_station_alerts(detail)
-
-    _add_station_market(detail, context)
-    _add_station_people(detail, context)
-    _add_station_works(detail, context)
-    _add_station_orders(detail)
-    _add_station_ships(detail, context)
-    _add_station_windows(context)
-    _add_station_money(detail)
 
 # Things that need attention now: events, emergencies, people leaving.
 func _add_station_alerts(detail: Dictionary) -> void:
@@ -768,10 +901,6 @@ func _build_ship(detail: Dictionary, context: Dictionary) -> void:
     if phase == "stranded":
         _add_label("Stranded: needs fuel delivered or sold to it here.", UiTheme.ALERT, 12)
 
-    _add_ship_voyage(detail, context)
-    _add_ship_load(detail, context)
-    _add_ship_money(detail, context)
-    _add_ship_systems(detail, context)
 
 # Where it is going, how, and what the trip should earn; liner loops and contracts.
 func _add_ship_voyage(detail: Dictionary, context: Dictionary) -> void:
@@ -907,25 +1036,40 @@ func _add_ship_money(detail: Dictionary, context: Dictionary) -> void:
 # --- Ship systems (docs/modules/ships_and_fleet.md) ----------------------------
 # The ship's parts from the bridge's designs file: a to-scale schematic with its live state
 # (ShipSchematic), whether the engine runs, and the parts as a list (folded by default).
-func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
+func _ship_design(detail: Dictionary, context: Dictionary) -> Dictionary:
     var designs: Dictionary = context.get("designs", {})
-    var design: Dictionary = designs.get(String(detail.get("design_id", detail.get("class_id", ""))), {})
+    return designs.get(String(detail.get("design_id", detail.get("class_id", ""))), {})
+
+func _add_ship_systems(detail: Dictionary, context: Dictionary) -> void:
+    var design := _ship_design(detail, context)
     if design.is_empty():
         return
     if not _section("systems", "SHIP SYSTEMS", _engine_line(detail, design)):
         return
     _add_label(_engine_line(detail, design), UiTheme.TEXT_PRIMARY, 12)
     _add_tier2_lines(detail, design)
+
+# The schematic, kept in its own box across refreshes (re-adding it would drop its hover).
+func _add_ship_schematic(detail: Dictionary, context: Dictionary) -> void:
+    var design := _ship_design(detail, context)
+    var shown := not design.is_empty() and _is_open("systems")
     if _schematic == null:
+        if not shown:
+            return
         _schematic = ShipSchematicScript.new()
         _schematic.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    if _schematic.get_parent() == _content:
-        _content.move_child(_schematic, -1)
-    else:
-        _content.add_child(_schematic)
-    _schematic_used = true
-    _schematic.set_ship(design, detail)
+    if _schematic.get_parent() != _target:
+        if _schematic.get_parent() != null:
+            _schematic.get_parent().remove_child(_schematic)
+        _target.add_child(_schematic)
+    _schematic.visible = shown
+    if shown:
+        _schematic.set_ship(design, detail)
 
+func _add_ship_parts(detail: Dictionary, context: Dictionary) -> void:
+    var design := _ship_design(detail, context)
+    if design.is_empty() or not _is_open("systems"):
+        return
     var toggle := UiWidgets.section_header("Parts list", _parts_open, "", func() -> void:
         _parts_open = not _parts_open
         _rebuild_last())
