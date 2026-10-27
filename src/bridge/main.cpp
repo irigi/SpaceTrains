@@ -400,7 +400,8 @@ int main(int argc, char** argv) {
                 }
                 if (pairs != porkchop_pairs) {
                     porkchop_pairs = std::move(pairs);
-                    porkchop_day = -1.0;   // write the new selection at once
+                    porkchop_day = -1.0;   // write the new selection at once (past the 0.5 s throttle)
+                    last_porkchop = std::chrono::steady_clock::now() - std::chrono::seconds(10);
                     porkchops.request(porkchop_pairs, simulation.game_time_s());
                 }
             }

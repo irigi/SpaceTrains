@@ -16,7 +16,8 @@
 //     flow record) are filled once each, so switching to them is instant; pairs off screen are not
 //     kept up to date (opening one again computes only the days that have passed);
 //   - one low-priority background thread that never touches the simulation (its own copy of the
-//     celestial mechanics); variable-Isp cells are warm-started from the one below.
+//     celestial mechanics); variable-Isp cells are warm-started from the one below, then cells
+//     much dearer than the one above are solved again from it (a down pass).
 // Display only: nothing in the simulation reads it.
 #pragma once
 

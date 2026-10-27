@@ -6,6 +6,8 @@ extends PanelContainer
 
 signal ship_selected(ship_id: String)
 signal visibility_toggled(open: bool)
+# The Routes tab's pair may have changed: the bridge is asked for it at once, not at the next UI refresh.
+signal route_changed
 
 const UiTheme := preload("res://scripts/ui/UiTheme.gd")
 const LineChartScript := preload("res://scripts/ui/LineChart.gd")
@@ -38,6 +40,9 @@ var _route_view := "fastest"
 var _route_picked := false
 var _route_other := false
 var porkchops: Dictionary = {}
+# The last grid seen for each pair ("earth>saturn"): switching back shows it at once while the
+# bridge sends the current one (the bridge keeps every grid; only the file names the pairs asked).
+var _pair_cache: Dictionary = {}
 var ships: Array = []
 var _route_map: Control = null   # the Routes tab's plot while it is shown
 var _labels: Dictionary = {}   # category id -> label
@@ -330,7 +335,9 @@ func _rebuild() -> void:
         4: _build_colonies()
         5: _build_fleet()
         6: _build_flows()
-        7: _build_routes()
+        7:
+            _build_routes()
+            route_changed.emit()
 
 func _build_overview() -> void:
     _heading("Money by sector")
@@ -1001,6 +1008,8 @@ func show_route(origin: String, destination: String) -> void:
 func update_porkchops(data: Dictionary, ship_list: Array) -> void:
     porkchops = data
     ships = ship_list
+    for pair in porkchops.get("pairs", []):
+        _pair_cache["%s>%s" % [String(pair.get("origin", "")), String(pair.get("destination", ""))]] = pair
     if not visible or _tab != ROUTES_TAB:
         return
     # Until a route is picked, show the busiest one.
@@ -1024,7 +1033,7 @@ func _route_pair() -> Dictionary:
     for pair in porkchops.get("pairs", []):
         if String(pair.get("origin", "")) == route_origin and String(pair.get("destination", "")) == route_destination:
             return pair
-    return {}
+    return _pair_cache.get("%s>%s" % [route_origin, route_destination], {})
 
 func _planet_name(id: String) -> String:
     return String(PLANET_NAMES.get(id, id.capitalize()))
@@ -1221,8 +1230,8 @@ func _fill_route_view(view: Control) -> void:
         view.format_value = func(v: float) -> String: return "×" + HeatmapScript.significant(v, 2)
         view.unit = "of best"
         view.y_log = true
-        view.set_grid("Plasma drive effort, relative to the window's best (log scale); lines: what each class's tank reaches "
-            + "with a full hold (inside the line it can go)", grid, xs, rows, 1.0, hi, true)
+        view.set_grid("Plasma drive effort ∫a²dt, as a multiple of the window's best (log scale); lines: what each class's tank "
+            + "reaches with a full hold (inside the line it can go)", grid, xs, rows, 1.0, hi, true)
     else:
         view.value_format = "%.1f"
         view.unit = "km/s"
@@ -1255,11 +1264,16 @@ func _route_note(classes: Array) -> void:
     if _route_view == "fastest":
         text += "Each line is the shortest flight the class's tank allows at each departure (gaps: it cannot go); both planners "
         text += "trade propellant against time, so a ship's dot above its line means the planner chose to save fuel. "
+    elif _route_view == "thermal":
+        text += "Each column is a departure date, each row a flight time. Δv is what the planner charges for the arc (against "
+        text += "circular speed at both ends; it searches 0.3 to 1.5 Hohmann times); hover for each class's share of its tank. "
     else:
-        text += "Each column is a departure date, each row a flight time. Thermal Δv is what the planner charges for the arc "
-        text += "(against circular speed at both ends; it searches 0.3 to 1.5 Hohmann times). Plasma effort is the minimum-effort "
-        text += "rendezvous, the same for every ship: a class's propellant follows from its drive power (1/m_final − 1/m_start = "
-        text += "effort / 2P); hover for each class's share of its tank. "
+        text += "Each column is a departure date, each row a flight time (log scale). Effort = ∫a²dt: the drive's push "
+        text += "(acceleration) squared, added up over the flight, for the cheapest path that arrives at that time. It is what a "
+        text += "plasma drive (fixed power, variable exhaust speed) pays for: 1/m_end − 1/m_start = effort / (2 × drive power), so "
+        text += "more power or a lighter ship carries the same path on less propellant. It depends only on the path, so one map "
+        text += "serves every ship; shown as a multiple of the window's cheapest cell (×10: ten times its effort). Hover for each "
+        text += "class's share of its tank. "
     text += "Full hold: cargo at 100 kg a unit. The plot covers one synodic period (at most two years) from now. Hohmann time "
     text += "%.0f d, synodic period %.0f d." % [float(pair.get("hohmann_days", 0.0)), float(pair.get("synodic_days", 0.0))]
     _note(text)

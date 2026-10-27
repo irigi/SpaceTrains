@@ -275,6 +275,7 @@ func _setup_ui() -> void:
     stats_panel.ship_selected.connect(func(ship_id: String) -> void: select_entity(ship_id, "ship", true))
     # The bridge writes its statistics file only while the screen is open.
     stats_panel.visibility_toggled.connect(func(_open: bool) -> void: _write_bridge_commands())
+    stats_panel.route_changed.connect(_update_porkchop_request)
     stats_center.add_child(stats_panel)
 
     status_label = Label.new()

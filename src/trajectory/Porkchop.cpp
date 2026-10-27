@@ -40,7 +40,7 @@ constexpr double kLeftSeedMaxHohmannS = 500.0 * kDay;
 constexpr long long kKeepPrimersBehind = 4;
 constexpr float kNone = std::numeric_limits<float>::quiet_NaN();
 // Bump when the cells' meaning or the solver settings change: older cache files are ignored.
-constexpr const char* kAlgorithm = "porkchop-2";
+constexpr const char* kAlgorithm = "porkchop-3";
 constexpr char kMagic[4] = {'P', 'K', 'C', '2'};
 
 const domain::CelestialBodyDefinition& body_by_id(const domain::UniverseDefinition& universe, const std::string& id) {
@@ -211,6 +211,32 @@ PorkchopColumn PorkchopService::compute_column(const std::string& origin, const 
         if (ok) {
             warm = solution.primer;
             have_warm = true;
+        }
+    }
+    // Down pass. Seeded from the row below, a column can stay on one family of solutions while a
+    // cheaper one exists. Measured 2026-10-27 on Earth-Saturn: the cheaper family was up to 3x
+    // lower, found only at longer flights and in odd cells, so the reach lines wrapped around
+    // islands. Going down from the longer flights, a cell much dearer than the one above (or
+    // dearer than the one below, or missing) is solved again from the one above. Only cells next
+    // to a jump are solved again.
+    constexpr double kJump = 1.25;   // neighbouring rows differ by about 1.1 on one family
+    for (std::size_t row = axes.plasma_transit_s.size() - 1; row-- > 0;) {
+        const float above = column.effort[row + 1];
+        const float here = column.effort[row];
+        if (!std::isfinite(above) || !std::isfinite(column.primers[row + 1][0])) {
+            continue;
+        }
+        const bool suspect = !std::isfinite(here) || here > kJump * above
+            || (row > 0 && std::isfinite(column.effort[row - 1]) && here > column.effort[row - 1]);
+        if (!suspect) {
+            continue;
+        }
+        const auto& p = column.primers[row + 1];
+        const general::Primer seed {{p[0], p[1]}, {p[2], p[3]}};
+        auto solution = general::solve_transfer(propagator, request, axes.plasma_transit_s[row] / time_unit_s, options, &seed);
+        if (valid(solution) && (!std::isfinite(here) || solution.end.effort < here)) {
+            column.effort[row] = static_cast<float>(solution.end.effort);
+            column.primers[row] = {solution.primer.p.x, solution.primer.p.y, solution.primer.w.x, solution.primer.w.y};
         }
     }
     return column;

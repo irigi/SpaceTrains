@@ -209,8 +209,12 @@ inspector's launch windows; nothing in the simulation reads it).
     are dropped once well behind the present).
   - Variable-Isp cells are warm-started from the shorter flight below, and for pairs with a Hohmann time under 500 days
     also from the same flight one departure earlier, keeping the lower effort (the two seeds can land on different
-    local minima, which showed as speckle).
-  - Measured (one core, whole window): Earth-Mars 12 s, Mercury-Earth 30 s, Earth-Jupiter 18 s, Earth-Saturn 65 s.
+    local minima, which showed as speckle). A down pass then solves again, from the longer flight above, each cell
+    much dearer (×1.25) than the one above, dearer than the one below, or missing: seeded from below, Earth-Saturn
+    columns stayed on a family of solutions up to 3× dearer than the one found at longer flights, and the reach lines
+    wrapped around islands (the "kink"). Rises left after it are at flights of a Hohmann time or more, far from where
+    plasma ships fly.
+  - Measured (one core, whole window): Earth-Mars 16 s, Mercury-Earth 35 s, Earth-Jupiter 26 s, Earth-Saturn 74 s.
 - **Bridge:** the UI names pairs in the command file (`"porkchop":"earth>mars;earth>*"`); the bridge writes
   `<snapshot>.porkchop` (+ `.seq`) as columns arrive, at most twice a second, with both row axes, the routes in use, the
   classes' masses, cargo units, exhaust speed and power, and each station's planet.
