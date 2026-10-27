@@ -222,6 +222,9 @@
       The legend names the classes with their trips and says when one cannot make the trip in the window. The bridge
       computes the pair in the background; the plot fills in, refilled in place as columns arrive (rebuilding the tab
       twice a second cost ~2 frames over 50 ms a second), and the tab ignores the statistics file. `--shot-smooth=30 --shot-with-routes` measures smoothness with the worker busy on Earth-Jupiter.
+      Measured 2026-10-27 at 5 d/s, 60 s, nothing selected: main 5-6 frames over 50 ms; this branch the same once the
+      routes in use are in the disk cache, 9-17 while the worker computes them in a fresh cache (no stalls, ~59 fps).
+      Neither idle priority (SCHED_IDLE) nor a half-duty prefetch changed it, so it was left.
   - Station inspector, Launch windows (folded): the routes flown from the station's planet in the last year (the UI asks
     for `here>*`, the bridge expands it, nearest the Sun first); per drive the busiest class's fastest flight with a full
     hold, leaving now or when it next can, and in the tooltip the earliest arrival in the window; plot opens the Routes

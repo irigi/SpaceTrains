@@ -19,22 +19,29 @@
 ## Current Plan (updated 2026-10-27) — start here
 
 **Status.** `main` holds the game up to the economy overhaul (PR #21), the 3D models at true scale (PR #22), the
-station systems view (PR #23) and the clean-up review (PR #24, merged 2026-10-26). The design as it stands is in
-`docs/modules/` (start with `docs/architecture_overview.md`); the economy in `economy.md`, ships, dispatch and
-passengers in `ships_and_fleet.md`.
+station systems view (PR #23), the clean-up review (PR #24, merged 2026-10-26) and the statistics views (2026-10-27,
+below). The design as it stands is in `docs/modules/` (start with `docs/architecture_overview.md`); the economy in
+`economy.md`, ships, dispatch and passengers in `ships_and_fleet.md`, the statistics screen and inspector in
+`ui_observer.md`, porkchop plots in `trajectory.md`.
 
 Benchmark, 4 starts × 1,460 days (before the review's result-changing fixes, 2026-10-26): unmet demand
 0.2 ± 0.2%, last fifth 0.0%; 87 of 131 ships profitable; ~4,500 boardings; drift 0; ~150 s per run.
 
-**On `feature/statistics_views` (2026-10-27, plan `docs/plans/statistics_views.md`), for review:** the "Later" block
-below, done:
-- inspector redesign: ships and stations share one layout (key numbers, folding sections, tables with headers);
+**Statistics views (2026-10-27, the "Later" block below, reviewed by the user in three rounds):**
+- inspector redesign: ships and stations share one layout (key numbers, folding sections, tables with headers),
+  rebuilt one part a frame;
 - People tab (where people live, what they do, residents against housing, jobs by kind, life needs met, people over
   time) and the residents' donut in the inspector;
 - flow record and Flows tab (from × to goods, goods balance by station, passengers by route, lane costs) and the flow
   overlay on the map (G);
-- porkchop plots (Routes tab, launch windows in the station inspector), computed in the background per planet pair.
-All display only: the 365-day economy audit is byte-identical; saves are version 21 (20 still loads).
+- porkchop plots (Routes tab: from/to planets, fastest trip by departure per class, Δv and effort maps with each
+  class's reach; launch windows in the station inspector), computed in the background per planet pair and kept on
+  disk, keyed by a hash of the trajectory code.
+All display only: the 365-day economy audit is byte-identical to before; saves are version 21 (20 still loads).
+Departures from the plan: no origin on cargo lots (every lot is sold at the end of its mission); "made net of use" from
+stock snapshots. Known: sharp steps in plasma maps where the cheapest path would pass inside 0.1 AU (a filter, not a
+solver constraint); a few blocky cells at flights of a Hohmann time or more; while the porkchop worker fills a fresh
+cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 
 **Open for the user:**
 - **Light short-hop cabins** (optional): the remaining lever on cislunar cost per person
@@ -87,8 +94,7 @@ All display only: the 365-day economy audit is byte-identical; saves are version
    snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
    The user can run Claude on a Windows machine to build and test there.
 
-Later (user, 2026-10-26): more statistics views and porkchop plots, built on `feature/statistics_views` (above).
-Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
+Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
 Later (user, 2026-10-22):
 - **Population composition in the style of Victoria 2:** stations and ships hold people of different
