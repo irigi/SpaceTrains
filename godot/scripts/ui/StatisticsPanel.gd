@@ -38,7 +38,6 @@ var route_origin := "earth"
 var route_destination := "mars"
 var _route_view := "fastest"
 var _route_picked := false
-var _route_other := false
 var porkchops: Dictionary = {}
 # The last grid seen for each pair ("earth>saturn"): switching back shows it at once while the
 # bridge sends the current one (the bridge keeps every grid; only the file names the pairs asked).
@@ -1041,54 +1040,47 @@ func _planet_name(id: String) -> String:
 func _route_controls() -> HBoxContainer:
     var row := HBoxContainer.new()
     row.add_theme_constant_override("separation", 6)
-    # The routes ships fly, busiest first; "other pair" opens free pickers.
-    var routes := PorkchopsScript.routes(porkchops)
-    var picker := OptionButton.new()
-    picker.focus_mode = Control.FOCUS_NONE
-    var selected := -1
-    for i in range(routes.size()):
-        var r: Dictionary = routes[i]
-        var trips := float(r.get("trips", 0.0))
-        picker.add_item("%s → %s · %.0f %s in the last year" % [_planet_name(String(r.get("origin", ""))),
-            _planet_name(String(r.get("destination", ""))), trips, "trip" if trips == 1.0 else "trips"])
-        if String(r.get("origin", "")) == route_origin and String(r.get("destination", "")) == route_destination:
-            selected = i
-    picker.add_item("Other pair…")
-    var other := _route_other or selected == -1
-    picker.select(routes.size() if other else selected)
-    picker.item_selected.connect(func(index: int) -> void:
-        _route_picked = true
-        if index < routes.size():
-            _route_other = false
-            route_origin = String(routes[index].get("origin", ""))
-            route_destination = String(routes[index].get("destination", ""))
-        else:
-            _route_other = true
-        _rebuild())
-    row.add_child(picker)
-    if other:
-        var planets: Array = []
-        for station_id in porkchops.get("stations", {}).keys():
-            var planet := String(porkchops["stations"][station_id])
-            if not planets.has(planet):
-                planets.append(planet)
-        for planet in [route_origin, route_destination]:
-            if not planets.has(planet):
-                planets.append(planet)
-        for which in ["origin", "destination"]:
-            var pick := OptionButton.new()
-            pick.focus_mode = Control.FOCUS_NONE
-            for i in range(planets.size()):
-                pick.add_item(("from " if which == "origin" else "to ") + _planet_name(String(planets[i])))
-                if planets[i] == (route_origin if which == "origin" else route_destination):
-                    pick.select(i)
-            pick.item_selected.connect(func(index: int) -> void:
-                if which == "origin":
-                    route_origin = planets[index]
-                else:
-                    route_destination = planets[index]
-                _rebuild())
-            row.add_child(pick)
+    # From and to: the planets with stations, in order from the Sun. A destination ships flew to
+    # from the chosen origin in the last year shows its trips.
+    var trips_to := {}
+    for r in PorkchopsScript.routes(porkchops):
+        if String(r.get("origin", "")) == route_origin:
+            trips_to[String(r.get("destination", ""))] = float(r.get("trips", 0.0))
+    var planets: Array = []
+    var with_stations: Array = porkchops.get("stations", {}).values()
+    for planet in PLANET_NAMES.keys():
+        if with_stations.has(planet) or planet == route_origin or planet == route_destination:
+            planets.append(planet)
+    for which in ["origin", "destination"]:
+        var pick := OptionButton.new()
+        pick.focus_mode = Control.FOCUS_NONE
+        var choices: Array = planets.filter(func(p) -> bool: return which == "origin" or p != route_origin)
+        for i in range(choices.size()):
+            var planet := String(choices[i])
+            var label := ("from " if which == "origin" else "to ") + _planet_name(planet)
+            if which == "destination" and trips_to.has(planet):
+                var trips := float(trips_to[planet])
+                label += " · %.0f %s in the last year" % [trips, "trip" if trips == 1.0 else "trips"]
+            pick.add_item(label)
+            if planet == (route_origin if which == "origin" else route_destination):
+                pick.select(i)
+        pick.item_selected.connect(func(index: int) -> void:
+            _route_picked = true
+            if which == "origin":
+                route_origin = choices[index]
+                if route_destination == route_origin:
+                    # Keep a destination: the busiest one from here, else the first other planet.
+                    route_destination = ""
+                    for r in PorkchopsScript.routes(porkchops):
+                        if String(r.get("origin", "")) == route_origin:
+                            route_destination = String(r.get("destination", ""))
+                            break
+                    if route_destination == "":
+                        route_destination = String(planets.filter(func(p) -> bool: return p != route_origin)[0])
+            else:
+                route_destination = choices[index]
+            _rebuild())
+        row.add_child(pick)
     var view := OptionButton.new()
     view.focus_mode = Control.FOCUS_NONE
     for i in range(ROUTE_VIEWS.size()):
@@ -1273,7 +1265,8 @@ func _route_note(classes: Array) -> void:
         text += "plasma drive (fixed power, variable exhaust speed) pays for: 1/m_end − 1/m_start = effort / (2 × drive power), so "
         text += "more power or a lighter ship carries the same path on less propellant. It depends only on the path, so one map "
         text += "serves every ship; shown as a multiple of the window's cheapest cell (×10: ten times its effort). Hover for each "
-        text += "class's share of its tank. "
+        text += "class's share of its tank. A sharp step in the map is where the cheapest path would pass closer than "
+        text += "0.1 AU to the Sun, which no ship may do: the next path costs more. "
     text += "Full hold: cargo at 100 kg a unit. The plot covers one synodic period (at most two years) from now. Hohmann time "
     text += "%.0f d, synodic period %.0f d." % [float(pair.get("hohmann_days", 0.0)), float(pair.get("synodic_days", 0.0))]
     _note(text)

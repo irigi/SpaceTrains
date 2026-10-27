@@ -209,8 +209,9 @@
       table of goods delivered, cells coloured by amount (stations, then Earth and colony surfaces); the goods balance
       by station (imported, exported, stock change, made net of use); passengers landed by route and kind with fares;
       the 20 lanes that burn the most propellant, with trips, cargo units and unit-days and kg per unit delivered.
-    - Routes (porkchop plots, docs/modules/trajectory.md; reading a class's reach in `ui/Porkchops.gd`): the routes ships
-      flew in the last year, busiest first, or any other pair of planets; the busiest route until one is picked. Classes
+    - Routes (porkchop plots, docs/modules/trajectory.md; reading a class's reach in `ui/Porkchops.gd`): a "from" and a
+      "to" picker over the planets with stations (a destination shows the trips flown to it from the origin in the
+      last year); the busiest route until one is picked. Classes
       shown: those that flew the route in the last year (the busiest six), else the commonest in the fleet. Three views:
       - Fastest trip by departure (`ui/FrontierChart.gd`, the default): per class the shortest flight its tank allows at
         each departure, solid with a full hold (cargo at 100 kg a unit), dashed empty, the planner's 10% reserve kept

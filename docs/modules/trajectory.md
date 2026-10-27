@@ -194,6 +194,9 @@ inspector's launch windows; nothing in the simulation reads it).
     (`general::solve_transfer`, μ = 1, length 1 AU: the atlas's κ scale), rejected inside 0.1 AU. Fast settings first
     (no fallbacks, two branches); a cell they miss is solved again with the full portfolio (Earth-Saturn: 6% of cells
     on the old axis, all solved, ~0.2 s each). Holes left: at most 3 of 4,608 cells per pair measured.
+    The 0.1 AU rule is a filter, not a constraint of the solver, so the map has sharp steps where the cheapest family
+    starts to pass inside it (Earth-Mercury 2026-10-27: closest approach 0.109 → 0.102 AU, then the next family at
+    ×2.7 effort). The planner rejects the same paths, so the step is what ships can fly; the plasma note says so.
   - A class's reach (UI, `ui/Porkchops.gd`), with the planner's 10% reserve kept back: thermal Δv = v_e ln(m0/m_f);
     plasma 1/m_f − 1/m0 = J_SI / 2P, J_SI = J μ^1.5 / AU^2.5, P = specific power × dry mass. Its fastest trip at a
     departure is the shortest row it reaches (interpolated: Δv linearly, effort on log scales).
