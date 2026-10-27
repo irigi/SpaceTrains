@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cstdint>
 #include <cmath>
 #include <limits>
@@ -1475,13 +1476,39 @@ int main() {
                 && (once.effort[r] == again.effort[r] || (std::isnan(once.effort[r]) && std::isnan(again.effort[r])));
         }
         require(same, "a porkchop column should be the same each time it is computed");
-        porkchops.request({{"mercury", "venus"}, {"luna", "earth"}}, 400.0 * 86400.0);
+        // A request "mercury>*" is every route in use from Mercury; the window fills and goes to
+        // the disk cache, from which a new service (a later session) reads it without computing.
+        const auto cache_dir = std::filesystem::temp_directory_path() / std::format("spacetrains_porkchop_test_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        std::filesystem::remove_all(cache_dir);
+        porkchops.set_cache_dir(cache_dir.string());
+        porkchops.set_routes({{.origin = "mercury", .destination = "venus", .trips = 3, .classes = {{"plasma_courier", 3}}},
+            {.origin = "luna", .destination = "earth", .trips = 9, .classes = {}}});
+        porkchops.request({{"mercury", "*"}, {"luna", "earth"}}, 400.0 * 86400.0);
         porkchops.compute_all_now();
         const auto json = spacetrains::persistence::Json::parse(porkchops.json());
         const auto& pairs = json.get("pairs").items();
-        require(pairs.size() == 1, "only pairs of planets get porkchops (a moon's station flies from its planet)");
+        require(pairs.size() == 1 && pairs.at(0).get("destination").string() == "venus",
+            "only pairs of planets get porkchops (a moon's station flies from its planet), and * stands for the routes in use");
         require(pairs.at(0).get("columns").items().size() == static_cast<std::size_t>(spacetrains::trajectory::PorkchopService::kColumns),
             "a requested pair's window should fill completely");
+        require(json.get("routes").items().size() == 1, "routes in use are between planets");
+        {
+            spacetrains::trajectory::PorkchopService later(universe, false);
+            later.set_cache_dir(cache_dir.string());
+            // Not requested: the routes' prefetch reads the cached window (nothing left to compute).
+            later.set_routes({{.origin = "mercury", .destination = "venus", .trips = 1, .classes = {}}});
+            later.request({}, 400.0 * 86400.0);
+            later.compute_all_now();
+            later.request({{"mercury", "venus"}}, 400.0 * 86400.0);
+            const auto cached = spacetrains::persistence::Json::parse(later.json());
+            require(cached.get("pairs").items().at(0).get("columns").items().size()
+                    == static_cast<std::size_t>(spacetrains::trajectory::PorkchopService::kColumns),
+                "a later session should read the window from the disk cache");
+            require(cached.get("pairs").items().at(0).get("columns").items().at(5).get("effort").items().at(20).number()
+                    == pairs.at(0).get("columns").items().at(5).get("effort").items().at(20).number(),
+                "cached cells should be the cells computed");
+        }
+        std::filesystem::remove_all(cache_dir);
     }
 
     // --- Flow record: what fleets paid for cargo is the value of the goods loaded, and the monthly

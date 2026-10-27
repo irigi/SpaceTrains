@@ -7,6 +7,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,6 +34,7 @@ struct BridgeConfig {
     std::string command_file;
     bool once {false};
     std::string opening_cache_dir;  // where the state after the opening dispatch is kept
+    std::string porkchop_cache_dir;  // where porkchop columns are kept across sessions
     double step_seconds {0.1};
     int startup_steps {0};
     long long parent_pid {0};  // the UI's process: the bridge exits when it is gone (0: not watched)
@@ -54,6 +56,8 @@ BridgeConfig parse_args(int argc, char** argv) {
             config.command_file = argv[++i];
         } else if (arg == "--opening-cache" && i + 1 < argc) {
             config.opening_cache_dir = argv[++i];
+        } else if (arg == "--porkchop-cache" && i + 1 < argc) {
+            config.porkchop_cache_dir = argv[++i];
         } else if (arg == "--once") {
             config.once = true;
         } else if (arg == "--step-seconds" && i + 1 < argc) {
@@ -253,6 +257,56 @@ int main(int argc, char** argv) {
     // pairs ("porkchop":"earth>mars;earth>venus"); a background thread fills their grids and the
     // bridge writes them to a side file as columns arrive, at most twice a second.
     spacetrains::trajectory::PorkchopService porkchops(simulation.universe());
+    porkchops.set_cache_dir(config.porkchop_cache_dir);
+    // The routes in use (the flow record's lanes over the last year, planet to planet), given to
+    // the service once a game day: the station inspector's windows and the prefetch use them.
+    std::map<std::string, std::string> station_planet;
+    {
+        const spacetrains::celestial::CelestialMechanics mechanics(simulation.universe());
+        for (const auto& station : simulation.universe().stations) {
+            station_planet[station.id] = spacetrains::trajectory::planet_system_primary(mechanics, station.parent_body_id);
+        }
+    }
+    double routes_day = -1.0;
+    const auto update_routes = [&]() {
+        const double day = simulation.game_time_s() / 86400.0;
+        if (std::abs(day - routes_day) < 1.0) {
+            return;
+        }
+        routes_day = day;
+        std::map<std::pair<std::string, std::string>, spacetrains::trajectory::PorkchopRoute> routes;
+        const auto add = [&](const spacetrains::simulation::FlowTable& table) {
+            for (const auto& [key, amount] : table) {
+                if (key.kind != spacetrains::simulation::FlowKind::Lane) {
+                    continue;
+                }
+                const auto from = station_planet.find(key.from);
+                const auto to = station_planet.find(key.to);
+                if (from == station_planet.end() || to == station_planet.end() || from->second == to->second) {
+                    continue;
+                }
+                auto& route = routes[{from->second, to->second}];
+                route.origin = from->second;
+                route.destination = to->second;
+                route.trips += amount.count;
+                if (!key.item.empty()) {
+                    route.classes[key.item] += amount.count;
+                }
+            }
+        };
+        const auto& record = simulation.flow_record();
+        for (const auto& sample : record.history()) {
+            if (sample.day > day - 365.0) {
+                add(sample.flows);
+            }
+        }
+        add(record.period());
+        std::vector<spacetrains::trajectory::PorkchopRoute> list;
+        for (auto& [pair, route] : routes) {
+            list.push_back(std::move(route));
+        }
+        porkchops.set_routes(std::move(list));
+    };
     std::vector<std::pair<std::string, std::string>> porkchop_pairs;
     std::uint64_t porkchop_version = 0;
     std::uint64_t porkchop_seq = 0;
@@ -285,9 +339,10 @@ int main(int argc, char** argv) {
                 stats_due = false;
             }
         }
+        update_routes();
+        porkchops.request(porkchop_pairs, simulation.game_time_s());
         if (!porkchop_pairs.empty()) {
             const double day = simulation.game_time_s() / 86400.0;
-            porkchops.request(porkchop_pairs, simulation.game_time_s());
             if ((porkchops.version() != porkchop_version || std::abs(day - porkchop_day) >= 1.0)
                 && now - last_porkchop >= std::chrono::milliseconds(500)) {
                 porkchop_version = porkchops.version();

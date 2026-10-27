@@ -618,12 +618,13 @@ void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
         add_event(std::format("{} arrived at {}", ship.name, get_station_definition(ship.current_station_id).name), "arrival");
     }
     {
-        // The lane's transport work: cargo unit-days and the propellant the plan burned.
+        // The lane's transport work: cargo unit-days and the propellant the plan burned, by class
+        // (the porkchop plots show the classes that fly a route).
         double unit_days = 0.0;
         for (const auto& lot : ship.active_mission.cargo) {
             unit_days += lot.units * std::max(0.0, ship.active_mission.total_travel_time_s) / 86400.0;
         }
-        flows_.record(FlowKind::Lane, ship.active_mission.origin_station_id, destination.station_id, "", unit_days,
+        flows_.record(FlowKind::Lane, ship.active_mission.origin_station_id, destination.station_id, ship.class_id, unit_days,
             ship.active_mission.propellant_cost_kg);
     }
     land_passengers(ship, destination);

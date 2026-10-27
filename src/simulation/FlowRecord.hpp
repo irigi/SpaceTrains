@@ -16,7 +16,7 @@ enum class FlowKind : std::uint8_t {
     Delivered,   // goods arriving: ship cargo sold at a station, or surface goods sold to a station
     Loaded,      // ship cargo bought at its origin (destination: where it is going)
     Passengers,  // people landed; item: settlers, emigrants, rotation, visitors
-    Lane,        // a ship's arrival: units = cargo unit-days, value = propellant (kg), count = trips
+    Lane,        // a ship's arrival by class: units = cargo unit-days, value = propellant (kg), count = trips
 };
 inline constexpr int kFlowKinds = 4;
 
@@ -28,7 +28,7 @@ struct FlowKey {
     FlowKind kind {FlowKind::Delivered};
     std::string from;
     std::string to;
-    std::string item;   // a commodity id, a passenger group, or empty (lanes)
+    std::string item;   // a commodity id, a passenger group, or the ship class (lanes; empty in saves before 2026-10-27)
     auto operator<=>(const FlowKey&) const = default;
 };
 

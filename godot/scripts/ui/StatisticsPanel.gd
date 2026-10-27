@@ -939,9 +939,17 @@ func _build_lanes(names: Dictionary) -> void:
     var rows: Array = []
     var lanes: Array = []
     var carried := {}
+    var by_lane := {}   # lanes are recorded by class: summed here
     for e in _flow_entries():
         if String(e[0]) == "lane":
-            lanes.append(e)
+            var key := String(e[1]) + "|" + String(e[2])
+            if by_lane.has(key):
+                var sum: Array = by_lane[key]
+                for k in range(4, mini(sum.size(), e.size())):
+                    sum[k] = float(sum[k]) + float(e[k])
+            else:
+                by_lane[key] = (e as Array).duplicate()
+                lanes.append(by_lane[key])
         elif String(e[0]) == "delivered" and not String(e[1]).begins_with("surface:") and not String(e[2]).begins_with("surface:"):
             var key := String(e[1]) + "|" + String(e[2])
             carried[key] = float(carried.get(key, 0.0)) + float(e[4])

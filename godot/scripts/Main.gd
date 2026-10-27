@@ -449,6 +449,8 @@ func _start_bridge() -> void:
         "--command-file", command_path,
         "--step-seconds", str(BRIDGE_STEP_SECONDS),
         "--opening-cache", ProjectSettings.globalize_path("user://opening_cache"),
+        # Porkchop columns computed in earlier sessions (every game starts on the same date).
+        "--porkchop-cache", ProjectSettings.globalize_path("user://porkchop_cache"),
         # The bridge exits when this process is gone (no orphan if the UI crashes).
         "--parent-pid", str(OS.get_process_id())
     ]
