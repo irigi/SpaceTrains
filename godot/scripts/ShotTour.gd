@@ -147,6 +147,11 @@ func _run() -> void:
                 main.stats_panel.show_route("earth", "jupiter")
                 main._update_porkchop_request()
                 await get_tree().create_timer(1.0).timeout
+            for a in OS.get_cmdline_user_args():
+                # --shot-select=<station id>: keep a station in the inspector (it rebuilds on refreshes).
+                if a.begins_with("--shot-select="):
+                    var id := a.trim_prefix("--shot-select=")
+                    main.select_entity(id, "station", not OS.get_cmdline_user_args().has("--shot-nofocus"))
             await _measure_smoothness(float(arg.trim_prefix("--shot-smooth=")), 432000.0)
             await _measure_smoothness(20.0, 86400.0)
             get_tree().quit()

@@ -220,7 +220,7 @@
   timewarp, F11 map debug.
 - **Dev** (a tour opens a real window; parse-check scripts first with `godot4 --headless --path godot --check-only
   --script res://scripts/<file>.gd`): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
-  `--shot-smooth=SECONDS` counts stalled frames; the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
+  `--shot-smooth=SECONDS` counts stalled frames (`--shot-select=<station>` keeps a station in the inspector, `--shot-nofocus` without moving the camera); the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
