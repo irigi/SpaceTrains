@@ -44,6 +44,7 @@ add_library(spacetrains_core
     src/simulation/Households.cpp
     src/simulation/StationSystems.cpp
     src/simulation/MoneyJournal.cpp
+    src/simulation/FlowRecord.cpp
     src/simulation/Statistics.cpp
     src/util/Profiling.cpp
     src/util/ThreadPool.cpp

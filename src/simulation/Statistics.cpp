@@ -46,6 +46,30 @@ void Simulation::setup_money_journal() {
         journal_.set_seed(i, account_balance(i));
     }
     journal_.set_next_close_day(game_time_s_ / 86400.0 + MoneyJournal::kPeriodDays);
+    // The flow record closes its months with the journal's.
+    std::vector<std::string> station_ids;
+    for (const auto& station : stations_) {
+        station_ids.push_back(station.station_id);
+    }
+    std::vector<std::string> goods;
+    for (const auto& commodity : universe_.commodities) {
+        goods.push_back(commodity.id);
+    }
+    flows_.reset(std::move(station_ids), std::move(goods), {});
+    flows_.start_stocks_mutable() = flow_stocks();
+}
+
+std::vector<std::vector<double>> Simulation::flow_stocks() const {
+    std::vector<std::vector<double>> stocks;
+    for (const auto& station : stations_) {
+        std::vector<double> row;
+        for (const auto& good : flows_.goods()) {
+            const auto it = station.inventory.find(good);
+            row.push_back(it == station.inventory.end() ? 0.0 : it->second);
+        }
+        stocks.push_back(std::move(row));
+    }
+    return stocks;
 }
 
 int Simulation::account_economy(const std::string& economy_id) const {
@@ -151,6 +175,7 @@ void Simulation::close_journal_period() {
             sample.colony_people.push_back(it == background_population_.end() ? 0.0 : it->second);
         }
     }
+    flows_.close_period(sample.day, flow_stocks());
     journal_.close_period(std::move(sample));
 }
 

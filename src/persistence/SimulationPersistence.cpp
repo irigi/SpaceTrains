@@ -16,7 +16,7 @@ namespace {
 
 using persistence::Json;
 
-constexpr int kSaveVersion = 20;  // 20: colony welfare (satisfaction, income, wage); 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
+constexpr int kSaveVersion = 21;  // 21: flow record (version 20 loads with an empty one); 20: colony welfare (satisfaction, income, wage); 19: money journal; 18: households and background economies; 2: mixed cargo (lots per mission); 3: a fleet review's probes; 4: probe runs; 5: contracts; 6: emergencies; 7: faction credit, import costs; 8: liner subsidies; 9: populations; 10: events; 11: order observations; 12: order prices; 13: state-based order bids (no raise timers); 14: ship fits (tier 2 modules); 15: passengers; 16: purchase spacing, cabin runs in probes; 17: passenger runs' return fuel
 
 Json goods_to_json(const domain::Inventory& goods) {
     auto out = Json::object();
@@ -119,6 +119,85 @@ Json journal_to_json(const MoneyJournal& journal) {
     }
     out.set("history", std::move(history));
     return out;
+}
+
+// The flow record (FlowRecord.hpp): [kind, from, to, item, units, value, count] per entry.
+Json flow_table_to_json(const FlowTable& table) {
+    auto out = Json::array();
+    for (const auto& [key, amount] : table) {
+        auto entry = Json::array();
+        entry.push(std::string(flow_kind_id(key.kind)));
+        entry.push(key.from);
+        entry.push(key.to);
+        entry.push(key.item);
+        entry.push(amount.units);
+        entry.push(amount.value);
+        entry.push(amount.count);
+        out.push(std::move(entry));
+    }
+    return out;
+}
+
+FlowTable flow_table_from_json(const Json& json) {
+    FlowTable table;
+    for (const auto& entry : json.items()) {
+        const auto& e = entry.items();
+        FlowKey key;
+        if (!flow_kind_from_id(e.at(0).string(), key.kind)) {
+            throw std::runtime_error("save: unknown flow kind " + e.at(0).string());
+        }
+        key.from = e.at(1).string();
+        key.to = e.at(2).string();
+        key.item = e.at(3).string();
+        table[key] = {.units = e.at(4).number(), .value = e.at(5).number(), .count = e.at(6).number()};
+    }
+    return table;
+}
+
+Json stocks_to_json(const std::vector<std::vector<double>>& stocks) {
+    auto out = Json::array();
+    for (const auto& row : stocks) {
+        out.push(numbers_to_json(row));
+    }
+    return out;
+}
+
+std::vector<std::vector<double>> stocks_from_json(const Json& json) {
+    std::vector<std::vector<double>> stocks;
+    for (const auto& row : json.items()) {
+        stocks.push_back(numbers_from_json(row));
+    }
+    return stocks;
+}
+
+Json flow_record_to_json(const FlowRecord& record) {
+    auto out = Json::object();
+    out.set("start_stocks", stocks_to_json(record.start_stocks()));
+    out.set("lifetime", flow_table_to_json(record.lifetime()));
+    out.set("period", flow_table_to_json(record.period()));
+    auto history = Json::array();
+    for (const auto& sample : record.history()) {
+        auto item = Json::object();
+        item.set("day", sample.day);
+        item.set("flows", flow_table_to_json(sample.flows));
+        item.set("stocks", stocks_to_json(sample.stocks));
+        history.push(std::move(item));
+    }
+    out.set("history", std::move(history));
+    return out;
+}
+
+// Into a record set up from the same data (its stations and goods).
+void flow_record_from_json(const Json& json, FlowRecord& record) {
+    record.start_stocks_mutable() = stocks_from_json(json.get("start_stocks"));
+    record.lifetime_mutable() = flow_table_from_json(json.get("lifetime"));
+    record.period_mutable() = flow_table_from_json(json.get("period"));
+    auto& history = record.history_mutable();
+    history.clear();
+    for (const auto& item : json.get("history").items()) {
+        history.push_back({.day = item.get("day").number(), .flows = flow_table_from_json(item.get("flows")),
+            .stocks = stocks_from_json(item.get("stocks"))});
+    }
 }
 
 // Restores into a journal whose accounts were set up from the same data (the data fingerprint).
@@ -909,6 +988,7 @@ std::string Simulation::save_state_json() const {
     }
     root.set("recent_trades", std::move(trades));
     root.set("money_journal", journal_to_json(journal_));
+    root.set("flow_record", flow_record_to_json(flows_));
     return root.dump();
 }
 
@@ -928,7 +1008,7 @@ void Simulation::load_state_json(const std::string& text) {
 void Simulation::read_state_json(const std::string& text) {
     const auto root = Json::parse(text);
     const int version = static_cast<int>(root.get("version").number());
-    if (version != kSaveVersion) {
+    if (version != kSaveVersion && version != 20) {
         throw std::runtime_error(std::format("save: version {} is not supported (expected {})", version, kSaveVersion));
     }
     if (root.get("data_fingerprint").string() != data_fingerprint()) {
@@ -941,6 +1021,15 @@ void Simulation::read_state_json(const std::string& text) {
     }
     MoneyJournal journal = journal_;   // same accounts (same data)
     journal_from_json(root.get("money_journal"), journal);
+    // Version 20 has no flow record: it starts empty from the saved stocks.
+    FlowRecord flow_record = flows_;
+    flow_record.lifetime_mutable().clear();
+    flow_record.period_mutable().clear();
+    flow_record.history_mutable().clear();
+    flow_record.start_stocks_mutable() = {};
+    if (const auto* saved = root.find("flow_record"); saved != nullptr) {
+        flow_record_from_json(*saved, flow_record);
+    }
     if (stations.size() != universe_.stations.size()) {
         throw std::runtime_error("save: station count does not match the data");
     }
@@ -1079,6 +1168,10 @@ void Simulation::read_state_json(const std::string& text) {
     investment_ledger_.salvage = investment.get("salvage").number();
     stations_ = std::move(stations);
     journal_ = std::move(journal);
+    flows_ = std::move(flow_record);
+    if (flows_.start_stocks().empty()) {
+        flows_.start_stocks_mutable() = flow_stocks();
+    }
     for (const auto& station : stations_) {
         economy_.set_employment(station.station_id, station.employed_share);
         economy_.set_population(station.station_id, station.population);

@@ -337,6 +337,8 @@ void Simulation::step_surface_markets(double dt_s) {
                         colony_tick[market->economy_id].sold += paid;
                     }
                     journal_.record(account_station(station), account_economy(market->economy_id), MoneyCategory::SurfaceSales, paid);
+                    flows_.record(FlowKind::Delivered, "surface:" + market->economy_id, station.station_id, commodity_id, units,
+                        paid, 0.0);
                     // Residents pay what the station paid for it (its import cost).
                     const auto& rates = economy_.get_station_net_rates(definition);
                     const auto rate = rates.find(commodity_id);
@@ -387,6 +389,8 @@ void Simulation::step_surface_markets(double dt_s) {
                         colony_tick[market->economy_id].bought += paid;
                     }
                     journal_.record(account_economy(market->economy_id), account_station(station), MoneyCategory::SurfacePurchases, paid);
+                    flows_.record(FlowKind::Delivered, station.station_id, "surface:" + market->economy_id, commodity_id, units,
+                        paid, 0.0);
                     station.market_sold_units[commodity_id] += units;
                     stock -= units;
                 }

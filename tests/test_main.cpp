@@ -1436,6 +1436,52 @@ int main() {
         }
     }
 
+    // --- Flow record: what fleets paid for cargo is the value of the goods loaded, and the monthly
+    // samples plus the running month add up to the totals since the start. ---
+    {
+        using spacetrains::simulation::FlowKind;
+        using spacetrains::simulation::MoneyCategory;
+        auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string());
+        sim.set_timewarp(86400.0);
+        for (int day = 0; day < 100; ++day) {
+            sim.step(1.0);
+        }
+        const auto& record = sim.flow_record();
+        double loaded = 0.0;
+        double delivered = 0.0;
+        for (const auto& [key, amount] : record.lifetime()) {
+            if (key.kind == FlowKind::Loaded) {
+                loaded += amount.value;
+            }
+            if (key.kind == FlowKind::Delivered && !key.from.starts_with("surface:") && !key.to.starts_with("surface:")) {
+                delivered += amount.units;
+            }
+        }
+        double fleets_paid = 0.0;
+        const auto& journal = sim.money_journal();
+        for (int i = 0; i < static_cast<int>(journal.accounts().size()); ++i) {
+            if (journal.accounts()[static_cast<std::size_t>(i)].kind == spacetrains::simulation::AccountKind::Fleet) {
+                fleets_paid += journal.lifetime(i)[static_cast<std::size_t>(MoneyCategory::Cargo)].out;
+            }
+        }
+        require(loaded > 0.0 && delivered > 0.0, "ships should load and deliver cargo in 100 days");
+        require(std::abs(loaded - fleets_paid) <= 1e-6 * fleets_paid, "goods loaded should be valued at what fleets paid for cargo");
+        require(record.history().size() == journal.history().size(), "the flow record closes its months with the journal");
+        for (const auto& [key, amount] : record.lifetime()) {
+            double units = 0.0;
+            for (const auto& sample : record.history()) {
+                if (const auto it = sample.flows.find(key); it != sample.flows.end()) {
+                    units += it->second.units;
+                }
+            }
+            if (const auto it = record.period().find(key); it != record.period().end()) {
+                units += it->second.units;
+            }
+            require(std::abs(units - amount.units) <= 1e-6 * std::max(1.0, amount.units),
+                "monthly flows should add up to the flows since the start");
+        }
+    }
+
     // --- Emergency resupply (step 14): a station about to run out of oxygen opens an emergency,
     // its faction offering a premium above the station's own bid; the emergency closes when the
     // stock is safe again, and a game saved with one open continues exactly. ---
