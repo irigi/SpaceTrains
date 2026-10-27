@@ -24,6 +24,7 @@ add_library(spacetrains_core
     src/celestial/CelestialMechanics.cpp
     src/trajectory/ChaseSolver.cpp
     src/trajectory/Lambert.cpp
+    src/trajectory/Porkchop.cpp
     src/trajectory/PathSampling.cpp
     src/trajectory/TrajectoryAudit.cpp
     src/trajectory/TrajectoryPlanner.cpp

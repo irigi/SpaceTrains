@@ -19,6 +19,7 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "trajectory/Porkchop.hpp"
 #include "simulation/CrewEnvironment.hpp"
 #include "simulation/Simulation.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
@@ -1434,6 +1435,53 @@ int main() {
             }
             require(bad_rejected, "a fit the hull cannot take should be rejected on load");
         }
+    }
+
+    // --- Porkchop plots: the Earth-Mars window's cheapest Lambert cell is near the Hohmann Δv,
+    // longer flights need less variable-Isp effort, a column is a pure function of its departure,
+    // and a requested pair's window fills completely. ---
+    {
+        const auto universe = spacetrains::data_loader::DataLoader {}.load_universe(repo_root / "data");
+        spacetrains::trajectory::PorkchopService porkchops(universe, false);
+        const auto axes = porkchops.axes("earth", "mars");
+        require(std::abs(axes.synodic_s / 86400.0 - 780.0) < 10.0, "Earth-Mars synodic period should be about 780 days");
+        double best_dv = 1e9;
+        int effort_falls = 0;
+        int columns_with_effort = 0;
+        for (long long k = 0; k < spacetrains::trajectory::PorkchopService::kColumns; k += 4) {
+            const auto column = porkchops.compute_column("earth", "mars", axes, k);
+            for (const float dv : column.dv_mps) {
+                if (std::isfinite(dv)) {
+                    best_dv = std::min(best_dv, static_cast<double>(dv));
+                }
+            }
+            const auto first = std::find_if(column.effort.begin(), column.effort.end(), [](float e) { return std::isfinite(e); });
+            if (first != column.effort.end() && std::isfinite(column.effort.back())) {
+                ++columns_with_effort;
+                effort_falls += column.effort.back() < *first ? 1 : 0;
+            }
+        }
+        if (!(best_dv > 5300.0 && best_dv < 6500.0)) {
+            std::cerr << std::format("Earth-Mars porkchop minimum {:.0f} m/s\n", best_dv);
+        }
+        require(best_dv > 5300.0 && best_dv < 6500.0, "Earth-Mars porkchop minimum should be near the Hohmann 5.6 km/s");
+        require(columns_with_effort > 0 && effort_falls == columns_with_effort,
+            "a longer flight should need less variable-Isp effort at every departure");
+        const auto once = porkchops.compute_column("earth", "mars", axes, 17);
+        const auto again = porkchops.compute_column("earth", "mars", axes, 17);
+        bool same = once.dv_mps.size() == again.dv_mps.size();
+        for (std::size_t r = 0; same && r < once.dv_mps.size(); ++r) {
+            same = (once.dv_mps[r] == again.dv_mps[r] || (std::isnan(once.dv_mps[r]) && std::isnan(again.dv_mps[r])))
+                && (once.effort[r] == again.effort[r] || (std::isnan(once.effort[r]) && std::isnan(again.effort[r])));
+        }
+        require(same, "a porkchop column should be the same each time it is computed");
+        porkchops.request({{"mercury", "venus"}, {"luna", "earth"}}, 400.0 * 86400.0);
+        porkchops.compute_all_now();
+        const auto json = spacetrains::persistence::Json::parse(porkchops.json());
+        const auto& pairs = json.get("pairs").items();
+        require(pairs.size() == 1, "only pairs of planets get porkchops (a moon's station flies from its planet)");
+        require(pairs.at(0).get("columns").items().size() == static_cast<std::size_t>(spacetrains::trajectory::PorkchopService::kColumns),
+            "a requested pair's window should fill completely");
     }
 
     // --- Flow record: what fleets paid for cargo is the value of the goods loaded, and the monthly

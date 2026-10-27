@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <cmath>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include "simulation/Simulation.hpp"
+#include "trajectory/Porkchop.hpp"
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -247,6 +249,15 @@ int main(int argc, char** argv) {
     std::uint64_t stats_seq = 0;
     std::size_t stats_samples = 0;
     auto last_stats = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    // Porkchop plots (Statistics > Routes, the station inspector's windows): the UI names planet
+    // pairs ("porkchop":"earth>mars;earth>venus"); a background thread fills their grids and the
+    // bridge writes them to a side file as columns arrive, at most twice a second.
+    spacetrains::trajectory::PorkchopService porkchops(simulation.universe());
+    std::vector<std::pair<std::string, std::string>> porkchop_pairs;
+    std::uint64_t porkchop_version = 0;
+    std::uint64_t porkchop_seq = 0;
+    double porkchop_day = -1.0;
+    auto last_porkchop = std::chrono::steady_clock::now() - std::chrono::seconds(10);
     const auto write_snapshot = [&]() {
         const auto now = std::chrono::steady_clock::now();
         const double snapshot_real_time_s = std::chrono::duration<double>(now - bridge_start).count();
@@ -272,6 +283,18 @@ int main(int argc, char** argv) {
                 stats_samples = samples;
                 last_stats = now;
                 stats_due = false;
+            }
+        }
+        if (!porkchop_pairs.empty()) {
+            const double day = simulation.game_time_s() / 86400.0;
+            porkchops.request(porkchop_pairs, simulation.game_time_s());
+            if ((porkchops.version() != porkchop_version || std::abs(day - porkchop_day) >= 1.0)
+                && now - last_porkchop >= std::chrono::milliseconds(500)) {
+                porkchop_version = porkchops.version();
+                porkchop_day = day;
+                last_porkchop = now;
+                write_text_file(config.snapshot_file + ".porkchop", porkchops.json());
+                write_text_file(config.snapshot_file + ".porkchop.seq", std::to_string(porkchop_seq++));
             }
         }
         auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s, false);
@@ -308,6 +331,24 @@ int main(int argc, char** argv) {
             const bool open = parse_bool_flag(command_text, "stats_open", false);
             stats_due = stats_due || (open && !stats_open);
             stats_open = open;
+            {
+                std::vector<std::pair<std::string, std::string>> pairs;
+                const auto list = parse_string_flag(command_text, "porkchop");
+                std::size_t start = 0;
+                while (start < list.size()) {
+                    const auto end = std::min(list.find(';', start), list.size());
+                    const auto item = list.substr(start, end - start);
+                    if (const auto arrow = item.find('>'); arrow != std::string::npos) {
+                        pairs.emplace_back(item.substr(0, arrow), item.substr(arrow + 1));
+                    }
+                    start = end + 1;
+                }
+                if (pairs != porkchop_pairs) {
+                    porkchop_pairs = std::move(pairs);
+                    porkchop_day = -1.0;   // write the new selection at once
+                    porkchops.request(porkchop_pairs, simulation.game_time_s());
+                }
+            }
             simulation.set_timewarp(timewarp);
             changed = true;
             // Save and load requests carry a request number, so the same path can be used again.

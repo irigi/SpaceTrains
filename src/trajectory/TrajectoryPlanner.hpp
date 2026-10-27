@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -109,6 +110,13 @@ public:
         math::Vec3d r2 {};
         math::Vec3d v1 {};
     };
+
+    // One cell at a departure time and transit time: the heliocentric Lambert arc between the
+    // bodies, with the Δv against circular speed at each end, as the planner's grid has it
+    // (porkchop plots use the same). Empty when the arc does not solve or passes closer to the
+    // Sun than kMinPerihelionM. Pure; thread-safe.
+    [[nodiscard]] std::optional<LambertCell> lambert_cell(const std::string& origin_body_id,
+        const std::string& destination_body_id, double departure_s, double transit_s, double mu) const;
 
 private:
     // The usable cells (solved, above the perihelion limit) in search order. Memoised by
