@@ -25,6 +25,27 @@ a75290f failures and salvage, 6901bb4 UI and docs, bcf09c7 police inspections, p
 - **To review first:** decisions 2 (mean life factor, purchase cost), 4 (failures are rare: ~2 per 4 years now),
   11 (salvage in dispatch), 15-17 (cutters, jurisdiction, meeting point). Open points below.
 
+## Long benchmark 2026-10-28 (8 starts × 2,920 days)
+
+Configs: off (`failures,0`, `patrols,0`), on (as committed), stress (`lifetime_years` 10: mean life 11 y).
+
+| | off | on | stress |
+|---|---|---|---|
+| Unmet % | 0.3 ± 0.4 | 0.5 ± 0.3 | 0.6 ± 0.6 |
+| Ships profitable % | 75.6 ± 2.5 | 74.8 ± 2.5 | 65.1 ± 3.4 |
+| Plasma fleet profit M cr | 13.2 ± 1.2 | 12.6 ± 1.3 | 8.0 ± 1.2 |
+| Capital charges M cr | 7.9 ± 0.2 | 8.2 ± 0.3 | 10.0 ± 0.6 |
+| Sol Federation net M cr | 9.7 ± 1.3 | 9.7 ± 1.2 | 11.5 ± 1.1 |
+| Independents net M cr | 0.8 ± 0.4 | 0.4 ± 0.2 | 0.4 ± 0.4 |
+| Mars Corporation net M cr | 0.0 ± 0.1 | 0.0 ± 0.1 | -0.3 ± 0.4 |
+| Failures | – | 4.6 ± 0.7 (mean age 30 y) | 22.4 ± 1.1 (8.9 y) |
+| Salvaged / written off | – | 3.5 / 0.6 | 15.5 / 3.5 |
+| Inspections, police cost | – | 336, 224 k cr | 323, 329 k cr |
+
+"On" is within noise of "off" everywhere (Independents' net −0.4 M at ~1.3 sd). Stress: the economy still
+delivers; profits fall mainly through the higher capital charge of the shorter amortisation. The benchmark's
+"MONEY DRIFT" flag fires in all three, also "off": −0.0001 cr after 8 years, float rounding.
+
 ## Baseline (before the branch)
 
 `tools/benchmark.py --days 1460`, 4 starts: unmet 0.3 ± 0.4%, last fifth 0.0%, profitable 88.5 ± 1.3 of 130.8 ± 5.4
