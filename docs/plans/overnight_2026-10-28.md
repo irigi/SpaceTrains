@@ -65,6 +65,32 @@ Within noise of "off". Fewer inspections: cheap ways home are slower, so cutters
 the cheapest chase costs 45% less than the fastest (206 d and 1,354 kg against 123 d and 10,000 kg). With
 `failures,0` and `patrols,0` the new build reproduces the old 365-day audit line for line.
 
+## Lambert fix, exact target motion, multi-revolution salvage (2026-10-28, same benchmark)
+
+- **Lambert bug:** `solve_lambert` never found an arc under half a turn (its scan assumed the flight time fell with
+  z on short-way arcs): Earth -> Mars found 0 of 320 short-way cases. Nuclear-thermal trade flew long-way arcs or
+  the Hohmann fallback. Fixed; on a grid of NTR plans (default options) Hohmann fallbacks 2,130 -> 807 and
+  flights 976 -> 807 days on average.
+- **Police targets:** `PathMotion` (a conic per kept segment plus the thrust's share) replaces finite differences:
+  26 m/s from the true motion on a powered transfer (was 229), exact on a coast (was 262).
+- **NTR salvage:** each Lambert grid time takes the cheapest arc, direct or with 1-2 whole revolutions.
+- Police card checked in Godot (Earth cutter out, yellow path, Earth note).
+
+| | off (old) | off (new) | on (before) | on (new) |
+|---|---|---|---|---|
+| Unmet % | 0.3 ± 0.4 | 0.3 ± 0.3 | 0.5 ± 0.5 | 0.4 ± 0.4 |
+| Ships profitable % | 75.6 ± 2.5 | 76.7 ± 2.6 | 74.4 ± 3.1 | 77.1 ± 2.7 |
+| Sol Federation net M | 9.7 ± 1.3 | 9.5 ± 1.3 | 9.4 ± 0.7 | 9.3 ± 1.1 |
+| Independents net M | 0.8 ± 0.4 | 0.9 ± 0.4 | 0.8 ± 0.5 | 1.0 ± 0.4 |
+| Mars Corporation net M | 0.0 ± 0.1 | 0.0 ± 0.2 | -0.1 ± 0.2 | -0.2 ± 0.4 |
+| NTR ships profit M | 0.0 ± 0.0 | 0.1 ± 0.2 | 0.1 ± 0.2 | 0.0 ± 0.1 |
+| Salvaged / racers | – | – | 3.4 / 6.3 | 3.3 / 5.9 |
+| Inspections, cost (Earth) | – | – | 305, 234 k | 306, 222 k |
+| Run time s | 636 | 615 | 654 | 704 |
+
+All within noise: NTR ships are a small part of the fleet, and their profit barely moves. The new "on" run
+time is inflated: a Godot tour and test suites ran alongside it.
+
 ## Baseline (before the branch)
 
 `tools/benchmark.py --days 1460`, 4 starts: unmet 0.3 ± 0.4%, last fifth 0.0%, profitable 88.5 ± 1.3 of 130.8 ± 5.4
