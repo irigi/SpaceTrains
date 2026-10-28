@@ -99,7 +99,7 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
         if phase == "stranded":
             band = Color(0.85, 0.25, 0.2)
         elif phase == "derelict":
-            band = Color(0.25, 0.22, 0.2)   # a dead hull: no lights, scorched band
+            band = Color(0.3, 0.3, 0.32)   # a dead hull: no lights, dark grey band
         Materials.set_band(ShipModels.instance_materials(container)["band"], band)
         return
     for child in container.get_children():

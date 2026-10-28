@@ -111,9 +111,9 @@ func icon_color(kind: String, data: Dictionary) -> Color:
     if phase == "stranded":
         return Color(1.0, 0.25, 0.22)
     if phase == "derelict":
-        return Color(1.0, 0.62, 0.25)
-    if phase == "patrol":
-        return Color(0.55, 0.75, 1.0)
+        return Color(0.55, 0.55, 0.58)   # a dead hull, dark grey (its drift line too)
+    if phase == "patrol" or String(data.get("salvage_derelict_id", "")) != "":
+        return Color(1.0, 0.95, 0.15)    # chasers: police cutters and salvage racers
     if phase == "in_transit":
         return Color(0.70, 1.0, 0.95)
     return faction_colors.get(String(data.get("faction_id", "")), Color(0.96, 0.97, 1.0)) as Color

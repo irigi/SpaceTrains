@@ -106,9 +106,9 @@ func _ship_status(detail: Dictionary) -> Array:
         "laid_up":
             return ["◌", UiTheme.TEXT_DIM]
         "derelict":
-            return ["✕", UiTheme.WARN]
+            return ["✕", Color(0.55, 0.55, 0.58)]   # wrecks grey, as on the map
         "patrol":
-            return ["◈", UiTheme.ACCENT]
+            return ["◈", Color(1.0, 0.95, 0.15)]    # chasers yellow, as on the map
         "patrol_docked":
             return ["◈", UiTheme.TEXT_DIM]
         _:

@@ -263,8 +263,11 @@ before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's 
 - **At the real settings** (4 starts × 1,460 days, 2026-10-28): 2 failures a run (the starting fleet's oldest), 7 of
   8 wrecks salvaged, up to 5 racers for one wreck, every loss replaced by its owner; unmet demand and profits within
   the benchmark's noise.
-- **UI:** derelicts ride in the snapshot's ship list with phase `derelict` (map icon orange, a wreck card in the
-  inspector); racers carry `salvage_target_name`; the top bar counts wrecks adrift.
+- **UI:** derelicts ride in the snapshot's ship list with phase `derelict` (map icon and registry mark dark grey,
+  a wreck card in the inspector); the coast ahead is drawn as a dark grey line (the paths file carries it, drawn
+  heliocentric without planet rails; the drift already done is not drawn). Racers carry `salvage_target_name`, and
+  their paths and icons are bright yellow, the chase colour, strong even when not selected; the top bar counts wrecks
+  adrift.
 
 ## Police inspections (`Patrols.cpp`, `data/economy/patrols.csv`, `patrol_bases.csv`)
 
@@ -289,7 +292,8 @@ the Independents 1 at Ceres Deep Depot.
   goes on to another target if 60% of its load is left, else home (`plan_chase` to the home planet). Matching the
   target costs the effort of the velocity the target gained over a coast (Δv² / T on the cutter's power).
 - At 400 days: ~18 sorties and ~14 inspections, ~2,000 cr of treasury money an inspection; no measurable run time.
-- **UI:** cutters ride in the snapshot's ship list with phase `patrol` (out) or `patrol_docked`, a light-blue icon,
+- **UI:** cutters ride in the snapshot's ship list with phase `patrol` (out) or `patrol_docked`, a yellow icon (the chase
+  colour, as racers); the leg flown out or home is drawn in yellow (none while alongside: the target's path is there);
   a cutter card in the inspector, "cutters out" in the top bar. Excluded from the trading fleet's counts.
 
 ## Money around ships

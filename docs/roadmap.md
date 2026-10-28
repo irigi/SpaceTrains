@@ -89,7 +89,7 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    - **Police inspections:** faction cutters meet ships bound for their stations at the cheapest point of their path
      and ride alongside for 3 days; the inspected ship keeps its course (legal assumption).
    - Later: insurance (maybe; it only smooths owners' losses), customs and smuggling (on the inspection seam), a timed
-     crew rescue, losers of a race turning back mid-flight, the wreck's drift drawn on the map.
+     crew rescue, losers of a race turning back mid-flight.
    - **Piracy** as hidden raiders does not fit (burns are visible across the inner system and raiders need an openly
      complicit port): if it comes back, as open conflict between factions (blockades, commerce raiding), later.
 

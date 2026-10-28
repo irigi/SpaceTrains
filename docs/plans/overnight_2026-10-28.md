@@ -90,8 +90,8 @@ ships, boarded 4,793 ± 433, faction profit -1,199 ± 1,108 k, ~175 s a run.
   them on screen, the lever that keeps the economics honest is a shorter amortisation (`lifetime_years`), which
   raises capital charges; a hazard multiplier alone would make ships unprofitable in expectation.
 - A lost liner (scheduled loop) is replaced by an ordinary purchase; its loop is not resumed.
-- The wreck's drift is not drawn on the map (only its marker): the ship-path rails code bends paths toward their
-  planets and would need a derelict mode.
+- ~~The wreck's drift is not drawn on the map~~ Done 2026-10-28: wrecks' coasts in dark grey, racers' and cutters'
+  paths in bright yellow.
 - Racers that lose keep flying to the rendezvous point and on to their port; turning back needs planning from a
   mid-flight state (the plasma `plan_chase` can do it; Kepler legs would need a Lambert search from a state).
 - Cutters pick from the 3 nearest eligible ships: a cheap, local choice; a faction-wide schedule could do better.

@@ -90,6 +90,10 @@ const TRAJECTORY_COLORS := {
     "keplerian_local": Color(0.4, 1.0, 0.45),
     "variable_isp": Color(0.75, 0.45, 1.0),
 }
+# Chases stand out: salvage racers and police cutters in bright yellow, drawn strong even when
+# not selected; a wreck's drift is a dark grey line (MapIcons uses the same colours).
+const CHASE_COLOR := Color(1.0, 0.95, 0.15)
+const DERELICT_COLOR := Color(0.42, 0.42, 0.45)
 var destination_body_ghost: MeshInstance3D
 var current_paused := false
 # Station ring spin runs on real time, but stops while the game is paused (as the top bar shows it).
@@ -941,10 +945,12 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
         signature = _trajectory_path_signature(path)
     if ship_paths.has(ship_id) and String(ship_paths[ship_id]["sig"]) == signature:
         return
+    # Wrecks and cutters fly free heliocentric paths: no planet rails.
+    var free := String(ship.get("phase", "")) in ["derelict", "patrol"]
     var cached := {
         "sig": signature,
-        "origin": String((station_orbits.get(String(ship.get("origin_station_id", "")), {}) as Dictionary).get("body", "")),
-        "destination": String((station_orbits.get(String(ship.get("destination_station_id", "")), {}) as Dictionary).get("body", "")),
+        "origin": "" if free else String((station_orbits.get(String(ship.get("origin_station_id", "")), {}) as Dictionary).get("body", "")),
+        "destination": "" if free else String((station_orbits.get(String(ship.get("destination_station_id", "")), {}) as Dictionary).get("body", "")),
         "departure": float(ship.get("departure_time_s", 0.0)),
         "arrival": float(ship.get("arrival_time_s", 0.0)),
     }
@@ -1205,10 +1211,10 @@ func _station_m(station_id: String) -> PackedFloat64Array:
     frame_positions_m[key] = result
     return result
 
-# A ship in transit flies its planned path; otherwise it is at its station.
+# A ship in transit (or a wreck, or a cutter under way) flies its path; otherwise it is at its station.
 func _ship_m(ship_id: String) -> PackedFloat64Array:
     var detail: Dictionary = entity_details.get(ship_id, {})
-    if String(detail.get("phase", "idle")) == "in_transit" and ship_paths.has(ship_id):
+    if String(detail.get("phase", "idle")) in ["in_transit", "derelict", "patrol"] and ship_paths.has(ship_id):
         var sample := _path_sample(ship_id, display_time_s)
         return PackedFloat64Array([sample[0], sample[1], sample[2]])
     var station_id := String(detail.get("current_station_id", ""))
@@ -1555,7 +1561,7 @@ func _build_fine_path(ship_id: String, focus_m: PackedFloat64Array, camera_dista
     var path: Dictionary = ship_paths[ship_id]
     var line_color: Color = style["color"]
     var alpha: float = style["alpha"]
-    var flown := Color(0.5, 0.52, 0.55, alpha * 0.45)
+    var flown: Color = style["flown"]
     var ahead := Color(line_color.r, line_color.g, line_color.b, alpha)
     var runs: Array = []  # each a list of [x, y, z, t] relative to focus_m
     var run: Array = []
@@ -2120,7 +2126,7 @@ func _update_ship_trails() -> void:
             continue
         var ship: Dictionary = entity_details[ship_id]
         var phase := String(ship.get("phase", "idle"))
-        if phase != "in_transit" and phase != "awaiting_departure":
+        if not phase in ["in_transit", "awaiting_departure", "derelict", "patrol"]:
             continue
         var trajectory_path: Array = ship.get("trajectory_path", [])
         if trajectory_path.size() < 2 or not ship_paths.has(ship_id):
@@ -2137,7 +2143,7 @@ func _update_ship_trails() -> void:
         var plan_id := String(ship.get("path_id", ""))
         if plan_id == "":
             plan_id = _trajectory_path_signature(trajectory_path)
-        var signature := "%s|%d|%s" % [plan_id, progress_bucket, is_selected]
+        var signature := "%s|%d|%s|%s" % [plan_id, progress_bucket, is_selected, String(ship.get("salvage_derelict_id", ""))]
         if trail_path_signatures.get(ship_id, "") != signature:
             _rebuild_trail_mesh(trail_node, ship_id, ship, is_selected, game_time_s)
             trail_path_signatures[ship_id] = signature
@@ -2169,6 +2175,15 @@ func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, 
     var line_color := _trajectory_color(String(ship.get("trajectory_type", "")))
     var base_alpha := 0.95 if is_selected else 0.2
     var elapsed_color := Color(0.5, 0.52, 0.55, base_alpha * 0.45)
+    var phase := String(ship.get("phase", ""))
+    if phase == "derelict":
+        line_color = DERELICT_COLOR
+        base_alpha = 0.95 if is_selected else 0.7
+        elapsed_color = Color(0, 0, 0, 0)   # the drift so far is not drawn
+    elif phase == "patrol" or String(ship.get("salvage_derelict_id", "")) != "":
+        line_color = CHASE_COLOR
+        base_alpha = 1.0 if is_selected else 0.8
+        elapsed_color = Color(0.5, 0.52, 0.55, 0.3)
     var path: Dictionary = ship_paths[ship_id]
     var points := _rail_line_m(path)
     # Bounding boxes of runs of TRAIL_CHUNK segments, so the fine drawing finds the stretches
@@ -2182,7 +2197,7 @@ func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, 
                 box[axis] = minf(box[axis], point[axis])
                 box[axis + 3] = maxf(box[axis + 3], point[axis])
         boxes.append(box)
-    trail_points[ship_id] = {"points": points, "boxes": boxes, "color": line_color, "alpha": base_alpha,
+    trail_points[ship_id] = {"points": points, "boxes": boxes, "color": line_color, "alpha": base_alpha, "flown": elapsed_color,
         "sig": "%s|%s|%.3f" % [String(path["sig"]), is_selected, base_alpha]}
     var mesh := ImmediateMesh.new()
     mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
@@ -2229,7 +2244,7 @@ func _rail_line_m(path: Dictionary) -> Array:
 # Impulsive-burn planners get small emissive markers at the departure and
 # arrival burns; continuous-thrust (variable ISP) paths have no discrete burns.
 func _update_burn_markers(trail_node: Node3D, first: PackedFloat64Array, last: PackedFloat64Array, ship: Dictionary, is_selected: bool, line_color: Color) -> void:
-    var wants_markers: bool = is_selected and String(ship.get("trajectory_type", "")) != "variable_isp"
+    var wants_markers: bool = is_selected and not String(ship.get("trajectory_type", "")) in ["variable_isp", "derelict", "patrol"]
     for marker_index in range(2):
         var marker_name := "burn%d" % marker_index
         var marker: MeshInstance3D = trail_node.get_node_or_null(marker_name)
