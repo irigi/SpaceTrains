@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 namespace spacetrains::trajectory {
 
@@ -105,56 +106,159 @@ ChasePlan plan_chase(const ChaseRequest& request, const g::Target& target, const
     return plan;
 }
 
-ChasePlan plan_meeting(const ChaseRequest& request, const g::Target& target, const ChaseUnits& units, double earliest_s,
-    double latest_s, double kg_per_s, std::size_t grid, std::size_t path_samples) {
-    ChasePlan plan;
-    if (!(request.power_w > 0.0) || !(request.initial_mass_kg > request.dry_mass_kg) || !(request.dry_mass_kg > 0.0)
-        || !(latest_s > earliest_s) || !(earliest_s > 0.0) || grid < 2) {
+namespace {
+
+// What the fixed-time searches share: the normalised problem and the propellant a solution costs.
+struct FixedTimeProblem {
+    const ChaseRequest& request;
+    const ChaseUnits& units;
+    double tu;
+    double au;
+    double budget;
+    g::Propagator propagator;
+    g::TransferRequest transfer;
+    g::SolveOptions options;
+
+    FixedTimeProblem(const ChaseRequest& r, const g::Target& target, const ChaseUnits& u)
+        : request(r), units(u), tu(u.time_s()), au(u.accel_mps2()),
+          budget(2.0 * r.power_w * (1.0 / r.dry_mass_kg - 1.0 / r.initial_mass_kg) / (au * au * tu)),
+          transfer {u.to_normalised(r.position_m, r.velocity_mps), target, r.end_condition, r.min_perihelion_m / u.length_m} {
+        options.fallbacks = false;   // a time that will not solve quickly is skipped
+    }
+
+    [[nodiscard]] double propellant_kg(double effort) const {
+        const double effort_si = effort * au * au * tu;
+        return request.initial_mass_kg - 1.0 / (1.0 / request.initial_mass_kg + effort_si / (2.0 * request.power_w));
+    }
+
+    // Minimum effort at T seconds; nullopt if it does not solve or the load does not cover it.
+    [[nodiscard]] std::optional<MeetingCandidate> at(double t_s, const g::Primer* warm, std::optional<g::Primer>* solved = nullptr) const {
+        const auto solution = g::solve_transfer(propagator, transfer, t_s / tu, options, warm);
+        if (!solution.converged || !solution.end.ok) {
+            return std::nullopt;
+        }
+        if (solved != nullptr) {
+            *solved = solution.primer;
+        }
+        if (solution.end.effort > budget) {
+            return std::nullopt;
+        }
+        MeetingCandidate c;
+        c.transfer_time_s = solution.T * tu;
+        c.propellant_kg = propellant_kg(solution.end.effort);
+        c.primer = solution.primer;
+        return c;
+    }
+
+    [[nodiscard]] ChasePlan plan(const MeetingCandidate& c, std::size_t path_samples) const {
+        ChasePlan plan;
+        plan.feasible = true;
+        plan.transfer_time_s = c.transfer_time_s;
+        plan.propellant_kg = c.propellant_kg;
+        for (const auto& sample : propagator.sample(transfer.start, c.primer, c.transfer_time_s / tu, std::max<std::size_t>(2, path_samples))) {
+            plan.path_m.push_back(units.position_m(sample.state.r));
+            plan.times_s.push_back(request.depart_time_s + sample.t * tu);
+        }
         return plan;
     }
-    const double tu = units.time_s();
-    const double au = units.accel_mps2();
-    const double budget = 2.0 * request.power_w * (1.0 / request.dry_mass_kg - 1.0 / request.initial_mass_kg) / (au * au * tu);
-    const g::Propagator propagator;
-    const g::TransferRequest transfer {units.to_normalised(request.position_m, request.velocity_mps), target, request.end_condition,
-        request.min_perihelion_m / units.length_m};
-    g::SolveOptions options;
-    options.fallbacks = false;   // a grid point that will not solve quickly is skipped
-    double best_objective = std::numeric_limits<double>::infinity();
-    g::Solution best;
+};
+
+bool valid_request(const ChaseRequest& request, double earliest_s, double latest_s, std::size_t grid) {
+    return request.power_w > 0.0 && request.initial_mass_kg > request.dry_mass_kg && request.dry_mass_kg > 0.0
+        && latest_s > earliest_s && earliest_s > 0.0 && grid >= 2;
+}
+
+}  // namespace
+
+std::vector<MeetingCandidate> meeting_candidates(const ChaseRequest& request, const g::Target& target, const ChaseUnits& units,
+    double earliest_s, double latest_s, double kg_per_s, std::size_t grid) {
+    std::vector<MeetingCandidate> out;
+    if (!valid_request(request, earliest_s, latest_s, grid)) {
+        return out;
+    }
+    const FixedTimeProblem problem(request, target, units);
+    // Geometric spacing over a wide window (days to a year), even spacing over a narrow one.
+    const bool geometric = latest_s > 3.0 * earliest_s;
+    const double ratio = geometric ? std::pow(latest_s / earliest_s, 1.0 / static_cast<double>(grid - 1)) : 1.0;
+    const double step = (latest_s - earliest_s) / static_cast<double>(grid - 1);
     g::Primer warm {};
     bool have_warm = false;
     for (std::size_t i = 0; i < grid; ++i) {
-        const double t_s = earliest_s + (latest_s - earliest_s) * static_cast<double>(i) / static_cast<double>(grid - 1);
-        const auto solution = g::solve_transfer(propagator, transfer, t_s / tu, options, have_warm ? &warm : nullptr);
-        if (!solution.converged || !solution.end.ok) {
+        const double t_s = geometric ? earliest_s * std::pow(ratio, static_cast<double>(i)) : earliest_s + step * static_cast<double>(i);
+        std::optional<g::Primer> solved;
+        auto c = problem.at(t_s, have_warm ? &warm : nullptr, &solved);
+        if (solved) {
+            warm = *solved;
+            have_warm = true;
+        }
+        if (!c) {
             continue;
         }
-        warm = solution.primer;
-        have_warm = true;
-        if (solution.end.effort > budget) {
-            continue;
+        c->objective = c->propellant_kg + kg_per_s * c->transfer_time_s;
+        c->bracket_lo_s = std::max(earliest_s, geometric ? t_s / ratio : t_s - step);
+        c->bracket_hi_s = std::min(latest_s, geometric ? t_s * ratio : t_s + step);
+        out.push_back(*c);
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.objective < b.objective; });
+    return out;
+}
+
+ChasePlan refine_meeting(const ChaseRequest& request, const g::Target& target, const ChaseUnits& units, double kg_per_s,
+    const MeetingCandidate& start, std::size_t iterations, std::size_t path_samples) {
+    const FixedTimeProblem problem(request, target, units);
+    MeetingCandidate best = start;
+    best.objective = best.propellant_kg + kg_per_s * best.transfer_time_s;
+    const auto f = [&](double t_s) {
+        auto c = problem.at(t_s, &start.primer);
+        if (!c) {
+            return std::numeric_limits<double>::infinity();
         }
-        const double effort_si = solution.end.effort * au * au * tu;
-        const double final_mass = 1.0 / (1.0 / request.initial_mass_kg + effort_si / (2.0 * request.power_w));
-        const double objective = request.initial_mass_kg - final_mass + kg_per_s * t_s;
-        if (objective < best_objective) {
-            best_objective = objective;
-            best = solution;
+        c->objective = c->propellant_kg + kg_per_s * c->transfer_time_s;
+        if (c->objective < best.objective) {
+            best = *c;
+        }
+        return c->objective;
+    };
+    // Golden-section search between the grid point's neighbours.
+    constexpr double kInvPhi = 0.6180339887498949;
+    double a = start.bracket_lo_s > 0.0 ? start.bracket_lo_s : start.transfer_time_s;
+    double b = start.bracket_hi_s > 0.0 ? start.bracket_hi_s : start.transfer_time_s;
+    if (b > a) {
+        double c = b - kInvPhi * (b - a);
+        double d = a + kInvPhi * (b - a);
+        double fc = f(c);
+        double fd = f(d);
+        for (std::size_t i = 0; i < iterations; ++i) {
+            if (fc <= fd) {
+                b = d;
+                d = c;
+                fd = fc;
+                c = b - kInvPhi * (b - a);
+                fc = f(c);
+            } else {
+                a = c;
+                c = d;
+                fc = fd;
+                d = a + kInvPhi * (b - a);
+                fd = f(d);
+            }
         }
     }
-    if (!best.converged) {
-        return plan;
+    return problem.plan(best, path_samples);
+}
+
+ChasePlan plan_cheapest(const ChaseRequest& request, const g::Target& target, const ChaseUnits& units, double earliest_s,
+    double latest_s, double kg_per_s, std::size_t grid, std::size_t refine_iterations, std::size_t path_samples) {
+    const auto candidates = meeting_candidates(request, target, units, earliest_s, latest_s, kg_per_s, grid);
+    if (candidates.empty()) {
+        return {};
     }
-    plan.feasible = true;
-    plan.transfer_time_s = best.T * tu;
-    const double effort_si = best.end.effort * au * au * tu;
-    plan.propellant_kg = request.initial_mass_kg - 1.0 / (1.0 / request.initial_mass_kg + effort_si / (2.0 * request.power_w));
-    for (const auto& sample : propagator.sample(transfer.start, best.primer, best.T, std::max<std::size_t>(2, path_samples))) {
-        plan.path_m.push_back(units.position_m(sample.state.r));
-        plan.times_s.push_back(request.depart_time_s + sample.t * tu);
-    }
-    return plan;
+    return refine_meeting(request, target, units, kg_per_s, candidates.front(), refine_iterations, path_samples);
+}
+
+ChasePlan plan_meeting(const ChaseRequest& request, const g::Target& target, const ChaseUnits& units, double earliest_s,
+    double latest_s, double kg_per_s, std::size_t grid, std::size_t path_samples) {
+    return plan_cheapest(request, target, units, earliest_s, latest_s, kg_per_s, grid, 6, path_samples);
 }
 
 }  // namespace spacetrains::trajectory

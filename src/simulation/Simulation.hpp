@@ -572,10 +572,11 @@ private:
         double best_dv_mps {0.0};        // diagnostics: cheapest way out found, and what the ship has
         double dv_available_mps {0.0};
     };
-    // Pure (runs in parallel): leg one only, or both legs (to the first port reachable of the
-    // ship's home, the derelict's destination and its origin, earliest arrival).
+    // Pure (runs in parallel): leg one only, or both legs (home to the best of the ship's home,
+    // the derelict's destination and its origin). The cheapest run (propellant at the fuel price,
+    // days at cr_per_day, less the prize at the port), meeting the wreck by latest_meet_s.
     [[nodiscard]] SalvagePlan plan_salvage(const domain::ShipState& ship, const domain::DerelictState& derelict,
-        bool both_legs) const;
+        bool both_legs, double latest_meet_s, double fuel_cr_per_kg, double cr_per_day) const;
     [[nodiscard]] std::string primary_body_id(const std::string& station_id) const;
     [[nodiscard]] bool can_race(const domain::ShipState& ship) const;
     void start_salvage_run(domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
@@ -612,10 +613,11 @@ private:
     // with a way home after the inspection.
     [[nodiscard]] PatrolSortie plan_sortie(const domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v,
         const domain::ShipState& target) const;
-    // The way home from (r, v) now with the load aboard, keeping `reserve_kg` (plan_chase to the
-    // home planet).
+    // The cheapest way home from (r, v) at t_s with the load aboard, keeping `reserve_kg` (to the
+    // home planet); `estimate_only`: time and propellant from the grid, no refinement or path.
     [[nodiscard]] trajectory::ChasePlan plan_patrol_home(const domain::PatrolState& patrol, const math::Vec3d& r,
-        const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg) const;
+        const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg, bool estimate_only = false) const;
+    [[nodiscard]] double patrol_kg_per_s(const domain::PatrolState& patrol) const;
     bool start_sortie(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
     void send_patrol_home(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
     [[nodiscard]] math::Vec3d patrol_position(const domain::PatrolState& patrol) const;

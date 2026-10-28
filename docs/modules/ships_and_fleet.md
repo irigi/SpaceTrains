@@ -242,14 +242,20 @@ before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's 
   `replacement_days` (180). While claims exist, a review's first purchase is the oldest claim's faction's, priced
   against its own money at any yard; if nothing clears its hurdle the claim waits for the next review, and others
   may buy only into places nobody holds.
-- **Salvage run:** out from the ship's port to a rendezvous with the derelict, then on to the first port it can
-  reach of its home, the derelict's destination and its origin (earliest arrival).
-  - Plasma ships: `trajectory::plan_chase` against the derelict's Kepler orbit (`kepler_target`), with half the
-    load for the way out (then 35%, 20% if no way home is left), and again to the port's planet (`path_target` on
-    the planet's sampled motion), arriving with the cargo aboard and the 10% reserve.
+- **Salvage run:** out from the ship's port to a rendezvous with the derelict, then on to one of its home, the
+  derelict's destination and its origin. The run is the cheapest, as the trade planners pick a trip: propellant at the
+  origin's fuel price plus the days at capital, crew and wear, less the prize at the port (prices differ by port).
+  The way out and the way home are chosen together (the cheapest few meeting times, each with its best way home). A
+  race only adds a deadline: meet the wreck `racer_margin` sooner than the current claimant. (Until 2026-10-28 runs
+  were the fastest the load allowed, half of it for the way out: they burned several times the propellant, so
+  salvage looked dearer than it was.)
+  - Plasma ships: `trajectory::meeting_candidates` / `refine_meeting` (fixed-time rendezvous on a grid of meeting
+    times, golden-section refinement of the chosen one) against the derelict's Kepler orbit (`kepler_target`), and
+    to the port's planet (`path_target` on the planet's sampled motion), arriving with the cargo and the 10% reserve.
   - Nuclear-thermal ships: Lambert grids (waits 0-40 days, flights 10-400 days out and 10-500 home), Δv against the
     station's circular velocity, the derelict's velocity and the port planet's; the burns are booked at the start.
-    Rendezvous is dear (~8 km/s from Mars to a wreck on a transfer arc), so plasma ships do most of the salvage.
+    The 6 cheapest ways out are paired with every way home. Rendezvous is dear (~8 km/s from Mars to a wreck on a
+    transfer arc), so plasma ships do most of the salvage.
   - Worth: the cargo that fits the salvager's hold at the port's reference prices plus the scrap
     (`scrap_fraction` × ship value, paid by Earth at the rendezvous); cost: fuel at the port's price and the days at
     capital, crew and wear.
@@ -271,25 +277,28 @@ before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's 
 
 ## Police inspections (`Patrols.cpp`, `data/economy/patrols.csv`, `patrol_bases.csv`)
 
-Switch: `patrols`. Bases: Sol Federation 2 cutters at Low Earth Logistics, Mars Corporation 1 at Mars Transfer Port,
-the Independents 1 at Ceres Deep Depot.
+Switch: `patrols`. Bases (`patrol_bases.csv`): Earth's police, 2 cutters at Low Earth Logistics, 1 at Mars Transfer
+Port, 1 at Ceres Deep Depot ("Police Cutter 1-4").
 
-- **Cutters** are plasma couriers in faction service (`class_id`), outside the trading fleet and its cap. Their
-  faction pays their capital charge, crew and fuel to the home port (journal category `Patrols`); they refuel from
-  the port's stock.
+- **Cutters** are plasma couriers (`class_id`), outside the trading fleet and its cap. Earth pays their capital
+  charge, crew and fuel to the home port (journal category `Patrols`, from the outside economy, as it pays wrecks'
+  scrap); they refuel from the port's stock. A base row may name a faction instead of `earth`: its treasury pays,
+  and its cutters inspect only ships bound for its stations (the version built first, kept as an option).
 - **Legal assumption:** an inspected ship complies but the law does not require it to change its trajectory; the
   cutter matches it (it rides alongside on the ship's planned path for `inspection_days`, 3). The inspection has no
   economic effect yet: it is the seam for customs and smuggling.
-- **Jurisdiction:** a faction inspects ships bound for its stations, on an interplanetary leg, not inspected in the
-  last `reinspect_days` (120) and not already another cutter's target.
-- **Meeting point:** `trajectory::plan_meeting` (`ChaseSolver.hpp`) solves fixed-time rendezvous with the ship's
-  planned (thrusting) path at 8 times spread over its remaining flight (less the inspection), warm-started in turn,
-  and takes the least propellant + time (the cutter's daily cost at the home port's fuel price). The way there may
-  burn `outbound_share` (40%) of a full load, and a way home from where the inspection ends must exist with
-  `return_reserve` (10%) left, else the target is skipped. Late meetings cost least, so cutters mostly meet ships on
+- **Jurisdiction:** Earth's police inspects ships of every faction on an interplanetary leg, not inspected in the
+  last `reinspect_days` (120) and not already another cutter's target: a ship meets the police now and then.
+- **Meeting point:** `trajectory::meeting_candidates` (`ChaseSolver.hpp`) solves fixed-time rendezvous with the
+  ship's planned (thrusting) path at 8 times spread over its remaining flight (less the inspection), warm-started in
+  turn. Each costs propellant + time (the cutter's daily cost at the home port's fuel price); the 3 cheapest are
+  costed with their way home from where the inspection ends, and the cheapest total is refined (golden section).
+  The way there may burn `outbound_share` (40%) of a full load, and the way home must leave `return_reserve` (10%),
+  else the target is skipped. Late meetings cost least, so cutters mostly meet ships on
   their approach: in effect, customs at the border.
 - **Cycle:** in port a cutter looks every `review_days` (2) at the 3 nearest eligible ships; after an inspection it
-  goes on to another target if 60% of its load is left, else home (`plan_chase` to the home planet). Matching the
+  goes on to another target if 60% of its load is left, else home by the cheapest way (`plan_cheapest` to the home
+  planet; until 2026-10-28 the fastest, which burned the load down to the reserve). Matching the
   target costs the effort of the velocity the target gained over a coast (Δv² / T on the cutter's power).
 - At 400 days: ~18 sorties and ~14 inspections, ~2,000 cr of treasury money an inspection; no measurable run time.
 - **UI:** cutters ride in the snapshot's ship list with phase `patrol` (out) or `patrol_docked`, a yellow icon (the chase

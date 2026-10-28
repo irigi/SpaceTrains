@@ -1,4 +1,4 @@
 faction_id,station_id,ships
-sol_fed,earth_orbit,2
-mars_corp,mars_transfer,1
-independent,ceres_depot,1
+earth,earth_orbit,2
+earth,mars_transfer,1
+earth,ceres_depot,1

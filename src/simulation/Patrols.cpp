@@ -1,8 +1,10 @@
 // Police inspections (docs/modules/ships_and_fleet.md, "Police inspections").
 //
-// Faction cutters (plasma couriers in faction service) meet ships bound for the faction's
-// stations in flight, ride alongside for a few days of inspection and leave. Legal assumption: the
-// inspected ship complies but is not made to change its trajectory, so the cutter matches it.
+// Police cutters (plasma couriers) meet ships in flight. Cutters of the "earth" police (the default
+// data) are paid by Earth and inspect ships of every faction; a faction's own cutters (a base with a
+// faction id) are paid by its treasury and inspect only ships bound for its stations. A cutter
+// meets its target in flight, rides alongside for a few days of inspection and leaves. Legal
+// assumption: the inspected ship complies but is not made to change its trajectory, so the cutter matches it.
 // The meeting point is the cheapest place on the target's planned path (trajectory::plan_meeting).
 // No economic effect on the inspected ship yet: the seam for customs and smuggling later.
 
@@ -16,6 +18,7 @@
 #include <cstdlib>
 #include <format>
 #include <iostream>
+#include <limits>
 
 #include "simulation/SimulationInternal.hpp"
 
@@ -27,6 +30,8 @@ namespace {
 
 constexpr double kDayS = 86400.0;
 constexpr std::size_t kCandidates = 3;
+// The police of the default data: paid by Earth, inspecting ships of every faction.
+constexpr std::string_view kEarthPolice = "earth";
 
 math::Vec3d circular_velocity_at(const math::Vec3d& r, double mu) {
     const double rm = std::max(1.0, r.length());
@@ -78,7 +83,9 @@ void Simulation::init_patrols() {
         for (int k = 1; k <= base.ships; ++k) {
             domain::PatrolState patrol;
             patrol.id = std::format("patrol_{}_{}_{}", base.faction_id, base.station_id, k);
-            patrol.name = std::format("{} Cutter {}", initials, ++index);
+            ++index;
+            patrol.name = base.faction_id == kEarthPolice ? std::format("Police Cutter {}", index)
+                                                          : std::format("{} Cutter {}", initials, index);
             patrol.faction_id = base.faction_id;
             patrol.class_id = p.class_id;
             patrol.home_station_id = base.station_id;
@@ -94,9 +101,15 @@ void Simulation::pay_patrol(const domain::PatrolState& patrol, double amount) {
         return;
     }
     auto& home = get_station_state(patrol.home_station_id);
-    faction_treasuries_[patrol.faction_id] -= amount;
     home.credits += amount;
-    journal_.record(account_faction(patrol.faction_id), account_station(home), MoneyCategory::Patrols, amount);
+    if (patrol.faction_id == kEarthPolice) {
+        // Earth's police: the outside economy pays, as it pays the scrap of wrecks.
+        outside_economy_credits_ -= amount;
+        journal_.record(account_earth(), account_station(home), MoneyCategory::Patrols, amount);
+    } else {
+        faction_treasuries_[patrol.faction_id] -= amount;
+        journal_.record(account_faction(patrol.faction_id), account_station(home), MoneyCategory::Patrols, amount);
+    }
     patrol_audit_.costs_cr += amount;
 }
 
@@ -120,7 +133,7 @@ math::Vec3d Simulation::patrol_position(const domain::PatrolState& patrol) const
 }
 
 trajectory::ChasePlan Simulation::plan_patrol_home(const domain::PatrolState& patrol, const math::Vec3d& r,
-    const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg) const {
+    const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg, bool estimate_only) const {
     const auto& design = get_ship_class(patrol.class_id);
     if (propellant_kg <= reserve_kg + 1.0) {
         return {};
@@ -142,10 +155,29 @@ trajectory::ChasePlan Simulation::plan_patrol_home(const domain::PatrolState& pa
         .initial_mass_kg = design.dry_mass_kg + propellant_kg,
         .dry_mass_kg = design.dry_mass_kg + reserve_kg,
         .end_condition = variable_isp::general::EndCondition::Rendezvous,
-        .min_transfer_s = kDayS,
-        .max_transfer_s = 495.0 * kDayS,
     };
-    return trajectory::plan_chase(request, trajectory::path_target(planet, t_s, units), units, 60);
+    // The cheapest way home (propellant against the cutter's time), not the fastest.
+    const auto target = trajectory::path_target(planet, t_s, units);
+    if (!estimate_only) {
+        return trajectory::plan_cheapest(request, target, units, kDayS, 495.0 * kDayS, patrol_kg_per_s(patrol), 10, 6, 60);
+    }
+    const auto candidates = trajectory::meeting_candidates(request, target, units, kDayS, 495.0 * kDayS, patrol_kg_per_s(patrol), 8);
+    trajectory::ChasePlan estimate;
+    if (!candidates.empty()) {
+        estimate.feasible = true;
+        estimate.transfer_time_s = candidates.front().transfer_time_s;
+        estimate.propellant_kg = candidates.front().propellant_kg;
+    }
+    return estimate;
+}
+
+// A cutter's day in propellant at its home port's fuel price: hull and crew.
+double Simulation::patrol_kg_per_s(const domain::PatrolState& patrol) const {
+    const auto& design = get_ship_class(patrol.class_id);
+    const auto& home = get_station_state(patrol.home_station_id);
+    const double fuel_cr_per_kg = station_price(home, "fuel") / FUEL_UNITS_TO_KG;
+    const double cr_per_day = daily_capital_cost(design) + daily_crew_cost(design, home);
+    return fuel_cr_per_kg > 0.0 ? cr_per_day / fuel_cr_per_kg / kDayS : 0.0;
 }
 
 Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v,
@@ -165,10 +197,7 @@ Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patr
         return sortie;
     }
     // Time is weighed against propellant at the home port's fuel price.
-    const auto& home = get_station_state(patrol.home_station_id);
-    const double fuel_cr_per_kg = station_price(home, "fuel") / FUEL_UNITS_TO_KG;
-    const double cr_per_day = daily_capital_cost(design) + daily_crew_cost(design, home);
-    const double kg_per_s = fuel_cr_per_kg > 0.0 ? cr_per_day / fuel_cr_per_kg / kDayS : 0.0;
+    const double kg_per_s = patrol_kg_per_s(patrol);
 
     trajectory::ChaseUnits units;
     units.mu_m3_s2 = sun_mu();
@@ -185,16 +214,34 @@ Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patr
         .dry_mass_kg = dry_end,
         .end_condition = variable_isp::general::EndCondition::Rendezvous,
     };
-    const auto meet = trajectory::plan_meeting(request, trajectory::path_target(target_path, now, units), units, earliest,
-        latest, kg_per_s, 8, 40);
-    if (!meet.feasible) {
+    // The meeting is chosen with the way home: the cheapest few meeting times, each with the
+    // cheapest way home from where the inspection ends (an allowance kept for matching the target).
+    const auto target_motion = trajectory::path_target(target_path, now, units);
+    const auto candidates = trajectory::meeting_candidates(request, target_motion, units, earliest, latest, kg_per_s, 8);
+    const double follow_allowance = 0.05 * capacity;
+    const trajectory::MeetingCandidate* chosen = nullptr;
+    double best_total = std::numeric_limits<double>::infinity();
+    for (std::size_t k = 0; k < std::min<std::size_t>(3, candidates.size()); ++k) {
+        const auto& c = candidates[k];
+        const double end_s = now + c.transfer_time_s + inspection_s;
+        const auto home_leg = plan_patrol_home(patrol, path_position(mission, end_s), path_velocity(mission, end_s), end_s,
+            load - c.propellant_kg - follow_allowance, p.return_reserve * capacity, true);
+        if (!home_leg.feasible) {
+            continue;
+        }
+        const double total = c.objective + home_leg.propellant_kg + kg_per_s * (inspection_s + home_leg.transfer_time_s);
+        if (total < best_total) {
+            best_total = total;
+            chosen = &c;
+        }
+    }
+    if (chosen == nullptr) {
         return sortie;
     }
-    // A way home from where the inspection ends, with an allowance for matching the target.
+    const auto meet = trajectory::refine_meeting(request, target_motion, units, kg_per_s, *chosen, 6, 40);
     const double end_s = now + meet.transfer_time_s + inspection_s;
-    const double follow_allowance = 0.05 * capacity;
     const auto home_plan = plan_patrol_home(patrol, path_position(mission, end_s), path_velocity(mission, end_s), end_s,
-        load - meet.propellant_kg - follow_allowance, p.return_reserve * capacity);
+        load - meet.propellant_kg - follow_allowance, p.return_reserve * capacity, true);
     if (!home_plan.feasible) {
         return sortie;
     }
@@ -208,14 +255,15 @@ Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patr
         const double share = sortie.times.size() > 1 ? static_cast<double>(i) / (sortie.times.size() - 1) : 1.0;
         sortie.propellant.push_back(load - share * meet.propellant_kg);
     }
-    sortie.objective = meet.propellant_kg + kg_per_s * meet.transfer_time_s;
+    sortie.objective = meet.propellant_kg + kg_per_s * meet.transfer_time_s + home_plan.propellant_kg
+        + kg_per_s * (inspection_s + home_plan.transfer_time_s);
     return sortie;
 }
 
 bool Simulation::start_sortie(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v) {
     const auto& p = universe_.patrols;
     const double now = game_time_s_;
-    // Ships bound for this faction's stations, on an interplanetary leg, not inspected lately and
+    // Ships on an interplanetary leg (bound for this faction's stations, for a faction's cutter), not inspected lately and
     // not already someone's target; the nearest few are planned.
     std::vector<std::pair<double, std::size_t>> near;
     for (std::size_t i = 0; i < ships_.size(); ++i) {
@@ -224,7 +272,8 @@ bool Simulation::start_sortie(domain::PatrolState& patrol, const math::Vec3d& r,
         if (ship.phase != domain::ShipMissionPhase::InTransit || mission.sampled_path.size() < 2
             || mission.arrival_time_s - now < (p.inspection_days + 4.0) * kDayS
             || now - ship.last_inspected_s < p.reinspect_days * kDayS || local_leg(mission)
-            || get_station_definition(mission.destination_station_id).faction_id != patrol.faction_id) {
+            || (patrol.faction_id != kEarthPolice
+                && get_station_definition(mission.destination_station_id).faction_id != patrol.faction_id)) {
             continue;
         }
         if (std::any_of(patrols_.begin(), patrols_.end(), [&](const auto& other) {
@@ -377,7 +426,7 @@ void Simulation::step_patrols(double dt_s) {
                     it->last_inspected_s = game_time_s_;
                     ++patrol.inspections;
                     ++patrol_audit_.inspections;
-                    ++patrol_audit_.by_faction[patrol.faction_id];
+                    ++patrol_audit_.by_faction[it->faction_id];   // the inspected ship's faction
                     add_event(std::format("{} inspected {} over {:.1f} days and leaves it on its way to {}", patrol.name, it->name,
                         elapsed / kDayS, get_station_definition(it->active_mission.destination_station_id).name), "general");
                 }

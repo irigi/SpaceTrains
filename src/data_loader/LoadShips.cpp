@@ -470,6 +470,11 @@ void load_patrols(const std::filesystem::path& root, domain::UniverseDefinition&
         const auto& row = base_rows[i];
         require_field_count(row, 3, bases_path, i + 1);
         require_station(universe, row[1], bases_path);
+        // "earth": the police paid by Earth (every faction's ships); else a faction's own cutters.
+        if (row[0] != "earth"
+            && std::none_of(universe.factions.begin(), universe.factions.end(), [&](const auto& f) { return f.id == row[0]; })) {
+            throw std::runtime_error(bases_path.string() + ": unknown faction " + row[0]);
+        }
         p.bases.push_back({.faction_id = row[0], .station_id = row[1],
             .ships = static_cast<int>(parse_double(row[2], bases_path, i + 1, "ships"))});
     }

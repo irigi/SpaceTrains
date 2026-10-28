@@ -1821,6 +1821,22 @@ int main() {
         require(distance_between(meet.path_m.back(), at_meet.position_m) < 2.0e8, "the cutter should end where the target is");
         require(meet.propellant_kg > 0.0 && meet.propellant_kg < 10000.0, "the meeting should fit the load");
 
+        // The cheapest meeting costs no more than the fastest one at the same time weight (a cutter's
+        // day ≈ 30 kg of propellant), and the refinement no more than its grid point.
+        const auto wreck = spacetrains::trajectory::kepler_target(rt, vt, units);
+        const double kg_per_s = 30.0 / 86400.0;
+        const auto fastest = spacetrains::trajectory::plan_chase(request, wreck, units);
+        const auto grid = spacetrains::trajectory::meeting_candidates(request, wreck, units, 86400.0, 365.0 * 86400.0, kg_per_s, 10);
+        const auto cheapest = spacetrains::trajectory::plan_cheapest(request, wreck, units, 86400.0, 365.0 * 86400.0, kg_per_s);
+        require(fastest.feasible && cheapest.feasible && !grid.empty(), "both chases should find the coasting ship");
+        const double fastest_cost = fastest.propellant_kg + kg_per_s * fastest.transfer_time_s;
+        const double cheapest_cost = cheapest.propellant_kg + kg_per_s * cheapest.transfer_time_s;
+        require(cheapest_cost <= fastest_cost * 1.001, "the cheapest chase should cost no more than the fastest");
+        require(cheapest_cost <= grid.front().objective + 1.0e-6, "refining should not make the meeting dearer");
+        std::cout << std::format("Chase cost: fastest {:.0f} d, {:.0f} kg (cost {:.0f}); cheapest {:.0f} d, {:.0f} kg (cost {:.0f})\n",
+            fastest.transfer_time_s / 86400.0, fastest.propellant_kg, fastest_cost, cheapest.transfer_time_s / 86400.0,
+            cheapest.propellant_kg, cheapest_cost);
+
         const auto run = [&] {
             auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string(),
                 [](spacetrains::domain::UniverseDefinition& universe) { universe.patrols.patrols = true; });

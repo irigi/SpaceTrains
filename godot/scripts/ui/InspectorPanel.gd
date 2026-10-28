@@ -329,6 +329,8 @@ static func _faction_name(faction_id: String) -> String:
             return "Mars Corporation"
         "independent":
             return "Independent"
+        "earth":
+            return "Earth"
     return faction_id.replace("_", " ").capitalize()
 
 static func _good_name(good: String) -> String:
@@ -907,8 +909,8 @@ func _build_derelict(detail: Dictionary, context: Dictionary) -> void:
         _add_label("No salvager has set out yet: ships weigh the wreck against their regular work.", UiTheme.TEXT_DIM, 12)
     _add_note("Crew and passengers left in the lifeboat. The owner lost the hull and the cargo; it may replace the ship first.")
 
-# A police cutter (police inspections): meets ships bound for its faction's stations in flight
-# and inspects them alongside for a few days; the inspected ship keeps its course.
+# A police cutter (police inspections): Earth's meet ships of every faction in flight (a faction's
+# own, ships bound for its stations) and inspect them alongside for a few days; the inspected ship keeps its course.
 func _build_patrol(detail: Dictionary, context: Dictionary) -> void:
     _add_header(String(detail.get("name", detail.get("id", ""))),
         "Patrol Cutter · %s · police" % _faction_name(String(detail.get("faction_id", ""))),
@@ -925,9 +927,11 @@ func _build_patrol(detail: Dictionary, context: Dictionary) -> void:
         status = status.substr(0, 1).to_upper() + status.substr(1)
     _add_label("%s, based at %s." % [status,
         _resolve_name(context, String(detail.get("home_station_id", "")))], UiTheme.TEXT_PRIMARY, 13)
-    _add_note("Cutters meet ships bound for their faction's stations at the cheapest point of their path and ride alongside "
-        + "for the inspection. The law does not make the inspected ship change course: the cutter matches it. "
-        + "The faction pays the cutter's hull, crew and fuel.")
+    var earth := String(detail.get("faction_id", "")) == "earth"
+    _add_note(("Earth's police cutters meet ships of every faction" if earth else "Cutters meet ships bound for their faction's stations")
+        + " at the cheapest point of their path and ride alongside for the inspection. The law does not make the inspected "
+        + "ship change course: the cutter matches it. "
+        + ("Earth pays the cutter's hull, crew and fuel." if earth else "The faction pays the cutter's hull, crew and fuel."))
 
 func _build_ship(detail: Dictionary, context: Dictionary) -> void:
     var phase := String(detail.get("phase", "idle"))

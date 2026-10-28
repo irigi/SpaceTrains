@@ -46,6 +46,25 @@ Configs: off (`failures,0`, `patrols,0`), on (as committed), stress (`lifetime_y
 delivers; profits fall mainly through the higher capital charge of the shorter amortisation. The benchmark's
 "MONEY DRIFT" flag fires in all three, also "off": −0.0001 cr after 8 years, float rounding.
 
+## Earth police and cheapest chases (2026-10-28, same 8 × 2,920-day benchmark)
+
+Police paid by Earth and inspecting every faction's ships; salvage and police chases are the cheapest (propellant +
+time, less the prize by port, the two legs chosen together), no longer the fastest the load allows.
+
+| | off | on (before) | on (now) | stress (now) |
+|---|---|---|---|---|
+| Unmet % | 0.3 ± 0.4 | 0.5 ± 0.3 | 0.5 ± 0.5 | 0.6 ± 0.5 |
+| Ships profitable % | 75.6 ± 2.5 | 74.8 ± 2.5 | 74.4 ± 3.1 | 63.1 ± 4.1 |
+| Sol Federation net M | 9.7 ± 1.3 | 9.7 ± 1.2 | 9.4 ± 0.7 | 12.1 ± 0.9 |
+| Independents net M | 0.8 ± 0.4 | 0.4 ± 0.2 | 0.8 ± 0.5 | 0.4 ± 0.2 |
+| Mars Corporation net M | 0.0 ± 0.1 | 0.0 ± 0.1 | -0.1 ± 0.2 | -0.2 ± 0.2 |
+| Inspections, cost (Earth) | – | 336, 224 k | 305, 234 k | 300, 334 k |
+| Run time s | 636 | 611 | 654 | – |
+
+Within noise of "off". Fewer inspections: cheap ways home are slower, so cutters are out longer. In a solver test
+the cheapest chase costs 45% less than the fastest (206 d and 1,354 kg against 123 d and 10,000 kg). With
+`failures,0` and `patrols,0` the new build reproduces the old 365-day audit line for line.
+
 ## Baseline (before the branch)
 
 `tools/benchmark.py --days 1460`, 4 starts: unmet 0.3 ± 0.4%, last fifth 0.0%, profitable 88.5 ± 1.3 of 130.8 ± 5.4

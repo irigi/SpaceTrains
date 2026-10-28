@@ -136,10 +136,14 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
   `T_lo` (a first grid point that already fits is kept as it is).
 - `trajectory/ChaseSolver.hpp` — SI adapter: `path_target` follows another ship's `TrajectoryPlan` samples,
   `kepler_target` a two-body coast (a derelict), `plan_chase` returns the earliest interception or rendezvous for a
-  ship's power and propellant. Used by salvage runs (`ships_and_fleet.md`, "Failures and salvage").
-  `plan_meeting` picks the best place on a target's path to meet it: fixed-time rendezvous (`solve_transfer`, no
-  fallbacks) at a grid of meeting times over a window, warm-started in turn, least propellant + a time weight
-  (police inspections).
+  ship's power and propellant (the fastest, whatever it costs; kept for chases that are races).
+  The cheapest meeting (salvage runs, police): `meeting_candidates` solves fixed-time rendezvous (`solve_transfer`,
+  no fallbacks) on a grid of meeting times (geometric over a wide window), warm-started in turn, each costed as
+  propellant + `kg_per_s` × time (the owner's daily cost in propellant at its fuel price, as the trade planners weigh
+  a trip); `refine_meeting` refines one by golden section between its grid neighbours; `plan_cheapest` = both;
+  `plan_meeting` the same with a narrow window. Callers pair the cheapest few meetings with their onward leg. A
+  rendezvous with a ship's planned path matches a Hermite fit of its rendering samples (finite-difference velocity),
+  not its exact motion: good enough for a cutter riding alongside by assumption; wrecks use their exact Kepler orbit.
 
 Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (`tools/visp_bench/main.cpp`: A/R atlas cells as
 intercepts and rendezvous, AG the same through the general solver, B-F general-boundary sets). The solver's design

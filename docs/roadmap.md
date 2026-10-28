@@ -86,7 +86,7 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    - **Failures:** Weibull hull lives (shape 3, mean 30 y × 1.10, exact in expectation against the capital charge);
      a ship that fails in flight becomes a derelict coasting on its orbit; its owner may replace it first.
    - **Salvage races:** ships weigh a wreck's cargo and scrap against their missions; the first to reach it wins.
-   - **Police inspections:** faction cutters meet ships bound for their stations at the cheapest point of their path
+   - **Police inspections:** Earth-paid cutters meet ships of every faction now and then, at the cheapest point of their path
      and ride alongside for 3 days; the inspected ship keeps its course (legal assumption).
    - Later: insurance (maybe; it only smooths owners' losses), customs and smuggling (on the inspection seam), a timed
      crew rescue, losers of a race turning back mid-flight.

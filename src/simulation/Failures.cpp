@@ -325,13 +325,17 @@ std::vector<domain::CargoLot> lots_that_fit(const std::vector<domain::CargoLot>&
 }  // namespace
 
 Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, const domain::DerelictState& derelict,
-    bool both_legs) const {
+    bool both_legs, double latest_meet_s, double fuel_cr_per_kg, double cr_per_day) const {
+    // The cheapest salvage run, as the trade planners pick a trip: propellant at the origin's fuel
+    // price plus the ship's daily costs, less the prize where it is sold (ports differ); the way out
+    // and the way home are chosen together. A race only adds the deadline `latest_meet_s` (meet the
+    // wreck before the current claimant, by the margin).
     SalvagePlan plan;
     const auto& design = ship_design(ship);
     const double mu = sun_mu();
     const double now = game_time_s_;
-    const double horizon_s = derelict.expires_s - now;
-    if (horizon_s < 2.0 * 86400.0) {
+    const double meet_limit_s = std::min(derelict.expires_s, latest_meet_s);
+    if (meet_limit_s - now < 2.0 * 86400.0) {
         return plan;
     }
     const auto derelict_at = [&](double t) {
@@ -341,8 +345,9 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     if (load <= 0.0) {
         return plan;
     }
+    const auto taken = lots_that_fit(derelict.cargo, design.cargo_capacity_units);
     double cargo_kg = 0.0;
-    for (const auto& lot : lots_that_fit(derelict.cargo, design.cargo_capacity_units)) {
+    for (const auto& lot : taken) {
         cargo_kg += lot.units * get_commodity(lot.commodity_id).mass_per_unit_kg;
     }
     const double dry = design.dry_mass_kg;
@@ -354,6 +359,16 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
             ports.push_back(id);
         }
     }
+    // Everything in kilograms of propellant at the origin's price.
+    const double fuel_price = std::max(1.0e-6, fuel_cr_per_kg);
+    const double kg_per_s = cr_per_day / fuel_price / 86400.0;
+    const auto prize_kg = [&](const std::string& port) {
+        double value = 0.0;
+        for (const auto& lot : taken) {
+            value += lot.units * economy_.reference_price(get_station_definition(port), lot.commodity_id);
+        }
+        return value / fuel_price;
+    };
     plan.propellant_load_kg = load;
 
     if (design.propulsion_type == "variable_isp") {
@@ -363,90 +378,121 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
         units.mu_m3_s2 = mu;
         units.length_m = std::max(0.2 * 1.495978707e11, d_now.position_m.length());
         const auto r0 = mechanics_.get_station_position(origin, now);
-        // The way out may burn this share of the load; if no way home is left, a smaller one.
-        for (const double share_out : {0.5, 0.35, 0.2}) {
-            plan = {};
-            plan.propellant_load_kg = load;
-            trajectory::ChaseRequest leg1 {
-                .position_m = r0,
-                .velocity_mps = circular_velocity(r0, mu),
-                .depart_time_s = now,
+        const trajectory::ChaseRequest leg1 {
+            .position_m = r0,
+            .velocity_mps = circular_velocity(r0, mu),
+            .depart_time_s = now,
+            .power_w = power_w,
+            .initial_mass_kg = dry + load,
+            .dry_mass_kg = dry + reserve,
+            .end_condition = variable_isp::general::EndCondition::Rendezvous,
+        };
+        const auto wreck = trajectory::kepler_target(d_now.position_m, d_now.velocity_mps, units);
+        const auto out = trajectory::meeting_candidates(leg1, wreck, units, 86400.0, std::min(365.0 * 86400.0, meet_limit_s - now),
+            kg_per_s, 10);
+        if (out.empty()) {
+            return plan;
+        }
+        // The way home from a meeting: the cheapest port (cost less prize) and its candidate.
+        struct Home {
+            std::string port;
+            trajectory::ChasePlan leg;
+            double objective {std::numeric_limits<double>::infinity()};
+        };
+        const auto home_from = [&](double rendezvous_s, double used_kg, bool refine) {
+            Home best;
+            const auto d_rv = derelict_at(rendezvous_s);
+            trajectory::ChaseUnits home_units = units;
+            home_units.length_m = std::max(0.2 * 1.495978707e11, d_rv.position_m.length());
+            const trajectory::ChaseRequest leg2 {
+                .position_m = d_rv.position_m,
+                .velocity_mps = d_rv.velocity_mps,
+                .depart_time_s = rendezvous_s,
                 .power_w = power_w,
-                .initial_mass_kg = dry + load,
-                .dry_mass_kg = dry + (1.0 - share_out) * load,
+                .initial_mass_kg = dry + load - used_kg + cargo_kg,
+                .dry_mass_kg = dry + cargo_kg + reserve,
                 .end_condition = variable_isp::general::EndCondition::Rendezvous,
-                .min_transfer_s = 86400.0,
-                .max_transfer_s = std::min(365.0 * 86400.0, horizon_s),
             };
-            const auto chase = trajectory::plan_chase(leg1, trajectory::kepler_target(d_now.position_m, d_now.velocity_mps, units), units, 60);
-            if (!chase.feasible) {
-                return plan;
+            if (leg2.initial_mass_kg <= leg2.dry_mass_kg) {
+                return best;
             }
-            plan.depart_s = now;
-            plan.rendezvous_s = now + chase.transfer_time_s;
-            plan.path = chase.path_m;
-            plan.times = chase.times_s;
-            for (std::size_t i = 0; i < plan.times.size(); ++i) {
-                const double share = plan.times.size() > 1 ? static_cast<double>(i) / (plan.times.size() - 1) : 1.0;
-                plan.propellant.push_back(load - share * chase.propellant_kg);
-            }
-            plan.propellant_used_kg = chase.propellant_kg;
-            plan.trajectory_type = "variable_isp";
-            if (!both_legs) {
-                plan.feasible = true;
-                return plan;
-            }
-            const auto d_rv = derelict_at(plan.rendezvous_s);
-            const double m1 = dry + load - chase.propellant_kg;
-            trajectory::ChasePlan best;
-            std::string best_port;
             for (const auto& port : ports) {
                 // The port's planet, sampled every two days for 500 days.
                 domain::TrajectoryPlan planet;
                 const auto planet_id = primary_body_id(port);
-                for (double t = plan.rendezvous_s; t <= plan.rendezvous_s + 500.0 * 86400.0; t += 2.0 * 86400.0) {
+                for (double t = rendezvous_s; t <= rendezvous_s + 500.0 * 86400.0; t += 2.0 * 86400.0) {
                     planet.sampled_path.push_back(mechanics_.get_body_position(planet_id, t));
                     planet.sampled_times_s.push_back(t);
                 }
-                trajectory::ChaseUnits home_units = units;
-                home_units.length_m = std::max(0.2 * 1.495978707e11, d_rv.position_m.length());
-                trajectory::ChaseRequest leg2 {
-                    .position_m = d_rv.position_m,
-                    .velocity_mps = d_rv.velocity_mps,
-                    .depart_time_s = plan.rendezvous_s,
-                    .power_w = power_w,
-                    .initial_mass_kg = m1 + cargo_kg,
-                    .dry_mass_kg = dry + cargo_kg + reserve,
-                    .end_condition = variable_isp::general::EndCondition::Rendezvous,
-                    .min_transfer_s = 86400.0,
-                    .max_transfer_s = 495.0 * 86400.0,
-                };
-                if (leg2.initial_mass_kg <= leg2.dry_mass_kg) {
+                const auto target = trajectory::path_target(planet, rendezvous_s, home_units);
+                const auto cands = trajectory::meeting_candidates(leg2, target, home_units, 86400.0, 495.0 * 86400.0, kg_per_s, 8);
+                if (cands.empty()) {
                     continue;
                 }
-                const auto home = trajectory::plan_chase(leg2, trajectory::path_target(planet, plan.rendezvous_s, home_units), home_units, 60);
-                if (home.feasible && (!best.feasible || home.transfer_time_s < best.transfer_time_s)) {
-                    best = home;
-                    best_port = port;
+                const double objective = cands.front().objective - prize_kg(port);
+                if (objective < best.objective) {
+                    best.objective = objective;
+                    best.port = port;
+                    best.leg = refine ? trajectory::refine_meeting(leg2, target, home_units, kg_per_s, cands.front(), 6, 60)
+                                      : trajectory::ChasePlan {.feasible = true, .transfer_time_s = cands.front().transfer_time_s,
+                                            .propellant_kg = cands.front().propellant_kg};
                 }
             }
-            if (!best.feasible) {
-                continue;
+            return best;
+        };
+        // The way out: the cheapest few meeting times, each with its way home.
+        const trajectory::MeetingCandidate* chosen = &out.front();
+        if (both_legs) {
+            chosen = nullptr;
+            double best_total = std::numeric_limits<double>::infinity();
+            for (std::size_t k = 0; k < std::min<std::size_t>(3, out.size()); ++k) {
+                const auto home = home_from(now + out[k].transfer_time_s, out[k].propellant_kg, false);
+                if (!home.port.empty() && out[k].objective + home.objective < best_total) {
+                    best_total = out[k].objective + home.objective;
+                    chosen = &out[k];
+                }
             }
-            plan.destination_id = best_port;
-            plan.arrival_s = plan.rendezvous_s + best.transfer_time_s;
-            const double left = load - chase.propellant_kg;
-            for (std::size_t i = 1; i < best.times_s.size(); ++i) {
-                const double share = static_cast<double>(i) / (best.times_s.size() - 1);
-                plan.path.push_back(best.path_m[i]);
-                plan.times.push_back(best.times_s[i]);
-                plan.propellant.push_back(left - share * best.propellant_kg);
+            if (chosen == nullptr) {
+                return plan;
             }
-            plan.propellant_used_kg += best.propellant_kg;
-            plan.feasible = true;
+        }
+        auto chase = trajectory::refine_meeting(leg1, wreck, units, kg_per_s, *chosen, 6, 60);
+        Home home;
+        if (both_legs) {
+            home = home_from(now + chase.transfer_time_s, chase.propellant_kg, true);
+            if (home.port.empty()) {
+                // The refined meeting left no way home: the grid point's had one.
+                chase = trajectory::refine_meeting(leg1, wreck, units, kg_per_s, *chosen, 0, 60);
+                home = home_from(now + chase.transfer_time_s, chase.propellant_kg, true);
+                if (home.port.empty()) {
+                    return plan;
+                }
+            }
+        }
+        plan.depart_s = now;
+        plan.rendezvous_s = now + chase.transfer_time_s;
+        plan.path = chase.path_m;
+        plan.times = chase.times_s;
+        for (std::size_t i = 0; i < plan.times.size(); ++i) {
+            const double share = plan.times.size() > 1 ? static_cast<double>(i) / (plan.times.size() - 1) : 1.0;
+            plan.propellant.push_back(load - share * chase.propellant_kg);
+        }
+        plan.propellant_used_kg = chase.propellant_kg;
+        plan.trajectory_type = "variable_isp";
+        plan.feasible = true;
+        if (!both_legs) {
             return plan;
         }
-        plan = {};
+        plan.destination_id = home.port;
+        plan.arrival_s = plan.rendezvous_s + home.leg.transfer_time_s;
+        const double left = load - chase.propellant_kg;
+        for (std::size_t i = 1; i < home.leg.times_s.size(); ++i) {
+            const double share = static_cast<double>(i) / (home.leg.times_s.size() - 1);
+            plan.path.push_back(home.leg.path_m[i]);
+            plan.times.push_back(home.leg.times_s[i]);
+            plan.propellant.push_back(left - share * home.leg.propellant_kg);
+        }
+        plan.propellant_used_kg += home.leg.propellant_kg;
         return plan;
     }
 
@@ -457,7 +503,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     }
     const double min_r = trajectory::kMinPerihelionM;
     struct Leg1 {
-        double depart_s, rendezvous_s, used_kg;
+        double depart_s, rendezvous_s, used_kg, objective;
         math::Vec3d r1, v1;
     };
     std::vector<Leg1> first;
@@ -470,7 +516,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
         for (int i = 0; i < 30; ++i) {
             const double transit = 10.0 * 86400.0 * std::pow(40.0, i / 29.0);  // 10 to 400 days
             const double meet = depart + transit;
-            if (meet > derelict.expires_s) {
+            if (meet > meet_limit_s) {
                 break;
             }
             const auto target = derelict_at(meet);
@@ -485,12 +531,64 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
             if (m1 < dry + reserve) {
                 continue;  // the way home is checked below
             }
-            first.push_back({depart, meet, m0 - m1, r0, lam.v1});
+            first.push_back({depart, meet, m0 - m1, m0 - m1 + kg_per_s * (meet - now), r0, lam.v1});
         }
     }
     std::sort(first.begin(), first.end(), [](const Leg1& a, const Leg1& b) {
-        return a.rendezvous_s < b.rendezvous_s || (a.rendezvous_s == b.rendezvous_s && a.depart_s < b.depart_s);
+        return a.objective < b.objective || (a.objective == b.objective && a.rendezvous_s < b.rendezvous_s);
     });
+    if (first.empty()) {
+        return plan;
+    }
+    if (!both_legs) {
+        const auto& leg = first.front();
+        plan.feasible = true;
+        plan.depart_s = leg.depart_s;
+        plan.rendezvous_s = leg.rendezvous_s;
+        plan.propellant_used_kg = leg.used_kg;
+        plan.trajectory_type = "keplerian_lambert";
+        return plan;
+    }
+    // The cheapest few ways out, each with its cheapest way home (port and time).
+    struct Best {
+        const Leg1* leg {nullptr};
+        double total {std::numeric_limits<double>::infinity()};
+        double arrival_s {0.0};
+        double used_kg {0.0};
+        std::string port;
+        math::Vec3d v1;
+    } best;
+    for (std::size_t k = 0; k < std::min<std::size_t>(6, first.size()); ++k) {
+        const auto& leg = first[k];
+        const auto d_rv = derelict_at(leg.rendezvous_s);
+        const double m1 = dry + load - leg.used_kg + cargo_kg;
+        for (const auto& port : ports) {
+            const auto planet_id = primary_body_id(port);
+            const double prize = prize_kg(port);
+            for (int i = 0; i < 30; ++i) {
+                const double transit = 10.0 * 86400.0 * std::pow(50.0, i / 29.0);  // 10 to 500 days
+                const double arrive = leg.rendezvous_s + transit;
+                const auto rp = mechanics_.get_body_position(planet_id, arrive);
+                const auto lam = trajectory::solve_lambert(d_rv.position_m, rp, transit, mu);
+                if (!lam.found || trajectory::conic_arc_min_radius(d_rv.position_m, lam.v1, rp, mu) < min_r) {
+                    continue;
+                }
+                const double dv = (lam.v1 - d_rv.velocity_mps).length() + (lam.v2 - circular_velocity(rp, mu)).length();
+                const double m2 = m1 * std::exp(-dv / ve);
+                if (m2 < dry + cargo_kg + reserve) {
+                    continue;
+                }
+                const double total = leg.objective + (m1 - m2) + kg_per_s * transit - prize;
+                if (total < best.total) {
+                    best = {.leg = &leg, .total = total, .arrival_s = arrive, .used_kg = m1 - m2, .port = port, .v1 = lam.v1};
+                }
+            }
+        }
+    }
+    if (best.leg == nullptr) {
+        return plan;
+    }
+    const auto& leg = *best.leg;
     const auto sample_arc = [&](const math::Vec3d& r, const math::Vec3d& v, double t0, double t1, double left_kg,
                                 bool skip_first) {
         std::vector<math::Vec3d> path;
@@ -502,60 +600,15 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
             plan.propellant.push_back(left_kg);
         }
     };
-    for (const auto& leg : first) {
-        if (!both_legs) {
-            plan.feasible = true;
-            plan.depart_s = leg.depart_s;
-            plan.rendezvous_s = leg.rendezvous_s;
-            plan.propellant_used_kg = leg.used_kg;
-            plan.trajectory_type = "keplerian_lambert";
-            return plan;
-        }
-        const auto d_rv = derelict_at(leg.rendezvous_s);
-        const double m1 = dry + load - leg.used_kg + cargo_kg;
-        double best_arrival = std::numeric_limits<double>::infinity();
-        double best_used = 0.0;
-        std::string best_port;
-        math::Vec3d best_v;
-        for (const auto& port : ports) {
-            const auto planet_id = primary_body_id(port);
-            for (int i = 0; i < 30; ++i) {
-                const double transit = 10.0 * 86400.0 * std::pow(50.0, i / 29.0);  // 10 to 500 days
-                const double arrive = leg.rendezvous_s + transit;
-                if (arrive >= best_arrival) {
-                    break;
-                }
-                const auto rp = mechanics_.get_body_position(planet_id, arrive);
-                const auto lam = trajectory::solve_lambert(d_rv.position_m, rp, transit, mu);
-                if (!lam.found || trajectory::conic_arc_min_radius(d_rv.position_m, lam.v1, rp, mu) < min_r) {
-                    continue;
-                }
-                const double dv = (lam.v1 - d_rv.velocity_mps).length() + (lam.v2 - circular_velocity(rp, mu)).length();
-                const double m2 = m1 * std::exp(-dv / ve);
-                if (m2 < dry + cargo_kg + reserve) {
-                    continue;
-                }
-                best_arrival = arrive;
-                best_used = m1 - m2;
-                best_port = port;
-                best_v = lam.v1;
-                break;  // the earliest for this port
-            }
-        }
-        if (best_port.empty()) {
-            continue;
-        }
-        plan.feasible = true;
-        plan.destination_id = best_port;
-        plan.depart_s = leg.depart_s;
-        plan.rendezvous_s = leg.rendezvous_s;
-        plan.arrival_s = best_arrival;
-        plan.propellant_used_kg = leg.used_kg + best_used;
-        plan.trajectory_type = "keplerian_lambert";
-        sample_arc(leg.r1, leg.v1, leg.depart_s, leg.rendezvous_s, load - leg.used_kg, false);
-        sample_arc(d_rv.position_m, best_v, leg.rendezvous_s, best_arrival, load - plan.propellant_used_kg, true);
-        return plan;
-    }
+    plan.feasible = true;
+    plan.destination_id = best.port;
+    plan.depart_s = leg.depart_s;
+    plan.rendezvous_s = leg.rendezvous_s;
+    plan.arrival_s = best.arrival_s;
+    plan.propellant_used_kg = leg.used_kg + best.used_kg;
+    plan.trajectory_type = "keplerian_lambert";
+    sample_arc(leg.r1, leg.v1, leg.depart_s, leg.rendezvous_s, load - leg.used_kg, false);
+    sample_arc(derelict_at(leg.rendezvous_s).position_m, best.v1, leg.rendezvous_s, best.arrival_s, load - plan.propellant_used_kg, true);
     return plan;
 }
 
@@ -635,6 +688,7 @@ std::optional<Simulation::SalvageOption> Simulation::best_salvage_for(const doma
     const auto& design = ship_design(ship);
     const auto& origin_state = get_station_state(ship.current_station_id);
     const double per_day_cost = daily_capital_cost(design) + daily_crew_cost(design, origin_state) + wear_cr_per_flight_day(design);
+    const double fuel_cr_per_kg = station_price(origin_state, "fuel") / FUEL_UNITS_TO_KG;
     for (std::size_t i = 0; i < derelicts_.size(); ++i) {
         const auto& derelict = derelicts_[i];
         if (derelict.racers >= static_cast<int>(f.max_racers)) {
@@ -643,7 +697,8 @@ std::optional<Simulation::SalvageOption> Simulation::best_salvage_for(const doma
         // A new racer must meet the wreck sooner than the current claimant, by the margin.
         const double best_s = derelict.claimant_ship_id.empty() ? std::numeric_limits<double>::infinity()
                                                                 : derelict.claim_eta_s - game_time_s_;
-        const auto out = plan_salvage(ship, derelict, false);
+        const double latest_meet_s = game_time_s_ + best_s * (1.0 - f.racer_margin);
+        const auto out = plan_salvage(ship, derelict, false, latest_meet_s, fuel_cr_per_kg, per_day_cost);
         if (!out.feasible || out.rendezvous_s - game_time_s_ >= best_s * (1.0 - f.racer_margin)) {
             continue;
         }
@@ -656,7 +711,7 @@ std::optional<Simulation::SalvageOption> Simulation::best_salvage_for(const doma
         if (1.5 * prize / std::max(1.0, (out.rendezvous_s - game_time_s_) / 86400.0) <= std::max(0.0, spot_per_day)) {
             continue;
         }
-        auto full = plan_salvage(ship, derelict, true);
+        auto full = plan_salvage(ship, derelict, true, latest_meet_s, fuel_cr_per_kg, per_day_cost);
         if (!full.feasible || full.rendezvous_s - game_time_s_ >= best_s * (1.0 - f.racer_margin)) {
             continue;
         }
