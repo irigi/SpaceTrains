@@ -25,6 +25,7 @@ add_library(spacetrains_core
     src/trajectory/ChaseSolver.cpp
     src/trajectory/Lambert.cpp
     src/trajectory/KeplerPropagation.cpp
+    src/trajectory/PathMotion.cpp
     src/trajectory/Porkchop.cpp
     src/trajectory/PathSampling.cpp
     src/trajectory/TrajectoryAudit.cpp

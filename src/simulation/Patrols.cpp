@@ -12,6 +12,7 @@
 
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/KeplerPropagation.hpp"
+#include "trajectory/PathMotion.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -39,18 +40,9 @@ math::Vec3d circular_velocity_at(const math::Vec3d& r, double mu) {
     return {-r.z / rm * vc, 0.0, r.x / rm * vc};
 }
 
-math::Vec3d path_position(const domain::MissionAssignment& mission, double t) {
-    return interpolate_timed_sampled_path(mission.sampled_path, mission.sampled_times_s, t);
-}
-
-// Velocity along a planned path: across an hour either side (inside the path).
-math::Vec3d path_velocity(const domain::MissionAssignment& mission, double t) {
-    if (mission.sampled_times_s.size() < 2) {
-        return {};
-    }
-    const double t0 = std::max(mission.sampled_times_s.front(), t - 3600.0);
-    const double t1 = std::min(mission.sampled_times_s.back(), t + 3600.0);
-    return t1 > t0 ? (path_position(mission, t1) - path_position(mission, t0)) / (t1 - t0) : math::Vec3d {};
+// A ship's state on its planned path (a conic per segment, trajectory/PathMotion.hpp).
+trajectory::KeplerState path_state(const std::vector<math::Vec3d>& path, const std::vector<double>& times, double t, double mu) {
+    return trajectory::PathMotion(path, times, mu).at(t);
 }
 
 double interpolate_scalar(const std::vector<double>& values, const std::vector<double>& times, double t) {
@@ -202,6 +194,7 @@ Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patr
     trajectory::ChaseUnits units;
     units.mu_m3_s2 = sun_mu();
     units.length_m = std::max(0.2 * 1.495978707e11, r.length());
+    const trajectory::PathMotion target_motion_si(mission.sampled_path, mission.sampled_times_s, sun_mu());
     domain::TrajectoryPlan target_path;
     target_path.sampled_path = mission.sampled_path;
     target_path.sampled_times_s = mission.sampled_times_s;
@@ -224,7 +217,8 @@ Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patr
     for (std::size_t k = 0; k < std::min<std::size_t>(3, candidates.size()); ++k) {
         const auto& c = candidates[k];
         const double end_s = now + c.transfer_time_s + inspection_s;
-        const auto home_leg = plan_patrol_home(patrol, path_position(mission, end_s), path_velocity(mission, end_s), end_s,
+        const auto leaving = target_motion_si.at(end_s);
+        const auto home_leg = plan_patrol_home(patrol, leaving.position_m, leaving.velocity_mps, end_s,
             load - c.propellant_kg - follow_allowance, p.return_reserve * capacity, true);
         if (!home_leg.feasible) {
             continue;
@@ -240,7 +234,8 @@ Simulation::PatrolSortie Simulation::plan_sortie(const domain::PatrolState& patr
     }
     const auto meet = trajectory::refine_meeting(request, target_motion, units, kg_per_s, *chosen, 6, 40);
     const double end_s = now + meet.transfer_time_s + inspection_s;
-    const auto home_plan = plan_patrol_home(patrol, path_position(mission, end_s), path_velocity(mission, end_s), end_s,
+    const auto leaving = target_motion_si.at(end_s);
+    const auto home_plan = plan_patrol_home(patrol, leaving.position_m, leaving.velocity_mps, end_s,
         load - meet.propellant_kg - follow_allowance, p.return_reserve * capacity, true);
     if (!home_plan.feasible) {
         return sortie;
@@ -388,18 +383,16 @@ void Simulation::step_patrols(double dt_s) {
                 if (it == ships_.end() || it->phase != domain::ShipMissionPhase::InTransit
                     || it->active_mission.arrival_time_s <= game_time_s_ + 0.5 * kDayS) {
                     // The target is gone (arrived, failed): home from here.
-                    const auto r = interpolate_timed_sampled_path(patrol.path, patrol.times, game_time_s_);
-                    const auto v = patrol.times.size() >= 2
-                        ? (patrol.path.back() - patrol.path[patrol.path.size() - 2]) / (patrol.times.back() - patrol.times[patrol.times.size() - 2])
-                        : math::Vec3d {};
-                    send_patrol_home(patrol, r, v);
+                    const auto here = path_state(patrol.path, patrol.times, game_time_s_, sun_mu());
+                    send_patrol_home(patrol, here.position_m, here.velocity_mps);
                     break;
                 }
                 patrol.phase = domain::PatrolPhase::Inspecting;
                 patrol.inspect_until_s = std::min(game_time_s_ + p.inspection_days * kDayS,
                     it->active_mission.arrival_time_s - 0.5 * kDayS);
-                patrol.meet_position_m = path_position(it->active_mission, game_time_s_);
-                patrol.meet_velocity_mps = path_velocity(it->active_mission, game_time_s_);
+                const auto met = path_state(it->active_mission.sampled_path, it->active_mission.sampled_times_s, game_time_s_, sun_mu());
+                patrol.meet_position_m = met.position_m;
+                patrol.meet_velocity_mps = met.velocity_mps;
                 add_event(std::format("{} comes alongside {} for inspection", patrol.name, it->name), "general");
                 break;
             }
@@ -411,8 +404,11 @@ void Simulation::step_patrols(double dt_s) {
                 }
                 const double elapsed = std::max(1.0, game_time_s_ - patrol.meet_s);
                 const auto coast = trajectory::propagate_kepler(patrol.meet_position_m, patrol.meet_velocity_mps, elapsed, sun_mu());
-                const math::Vec3d r = target_flying ? path_position(it->active_mission, game_time_s_) : coast.position_m;
-                const math::Vec3d v = target_flying ? path_velocity(it->active_mission, game_time_s_) : coast.velocity_mps;
+                const auto alongside = target_flying
+                    ? path_state(it->active_mission.sampled_path, it->active_mission.sampled_times_s, game_time_s_, sun_mu())
+                    : coast;
+                const math::Vec3d r = alongside.position_m;
+                const math::Vec3d v = alongside.velocity_mps;
                 // Matching the target's thrust: the velocity it gained over the coast, at constant
                 // acceleration (effort = Δv² / T) on the cutter's power.
                 const double dv = (v - coast.velocity_mps).length();

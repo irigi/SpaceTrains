@@ -25,9 +25,9 @@ struct ChaseUnits {
     [[nodiscard]] math::Vec3d position_m(const variable_isp::general::Vec2& r) const;
 };
 
-// Target that follows a planned path (sampled_path / sampled_times_s), interpolated by cubic
-// Hermite with finite-difference velocities, starting `depart_time_s` (the chaser's departure).
-// Past the path's ends it holds the end samples' motion (linear extrapolation).
+// Target that follows a planned path (sampled_path / sampled_times_s) as a conic per segment
+// (trajectory/PathMotion.hpp), starting `depart_time_s` (the chaser's departure). Past the
+// path's ends it coasts on the end segments' conics.
 variable_isp::general::Target path_target(const domain::TrajectoryPlan& plan, double depart_time_s, const ChaseUnits& units);
 
 // Target coasting on a two-body orbit from the SI state (r, v) at the chaser's departure

@@ -142,8 +142,14 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
   propellant + `kg_per_s` × time (the owner's daily cost in propellant at its fuel price, as the trade planners weigh
   a trip); `refine_meeting` refines one by golden section between its grid neighbours; `plan_cheapest` = both;
   `plan_meeting` the same with a narrow window. Callers pair the cheapest few meetings with their onward leg. A
-  rendezvous with a ship's planned path matches a Hermite fit of its rendering samples (finite-difference velocity),
-  not its exact motion: good enough for a cutter riding alongside by assumption; wrecks use their exact Kepler orbit.
+  ship's planned path is followed by `PathMotion` (below); wrecks by their exact Kepler orbit.
+- `trajectory/PathMotion.hpp` — a ship's motion along its kept (render-thinned) path samples: a conic per segment
+  through its two samples (Lambert), plus the thrust's share on powered arcs (where neighbouring conics meet, their
+  velocities differ by the thrust gained: a time-weighted mean gives the velocity there, a cubic correction the
+  displacement inside the segment). Against the integrated truth (tests): coasts exact; a powered Earth-Mars
+  rendezvous within 26 m/s and ~1,000 km; finite differences of the same samples (the earlier fit) missed by
+  230-260 m/s. Police meet, ride with and leave their targets on this motion. (Ships' displayed positions still
+  run straight between samples.)
 
 Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (`tools/visp_bench/main.cpp`: A/R atlas cells as
 intercepts and rendezvous, AG the same through the general solver, B-F general-boundary sets). The solver's design
@@ -153,6 +159,15 @@ brief is `docs/plans/variable-isp-solver-directions.md`.
 
 `trajectory/KeplerPropagation.hpp`: universal-variable two-body propagation (`propagate_kepler`, any conic, whole
 revolutions of an ellipse removed first) and `sample_kepler`; the Stumpff functions the Lambert solver shares.
+
+`trajectory/Lambert.hpp`: universal-variable Lambert (Curtis §5.3) for prograde arcs in the x-z plane.
+`solve_lambert` gives the arc under one revolution (short or long way, elliptic or hyperbolic): it scans z for a
+crossing of the flight-time equation (from the edge of the valid range, y > 0, where short hops lie) and bisects.
+`solve_lambert_revolutions` adds up to two arcs per extra whole revolution (√z in (2πN, 2π(N+1)), skipped when the
+time cannot hold N periods of the smallest ellipse through both points); `revolutions` counts them, and
+`conic_arc_min_radius` takes it (an arc with whole revolutions always passes perihelion).
+(Until 2026-10-28 the scan assumed the flight time fell with z on short-way arcs: no arc under half a turn was ever
+found, so nuclear-thermal ships flew only long-way arcs or the Hohmann fallback.)
 
 `trajectory/OrbitMath.hpp`: `positive_mod`, a body's orbital rate, and the heliocentric rate a moon's station
 phases with (its planet's). `VariableIspAtlas::lower_cell_index` is the one grid lookup (planner and atlas).

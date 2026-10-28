@@ -502,9 +502,25 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
         return plan;
     }
     const double min_r = trajectory::kMinPerihelionM;
+    // The cheapest arc for the time: direct, or with one or two whole revolutions more (a long wait
+    // for the wreck or the port can be cheaper spent on a longer orbit), clear of the Sun.
+    const auto cheapest_arc = [&](const math::Vec3d& r1, const math::Vec3d& v_from, const math::Vec3d& r2,
+                                  const math::Vec3d& v_to, double transit) {
+        trajectory::LambertResult best_arc;
+        double best_dv = std::numeric_limits<double>::infinity();
+        for (const auto& arc : trajectory::solve_lambert_revolutions(r1, r2, transit, mu, 2)) {
+            const double dv = (arc.v1 - v_from).length() + (arc.v2 - v_to).length();
+            if (dv < best_dv && trajectory::conic_arc_min_radius(r1, arc.v1, r2, mu, arc.revolutions) >= min_r) {
+                best_dv = dv;
+                best_arc = arc;
+            }
+        }
+        return best_arc;
+    };
     struct Leg1 {
         double depart_s, rendezvous_s, used_kg, objective;
         math::Vec3d r1, v1;
+        int revolutions;
     };
     std::vector<Leg1> first;
     plan.best_dv_mps = std::numeric_limits<double>::infinity();
@@ -520,8 +536,8 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
                 break;
             }
             const auto target = derelict_at(meet);
-            const auto lam = trajectory::solve_lambert(r0, target.position_m, transit, mu);
-            if (!lam.found || trajectory::conic_arc_min_radius(r0, lam.v1, target.position_m, mu) < min_r) {
+            const auto lam = cheapest_arc(r0, v0, target.position_m, target.velocity_mps, transit);
+            if (!lam.found) {
                 continue;
             }
             const double dv = (lam.v1 - v0).length() + (lam.v2 - target.velocity_mps).length();
@@ -531,7 +547,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
             if (m1 < dry + reserve) {
                 continue;  // the way home is checked below
             }
-            first.push_back({depart, meet, m0 - m1, m0 - m1 + kg_per_s * (meet - now), r0, lam.v1});
+            first.push_back({depart, meet, m0 - m1, m0 - m1 + kg_per_s * (meet - now), r0, lam.v1, lam.revolutions});
         }
     }
     std::sort(first.begin(), first.end(), [](const Leg1& a, const Leg1& b) {
@@ -557,6 +573,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
         double used_kg {0.0};
         std::string port;
         math::Vec3d v1;
+        int revolutions {0};
     } best;
     for (std::size_t k = 0; k < std::min<std::size_t>(6, first.size()); ++k) {
         const auto& leg = first[k];
@@ -569,8 +586,8 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
                 const double transit = 10.0 * 86400.0 * std::pow(50.0, i / 29.0);  // 10 to 500 days
                 const double arrive = leg.rendezvous_s + transit;
                 const auto rp = mechanics_.get_body_position(planet_id, arrive);
-                const auto lam = trajectory::solve_lambert(d_rv.position_m, rp, transit, mu);
-                if (!lam.found || trajectory::conic_arc_min_radius(d_rv.position_m, lam.v1, rp, mu) < min_r) {
+                const auto lam = cheapest_arc(d_rv.position_m, d_rv.velocity_mps, rp, circular_velocity(rp, mu), transit);
+                if (!lam.found) {
                     continue;
                 }
                 const double dv = (lam.v1 - d_rv.velocity_mps).length() + (lam.v2 - circular_velocity(rp, mu)).length();
@@ -580,7 +597,8 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
                 }
                 const double total = leg.objective + (m1 - m2) + kg_per_s * transit - prize;
                 if (total < best.total) {
-                    best = {.leg = &leg, .total = total, .arrival_s = arrive, .used_kg = m1 - m2, .port = port, .v1 = lam.v1};
+                    best = {.leg = &leg, .total = total, .arrival_s = arrive, .used_kg = m1 - m2, .port = port, .v1 = lam.v1,
+                        .revolutions = lam.revolutions};
                 }
             }
         }
@@ -590,10 +608,10 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     }
     const auto& leg = *best.leg;
     const auto sample_arc = [&](const math::Vec3d& r, const math::Vec3d& v, double t0, double t1, double left_kg,
-                                bool skip_first) {
+                                bool skip_first, int revolutions) {
         std::vector<math::Vec3d> path;
         std::vector<double> times;
-        trajectory::sample_kepler(r, v, t0, t1, (t1 - t0) / 40.0, mu, path, times);
+        trajectory::sample_kepler(r, v, t0, t1, (t1 - t0) / (40.0 * (1 + revolutions)), mu, path, times);
         for (std::size_t i = skip_first ? 1 : 0; i < path.size(); ++i) {
             plan.path.push_back(path[i]);
             plan.times.push_back(times[i]);
@@ -607,8 +625,9 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     plan.arrival_s = best.arrival_s;
     plan.propellant_used_kg = leg.used_kg + best.used_kg;
     plan.trajectory_type = "keplerian_lambert";
-    sample_arc(leg.r1, leg.v1, leg.depart_s, leg.rendezvous_s, load - leg.used_kg, false);
-    sample_arc(derelict_at(leg.rendezvous_s).position_m, best.v1, leg.rendezvous_s, best.arrival_s, load - plan.propellant_used_kg, true);
+    sample_arc(leg.r1, leg.v1, leg.depart_s, leg.rendezvous_s, load - leg.used_kg, false, leg.revolutions);
+    sample_arc(derelict_at(leg.rendezvous_s).position_m, best.v1, leg.rendezvous_s, best.arrival_s, load - plan.propellant_used_kg, true,
+        best.revolutions);
     return plan;
 }
 

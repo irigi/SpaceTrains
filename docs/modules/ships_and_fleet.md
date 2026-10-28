@@ -254,6 +254,7 @@ before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's 
     to the port's planet (`path_target` on the planet's sampled motion), arriving with the cargo and the 10% reserve.
   - Nuclear-thermal ships: Lambert grids (waits 0-40 days, flights 10-400 days out and 10-500 home), Δv against the
     station's circular velocity, the derelict's velocity and the port planet's; the burns are booked at the start.
+    Each grid time takes the cheapest arc: direct or with one or two whole revolutions more.
     The 6 cheapest ways out are paired with every way home. Rendezvous is dear (~8 km/s from Mars to a wreck on a
     transfer arc), so plasma ships do most of the salvage.
   - Worth: the cargo that fits the salvager's hold at the port's reference prices plus the scrap
@@ -291,7 +292,8 @@ Port, 1 at Ceres Deep Depot ("Police Cutter 1-4").
   last `reinspect_days` (120) and not already another cutter's target: a ship meets the police now and then.
 - **Meeting point:** `trajectory::meeting_candidates` (`ChaseSolver.hpp`) solves fixed-time rendezvous with the
   ship's planned (thrusting) path at 8 times spread over its remaining flight (less the inspection), warm-started in
-  turn. Each costs propellant + time (the cutter's daily cost at the home port's fuel price); the 3 cheapest are
+  turn. The path is followed as `trajectory::PathMotion` (a conic per kept segment plus the thrust's share: tens of
+  m/s from the true motion, where finite differences of the samples missed by ~250 m/s). Each costs propellant + time (the cutter's daily cost at the home port's fuel price); the 3 cheapest are
   costed with their way home from where the inspection ends, and the cheapest total is refined (golden section).
   The way there may burn `outbound_share` (40%) of a full load, and the way home must leave `return_reserve` (10%),
   else the target is skipped. Late meetings cost least, so cutters mostly meet ships on
