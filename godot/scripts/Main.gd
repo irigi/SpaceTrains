@@ -857,6 +857,7 @@ func _update_nodes(delta: float) -> void:
         space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, MapIconsScript.BODY_ICON_COLOR)
     _update_fine_rings()
     _update_fine_paths()
+    _update_path_clocks()
     if sun_light != null and entity_nodes.has("sun"):
         var sun_node: Node3D = entity_nodes["sun"]
         sun_light.global_position = sun_node.global_position
@@ -1461,18 +1462,27 @@ shader_type spatial;
 render_mode unshaded, blend_mix, cull_disabled, depth_draw_never;
 uniform vec3 focus = vec3(0.0);
 uniform float hide_radius = 0.0;
+// Each vertex carries its time in UV.x (seconds after the line's epoch). The part before
+// now_s is drawn in flown_color, so the flown/ahead split follows the ship every frame
+// and falls exactly where the ship is, even inside a long segment.
+instance uniform float now_s = -1.0e30;
+instance uniform vec4 flown_color = vec4(0.0);
 varying vec3 world_pos;
+varying float t_s;
 void vertex() {
     world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    t_s = UV.x;
 }
 void fragment() {
     if (hide_radius > 0.0 && distance(world_pos, focus) < hide_radius) {
         discard;
     }
-    ALBEDO = COLOR.rgb;
-    ALPHA = COLOR.a;
+    vec4 color = t_s < now_s ? flown_color : COLOR;
+    ALBEDO = color.rgb;
+    ALPHA = color.a;
 }
 """
+var fine_path_material: ShaderMaterial
 
 func _trail_material() -> ShaderMaterial:
     if trail_material == null:
@@ -1481,6 +1491,28 @@ func _trail_material() -> ShaderMaterial:
         trail_material = ShaderMaterial.new()
         trail_material.shader = shader
     return trail_material
+
+# Fine lines use the same shader but are never hidden near the focus.
+func _fine_path_material() -> ShaderMaterial:
+    if fine_path_material == null:
+        fine_path_material = ShaderMaterial.new()
+        fine_path_material.shader = _trail_material().shader
+    return fine_path_material
+
+# Moves the flown/ahead split of every drawn path to the display time (cheap: one
+# per-instance value per line, no rebuild).
+func _update_path_clocks() -> void:
+    for ship_id in trail_points.keys():
+        var style: Dictionary = trail_points[ship_id]
+        var now := float(display_time_s - float(style["epoch"]))
+        if trail_nodes.has(ship_id):
+            var path_mesh: MeshInstance3D = (trail_nodes[ship_id] as Node3D).get_node("path")
+            path_mesh.set_instance_shader_parameter("now_s", now)
+            path_mesh.set_instance_shader_parameter("flown_color", style["flown"])
+        if fine_paths.has(ship_id) and fine_paths[ship_id]["node"] != null:
+            var node: MeshInstance3D = fine_paths[ship_id]["node"]
+            node.set_instance_shader_parameter("now_s", now)
+            node.set_instance_shader_parameter("flown_color", style["flown"])
 
 func _update_fine_paths() -> void:
     var camera_distance_m := float(camera_rig.get("distance")) / POSITION_SCALE
@@ -1541,10 +1573,7 @@ func _fine_path_current(ship_id: String, focus_m: PackedFloat64Array, camera_dis
         return false
     var built: PackedFloat64Array = entry["focus"]
     var moved := sqrt(pow(focus_m[0] - built[0], 2.0) + pow(focus_m[1] - built[1], 2.0) + pow(focus_m[2] - built[2], 2.0))
-    if moved + hide_radius_m > float(entry["radius"]) * 0.95:
-        return false
-    # The flown part is grey: rebuild as the ship moves along.
-    return absf(display_time_s - float(entry["time"])) * float(entry["speed"]) < 0.05 * hide_radius_m
+    return moved + hide_radius_m <= float(entry["radius"]) * 0.95
 
 # How far p lies outside a box [min x, y, z, max x, y, z] (0 inside), per axis at most.
 func _box_gap(box: PackedFloat64Array, p: PackedFloat64Array) -> float:
@@ -1561,12 +1590,11 @@ func _build_fine_path(ship_id: String, focus_m: PackedFloat64Array, camera_dista
     var path: Dictionary = ship_paths[ship_id]
     var line_color: Color = style["color"]
     var alpha: float = style["alpha"]
-    var flown: Color = style["flown"]
+    var epoch: float = style["epoch"]
     var ahead := Color(line_color.r, line_color.g, line_color.b, alpha)
     var runs: Array = []  # each a list of [x, y, z, t] relative to focus_m
     var run: Array = []
     var budget := FINE_PATH_MAX_POINTS
-    var top_speed := 0.0
     var boxes: Array = style["boxes"]
     for i in range(points.size() - 1):
         var a: PackedFloat64Array = points[i]
@@ -1582,7 +1610,6 @@ func _build_fine_path(ship_id: String, focus_m: PackedFloat64Array, camera_dista
             continue
         var length := sqrt(pow(b[0] - a[0], 2.0) + pow(b[1] - a[1], 2.0) + pow(b[2] - a[2], 2.0))
         var speed := maxf(length / span, 1.0e-3)
-        top_speed = maxf(top_speed, speed)
         # March along the segment with steps a fixed share of the distance to the focus.
         var t := a[3]
         var joined := not run.is_empty()  # the previous segment's end is this one's start
@@ -1600,24 +1627,21 @@ func _build_fine_path(ship_id: String, focus_m: PackedFloat64Array, camera_dista
         runs.append(run)
     var node: MeshInstance3D = fine_paths[ship_id]["node"] if fine_paths.has(ship_id) else null
     fine_paths[ship_id] = {"node": node, "drawn": not runs.is_empty(), "sig": style["sig"], "focus": focus_m,
-        "camera": camera_distance_m, "time": display_time_s, "radius": draw_radius_m, "speed": top_speed}
+        "camera": camera_distance_m, "radius": draw_radius_m}
     if runs.is_empty():
         return
     var mesh := ImmediateMesh.new()
     for piece in runs:
         mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
         for q in piece:
-            mesh.surface_set_color(flown if q[3] < display_time_s else ahead)
+            mesh.surface_set_color(ahead)
+            mesh.surface_set_uv(Vector2(float(q[3] - epoch), 0.0))
             mesh.surface_add_vertex(Vector3(q[0] * POSITION_SCALE, q[1] * POSITION_SCALE, q[2] * POSITION_SCALE))
         mesh.surface_end()
     if node == null:
         node = MeshInstance3D.new()
         node.name = "%s_fine_path" % ship_id
-        var material := StandardMaterial3D.new()
-        material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-        material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-        material.vertex_color_use_as_albedo = true
-        node.material_override = material
+        node.material_override = _fine_path_material()
         entity_root.add_child(node)
     node.mesh = mesh
     fine_paths[ship_id]["node"] = node
@@ -2119,7 +2143,6 @@ func _ensure_trail_node(ship_id: String) -> Node3D:
 # burn markers, the rest as faint context lines. The flown-past portion of the
 # path dims to gray; the remaining arc keeps the per-planner color.
 func _update_ship_trails() -> void:
-    var game_time_s := float(bridge_state.get("game_time_s", 0.0))
     var active := {}
     for ship_id in entity_details.keys():
         if entity_kinds.get(ship_id, "") != "ship":
@@ -2134,18 +2157,14 @@ func _update_ship_trails() -> void:
         active[ship_id] = true
         var trail_node := _ensure_trail_node(ship_id)
         var is_selected: bool = ship_id == selected_id
-        var departure_s := float(ship.get("departure_time_s", 0.0))
-        var arrival_s := float(ship.get("arrival_time_s", 0.0))
-        # The flown part dims as the ship moves: 50 steps for the selected ship, 8 for the rest
-        # (each step rebuilds the line). The bridge's path id names the plan.
-        var steps := 50.0 if is_selected else 8.0
-        var progress_bucket := int(clamp((game_time_s - departure_s) / max(arrival_s - departure_s, 1.0), 0.0, 1.0) * steps)
+        # The flown part dims in the shader (_update_path_clocks), so the line is rebuilt only
+        # for a new plan or a new selection. The bridge's path id names the plan.
         var plan_id := String(ship.get("path_id", ""))
         if plan_id == "":
             plan_id = _trajectory_path_signature(trajectory_path)
-        var signature := "%s|%d|%s|%s" % [plan_id, progress_bucket, is_selected, String(ship.get("salvage_derelict_id", ""))]
+        var signature := "%s|%s|%s" % [plan_id, is_selected, String(ship.get("salvage_derelict_id", ""))]
         if trail_path_signatures.get(ship_id, "") != signature:
-            _rebuild_trail_mesh(trail_node, ship_id, ship, is_selected, game_time_s)
+            _rebuild_trail_mesh(trail_node, ship_id, ship, is_selected)
             trail_path_signatures[ship_id] = signature
         trail_node.visible = true
 
@@ -2171,7 +2190,7 @@ func _trajectory_path_signature(trajectory_path: Array) -> String:
 func _trajectory_color(trajectory_type: String) -> Color:
     return TRAJECTORY_COLORS.get(trajectory_type, Color(0.3, 1.0, 0.8)) as Color
 
-func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, is_selected: bool, game_time_s: float) -> void:
+func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, is_selected: bool) -> void:
     var line_color := _trajectory_color(String(ship.get("trajectory_type", "")))
     var base_alpha := 0.95 if is_selected else 0.2
     var elapsed_color := Color(0.5, 0.52, 0.55, base_alpha * 0.45)
@@ -2197,13 +2216,15 @@ func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, 
                 box[axis] = minf(box[axis], point[axis])
                 box[axis + 3] = maxf(box[axis + 3], point[axis])
         boxes.append(box)
-    trail_points[ship_id] = {"points": points, "boxes": boxes, "color": line_color, "alpha": base_alpha, "flown": elapsed_color,
+    var epoch: float = points.front()[3]
+    trail_points[ship_id] = {"points": points, "boxes": boxes, "color": line_color, "alpha": base_alpha, "flown": elapsed_color, "epoch": epoch,
         "sig": "%s|%s|%.3f" % [String(path["sig"]), is_selected, base_alpha]}
     var mesh := ImmediateMesh.new()
     mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+    var ahead := Color(line_color.r, line_color.g, line_color.b, base_alpha)
     for point in points:
-        var color := elapsed_color if point[3] < game_time_s else Color(line_color.r, line_color.g, line_color.b, base_alpha)
-        mesh.surface_set_color(color)
+        mesh.surface_set_color(ahead)
+        mesh.surface_set_uv(Vector2(float(point[3] - epoch), 0.0))
         mesh.surface_add_vertex(_abs_render(point))
     mesh.surface_end()
     var path_mesh: MeshInstance3D = trail_node.get_node("path")
