@@ -51,7 +51,7 @@ $Q=[z^TSz]_0^h+2\int|\xi-B^TSz/2|^2dt$.
 Initialize the frame, not an arbitrary $S(0)=0$.
 
 Sampling $\det X$ cannot exclude conjugate points: even multiplicity
-can leave its sign unchanged. The supplied synthetic accessory problem
+can leave its sign unchanged. The synthetic accessory problem
 $Q/2=\int_0^1(z''^2-600z^2)dt$ in two identical coordinates
 has such a crossing at $t_c=0.955712066275\ldots$.
 It also has the explicit negative direction $z=1-\cos(2\pi t)$.
@@ -184,9 +184,9 @@ minimum, up to equality of controls almost everywhere. Numerical
 use requires validated enclosures of the reference, residual norms
 and constants. Sampled minima with padding do not supply that proof.
 
-The earlier nonzero-effort fixture near $J=0.0032$ gives a small
-double-precision estimate of the gap in \eqref{eq:tubegap}; it remains
-an estimate, not a machine-verified certificate.
+For a nonzero-effort test case near $J=0.0032$, a double-precision
+evaluation of \eqref{eq:tubegap} gives a small gap; this is an
+estimate, not a machine-verified certificate.
 For difficult cells a verification function satisfying
 $W_t+W_r\cdot v+W_v\cdot g-|W_v|^2/4\ge0$
 throughout every possible cheaper trajectory yields another lower

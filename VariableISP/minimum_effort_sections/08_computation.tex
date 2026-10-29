@@ -37,7 +37,7 @@ Normal PMP conditions alone also do not enumerate possible abnormal
 extremals or prove ordinary-control attainment in a nonconvex on/off
 problem.
 
-\subsection{Three integration fixtures}
+\subsection{Three consistency checks}
 The following reproducible identities check the interfaces between formulas.
 
 \paragraph{Timing and control gain.}
@@ -49,7 +49,7 @@ nonconvexity certificate is rerun separately; it proves the leading
 Jensen-gap sign, not global optimality of a selected finite perturbation.
 
 \paragraph{One physical mass, several local units.}
-Take an artificial accounting fixture with $m_0=1000$ kg, $P=10^6$ W,
+Take an artificial accounting example with $m_0=1000$ kg, $P=10^6$ W,
 and two physical efforts $j_1=20$, $j_2=40$ in
 $\mathrm{m^2/s^3}$. Equation~\eqref{eq:route_mass} gives
 $m_f=970.8737864078$ kg.
@@ -59,7 +59,7 @@ entry $\chi$ is computed from the actual entry mass. Incorrectly
 resetting the second leg to $m_0$ gives $980.3921568627$ kg.
 With the second power changed to $2\,10^6$ W, the correct final mass
 is also $980.3921568627$ kg: the equality is coincidental and illustrates
-why power belongs in the accounting. These are algebraic fixtures,
+why power belongs in the accounting. These are algebraic examples,
 not trajectories.
 
 \paragraph{SOI action and covectors.}
@@ -71,35 +71,34 @@ Independent scale-pairing checks verify \eqref{eq:covscale}.
 Both entry and exit signs are exercised. These are interface identities;
 they do not demonstrate an optimized complete route.
 
-\subsection{Inherited trajectory evidence}
-The reduced spiral fixtures include infeasibility at $h=480$ and
+\subsection{Trajectory test cases}
+The reduced spiral test cases include infeasibility at $h=480$ and
 efforts $0.00025$ at $h=1000$ and
 $0.000100501670842$ at $h=3000$, for the parameters of
 Figure~\ref{fig:spiral}. Independent quadrature and time-domain
 integration check the scalar formulas. The exact escape/capture pair
 in Figure~\ref{fig:escape} has an analytic dynamics and band proof;
 vector ODE integration independently checks its endpoints.
-The powered-flyby fixture verifies work, mass and asymptotic labels
+A powered-flyby test case verifies work, mass and asymptotic labels
 on a feasible finite-SOI pass.
 
 The exact-radius and Jensen calculations use rational arithmetic with explicit
 enclosures. Shooting, transcription and trajectory audits use double
-precision. The input data, numerical tolerances and scripts for the new
-checks are listed in the revision record. They do not turn a sampled
-audit or a stationary branch into a global-optimality certificate.
+precision. The input data, numerical tolerances and scripts are provided as
+supplementary material.
 
-The earlier scalar circular-profile benchmark observed a median of
-about $0.071$ ms for 300 C++ queries in the shared execution environment.
+A benchmark of the scalar circular-profile kernel gave a median of
+about $0.071$ ms over 300 C++ queries.
 It measures only that reduced scalar kernel. It includes neither
 full orbit integration nor constrained boundary-value optimization
 and gives no complete-route latency guarantee.
 
 \section{The remaining computational problem}
-The derivations now provide a consistent chain from physical power and
+The derivations provide a consistent chain from physical power and
 mass to fixed-time actions, timing gradients, bounded controls, safety
 contacts and planetary interfaces. Exact local models and global
 inequalities can reject some queries or bound their cost without solving
-a new transfer. The new manuscript assembles those results in one
+a new transfer. This article assembles those results in one
 convention and includes its analytical certificates as appendices.
 
 The next substantial computational advance is an endpoint-exact,

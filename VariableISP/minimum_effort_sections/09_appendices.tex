@@ -1,10 +1,10 @@
-\section{Corrected capped free-space propagation}
+\section{Capped free-space propagation}
 \label{app:repair}
 For the dimensional time problem in one dimension, let
 $l=\lambda_v$ with $l'=-\lambda_x$ and $\lambda_x$ constant.
 On a powered fixed-sign interval, write $|l|=L_a+nt$.
 For fixed exhaust $V$ set $F=2P/V$, $\sigma=2P/V^2$ and
-$C_m=\lambda_m m^2$. Correct differentiation gives
+$C_m=\lambda_m m^2$. Differentiating the optimized Hamiltonian gives
 \begin{equation}
  m'=-\sigma,\quad
  \lambda_m'=\frac{F|l|}{m^2},\quad
@@ -31,11 +31,11 @@ For thrust sign $\epsilon=\pm1$,
 On an ideal interior arc $C_m$ is constant and $a=Pl/C_m$;
 on a coast both $m$ and $\lambda_m$ are constant.
 
-\subsection{What survives and what is replaced}
-The pointwise selector survives when evaluated with the current $C_m$.
+\subsection{Relations carried over from the uncapped analysis}
+The pointwise selector holds when evaluated with the current $C_m$.
 The fixed-exhaust state maps above, the interior-arc mass formula, and
 the exchange argument excluding an avoidable powered--coast rearrangement
-under its monotone braking hypotheses also survive. On an interior arc
+under its monotone braking hypotheses also hold. On an interior arc
 $l=l_a-nt$,
 \begin{equation}
  \frac1{m(t)}=\frac1{m_a}+\frac{P}{2C_m^2}
@@ -43,12 +43,10 @@ $l=l_a-nt$,
 \end{equation}
 Integrating $a=Pl/C_m$ gives quadratic velocity and cubic position.
 The raw primer remains affine globally; its scaled acceleration does not.
-The old threshold $6-4\sqrt2$, root $r_1$, formulas for $m_4,m_5,m_6$,
-the $(M,\omega)$ endpoint reduction, and the $m_s/m_6$ rejection tests
-derived from constant $C_m$ on boundary arcs are withdrawn. They are not
-repaired by simply substituting a terminal value of $C_m$.
+Because $C_m$ varies on boundary arcs, switching times cannot be
+obtained from a constant-$C_m$ primer, not even with its terminal value.
 
-For clarity, the surviving exchange argument uses states only. In a
+The exchange argument uses states only. In a
 coast/ceiling-brake mixture with duty fraction $\delta\in[0,1]$, write
 $s(t)=\int\delta\,dt$. Then $m=m_a-\sigma s$ and
 $v=v_a-V\log(m_a/m)$. Final mass and velocity depend only on total
@@ -60,9 +58,7 @@ original coast distance is reproduced by a shorter leading coast of
 duration $\int_{\rm coast}v\,dt/v_a$. Mass, terminal velocity and distance
 are unchanged, while elapsed time strictly decreases whenever a positive
 coast follows a positive brake. Approximation extends this state argument
-to fractional mixtures. It remains valid independently of the incorrect
-old adjoint; with the corrected adjoint there is no sliding branch to
-which it needs to be applied.
+to fractional mixtures.
 
 \subsection{Ceiling-only topology and the unresolved two-sided case}
 Consider the ceiling-only, positive-distance, rest-to-rest problem with
@@ -122,13 +118,11 @@ maps are the fixed-exhaust maps above with $V=V_-$, and
 \end{equation}
 Thus the selector and propagation are available for both boundaries,
 but a complete two-sided switching-topology theorem, including all
-$\mathsf A_\pm$ visits and admissible endpoint truncations, is left open
-in this article. Neither the sequence above nor the numerical test below
-is offered as that theorem. Gravity, abnormality and other endpoint
-conditions require further analysis as well.
+$\mathsf A_\pm$ visits and admissible endpoint truncations, is left open,
+as are gravity, abnormal extremals and other endpoint conditions.
 
-\subsection{An endpoint reduction that uses the correct adjoint}
-This reduction and its numerical fixture retain the ceiling-only
+\subsection{Endpoint reduction}
+This reduction and its numerical example retain the ceiling-only
 assumptions of the proved topology.
 Use homogeneity to fix $n=1$. The two shooting unknowns are $t_z$ and
 $\lambda_m(0)>0$. Propagate the exact interior, boundary and coast maps,
@@ -141,12 +135,11 @@ Call that time $T(t_z,\lambda_m(0))$. Solve
 Reject trajectories without exhaustion or with invalid adjoint sign or
 switch inequalities. Alternatively use $T$ as a third unknown and add
 $m(T)=m_d$ as a third residual. Normalize the free-time Hamiltonian
-afterward if a positive normal scaling exists; search competing solutions.
-This is an endpoint reduction, not a claim of uniqueness or global
-optimality.
+afterward if a positive normal scaling exists; and compare competing
+solutions, since the reduction does not imply uniqueness.
 
 For $P=1/2$, $V=2$, $m_0=1$, $m_d=1/2$, $L=1$, independent numerical
-integration of the corrected selector gives
+integration of the selector gives
 $t_z=1.22365494$, $\lambda_m(0)=0.61524660$, $T=2.35199587$;
 the maximum endpoint residual is $9.6\,10^{-8}$. The coast is approximately
 $[0.80144,1.64581]$. Direct transcription with piecewise-constant
@@ -161,8 +154,7 @@ Burn cells&Time&Endpoint error\\\midrule
 The within-cell ceiling holds because inverse mass increases monotonically
 and the acceleration is constant. Ceiling violations at optimizer tolerance
 are below $9\,10^{-13}$. The transcription independently checks the
-trajectory equations and approaches the shooting time from above; this
-mesh study is not a proof of the global minimum.
+trajectory equations and approaches the shooting time from above.
 
 \section{The opposing CW strategy}
 \label{app:game}
@@ -315,7 +307,7 @@ W_{34}&=3S^2+6(C_h-1),\\
 W_{44}&=19h+3S_2-24S.
 \end{align*}
 These follow by integrating $\Phi(t)BB^T\Phi(t)^T$ entrywise.
-For the Jensen fixture, $y=\Phi(h)\xi=(1,1-3h/2,0,-3/2)^T$.
+For the Jensen example, $y=\Phi(h)\xi=(1,1-3h/2,0,-3/2)^T$.
 Evaluate $c=y^TW^{-1}y$ at rational $h=10,21/2,11$ using interval
 Gaussian elimination. The following construction specifies the interval
 calculation without requiring an external supplement. For each sine or

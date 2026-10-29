@@ -1,24 +1,24 @@
-\section{Heliocentric audits and a worked bounded case}
+\section{Heliocentric checks and worked bounded cases}
 \label{sec:helio}
 Use $R_0=149597870700$ m and
 $\mu_\odot=1.32712440018\,10^{20}$ $\mathrm{m^3/s^2}$.
 Then $T_0=58.13244087$ days, $V_0=29.78469183$ km/s and
 $J_0=176.6257101$ $\mathrm{m^2/s^3}$.
 
-\subsection{Revisiting the original Jupiter-class candidates}
-The original ideal engine has $P=1$ GW, $m_0=3\,10^6$ kg and
+\subsection{Revisiting the Jupiter-class candidates of the transfer article}
+The ideal engine of \cite{OriginalKepler} has $P=1$ GW, $m_0=3\,10^6$ kg and
 $m_d=10^6$ kg: $\chi=3.774459936$ and $\kappa=7.548919872$.
-The public atlas at the pinned commit supplies warm starts, not certified
-trajectories. We independently integrate the normalized Cartesian state,
+The public atlas of \cite{OriginalKepler} supplies warm starts, not
+certified trajectories. We independently integrate the normalized Cartesian state,
 effort adjoints and effort quadrature, and solve four endpoint equations
 plus $J=\kappa$. This avoids relying on the repository viewer's radius
 and angle acceptance tolerances. The geometries below reproduce the
-short-arc table and the two illustrated solar-pass families in the
-original article, allowing for its rounded figure labels.
+short-arc table and the two illustrated solar-pass families of the
+transfer article, allowing for its rounded figure labels.
 
 \input{minimum_effort_sections/08_audit_table}
 
-We also reconstruct all 73 rows of the original $5.2$ AU final-polar-angle
+We also reconstruct all 73 rows of that article's $5.2$ AU final-polar-angle
 table, $\Theta=0^\circ,5^\circ,\ldots,360^\circ$, by independent continuation.
 Every row violates the exhaust band. Their reconstructed times range from
 $169.7643$ to $220.4991$ days (the $0^\circ$ row lies outside the abbreviated
@@ -39,8 +39,8 @@ The audit evaluates $v_e=V_0(\chi+I)/|u|$ and the radius on a dense
 perihelion and exhaust extrema. Each reported band rejection has a large
 violation on a continuous powered interval, so it does not depend on
 interpreting an isolated zero-thrust sample. Clipping a failed trajectory
-to the band does not repair its endpoint. The full input seeds and normalized initial covectors accompany
-the revision.
+to the band does not repair its endpoint. The input seeds and normalized initial covectors are provided as
+supplementary material.
 
 \subsection{A local certificate demonstration: a 2.9-day solar hop}
 This example raises the heliocentric radius from $1$ to $1.001$ AU
@@ -122,7 +122,7 @@ all still earlier arrivals. Thus the resource-to-time-to-fuel calculation is
 \end{equation}
 The stated fuel is that of the witness path; the optimal duration lies
 somewhere in this interval. The conservative decimal
-inequalities can be checked by rational Taylor enclosures; the supplied
+inequalities can be checked by rational Taylor enclosures; a supplementary
 checker does so for the bounds used in the time bracket.
 
 
@@ -224,6 +224,6 @@ time width gives lower and upper Riemann bounds for $I$. For the
 exhaust check on a subinterval, use the cumulative lower bound at its
 start and cumulative upper bound at its end. This monotonic enclosure
 covers every time within it. The resulting bounds imply the displayed
-coarse inequalities. The accompanying standalone checker implements
+coarse inequalities. A standalone supplementary checker implements
 this recipe; a separate floating-point quadrature and dynamics
 integration provide independent numerical cross-checks.
