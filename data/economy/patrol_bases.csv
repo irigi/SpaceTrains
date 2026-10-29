@@ -1,0 +1,4 @@
+faction_id,station_id,ships
+earth,earth_orbit,2
+earth,mars_transfer,1
+earth,ceres_depot,1

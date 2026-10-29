@@ -438,6 +438,8 @@ domain::UniverseDefinition DataLoader::load_universe(const std::filesystem::path
     detail::load_orders(root, universe);
     detail::load_market(root, universe);
     detail::load_ship_environment(root, universe);
+    detail::load_failures(root, universe);
+    detail::load_patrols(root, universe);
     detail::load_works_and_station_systems(root, universe);
     detail::load_reference_prices(root, universe);
     detail::load_reference_fares(root, universe);

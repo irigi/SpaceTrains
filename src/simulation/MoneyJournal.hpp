@@ -51,7 +51,8 @@ enum class MoneyCategory : std::uint8_t {
     HullEarth,           // a faction buys a hull: Earth's share
     HullYard,            // ... and its yard's share
     WorkingCapital,      // a faction gives a new ship its working capital
-    Salvage,             // Earth buys a sold ship's hull
+    Salvage,             // Earth buys a sold ship's hull (or a wreck's scrap)
+    Patrols,             // a faction pays its police cutters' costs and fuel to their home port
     Count
 };
 inline constexpr std::size_t kMoneyCategories = static_cast<std::size_t>(MoneyCategory::Count);

@@ -113,6 +113,34 @@ math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) 
     return origin_position * (1.0 - progress) + destination_position * progress;
 }
 
+namespace {
+
+// Wrecks and police cutters draw their paths like ships in flight: a wreck its coast, a cutter
+// the leg it flies now (none while it rides alongside its target, whose path is drawn).
+std::string derelict_path_id(const domain::DerelictState& derelict) {
+    return std::format("derelict|{:.3f}|{}", derelict.failed_at_s, derelict.sampled_path.size());
+}
+
+bool patrol_has_path(const domain::PatrolState& patrol) {
+    return (patrol.phase == domain::PatrolPhase::Outbound || patrol.phase == domain::PatrolPhase::Returning)
+        && patrol.path.size() >= 2 && patrol.times.size() == patrol.path.size();
+}
+
+std::string patrol_path_id(const domain::PatrolState& patrol) {
+    return std::format("patrol|{}|{:.3f}|{}", static_cast<int>(patrol.phase), patrol.times.front(), patrol.path.size());
+}
+
+void write_timed_path_json(std::ostream& output, const std::vector<math::Vec3d>& path, const std::vector<double>& times) {
+    output << "\"trajectory_path\":[";
+    for (std::size_t i = 0; i < path.size(); ++i) {
+        output << (i > 0 ? "," : "") << "{\"t_s\":" << (i < times.size() ? times[i] : 0.0) << ",\"x\":" << path[i].x
+               << ",\"y\":" << path[i].y << ",\"z\":" << path[i].z << "}";
+    }
+    output << "]";
+}
+
+}  // namespace
+
 std::string Simulation::bridge_path_id(const domain::ShipState& ship) const {
     const auto& mission = ship.active_mission;
     return std::format("{}|{}|{:.3f}|{}", mission.destination_station_id, mission.trajectory_type, mission.departure_time_s,
@@ -156,6 +184,14 @@ std::string Simulation::bridge_paths_signature() const {
             signature += ship.id + "=" + bridge_path_id(ship) + ";";
         }
     }
+    for (const auto& derelict : derelicts_) {
+        signature += derelict.id + "=" + derelict_path_id(derelict) + ";";
+    }
+    for (const auto& patrol : patrols_) {
+        if (patrol_has_path(patrol)) {
+            signature += patrol.id + "=" + patrol_path_id(patrol) + ";";
+        }
+    }
     return signature;
 }
 
@@ -170,6 +206,24 @@ std::string Simulation::build_bridge_paths_json() const {
         }
         output << (first ? "" : ",") << "\"" << json_escape(ship.id) << "\":{\"path_id\":\"" << json_escape(bridge_path_id(ship)) << "\",";
         write_ship_path_json(output, ship);
+        output << "}";
+        first = false;
+    }
+    for (const auto& derelict : derelicts_) {
+        if (derelict.sampled_path.size() < 2) {
+            continue;
+        }
+        output << (first ? "" : ",") << "\"" << json_escape(derelict.id) << "\":{\"path_id\":\"" << derelict_path_id(derelict) << "\",";
+        write_timed_path_json(output, derelict.sampled_path, derelict.sampled_times_s);
+        output << "}";
+        first = false;
+    }
+    for (const auto& patrol : patrols_) {
+        if (!patrol_has_path(patrol)) {
+            continue;
+        }
+        output << (first ? "" : ",") << "\"" << json_escape(patrol.id) << "\":{\"path_id\":\"" << patrol_path_id(patrol) << "\",";
+        write_timed_path_json(output, patrol.path, patrol.times);
         output << "}";
         first = false;
     }
@@ -713,6 +767,20 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"refit_class_id\":\"" << json_escape(ship.refit_class_id) << "\","
                << "\"refit_done_s\":" << ship.refit_done_s << ","
                << "\"commissioned_s\":" << ship.commissioned_s << ","
+               << "\"built_s\":" << ship.built_s << ","
+               << "\"salvage_derelict_id\":\"" << json_escape(ship.active_mission.salvage_done ? std::string() : ship.active_mission.salvage_derelict_id) << "\","
+               << "\"salvage_target_name\":\"" << [&] {
+                      if (ship.active_mission.salvage_derelict_id.empty() || ship.active_mission.salvage_done) {
+                          return std::string();
+                      }
+                      for (const auto& derelict : derelicts_) {
+                          if (derelict.id == ship.active_mission.salvage_derelict_id) {
+                              return json_escape(derelict.name);
+                          }
+                      }
+                      return std::string();
+                  }() << "\","
+               << "\"rendezvous_time_s\":" << ship.active_mission.rendezvous_time_s << ","
                << "\"ledger\":{"
                << "\"cargo_revenue\":" << ship.ledger.cargo_revenue << ","
                << "\"cargo_purchases\":" << ship.ledger.cargo_purchases << ","
@@ -731,6 +799,110 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
             }
         }
         output << "}";
+    }
+    // Derelicts (failures and salvage) ride with the ships, phase "derelict", at their coast's
+    // position now; the racers name them in salvage_target_name.
+    for (const auto& derelict : derelicts_) {
+        const auto position = interpolate_timed_sampled_path(derelict.sampled_path, derelict.sampled_times_s, game_time_s_);
+        const auto& design = get_ship_class(derelict.class_id);
+        output << (ships_.empty() && &derelict == &derelicts_.front() ? "" : ",") << "{"
+               << "\"id\":\"" << json_escape(derelict.id) << "\","
+               << "\"name\":\"" << json_escape("Wreck of " + derelict.name) << "\","
+               << "\"faction_id\":\"" << json_escape(derelict.faction_id) << "\","
+               << "\"class_id\":\"" << json_escape(derelict.class_id) << "\","
+               << "\"design_id\":\"" << json_escape(derelict.class_id) << "\","
+               << "\"class_name\":\"" << json_escape(design.name) << "\","
+               << "\"hull_id\":\"" << json_escape(design.hull_id.empty() ? design.id : design.hull_id) << "\","
+               << "\"propulsion_type\":\"" << json_escape(design.propulsion_type) << "\","
+               << "\"phase\":\"derelict\","
+               << "\"current_station_id\":\"\","
+               << "\"origin_station_id\":\"" << json_escape(derelict.origin_station_id) << "\","
+               << "\"destination_station_id\":\"" << json_escape(derelict.destination_station_id) << "\","
+               << "\"home_station_id\":\"" << json_escape(derelict.home_station_id) << "\","
+               << "\"commodity_id\":\"" << json_escape(largest_lot(derelict.cargo)) << "\","
+               << "\"cargo_units\":" << domain::total_units(derelict.cargo) << ","
+               << "\"cargo\":" << cargo_json(derelict.cargo) << ","
+               << "\"cargo_capacity_units\":" << design.cargo_capacity_units << ","
+               << "\"dry_mass_kg\":" << design.dry_mass_kg << ","
+               << "\"crew_size\":0,"
+               << "\"failed_at_s\":" << derelict.failed_at_s << ","
+               << "\"expires_s\":" << derelict.expires_s << ","
+               << "\"claimant_ship_id\":\"" << json_escape(derelict.claimant_ship_id) << "\","
+               << "\"claim_eta_s\":" << derelict.claim_eta_s << ","
+               << "\"racers\":" << derelict.racers << ","
+               << "\"scrap_value_cr\":" << universe_.failures.scrap_fraction * derelict.ship_value_cr << ","
+               << "\"trajectory_type\":\"derelict\",";
+        if (derelict.sampled_path.size() >= 2) {
+            output << "\"path_id\":\"" << derelict_path_id(derelict) << "\","
+                   << "\"departure_time_s\":" << derelict.sampled_times_s.front() << ","
+                   << "\"arrival_time_s\":" << derelict.sampled_times_s.back() << ",";
+            if (with_paths) {
+                write_timed_path_json(output, derelict.sampled_path, derelict.sampled_times_s);
+                output << ",";
+            }
+        }
+        output
+               << "\"x\":" << position.x << ","
+               << "\"y\":" << position.y << ","
+               << "\"z\":" << position.z
+               << "}";
+    }
+    // Police cutters: phase "patrol" when out, "patrol_docked" at their home port.
+    bool any_ship = !ships_.empty() || !derelicts_.empty();
+    for (const auto& patrol : patrols_) {
+        const auto position = patrol_position(patrol);
+        const auto& design = get_ship_class(patrol.class_id);
+        const bool docked = patrol.phase == domain::PatrolPhase::Docked;
+        std::string status;
+        switch (patrol.phase) {
+            case domain::PatrolPhase::Docked:
+                status = "in port";
+                break;
+            case domain::PatrolPhase::Outbound:
+                status = std::format("on its way to inspect {}", patrol.target_name);
+                break;
+            case domain::PatrolPhase::Inspecting:
+                status = std::format("alongside {}, inspecting", patrol.target_name);
+                break;
+            case domain::PatrolPhase::Returning:
+                status = "on its way home";
+                break;
+        }
+        output << (any_ship ? "," : "") << "{"
+               << "\"id\":\"" << json_escape(patrol.id) << "\","
+               << "\"name\":\"" << json_escape(patrol.name) << "\","
+               << "\"faction_id\":\"" << json_escape(patrol.faction_id) << "\","
+               << "\"class_id\":\"" << json_escape(patrol.class_id) << "\","
+               << "\"design_id\":\"" << json_escape(patrol.class_id) << "\","
+               << "\"class_name\":\"Patrol Cutter\","
+               << "\"hull_id\":\"" << json_escape(design.hull_id.empty() ? design.id : design.hull_id) << "\","
+               << "\"propulsion_type\":\"" << json_escape(design.propulsion_type) << "\","
+               << "\"phase\":\"" << (docked ? "patrol_docked" : "patrol") << "\","
+               << "\"patrol_status\":\"" << json_escape(status) << "\","
+               << "\"patrol_target_id\":\"" << json_escape(patrol.target_ship_id) << "\","
+               << "\"inspections\":" << patrol.inspections << ",";
+        if (patrol_has_path(patrol)) {
+            output << "\"trajectory_type\":\"patrol\",\"path_id\":\"" << patrol_path_id(patrol) << "\","
+                   << "\"departure_time_s\":" << patrol.times.front() << ","
+                   << "\"arrival_time_s\":" << patrol.times.back() << ",";
+            if (with_paths) {
+                write_timed_path_json(output, patrol.path, patrol.times);
+                output << ",";
+            }
+        }
+        output
+               << "\"current_station_id\":\"" << json_escape(docked ? patrol.home_station_id : std::string()) << "\","
+               << "\"home_station_id\":\"" << json_escape(patrol.home_station_id) << "\","
+               << "\"propellant_kg\":" << patrol.propellant_kg << ","
+               << "\"propellant_capacity_kg\":" << design.propellant_capacity_kg << ","
+               << "\"dry_mass_kg\":" << design.dry_mass_kg << ","
+               << "\"crew_size\":" << design.crew_size << ","
+               << "\"cargo\":[],\"cargo_units\":0,\"cargo_capacity_units\":0,"
+               << "\"x\":" << position.x << ","
+               << "\"y\":" << position.y << ","
+               << "\"z\":" << position.z
+               << "}";
+        any_ship = true;
     }
     output << "],";
 

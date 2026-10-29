@@ -232,6 +232,7 @@ void Simulation::step_fleet_investment() {
         next_investment_review_s_ += investment.review_days * 86400.0;
         investment_purchases_left_ = static_cast<int>(investment.max_ships_per_review);
         review_probes_.clear();
+        replacement_tried_ = false;
     }
     // One purchase per tick (each takes a second or two of probing), so a review never
     // stalls the simulation for long. Each purchase is a committed flow and keeps its yard
@@ -297,7 +298,9 @@ void Simulation::sell_ship(std::size_t index) {
 // in batches, then the winner built with its best tanks.
 class Simulation::InvestmentReview {
 public:
-    explicit InvestmentReview(Simulation& sim) : sim_(sim) {}
+    // reserved_for: a faction using its replacement claim (failures): only it buys, priced
+    // against its own money.
+    InvestmentReview(Simulation& sim, std::string reserved_for) : sim_(sim), reserved_for_(std::move(reserved_for)) {}
 
     CommissionStep run() {
         list_candidates();
@@ -339,6 +342,7 @@ private:
     };
 
     Simulation& sim_;
+    const std::string reserved_for_;
     const domain::FleetInvestmentDefinition& investment = sim_.universe_.fleet_investment;
     // Debug aid: SPACETRAINS_TRACE_INVESTMENT=1 logs every candidate and the review's time (stderr).
     const bool trace = trace_on();
@@ -377,6 +381,9 @@ private:
         return trace;
     }
     double richest_spendable() const {
+        if (!reserved_for_.empty()) {
+            return std::max(0.0, sim_.faction_spendable(reserved_for_));
+        }
         double richest_treasury = 0.0;
         for (const auto& [faction_id, balance] : sim_.faction_treasuries_) {
             richest_treasury = std::max(richest_treasury, sim_.faction_spendable(faction_id));
@@ -930,8 +937,8 @@ private:
         // what it may borrow), otherwise the faction that can spend most (which can: candidates
         // are priced against it).
         const double price = best_class->ship_value_cr + investment.working_capital;
-        std::string investor = best_yard->faction_id;
-        if (sim_.faction_spendable(investor) < price) {
+        std::string investor = reserved_for_.empty() ? best_yard->faction_id : reserved_for_;
+        if (reserved_for_.empty() && sim_.faction_spendable(investor) < price) {
             for (const auto& [faction_id, balance] : sim_.faction_treasuries_) {
                 if (sim_.faction_spendable(faction_id) >= sim_.faction_spendable(investor)) {
                     investor = faction_id;
@@ -1014,7 +1021,40 @@ private:
 };
 
 Simulation::CommissionStep Simulation::commission_step() {
-    return InvestmentReview(*this).run();
+    // Failures: a faction that lost a ship has the first right to its place (its oldest claim
+    // goes first). Places others hold are not for sale meanwhile.
+    std::string reserved_for;
+    double oldest = std::numeric_limits<double>::infinity();
+    int claims = 0;
+    for (const auto& [faction_id, expiries] : replacement_claims_) {
+        claims += static_cast<int>(expiries.size());
+        for (const double until_s : expiries) {
+            if (until_s < oldest) {
+                oldest = until_s;
+                reserved_for = faction_id;
+            }
+        }
+    }
+    if (!reserved_for.empty() && !replacement_tried_) {
+        const auto step = InvestmentReview(*this, reserved_for).run();
+        if (step == CommissionStep::Bought) {
+            auto& expiries = replacement_claims_[reserved_for];
+            expiries.erase(std::min_element(expiries.begin(), expiries.end()));
+            ++failure_audit_.replacements_bought;
+        } else if (step == CommissionStep::NothingToBuy) {
+            // Nothing worth its money now: the claim waits for the next review, others may
+            // buy into the places nobody holds.
+            replacement_tried_ = true;
+            review_probes_.clear();
+            return CommissionStep::Probed;
+        }
+        return step;
+    }
+    if (const auto& investment = universe_.fleet_investment;
+        investment.max_fleet_size > 0.0 && static_cast<double>(fleet_ship_count() + claims) >= investment.max_fleet_size) {
+        return CommissionStep::NothingToBuy;
+    }
+    return InvestmentReview(*this, {}).run();
 }
 
 }  // namespace spacetrains::simulation

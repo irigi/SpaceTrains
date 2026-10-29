@@ -58,6 +58,8 @@ void print_economy_audit(
 void print_ship_phases(
     const spacetrains::domain::SimulationSnapshot& snap,
     const spacetrains::domain::UniverseDefinition& universe);
+void print_patrol_audit(const spacetrains::simulation::Simulation& sim);
+void print_failure_audit(const spacetrains::simulation::Simulation& sim);
 void print_accounts_audit(const spacetrains::simulation::Simulation& sim);
 void print_capacity_balance(const spacetrains::domain::UniverseDefinition& universe,
     const spacetrains::economy::EconomySystem& economy, const spacetrains::domain::SimulationSnapshot& snap);

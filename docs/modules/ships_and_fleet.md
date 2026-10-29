@@ -10,10 +10,12 @@ orders and money: `economy.md`.
 - `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
   refits;
 - `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
+- `src/simulation/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
+- `src/simulation/Patrols.cpp`: police cutters and inspections;
 - `src/simulation/Passengers.cpp`, `CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
 
 **Data:** `data/economy/` (`ship_operations.csv`, `fleet_investment.csv`, `open_economy.csv`, `fuel_supply.csv`,
-`ship_environment.csv`, `passengers.csv`), `data/ship_classes/` (classes, components, modules, hull slots, spares;
+`ship_environment.csv`, `passengers.csv`, `failures.csv`, `patrols.csv`, `patrol_bases.csv`), `data/ship_classes/` (classes, components, modules, hull slots, spares;
 written by `build_ship_classes.py`). Sources for the physics: `docs/ship_technology.md`.
 
 ## Operating costs
@@ -211,6 +213,99 @@ berths, and those that left empty while people waited), and the legs flown in al
 - **Fleet cap:** `max_fleet_size` 130 (user, 2026-10-22). A hold cap (`max_fleet_hold_units`) is built but off: it
   filled the fleet with small ships and was slower.
 - Debug: `SPACETRAINS_TRACE_INVESTMENT=1`, `SPACETRAINS_TRACE_SHIP=<id>`.
+
+## Failures and salvage (`Failures.cpp`, `data/economy/failures.csv`)
+
+Switches: `failures` (the clocks) and `salvage` (races for derelicts); with `failures` 0 the game is exactly as
+before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's state), `SPACETRAINS_TRACE_SALVAGE=1`.
+
+- **Failure clock:** every hull has a life drawn from a Weibull distribution, shape `weibull_shape` (3: the hazard
+  grows with age², so a new hull rarely fails), mean = `lifetime_years` (`ship_operations.csv`, the capital charge's
+  amortisation) × `mean_life_factor`. Each ship draws from its own stream (data seed + ship id), so no draw moves
+  another. The starting fleet's ages come from the steady state of a fleet that replaces what fails (density ∝
+  survival), and each life is drawn conditional on the age reached; new ships start at age 0.
+- **Why the mean is 1.10 × 30 years:** the capital charge recovers the hull's value at V / L a year for as long as
+  the ship exists, so the owner breaks even in expectation when the mean life is L × (1 + c), c = cargo lost per
+  failure / V. Measured c ≈ 0.098: the time average of what owners paid for the cargo of ships in flight over the
+  fleet's hull value (the audit prints it). Purchase cost, not sale value: the margin is a profit not made. There
+  is no insurance (maybe later): it would only smooth the owner's losses, not change their mean.
+- **When the clock runs out:** in flight, the ship fails now; in port (or laid up, or in the yard), the fault shows
+  on its next leg at a fraction of the flight drawn from its stream. On a leg within one planet's system the hulk is
+  towed in at once: the destination gets its cargo into stock and the scrap value from Earth.
+- **Derelict:** on an interplanetary leg the ship becomes a derelict (`Simulation::derelicts()`, saved) coasting on
+  the two-body orbit it had (its velocity from the planned path; plasma ships thrust all the way, so a wreck can be
+  on an escape orbit). It keeps its cargo for `claim_days` (365), then is written off. The owner loses the hull (its
+  capital charge stops), what it paid for the cargo and the delivery; the ship's cash goes to its home station as in
+  a sale; the ship is listed `(sold)`. People aboard leave in the lifeboat and are taken on to the leg's destination
+  by rescue craft that are not simulated (assumption; a timed rescue is a later extension).
+- **Replacement claim:** the owner holds a claim on the lost ship's place under the fleet cap for
+  `replacement_days` (180). While claims exist, a review's first purchase is the oldest claim's faction's, priced
+  against its own money at any yard; if nothing clears its hurdle the claim waits for the next review, and others
+  may buy only into places nobody holds.
+- **Salvage run:** out from the ship's port to a rendezvous with the derelict, then on to one of its home, the
+  derelict's destination and its origin. The run is the cheapest, as the trade planners pick a trip: propellant at the
+  origin's fuel price plus the days at capital, crew and wear, less the prize at the port (prices differ by port).
+  The way out and the way home are chosen together (the cheapest few meeting times, each with its best way home). A
+  race only adds a deadline: meet the wreck `racer_margin` sooner than the current claimant. (Until 2026-10-28 runs
+  were the fastest the load allowed, half of it for the way out: they burned several times the propellant, so
+  salvage looked dearer than it was.)
+  - Plasma ships: `trajectory::meeting_candidates` / `refine_meeting` (fixed-time rendezvous on a grid of meeting
+    times, golden-section refinement of the chosen one) against the derelict's Kepler orbit (`kepler_target`), and
+    to the port's planet (`path_target` on the planet's sampled motion), arriving with the cargo and the 10% reserve.
+  - Nuclear-thermal ships: Lambert grids (waits 0-40 days, flights 10-400 days out and 10-500 home), Δv against the
+    station's circular velocity, the derelict's velocity and the port planet's; the burns are booked at the start.
+    Each grid time takes the cheapest arc: direct or with one or two whole revolutions more.
+    The 6 cheapest ways out are paired with every way home. Rendezvous is dear (~8 km/s from Mars to a wreck on a
+    transfer arc), so plasma ships do most of the salvage.
+  - Worth: the cargo that fits the salvager's hold at the port's reference prices plus the scrap
+    (`scrap_fraction` × ship value, paid by Earth at the rendezvous); cost: fuel at the port's price and the days at
+    capital, crew and wear.
+- **Who goes:** at dispatch a docked ship (idle or laid up, not under a contract, a liner loop or a new ship's route)
+  weighs its best salvage run per day against its best mission (`consider_salvage`), at most every 5 days; ships that
+  found nothing look every `salvage_review_days`. A ship sets out only if it would meet the wreck sooner than the
+  current claimant by `racer_margin` (5%), and at most `max_racers` (3) set out for one wreck.
+- **The race:** the first to reach the wreck takes the cargo that fits its hold (sold at market at its port) and the
+  scrap; a racer that gets there later finds it gone and flies on to its port empty (it does not turn back: that
+  would need planning from mid-flight, a later extension).
+- **At the real settings** (4 starts × 1,460 days, 2026-10-28): 2 failures a run (the starting fleet's oldest), 7 of
+  8 wrecks salvaged, up to 5 racers for one wreck, every loss replaced by its owner; unmet demand and profits within
+  the benchmark's noise.
+- **UI:** derelicts ride in the snapshot's ship list with phase `derelict` (map icon and registry mark dark grey,
+  a wreck card in the inspector); the coast ahead is drawn as a dark grey line (the paths file carries it, drawn
+  heliocentric without planet rails; the drift already done is not drawn). Racers carry `salvage_target_name`, and
+  their paths and icons are bright yellow, the chase colour, strong even when not selected; the top bar counts wrecks
+  adrift.
+
+## Police inspections (`Patrols.cpp`, `data/economy/patrols.csv`, `patrol_bases.csv`)
+
+Switch: `patrols`. Bases (`patrol_bases.csv`): Earth's police, 2 cutters at Low Earth Logistics, 1 at Mars Transfer
+Port, 1 at Ceres Deep Depot ("Police Cutter 1-4").
+
+- **Cutters** are plasma couriers (`class_id`), outside the trading fleet and its cap. Earth pays their capital
+  charge, crew and fuel to the home port (journal category `Patrols`, from the outside economy, as it pays wrecks'
+  scrap); they refuel from the port's stock. A base row may name a faction instead of `earth`: its treasury pays,
+  and its cutters inspect only ships bound for its stations (the version built first, kept as an option).
+- **Legal assumption:** an inspected ship complies but the law does not require it to change its trajectory; the
+  cutter matches it (it rides alongside on the ship's planned path for `inspection_days`, 3). The inspection has no
+  economic effect yet: it is the seam for customs and smuggling.
+- **Jurisdiction:** Earth's police inspects ships of every faction on an interplanetary leg, not inspected in the
+  last `reinspect_days` (120) and not already another cutter's target: a ship meets the police now and then.
+- **Meeting point:** `trajectory::meeting_candidates` (`ChaseSolver.hpp`) solves fixed-time rendezvous with the
+  ship's planned (thrusting) path at 8 times spread over its remaining flight (less the inspection), warm-started in
+  turn. The path is followed as `trajectory::PathMotion` (a conic per kept segment plus the thrust's share: tens of
+  m/s from the true motion, where finite differences of the samples missed by ~250 m/s). Each costs propellant + time (the cutter's daily cost at the home port's fuel price); the 3 cheapest are
+  costed with their way home from where the inspection ends, and the cheapest total is refined (golden section).
+  The way there may burn `outbound_share` (40%) of a full load, and the way home must leave `return_reserve` (10%),
+  else the target is skipped. Late meetings cost least, so cutters mostly meet ships on
+  their approach: in effect, customs at the border.
+- **Cycle:** in port a cutter looks every `review_days` (2) at the 3 nearest eligible ships; after an inspection it
+  goes on to another target if 60% of its load is left, else home by the cheapest way (`plan_cheapest` to the home
+  planet; until 2026-10-28 the fastest, which burned the load down to the reserve). Matching the
+  target costs the effort of the velocity the target gained over a coast (Δv² / T on the cutter's power).
+- At 400 days: ~18 sorties and ~14 inspections, ~2,000 cr of treasury money an inspection; no measurable run time.
+- **UI:** cutters ride in the snapshot's ship list with phase `patrol` (out) or `patrol_docked`, a yellow icon (the chase
+  colour, as racers); the leg flown out or home is drawn in yellow (none while alongside: the target's path is there);
+  a cutter card in the inspector, "cutters out" in the top bar. Excluded from the trading fleet's counts.
 
 ## Money around ships
 

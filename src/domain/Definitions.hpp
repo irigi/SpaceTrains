@@ -152,6 +152,44 @@ struct ShipOperationsDefinition {
     std::unordered_map<std::string, double> life_support_units_per_crew_day;
 };
 
+// Ship failures, derelicts and salvage (data/economy/failures.csv; docs/modules/ships_and_fleet.md,
+// "Failures and salvage"). Off by default: with `failures` off nothing below acts.
+struct FailureDefinition {
+    bool failures {false};
+    bool salvage {false};               // derelicts can be salvaged (otherwise they drift until they expire)
+    double weibull_shape {3.0};         // k: hazard grows as age^(k-1), so new ships rarely fail
+    // Mean life = lifetime_years (the capital charge's amortisation) x this factor: the charge then
+    // covers, in expectation, the hull and the cargo lost with it (see the module doc).
+    double mean_life_factor {1.1};
+    double scrap_fraction {0.2};        // of the ship value, paid by the outside economy to the salvager
+    double claim_days {365.0};          // an unsalvaged derelict is written off after this
+    double max_racers {3.0};            // ships that may set out for one derelict
+    double racer_margin {0.05};         // a new racer must beat the best rendezvous time by this share
+    double salvage_review_days {0.5};   // how often idle ships look at open derelicts
+    double replacement_days {180.0};    // the owner's first right to the lost ship's place under the cap
+};
+
+// Police inspections (data/economy/patrols.csv and patrol_bases.csv; docs/modules/ships_and_fleet.md,
+// "Police inspections"): faction cutters meet ships bound for the faction's stations in flight and
+// inspect them for a few days. The inspected ship keeps its trajectory (the law does not make it
+// change course); the cutter matches it.
+struct PatrolBaseDefinition {
+    std::string faction_id;
+    std::string station_id;
+    int ships {1};
+};
+
+struct PatrolDefinition {
+    bool patrols {false};
+    std::string class_id {"plasma_courier"};   // cutters are couriers in faction service
+    double inspection_days {3.0};
+    double reinspect_days {120.0};     // a ship inspected is left alone this long
+    double review_days {2.0};          // a cutter in port looks for a target this often
+    double outbound_share {0.4};       // of the load the way to a meeting may burn
+    double return_reserve {0.1};       // of the load kept when back home
+    std::vector<PatrolBaseDefinition> bases;
+};
+
 // The space environment acting on ships and crews (data/economy/ship_environment.csv, tier 2;
 // sources and derivations in docs/ship_technology.md, "Crew radiation"). Every mechanism is a
 // switch; with all off the economy is the reference.
@@ -627,6 +665,8 @@ struct UniverseDefinition {
     std::vector<ShipClassDefinition> ship_classes;
     std::vector<ShipModuleDefinition> ship_modules;
     ShipEnvironmentDefinition ship_environment;
+    FailureDefinition failures;
+    PatrolDefinition patrols;
     LabourDefinition labour;
     std::unordered_map<std::string, SparePartDefinition> spare_parts;  // by sub-part kind
     std::unordered_map<std::string, StationRadiationDefinition> station_radiation;

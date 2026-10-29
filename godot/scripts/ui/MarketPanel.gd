@@ -148,11 +148,16 @@ func _economy_summary(state: Dictionary, commodities: Array, stations: Array) ->
         int(economy.get("emergencies_opened", 0)), UiTheme.format_credits(float(economy.get("emergency_paid", 0.0)))])
     var ships: Array = state.get("ships", [])
     var laid_up := 0
+    var fleet := 0
     for ship in ships:
-        if String(ship.get("phase", "")) == "laid_up":
+        var phase := String(ship.get("phase", ""))
+        if phase in ["derelict", "patrol", "patrol_docked"]:
+            continue   # wrecks and police cutters are not in the trading fleet
+        fleet += 1
+        if phase == "laid_up":
             laid_up += 1
     lines.append("Fleet %d ships (%d bought, %d sold since start, %d laid up)" % [
-        ships.size(), int(economy.get("ships_commissioned", 0)), int(economy.get("ships_sold", 0)), laid_up])
+        fleet, int(economy.get("ships_commissioned", 0)), int(economy.get("ships_sold", 0)), laid_up])
     # Worst-supplied goods, by value gone short since the start.
     var base_prices := {}
     for commodity in commodities:

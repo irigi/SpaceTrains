@@ -94,8 +94,13 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
         return
     else:
         # Ships: the faction band, red when stranded; the rest is ShipModels' shared paint.
-        var stranded := String(data.get("phase", "idle")) == "stranded"
-        Materials.set_band(ShipModels.instance_materials(container)["band"], Color(0.85, 0.25, 0.2) if stranded else faction_color)
+        var phase := String(data.get("phase", "idle"))
+        var band := faction_color
+        if phase == "stranded":
+            band = Color(0.85, 0.25, 0.2)
+        elif phase == "derelict":
+            band = Color(0.3, 0.3, 0.32)   # a dead hull: no lights, dark grey band
+        Materials.set_band(ShipModels.instance_materials(container)["band"], band)
         return
     for child in container.get_children():
         var key := "wing" if String(child.name).begins_with("wing") else String(child.name)
@@ -158,7 +163,9 @@ static func update_engine_glow(container: Node3D, data: Dictionary, game_time_s:
     var phase := String(data.get("phase", "idle"))
     var plasma := String(data.get("propulsion_type", "nuclear_thermal")) == "variable_isp"
     var engine_on := false
-    if phase == "in_transit":
+    if phase == "patrol":
+        engine_on = plasma   # cutters are plasma ships, always under way when out
+    elif phase == "in_transit":
         if plasma:
             engine_on = true
         else:

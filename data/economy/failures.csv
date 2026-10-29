@@ -1,0 +1,11 @@
+key,value
+failures,1
+salvage,1
+weibull_shape,3
+mean_life_factor,1.1
+scrap_fraction,0.2
+claim_days,365
+max_racers,3
+racer_margin,0.05
+salvage_review_days,0.5
+replacement_days,180

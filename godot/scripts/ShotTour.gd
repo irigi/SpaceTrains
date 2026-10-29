@@ -173,6 +173,10 @@ func _run() -> void:
         await _inspector_shots(rig)
         get_tree().quit()
         return
+    if OS.get_cmdline_user_args().has("--shot-derelict"):
+        await _derelict_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-station-systems"):
         await _station_systems_shots(rig)
         get_tree().quit()
@@ -617,6 +621,37 @@ func _station_systems_shots(rig: Node3D) -> void:
 
 # The inspector panel, page by page (cropped to the panel), for a docked and a flying ship of
 # each drive and for a few stations: to judge how the panels read.
+# Failures and salvage: a wreck adrift and a ship racing for one (with --shot-load of a game that
+# has them), close and from afar, inspector open.
+func _derelict_shots(rig: Node3D) -> void:
+    var wreck := ""
+    var racer := ""
+    var cutter := ""
+    for ship_id in main.entity_details.keys():
+        if main.entity_kinds.get(ship_id, "") != "ship":
+            continue
+        var detail: Dictionary = main.entity_details[ship_id]
+        if wreck == "" and String(detail.get("phase", "")) == "derelict":
+            wreck = ship_id
+        if racer == "" and String(detail.get("salvage_target_name", "")) != "":
+            racer = ship_id
+        if cutter == "" and String(detail.get("phase", "")) == "patrol":
+            cutter = ship_id
+    var phases := {}
+    for ship in main.bridge_state.get("ships", []):
+        var phase := String(ship.get("phase", ""))
+        phases[phase] = int(phases.get(phase, 0)) + 1
+    print("[ShotTour] derelict %s, racer %s, cutter %s; phases %s" % [wreck, racer, cutter, phases])
+    for pick in [[wreck, "derelict"], [racer, "salvage_racer"], [cutter, "patrol"]]:
+        if pick[0] == "":
+            continue
+        main.select_entity(pick[0], "ship", true)
+        for view in [[0.003, "_close"], [3.0, "_far"]]:
+            rig.set("distance", view[0])
+            rig.call("_update_transform")
+            await get_tree().create_timer(1.0).timeout
+            await _shoot(String(pick[1]) + String(view[1]))
+
 func _inspector_shots(rig: Node3D) -> void:
     var picks: Array = []
     for station_id in ["earth_orbit", "mars_transfer", "ganymede_depot"]:

@@ -20,6 +20,11 @@
 #include "data_loader/DataLoader.hpp"
 #include "domain/ShipDesign.hpp"
 #include "persistence/Json.hpp"
+#include "trajectory/ChaseSolver.hpp"
+#include "trajectory/KeplerPropagation.hpp"
+#include "trajectory/Lambert.hpp"
+#include "trajectory/PathMotion.hpp"
+#include "trajectory/PathSampling.hpp"
 #include "trajectory/Porkchop.hpp"
 #include "simulation/CrewEnvironment.hpp"
 #include "simulation/Simulation.hpp"
@@ -1731,6 +1736,216 @@ int main() {
         require(total > 0, "events should strike within 400 days");
         require(first == run(), "the same seed should strike the same events");
         std::cout << std::format("Events: {} struck in 400 days\n", total);
+    }
+
+    // --- Kepler propagation (failures and salvage): a circular orbit a quarter period on, and
+    // there and back again. ---
+    {
+        const double mu = 1.32712440018e20;
+        const double r = 1.495978707e11;
+        const double v = std::sqrt(mu / r);
+        const double period = 2.0 * PI * std::sqrt(r * r * r / mu);
+        const spacetrains::math::Vec3d r0 {r, 0.0, 0.0};
+        const spacetrains::math::Vec3d v0 {0.0, 0.0, v};
+        const auto quarter = spacetrains::trajectory::propagate_kepler(r0, v0, 0.25 * period, mu);
+        require_near(quarter.position_m.x, 0.0, 1.0e3, "a quarter orbit should be at 90 degrees (x)");
+        require_near(quarter.position_m.z, r, 1.0e3, "a quarter orbit should be at 90 degrees (z)");
+        require_near(quarter.velocity_mps.length(), v, 1.0e-3, "a circular orbit keeps its speed");
+        // An eccentric orbit, forward and back over several revolutions.
+        const spacetrains::math::Vec3d v1 {3000.0, 0.0, 1.2 * v};
+        const auto out = spacetrains::trajectory::propagate_kepler(r0, v1, 3.7 * period, mu);
+        const auto back = spacetrains::trajectory::propagate_kepler(out.position_m, out.velocity_mps, -3.7 * period, mu);
+        require_near(distance_between(back.position_m, r0), 0.0, 1.0e4, "propagation there and back should return");
+        // A hyperbolic coast conserves energy.
+        const spacetrains::math::Vec3d v2 {0.0, 0.0, 1.6 * v};
+        const auto far = spacetrains::trajectory::propagate_kepler(r0, v2, 200.0 * 86400.0, mu);
+        const double e0 = 0.5 * v2.length() * v2.length() - mu / r;
+        const double e1 = 0.5 * far.velocity_mps.length() * far.velocity_mps.length() - mu / far.position_m.length();
+        require_near(e1, e0, 1.0e-6 * std::abs(e0), "a hyperbolic coast should conserve energy");
+        std::cout << "Kepler propagation: circular, eccentric and hyperbolic coasts OK\n";
+    }
+
+    // --- Lambert arcs: short and long ways, a day to most of an orbit, and the extra-revolution
+    // arcs all reach the target in the time (checked by propagating the departure velocity). ---
+    {
+        const double mu = 1.32712440018e20;
+        const double au = 1.495978707e11;
+        const spacetrains::math::Vec3d r0 {au, 0.0, 0.0};
+        const spacetrains::math::Vec3d v0 {0.0, 0.0, std::sqrt(mu / au) * 1.05};
+        std::size_t multi = 0;
+        for (const double days : {1.0, 3.0, 20.0, 90.0, 180.0, 250.0, 330.0, 700.0, 1000.0}) {
+            const double dt = days * 86400.0;
+            const auto end = spacetrains::trajectory::propagate_kepler(r0, v0, dt, mu);
+            const auto direct = spacetrains::trajectory::solve_lambert(r0, end.position_m, dt, mu);
+            if (days < 400.0) {  // under one revolution of this orbit: the arc is the orbit itself
+                require(direct.found && (direct.v1 - v0).length() < 0.1, "Lambert should recover the orbit through two points");
+            }
+            for (const auto& arc : spacetrains::trajectory::solve_lambert_revolutions(r0, end.position_m, dt, mu, 3)) {
+                const auto reached = spacetrains::trajectory::propagate_kepler(r0, arc.v1, dt, mu);
+                require(distance_between(reached.position_m, end.position_m) < 1.0e4, "every Lambert arc should reach the target");
+                require((reached.velocity_mps - arc.v2).length() < 0.1, "a Lambert arc's arrival velocity should match its coast");
+                multi += arc.revolutions > 0 ? 1 : 0;
+            }
+        }
+        require(multi >= 4, "long times should offer arcs with whole revolutions");
+        std::cout << std::format("Lambert: short, long and {} multi-revolution arcs OK\n", multi);
+    }
+
+    // --- Failures (data/economy/failures.csv): with a short life ships fail, derelicts coast on
+    // a conic, the run repeats exactly and money is conserved. ---
+    {
+        const auto run = [&] {
+            auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string(),
+                [](spacetrains::domain::UniverseDefinition& universe) {
+                    universe.failures.failures = true;
+                    universe.failures.salvage = false;
+                    universe.failures.mean_life_factor = 0.05;  // 1.5-year lives
+                });
+            sim.set_timewarp(86400.0);
+            for (int day = 0; day < 200; ++day) {
+                sim.step(1.0);
+            }
+            const auto& audit = sim.failure_audit();
+            for (const auto& derelict : sim.derelicts()) {
+                require(derelict.sampled_path.size() == derelict.sampled_times_s.size() && derelict.sampled_path.size() > 2,
+                    "a derelict should carry its sampled coast");
+                // (Plasma ships thrust all the way, so a wreck can be on an escape orbit.)
+                require(distance_between(derelict.sampled_path.front(), derelict.epoch_position_m) < 1.0,
+                    "a derelict's coast should start where it failed");
+                require(derelict.sampled_times_s.front() == derelict.failed_at_s, "a derelict's coast should start when it failed");
+            }
+            return std::tuple {audit.failures, audit.derelicts, audit.local_recoveries, sim.derelicts().size()};
+        };
+        const auto first = run();
+        require(std::get<0>(first) > 5, "short lives should make ships fail within 200 days");
+        require(first == run(), "the same seed should fail the same ships");
+        std::cout << std::format("Failures: {} in 200 days with 1.5-year lives ({} derelicts, {} towed in)\n",
+            std::get<0>(first), std::get<1>(first), std::get<2>(first));
+    }
+
+    // --- A ship's motion from its thinned path (PathMotion, a conic per segment) against the
+    // integrated truth: exact on a coast, within the thrust of a segment on a powered transfer, and
+    // far better than finite differences of the kept samples. ---
+    {
+        namespace g = spacetrains::variable_isp::general;
+        const double mu = 1.32712440018e20;
+        const double au = 1.495978707e11;
+        const double tu = std::sqrt(au * au * au / mu);
+        const double vu = au / tu;
+        // Powered: Earth's orbit to a rendezvous with a circular orbit at 1.52 AU in ~145 days.
+        const g::Propagator propagator;
+        const double T = 2.5;
+        const double phase = T / std::pow(1.52, 1.5);
+        const g::TransferRequest request {{{1.0, 0.0}, {0.0, 1.0}},
+            g::coasting_target({{1.52 * std::cos(1.4 - phase), 1.52 * std::sin(1.4 - phase)},
+                {-std::sin(1.4 - phase) / std::sqrt(1.52), std::cos(1.4 - phase) / std::sqrt(1.52)}}),
+            g::EndCondition::Rendezvous, 0.1};
+        const auto solution = g::solve_transfer(propagator, request, T);
+        require(solution.converged, "the powered test transfer should converge");
+        const auto check = [&](const std::vector<spacetrains::math::Vec3d>& r, const std::vector<spacetrains::math::Vec3d>& v,
+                               const std::vector<double>& t, const char* name, double max_dv) {
+            std::vector<spacetrains::math::Vec3d> path;
+            std::vector<double> times;
+            const auto keep = spacetrains::trajectory::select_for_rendering(r);
+            for (const auto i : keep) {
+                path.push_back(r[i]);
+                times.push_back(t[i]);
+            }
+            const spacetrains::trajectory::PathMotion motion(path, times, mu);
+            double conic_dv = 0.0, conic_dr = 0.0, fd_dv = 0.0;
+            for (std::size_t i = 0; i < r.size(); ++i) {
+                const auto s = motion.at(t[i]);
+                conic_dv = std::max(conic_dv, (s.velocity_mps - v[i]).length());
+                conic_dr = std::max(conic_dr, (s.position_m - r[i]).length());
+            }
+            for (std::size_t k = 1; k + 1 < keep.size(); ++k) {
+                const auto fd = (path[k + 1] - path[k - 1]) / (times[k + 1] - times[k - 1]);
+                fd_dv = std::max(fd_dv, (fd - v[keep[k]]).length());
+            }
+            std::cout << std::format("Path motion, {} ({} of {} samples kept): conic per segment {:.1f} m/s, {:.0f} km; "
+                                     "finite differences {:.0f} m/s\n", name, keep.size(), r.size(), conic_dv, conic_dr / 1e3, fd_dv) << std::flush;
+            require(conic_dv < max_dv, "a path's conic motion should follow the true velocity");
+            require(conic_dv < 0.25 * fd_dv, "conics should beat finite differences of the kept samples");
+        };
+        std::vector<spacetrains::math::Vec3d> r, v;
+        std::vector<double> t;
+        for (const auto& sample : propagator.sample(request.start, solution.primer, solution.T, 1500)) {
+            r.push_back({sample.state.r.x * au, 0.0, sample.state.r.y * au});
+            v.push_back({sample.state.v.x * vu, 0.0, sample.state.v.y * vu});
+            t.push_back(sample.t * tu);
+        }
+        check(r, v, t, "powered", 60.0);
+        // Coast: an eccentric orbit (1 AU perihelion, 2.2 AU aphelion) for 300 days.
+        r.clear(); v.clear(); t.clear();
+        const spacetrains::math::Vec3d r0 {au, 0.0, 0.0};
+        const spacetrains::math::Vec3d v0 {0.0, 0.0, std::sqrt(mu / au * 2.0 * 2.2 / 3.2)};
+        for (int i = 0; i <= 1500; ++i) {
+            const double ti = i * 300.0 * 86400.0 / 1500.0;
+            const auto s = spacetrains::trajectory::propagate_kepler(r0, v0, ti, mu);
+            r.push_back(s.position_m);
+            v.push_back(s.velocity_mps);
+            t.push_back(ti);
+        }
+        check(r, v, t, "coast", 1.0);
+    }
+
+    // --- Police inspections: the meeting solver finds a rendezvous on a coasting target's path
+    // within the window; cutters inspect ships and the run repeats exactly. ---
+    {
+        const double mu = 1.32712440018e20;
+        const double au = 1.495978707e11;
+        spacetrains::trajectory::ChaseUnits units;
+        units.length_m = au;
+        const spacetrains::math::Vec3d r0 {au, 0.0, 0.0};
+        const spacetrains::math::Vec3d v0 {0.0, 0.0, std::sqrt(mu / au)};
+        // The target: a coast from 1.1 AU, sampled every day for a year.
+        spacetrains::domain::TrajectoryPlan target;
+        const spacetrains::math::Vec3d rt {0.0, 0.0, 1.1 * au};
+        const spacetrains::math::Vec3d vt {-std::sqrt(mu / (1.1 * au)), 0.0, 0.0};
+        spacetrains::trajectory::sample_kepler(rt, vt, 0.0, 365.0 * 86400.0, 86400.0, mu, target.sampled_path, target.sampled_times_s);
+        const spacetrains::trajectory::ChaseRequest request {
+            .position_m = r0, .velocity_mps = v0, .depart_time_s = 0.0, .power_w = 18.0e6,
+            .initial_mass_kg = 40000.0, .dry_mass_kg = 30000.0,
+            .end_condition = spacetrains::variable_isp::general::EndCondition::Rendezvous};
+        const auto meet = spacetrains::trajectory::plan_meeting(request, spacetrains::trajectory::path_target(target, 0.0, units), units,
+            20.0 * 86400.0, 200.0 * 86400.0, 0.0);
+        require(meet.feasible, "a cutter should find a meeting with a nearby coasting ship");
+        require(meet.transfer_time_s >= 20.0 * 86400.0 - 1.0 && meet.transfer_time_s <= 200.0 * 86400.0 + 1.0,
+            "the meeting should fall in the window");
+        const auto at_meet = spacetrains::trajectory::propagate_kepler(rt, vt, meet.transfer_time_s, mu);
+        require(distance_between(meet.path_m.back(), at_meet.position_m) < 2.0e8, "the cutter should end where the target is");
+        require(meet.propellant_kg > 0.0 && meet.propellant_kg < 10000.0, "the meeting should fit the load");
+
+        // The cheapest meeting costs no more than the fastest one at the same time weight (a cutter's
+        // day ≈ 30 kg of propellant), and the refinement no more than its grid point.
+        const auto wreck = spacetrains::trajectory::kepler_target(rt, vt, units);
+        const double kg_per_s = 30.0 / 86400.0;
+        const auto fastest = spacetrains::trajectory::plan_chase(request, wreck, units);
+        const auto grid = spacetrains::trajectory::meeting_candidates(request, wreck, units, 86400.0, 365.0 * 86400.0, kg_per_s, 10);
+        const auto cheapest = spacetrains::trajectory::plan_cheapest(request, wreck, units, 86400.0, 365.0 * 86400.0, kg_per_s);
+        require(fastest.feasible && cheapest.feasible && !grid.empty(), "both chases should find the coasting ship");
+        const double fastest_cost = fastest.propellant_kg + kg_per_s * fastest.transfer_time_s;
+        const double cheapest_cost = cheapest.propellant_kg + kg_per_s * cheapest.transfer_time_s;
+        require(cheapest_cost <= fastest_cost * 1.001, "the cheapest chase should cost no more than the fastest");
+        require(cheapest_cost <= grid.front().objective + 1.0e-6, "refining should not make the meeting dearer");
+        std::cout << std::format("Chase cost: fastest {:.0f} d, {:.0f} kg (cost {:.0f}); cheapest {:.0f} d, {:.0f} kg (cost {:.0f})\n",
+            fastest.transfer_time_s / 86400.0, fastest.propellant_kg, fastest_cost, cheapest.transfer_time_s / 86400.0,
+            cheapest.propellant_kg, cheapest_cost);
+
+        const auto run = [&] {
+            auto sim = spacetrains::simulation::Simulation::from_data_root((repo_root / "data").string(),
+                [](spacetrains::domain::UniverseDefinition& universe) { universe.patrols.patrols = true; });
+            sim.set_timewarp(86400.0);
+            for (int day = 0; day < 250; ++day) {
+                sim.step(1.0);
+            }
+            return std::pair {sim.patrol_audit().inspections, sim.patrol_audit().sorties};
+        };
+        const auto first = run();
+        require(first.first > 0, "cutters should inspect ships within 250 days");
+        require(first == run(), "inspections should repeat exactly");
+        std::cout << std::format("Police: meeting after {:.0f} days for {:.0f} kg; {} inspections in 250 days ({} sorties)\n",
+            meet.transfer_time_s / 86400.0, meet.propellant_kg, first.first, first.second);
     }
 
     std::cout << "All SpaceTrains tests passed.\n";

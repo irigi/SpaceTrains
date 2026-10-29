@@ -377,6 +377,109 @@ void load_ship_operations(const std::filesystem::path& root, domain::UniverseDef
     }
 }
 
+// Ship failures and salvage (optional file; every key optional, defaults in FailureDefinition).
+void load_failures(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
+    const auto path = root / "economy" / "failures.csv";
+    if (!std::filesystem::exists(path)) {
+        return;
+    }
+    const auto rows = read_csv_rows(path);
+    require_header(rows.front(), {"key", "value"}, path);
+    std::unordered_set<std::string> seen_keys;
+    auto& f = universe.failures;
+    double failures = f.failures ? 1.0 : 0.0;
+    double salvage = f.salvage ? 1.0 : 0.0;
+    const std::unordered_map<std::string, double*> fields {
+        {"failures", &failures},
+        {"salvage", &salvage},
+        {"weibull_shape", &f.weibull_shape},
+        {"mean_life_factor", &f.mean_life_factor},
+        {"scrap_fraction", &f.scrap_fraction},
+        {"claim_days", &f.claim_days},
+        {"max_racers", &f.max_racers},
+        {"racer_margin", &f.racer_margin},
+        {"salvage_review_days", &f.salvage_review_days},
+        {"replacement_days", &f.replacement_days},
+    };
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        require_field_count(row, 2, path, i + 1);
+        require_unique_id(row[0], seen_keys, path, i + 1);
+        const auto field = fields.find(row[0]);
+        if (field == fields.end()) {
+            throw std::runtime_error("Unknown key '" + row[0] + "' in " + path.string());
+        }
+        *field->second = parse_double(row[1], path, i + 1, row[0].c_str());
+    }
+    f.failures = failures != 0.0;
+    f.salvage = salvage != 0.0;
+    if (f.weibull_shape <= 0.0 || f.mean_life_factor <= 0.0 || f.scrap_fraction < 0.0 || f.claim_days <= 0.0
+        || f.max_racers < 0.0 || f.racer_margin < 0.0 || f.salvage_review_days <= 0.0 || f.replacement_days < 0.0) {
+        throw std::runtime_error(path.string() + ": a failure setting is out of range");
+    }
+}
+
+// Police inspections (optional files).
+void load_patrols(const std::filesystem::path& root, domain::UniverseDefinition& universe) {
+    const auto path = root / "economy" / "patrols.csv";
+    if (!std::filesystem::exists(path)) {
+        return;
+    }
+    auto& p = universe.patrols;
+    const auto rows = read_csv_rows(path);
+    require_header(rows.front(), {"key", "value"}, path);
+    std::unordered_set<std::string> seen_keys;
+    double patrols = p.patrols ? 1.0 : 0.0;
+    const std::unordered_map<std::string, double*> fields {
+        {"patrols", &patrols},
+        {"inspection_days", &p.inspection_days},
+        {"reinspect_days", &p.reinspect_days},
+        {"review_days", &p.review_days},
+        {"outbound_share", &p.outbound_share},
+        {"return_reserve", &p.return_reserve},
+    };
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        require_field_count(row, 2, path, i + 1);
+        require_unique_id(row[0], seen_keys, path, i + 1);
+        if (row[0] == "class_id") {
+            p.class_id = row[1];
+            continue;
+        }
+        const auto field = fields.find(row[0]);
+        if (field == fields.end()) {
+            throw std::runtime_error("Unknown key '" + row[0] + "' in " + path.string());
+        }
+        *field->second = parse_double(row[1], path, i + 1, row[0].c_str());
+    }
+    p.patrols = patrols != 0.0;
+    if (p.inspection_days <= 0.0 || p.reinspect_days < 0.0 || p.review_days <= 0.0 || p.outbound_share <= 0.0
+        || p.outbound_share >= 1.0 || p.return_reserve < 0.0 || p.return_reserve >= 1.0) {
+        throw std::runtime_error(path.string() + ": a patrol setting is out of range");
+    }
+    if (std::none_of(universe.ship_classes.begin(), universe.ship_classes.end(), [&](const auto& c) { return c.id == p.class_id; })) {
+        throw std::runtime_error(path.string() + ": unknown cutter class " + p.class_id);
+    }
+    const auto bases_path = root / "economy" / "patrol_bases.csv";
+    if (!std::filesystem::exists(bases_path)) {
+        return;
+    }
+    const auto base_rows = read_csv_rows(bases_path);
+    require_header(base_rows.front(), {"faction_id", "station_id", "ships"}, bases_path);
+    for (std::size_t i = 1; i < base_rows.size(); ++i) {
+        const auto& row = base_rows[i];
+        require_field_count(row, 3, bases_path, i + 1);
+        require_station(universe, row[1], bases_path);
+        // "earth": the police paid by Earth (every faction's ships); else a faction's own cutters.
+        if (row[0] != "earth"
+            && std::none_of(universe.factions.begin(), universe.factions.end(), [&](const auto& f) { return f.id == row[0]; })) {
+            throw std::runtime_error(bases_path.string() + ": unknown faction " + row[0]);
+        }
+        p.bases.push_back({.faction_id = row[0], .station_id = row[1],
+            .ships = static_cast<int>(parse_double(row[2], bases_path, i + 1, "ships"))});
+    }
+}
+
 // Ship environment (tier 2): crew radiation and the other effects modules answer. Optional
 // file and keys; the defaults in domain::ShipEnvironmentDefinition are the sourced values,
 // with every mechanism switched off.

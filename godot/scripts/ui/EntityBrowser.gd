@@ -105,6 +105,12 @@ func _ship_status(detail: Dictionary) -> Array:
             return ["✖", UiTheme.ALERT]
         "laid_up":
             return ["◌", UiTheme.TEXT_DIM]
+        "derelict":
+            return ["✕", Color(0.55, 0.55, 0.58)]   # wrecks grey, as on the map
+        "patrol":
+            return ["◈", Color(1.0, 0.95, 0.15)]    # chasers yellow, as on the map
+        "patrol_docked":
+            return ["◈", UiTheme.TEXT_DIM]
         _:
             return ["●", UiTheme.GOOD]
 
@@ -132,6 +138,12 @@ func _tooltip(entity_id: String, kind: String, detail: Dictionary) -> String:
         var hold := " + ".join(parts) if not parts.is_empty() else "empty"
         var destination_id := String(detail.get("destination_station_id", ""))
         var destination := String((_last_details.get(destination_id, {}) as Dictionary).get("name", destination_id))
+        if phase == "derelict":
+            return "drifting wreck (%s)" % hold
+        if phase == "patrol" or phase == "patrol_docked":
+            return "police cutter: %s" % String(detail.get("patrol_status", ""))
+        if String(detail.get("salvage_target_name", "")) != "":
+            return "racing to salvage %s, then → %s" % [String(detail.get("salvage_target_name", "")), destination]
         if phase == "in_transit" or phase == "awaiting_departure":
             return "%s → %s (%s)" % ["waiting for its window" if phase == "awaiting_departure" else "in flight", destination, hold]
         var here_id := String(detail.get("current_station_id", ""))

@@ -45,6 +45,7 @@ constexpr std::array<MoneyCategoryInfo, kMoneyCategories> kCategories {{
     {"hull_yard", "Hulls (yard's share)", "investment"},
     {"working_capital", "Working capital", "investment"},
     {"salvage", "Salvage", "investment"},
+    {"patrols", "Police patrols", "factions"},
 }};
 }  // namespace
 
