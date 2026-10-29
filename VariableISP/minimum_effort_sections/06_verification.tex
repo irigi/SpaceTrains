@@ -1,0 +1,205 @@
+\section{What establishes optimality}
+\label{sec:verification}
+A useful planner needs a feasible trajectory and a reason to trust its
+reported performance. These are separate outputs. A small shooting
+residual indicates a stationary candidate; it does not establish a
+minimum. Comparing feasible branches improves an upper bound, while
+a lower bound must cover every admissible competitor.
+
+\subsection{The smooth second variation}
+For an exact ideal extremal strictly outside the floor, let
+$z=(\delta r,\delta v)$ and $\xi=\delta u$ satisfy
+$z'=Az+B\xi$, $z(0)=z(h)=0$.
+The fixed-endpoint second variation is
+\begin{equation}
+ Q[\xi]=\int_0^h\left(2|\xi|^2-z^TC_s z\right)dt,
+ \label{eq:second}
+\end{equation}
+with $C_s=\operatorname{diag}(K,0)$ and
+\begin{equation}
+ \begin{split}
+ K={}&\frac3{R^5}
+ [p_vr^T+rp_v^T+(p_v\cdot r)I]\\
+ &-\frac{15(p_v\cdot r)}{R^7}rr^T,\qquad R=|r|.
+ \end{split}
+\end{equation}
+Differentiating $Dg=-I/R^3+3rr^T/R^5$ and contracting its
+derivative with $p_v$ gives the displayed $K$.
+The sign and factor two follow by augmenting the minimized cost with
+$\int p\cdot(s'-f)dt$. Coercivity
+$Q\ge\gamma_Q\norm{\xi}_2^2$ with $\gamma_Q>0$ proves a strict
+local minimum in the $L^2$ control topology; a negative direction on
+the endpoint kernel rules it out.
+
+Initialize the vertical Jacobi frame $X(0)=0$, $Y(0)=I$ and integrate
+\begin{equation}
+ \begin{pmatrix}X\\Y\end{pmatrix}'
+ =\begin{pmatrix}A&D\\-C_s&-A^T\end{pmatrix}
+ \begin{pmatrix}X\\Y\end{pmatrix}.
+\end{equation}
+Conjugate times are rank losses of $X(t)$ at $t>0$.
+For this regular fully actuated acceleration problem, absence of
+conjugate points on $(0,h]$ gives strict local minimality; a first
+conjugate point strictly before $h$ produces a negative direction
+on the longer interval \cite{Bonnard2007}.
+Where $X$ is invertible, $S=YX^{-1}$ satisfies
+\begin{equation}
+ S'+A^TS+SA+SDS+C_s=0,
+\end{equation}
+and completing the square yields
+$Q=[z^TSz]_0^h+2\int|\xi-B^TSz/2|^2dt$.
+Initialize the frame, not an arbitrary $S(0)=0$.
+
+Sampling $\det X$ cannot exclude conjugate points: even multiplicity
+can leave its sign unchanged. The synthetic accessory problem
+$Q/2=\int_0^1(z''^2-600z^2)dt$ in two identical coordinates
+has such a crossing at $t_c=0.955712066275\ldots$.
+It also has the explicit negative direction $z=1-\cos(2\pi t)$.
+The test verifies the diagnostic logic, not a particular orbital branch.
+Engine switches, radial contacts and flybys need their own junction
+terms in a second variation.
+
+\subsection{Global effort lower bounds}
+With floor $a>0$, gravity obeys $|g|\le g_m=a^{-2}$.
+For the endpoint moments $d_r,d_v$ of \eqref{eq:free},
+\begin{equation}
+ L_v=\frac{\pos{|d_v|-g_mh}^2}{h},\qquad
+ L_r=\frac{3\pos{|d_r|-g_mh^2/2}^2}{h^3}
+ \label{eq:momentbounds}
+\end{equation}
+are lower bounds. They follow by integrating \eqref{eq:kepler}
+and applying Cauchy--Schwarz.
+A joint directional bound, for $\lambda=(\alpha,\beta)\ne0$, is
+\begin{equation}
+ \begin{gathered}
+ L_\lambda=
+ \frac{\pos{\lambda\cdot(d_r,d_v)-g_m\int_0^h|q(t)|dt}^2}
+ {\lambda^TW_0\lambda},\\
+ q(t)=(h-t)\alpha+\beta.
+ \end{gathered}
+\end{equation}
+An upper enclosure of the convex norm integral preserves this bound.
+Several directions may be evaluated cheaply at the actual query.
+
+Energy and angular momentum supply additional bounds for competitors
+with $J\le U$, where $U\ge0$ is any cutoff. Put
+\begin{equation}
+ \begin{split}
+ c_0&=|v_0|^2+2/a-2/|r_0|,\\
+ I_v(U)&=[h\sqrt U+\sqrt{h^2U+hc_0}]^2,\\
+ R_U&=|r_0|+h|v_0|+g_mh^2/2+\sqrt{Uh^3/3}.
+ \end{split}
+\end{equation}
+To see the first estimate, write $I=\int_0^h|v|^2dt$.
+The work identity and Cauchy--Schwarz imply
+$|v(t)|^2\le c_0+2\sqrt{UI}$, whence $I\le hc_0+2h\sqrt{UI}$.
+Solving this quadratic inequality in $\sqrt I$ gives $I_v(U)$.
+Double integration of acceleration and Cauchy--Schwarz give $R_U$.
+Equation~\eqref{eq:work} gives
+$\int|v|^2dt\le I_v(U)$ and $|r|\le R_U$, hence
+\begin{equation}
+ L_E=\frac{(\Delta E)^2}{I_v(U)},\qquad
+ L_M=\frac{(\Delta j)^2}{hR_U^2}.
+\end{equation}
+Degenerate zero numerators and denominators are handled by continuity.
+A globally valid combination is
+\begin{equation}
+ L=\max\{0,L_v,L_r,L_\lambda,
+                  \min[U,\max(L_E,L_M)]\}\le V.
+ \label{eq:globalL}
+\end{equation}
+The cutoff clipping covers trajectories with effort greater than $U$.
+An actually feasible trajectory of effort at most $U$ additionally
+establishes $V\le U$ and suboptimality at most $U-L$.
+Ideal lower bounds also apply to the bounded engine at the same
+endpoints; its upper bound needs a band-feasible witness.
+
+\subsection{A global certificate near a low-effort path}
+Let $(\bar r,\bar v,\bar u)$ be an endpoint-exact feasible ideal
+reference of effort $U$ and $p$ any continuous piecewise differentiable
+multiplier. Define residuals
+\begin{equation}
+ e_u=2\bar u-p_v,\quad
+ e_r=p_r'+Dg(\bar r)^Tp_v,\quad e_v=p_v'+p_r.
+\end{equation}
+For a competitor, write $\delta u=u-\bar u$,
+$\delta r=r-\bar r$, $\delta v=v-\bar v$ and
+$R_g=g(r)-g(\bar r)-Dg(\bar r)\delta r$.
+Integration by parts gives the exact difference
+\begin{equation}
+ \begin{split}
+ J-U={}&\norm{\delta u}_2^2+\int e_u\cdot\delta u\,dt\\
+ &-\int(e_r\cdot\delta r+e_v\cdot\delta v+p_v\cdot R_g)dt.
+ \end{split}
+ \label{eq:gapidentity}
+\end{equation}
+Endpoint error would add a boundary term; it cannot be ignored.
+
+Suppose $|\bar r|\ge b>a$, choose $0<d<b$ and put
+$\ell=b-d$, $\omega=\sqrt{2/\ell^3}$.
+Before a first exit from $|\delta r|<d$,
+\begin{equation}
+ |\delta r(t)|\le k_r(t)\norm{\delta u}_{2,[0,t]},\quad
+ |\delta v(t)|\le k_v(t)\norm{\delta u}_{2,[0,t]},
+\end{equation}
+where
+\begin{equation}
+ k_r(t)^2=\int_0^t\frac{\sinh^2(\omega s)}{\omega^2}ds,\quad
+ k_v(t)^2=\int_0^t\cosh^2(\omega s)ds.
+\end{equation}
+Every competitor with $J\le U$ has
+$\norm{\delta u}_2\le2\sqrt U$. Thus
+\begin{equation}
+ 2\sqrt U\,k_r(h)<d
+ \label{eq:containment}
+\end{equation}
+prevents a first exit and covers all cheaper competitors.
+
+Let $A_r=\int_0^h k_r^2dt$, $A_v=\int_0^h k_v^2dt$,
+$P_v\ge\sup|p_v|$ and
+\begin{equation}
+ \begin{gathered}
+ \gamma=1-\frac{3P_v}{\ell^4}A_r,\\
+ \eta=\norm{e_u}_2+\sqrt{A_r}\norm{e_r}_2+
+                    \sqrt{A_v}\norm{e_v}_2.
+ \end{gathered}
+\end{equation}
+The sharp bound is $\norm{D^2g(x)[z,z]}\le6|z|^2/|x|^4$.
+Indeed
+\[
+D^2g(x)[z,z]=\frac{6(x\cdot z)z+3|z|^2x}{|x|^5}
+             -\frac{15(x\cdot z)^2x}{|x|^7}.
+\]
+For $|z|=1$ and $c=\hat x\cdot z$, its squared norm is
+$9(1-2c^2+5c^4)/|x|^8\le36/|x|^8$, with equality radially.
+Taylor's factor $1/2$ therefore gives $|R_g|\le3|\delta r|^2/\ell^4$.
+This tightens the earlier factor 12 in $\gamma$ to 3 and implies $J-U\ge\gamma s^2-\eta s$ with $s=\norm{\delta u}_2$.
+If \eqref{eq:containment} holds and $\gamma>0$,
+\begin{equation}
+ \boxed{\max(0,U-\eta^2/(4\gamma))\le V\le U.}
+ \label{eq:tubegap}
+\end{equation}
+For an exact extremal $\eta=0$ proves uniqueness of the global
+minimum, up to equality of controls almost everywhere. Numerical
+use requires validated enclosures of the reference, residual norms
+and constants. Sampled minima with padding do not supply that proof.
+
+For difficult cells a verification function satisfying
+$W_t+W_r\cdot v+W_v\cdot g-|W_v|^2/4\ge0$
+throughout every possible cheaper trajectory yields another lower
+bound by integration. A sampled residual mesh is insufficient.
+
+\subsection{The atlas decision}
+Store model, winding and active-set labels with every branch, together
+with endpoint residuals, feasible reconstruction, effort enclosure,
+and the domain and provenance of each optimality claim.
+A point proof does not certify the surrounding interpolation cell.
+Uniform continuation, constraint bounds and second-variation or
+global-gap bounds must cover that cell.
+
+At a query, combine valid lower bounds by their maximum and feasible
+upper bounds by their minimum. Return infeasible if $L>\kappa$,
+feasible if $U\le\kappa$, and unresolved otherwise.
+A failed sufficient test is unresolved. An extra revolution alone is
+not grounds for rejection: a circular coast over $4\pi$ is a two-turn
+global zero-effort minimum for its own endpoints.

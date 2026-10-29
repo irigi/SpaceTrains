@@ -1,0 +1,61 @@
+\documentclass[10pt,a4paper,twocolumn]{article}
+\usepackage[margin=18mm,columnsep=7mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,amsmath,amssymb,amsthm,booktabs,microtype,graphicx,balance}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{proposition}{Proposition}
+\newtheorem{theorem}{Theorem}
+\newcommand{\rot}{\mathsf J}
+\newcommand{\norm}[1]{\lVert#1\rVert}
+\newcommand{\pos}[1]{[#1]_+}
+\allowdisplaybreaks
+\setlength{\emergencystretch}{1em}
+\title{Minimum-Effort Planning for Constant-Power Spacecraft\\
+Timing, Engine Limits and Planetary Encounters}
+\author{Jan Ol\v{s}ina\\\small Independent Researcher, Prague, Czech Republic\\
+\small \texttt{jan.olsina@gmail.com}\\\small ORCID: 0009-0003-9816-3958}
+\date{29 October 2026}
+\begin{document}
+\maketitle
+\begin{abstract}
+Constant useful jet power turns propellant expenditure into an integral
+of squared thrust acceleration. This gives a common basis for transfer
+planning, local rendezvous and planetary encounters. We develop a
+fixed-time minimum-effort formulation, derive moving-endpoint timing
+gradients, and show how to invert an effort budget to search for minimum
+flight time. Finite exhaust speed makes the admissible acceleration depend
+on mass; the resulting resource adjoint, hard radial constraints and
+moving-interface conditions are incorporated in the same convention.
+Exact linear rendezvous results and a globally solved circular-spiral
+approximation provide inexpensive local calculations. For full Kepler
+transfers, second variations and global effort bounds separate stationary
+branches from verified performance. Position-only interception and
+deadline-fuel games are distinguished from full-state rendezvous.
+Reproducible checks include nonconvex timing, capped free-space
+transcription, checks of earlier Jupiter-class candidates, and an
+exact local solar path with global effort and time bounds. An explicit
+band-feasible Earth--Mars circular-orbit witness also supplies a certified
+70-day flight-time upper bound for its specified departure phase.
+The resulting framework specifies the mathematical
+and computational interfaces for a planner; a globally validated
+station-to-station trajectory atlas remains to be constructed.
+\end{abstract}
+\input{minimum_effort_sections/01_model}
+\input{minimum_effort_sections/02_timing}
+\input{minimum_effort_sections/03_constraints}
+\input{minimum_effort_sections/04_encounters}
+\input{minimum_effort_sections/05_stations}
+\input{minimum_effort_sections/06_verification}
+\input{minimum_effort_sections/07_rendezvous}
+\input{minimum_effort_sections/07_interception}
+\input{minimum_effort_sections/08_heliocentric}
+\input{minimum_effort_sections/08_computation}
+\appendix
+\input{minimum_effort_sections/09_appendices}
+\section*{AI-assistance acknowledgment}
+AI assistance was used for mathematical discussion, code development,
+numerical checks and editing.
+\raggedright
+\bibliographystyle{plain}
+\bibliography{bib/MinimumEffortReferences}
+\end{document}

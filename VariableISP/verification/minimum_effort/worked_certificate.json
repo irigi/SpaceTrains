@@ -1,0 +1,17 @@
+{
+  "all_exact_inequalities_pass": true,
+  "delta_r_squared": [
+    1.0006246876951433e-06,
+    1.0006246876951433e-06
+  ],
+  "delta_v_squared": [
+    0.0016022487504531507,
+    0.0016022487504531507
+  ],
+  "lower_effort_at_0.049": 0.03225913766106641,
+  "budget": 0.03200666666666667,
+  "certified_exhaust_enclosure_kms": [
+    140,
+    142
+  ]
+}

@@ -1,0 +1,202 @@
+{
+  "convention": "Planar, useful fixed ship power, ideal or full-power/coast band as labeled; no interval certification.",
+  "case1_averaged_spirals": {
+    "model": "Globally solved within phase-free monotone averaged model ONLY",
+    "ri": 1.0,
+    "rf": 4.0,
+    "D": 0.5,
+    "chi": 0.01,
+    "nu_min": 10.0,
+    "nu_max": 50.0,
+    "samples": [
+      {
+        "status": "infeasible_in_monotone_averaged_model",
+        "duration": 480.0
+      },
+      {
+        "effort": 0.0005102480821346535,
+        "burn_time": 490.0000000000015,
+        "coast_time": 0.0,
+        "k": 972.1976406969778,
+        "segments": [
+          [
+            "min_exhaust",
+            0.01,
+            0.010285974354793644
+          ],
+          [
+            "constant_acceleration",
+            0.010285974354793644,
+            0.010510248082134653
+          ]
+        ],
+        "status": "burn_only",
+        "duration": 490.0,
+        "mass_fraction": 0.9514523274667537,
+        "ode_time_error": 5.4945985539234243e-08,
+        "ode_effort_error": 5.815205088299802e-14
+      },
+      {
+        "effort": 0.00025000000000005053,
+        "burn_time": 999.9999999997978,
+        "coast_time": 0.0,
+        "k": 1999.9999999995957,
+        "segments": [
+          [
+            "constant_acceleration",
+            0.01,
+            0.01025000000000005
+          ]
+        ],
+        "status": "burn_only",
+        "duration": 1000.0,
+        "mass_fraction": 0.9756097560975562,
+        "ode_time_error": 2.041815605480224e-10,
+        "ode_effort_error": 7.806255641895632e-17
+      },
+      {
+        "effort": 0.00010080648347863767,
+        "burn_time": 2479.9999999999936,
+        "coast_time": 0.0,
+        "k": 4961.256276816028,
+        "segments": [
+          [
+            "constant_acceleration",
+            0.01,
+            0.010078092565717723
+          ],
+          [
+            "max_exhaust",
+            0.010078092565717723,
+            0.010100806483478638
+          ]
+        ],
+        "status": "burn_only",
+        "duration": 2480.0,
+        "mass_fraction": 0.9900199569565538,
+        "ode_time_error": 2.9830789571860805e-07,
+        "ode_effort_error": 1.2063443234795745e-14
+      },
+      {
+        "effort": 0.00010050167084168059,
+        "burn_time": 2487.541562707987,
+        "coast_time": 512.4584372920131,
+        "status": "max_exhaust_plus_coast",
+        "segments": [
+          [
+            "max_exhaust",
+            0.01,
+            0.01010050167084168
+          ]
+        ],
+        "duration": 3000.0,
+        "mass_fraction": 0.9900498337491681
+      }
+    ],
+    "constant_acceleration_phase": 468.75,
+    "coast_plateau_phase_interval": [
+      1231.8807183951596,
+      1680.2818510256711
+    ],
+    "budget_time": {
+      "time": 1249.999999999997,
+      "k": 2499.9999999999936,
+      "W": 0.0102,
+      "segments": [
+        [
+          "constant_acceleration",
+          0.01,
+          0.0102
+        ]
+      ],
+      "effort": 0.0002,
+      "status": "feasible_in_monotone_averaged_model"
+    }
+  },
+  "case2_exact_escape_capture": {
+    "model": "Exact feasible shaped path, NOT an extremal or optimum",
+    "T": 10.0,
+    "soi_radius": 4.0,
+    "planet_floor": 0.8,
+    "budget": 0.08,
+    "chi": 0.9,
+    "nu_min": 10.0,
+    "nu_max": 50.0,
+    "initial_state": [
+      1.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "exit_state": [
+      1.134648741852905,
+      -3.835697098652554,
+      0.649659448609505,
+      -0.43352347206626995
+    ],
+    "exit_angle": 5.0,
+    "exit_radial_speed": 0.6,
+    "exit_energy": 0.05499999999999999,
+    "v_infinity": 0.33166247903553997,
+    "effort": 0.06335999205292772,
+    "effort_closed_form": 0.06335999205292772,
+    "mass_fraction": 0.9342302020266514,
+    "amin_analytic": 0.06,
+    "amax_analytic": 0.0896908269804914,
+    "band_lower_margin": 0.04073280015894144,
+    "band_upper_margin": 0.000309173019508599,
+    "work": 0.5550000000009192,
+    "angular_change": 1.0000000000055835,
+    "necessary_effort_lower": 0.015272821251812427,
+    "forward_endpoint_error": 1.7388090967074277e-11,
+    "capture_endpoint_error": 5.6451510133115335e-12,
+    "capture_initial_state": [
+      1.134648741852905,
+      3.835697098652554,
+      -0.649659448609505,
+      -0.43352347206626995
+    ]
+  },
+  "case3_soi_handoff": {
+    "model": "Common-coordinate SOI junction and derivative fixture",
+    "multiplier": -0.0018251849273693253,
+    "p_position_after": [
+      0.1,
+      -0.20182518492736934
+    ],
+    "hamiltonian_jump": -0.0005771741521496064,
+    "stationarity_residual": [
+      0.0,
+      0.0,
+      0.0,
+      2.2768245622195593e-17
+    ],
+    "nonstationary_chart_gradient": [
+      0.10499999999999995,
+      -0.04999999999999999,
+      -0.02999999999999997,
+      0.11602455532033683
+    ],
+    "finite_difference_max_error": 6.9936278990212486e-12,
+    "scale_test": {
+      "length": 0.001,
+      "time": 0.018257418583505537,
+      "velocity": 0.05477225575051661,
+      "effort": 0.16431676725154984
+    }
+  },
+  "earth_model_validity_illustration": {
+    "mu_earth_m3_s2": 398600435507000.0,
+    "parking_radius_m": 7000000.0,
+    "chosen_soi_radius_m": 900000000.0,
+    "useful_power_per_initial_mass_W_kg": 540.0,
+    "initial_accel_min": 0.00432,
+    "initial_accel_max": 0.0216,
+    "initial_epsilon_min": 0.0005310581252395109,
+    "initial_epsilon_max": 0.0026552906261975546,
+    "radius_for_epsilon_0p05_m": 67922242.0604341,
+    "epsilon_at_chosen_soi_lower": 8.778715947836814,
+    "leading_solar_tide_ratio_at_soi": 0.144995710069858
+  },
+  "checks": "scalar integrals vs quadrature; scalar profile vs time ODE; time monotonicity; exact vector ODE; work and angular identities; reversed capture; analytic band enclosure; chart finite differences; covector scaling"
+}

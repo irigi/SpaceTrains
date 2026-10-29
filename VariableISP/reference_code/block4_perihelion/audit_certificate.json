@@ -1,0 +1,5 @@
+{
+  "arithmetic": "exact rational",
+  "safe_fixture": "safe",
+  "hidden_dip_fixture": "violation"
+}

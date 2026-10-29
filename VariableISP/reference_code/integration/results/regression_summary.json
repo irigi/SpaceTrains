@@ -1,0 +1,288 @@
+[
+  {
+    "package": "block1_cw",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate_block1.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_cw.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 2.9781197059999727
+  },
+  {
+    "package": "block2_sensitivities",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate_block2.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "certify_nonconvex.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_sensitivities.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 11.96794983999996
+  },
+  {
+    "package": "block3_exhaust_band",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_band.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 3.9426501049999843
+  },
+  {
+    "package": "block4_perihelion",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "certify_audit.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_perihelion.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 2.3377868549999903
+  },
+  {
+    "package": "block9_flyby",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_flyby.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 3.509178431999999
+  },
+  {
+    "package": "block9b_powered",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_powered.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 2.970935207000025
+  },
+  {
+    "package": "block5_optimality",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_optimality.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 7.632403302
+  },
+  {
+    "package": "block6_escape_capture",
+    "passed": true,
+    "stages": [
+      {
+        "command": [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+          "validate.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "g++",
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-pedantic",
+          "test_escape.cpp",
+          "-o",
+          "test_binary"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "./test_binary"
+        ],
+        "returncode": 0
+      }
+    ],
+    "elapsed_seconds": 5.361905290999971
+  }
+]

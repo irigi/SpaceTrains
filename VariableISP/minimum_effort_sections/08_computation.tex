@@ -1,0 +1,112 @@
+\section{Computation and reproducible evidence}
+\label{sec:computation}
+\subsection{Offline branches, online decisions}
+The intended runtime is a few milliseconds, so full boundary-value
+solves belong offline. Continue endpoint-exact branches over geometry,
+time, vehicle and active-set coordinates; retain competing windings
+and encounter sequences. Audit engine and radial feasibility, compute
+variational data, and attach the strongest verified performance bounds
+available. A surrogate must preserve its branch domain and an error
+bound; interpolated controls need endpoint correction.
+
+At runtime, normalize the actual vehicle and endpoints, retrieve
+candidate branches, and propagate actual mass through the route.
+Use \eqref{eq:pointgrad} or \eqref{eq:soichart} to optimize stored
+phase couplings, evaluate lower and feasible upper bounds, and search
+duration with a maintained bracket. Interior stationary events disappear
+from the outer first variation, but their feasibility and optimality
+status remain part of the route status.
+An unresolved budget test calls for refinement, not an infeasibility label.
+
+The following distinctions are useful output fields:
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.29\columnwidth}p{0.65\columnwidth}@{}}
+\toprule
+Status & Evidence required\\\midrule
+Feasible & Endpoint, dynamics, resource and path checks\\
+Stationary & Correct PMP and all junction residuals\\
+Local minimum & Valid second-order sufficiency\\
+Bounded gap & Valid global $L$ and feasible $U$\\
+Global minimum & Matching bounds or a global proof\\
+\bottomrule
+\end{tabular}
+\end{center}
+These fields are not inferred from a solver's successful return code.
+Normal PMP conditions alone also do not enumerate possible abnormal
+extremals or prove ordinary-control attainment in a nonconvex on/off
+problem.
+
+\subsection{Three consistency checks}
+The following reproducible identities check the interfaces between formulas.
+
+\paragraph{Timing and control gain.}
+Circular-endpoint shooting checks both
+$F_h=-|u_f|^2$ and $F_d=(\omega-1)\mathcal L$ against its endpoint
+data. Substituting $p_v=2u$, $C=1$ in the bounded selector recovers
+$\mathcal G=|u|^2$ whenever the band is inactive. The exact-rational
+nonconvexity certificate is rerun separately; it proves the leading
+Jensen-gap sign, not global optimality of a selected finite perturbation.
+
+\paragraph{One physical mass, several local units.}
+Take an artificial accounting example with $m_0=1000$ kg, $P=10^6$ W,
+and two physical efforts $j_1=20$, $j_2=40$ in
+$\mathrm{m^2/s^3}$. Equation~\eqref{eq:route_mass} gives
+$m_f=970.8737864078$ kg.
+Assigning effort scales $J_{0,1}=2$ and $J_{0,2}=5$ changes the
+normalized efforts to $10$ and $8$, but gives the same mass when each
+entry $\chi$ is computed from the actual entry mass. Incorrectly
+resetting the second leg to $m_0$ gives $980.3921568627$ kg.
+With the second power changed to $2\,10^6$ W, the correct final mass
+is also $980.3921568627$ kg: the equality is coincidental and illustrates
+why power belongs in the accounting. These are algebraic examples,
+not trajectories.
+
+\paragraph{SOI action and covectors.}
+Deterministic randomized transverse crossings verify that
+\eqref{eq:zeta} makes all four chart derivatives in
+\eqref{eq:soichart} vanish, that the relative Hamiltonian matches,
+and that the state saltation matrix produces the same covector jump.
+Independent scale-pairing checks verify \eqref{eq:covscale}.
+Both entry and exit signs are exercised. These are interface identities;
+they do not demonstrate an optimized complete route.
+
+\subsection{Trajectory test cases}
+The reduced spiral test cases include infeasibility at $h=480$ and
+efforts $0.00025$ at $h=1000$ and
+$0.000100501670842$ at $h=3000$, for the parameters of
+Figure~\ref{fig:spiral}. Independent quadrature and time-domain
+integration check the scalar formulas. The exact escape/capture pair
+in Figure~\ref{fig:escape} has an analytic dynamics and band proof;
+vector ODE integration independently checks its endpoints.
+A powered-flyby test case verifies work, mass and asymptotic labels
+on a feasible finite-SOI pass.
+
+The exact-radius and Jensen calculations use rational arithmetic with explicit
+enclosures. Shooting, transcription and trajectory audits use double
+precision. The input data, numerical tolerances and scripts are provided as
+supplementary material.
+
+A benchmark of the scalar circular-profile kernel gave a median of
+about $0.071$ ms over 300 C++ queries.
+It measures only that reduced scalar kernel. It includes neither
+full orbit integration nor constrained boundary-value optimization
+and gives no complete-route latency guarantee.
+
+\section{The remaining computational problem}
+The derivations provide a consistent chain from physical power and
+mass to fixed-time actions, timing gradients, bounded controls, safety
+contacts and planetary interfaces. Exact local models and global
+inequalities can reject some queries or bound their cost without solving
+a new transfer. This article assembles those results in one
+convention and includes its analytical certificates as appendices.
+
+The next substantial computational advance is an endpoint-exact,
+finite-band, safety-constrained trajectory atlas with validated cells
+and general encounter velocities. A complete station-to-station
+demonstration should then join escape, heliocentric flight and capture
+using the actual mass and station phases, compare competing branches,
+and report a feasible cost together with its lower bound. Constrained
+second variations, finite-pulse realization, and model error relative
+to three-body dynamics remain distinct extensions. The framework
+specifies these tasks without treating them as already solved.

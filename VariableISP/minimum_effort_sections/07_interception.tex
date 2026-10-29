@@ -1,0 +1,159 @@
+\section{Interception and deadline-fuel games}
+\label{sec:interception}
+This section restores position-only interception, needed for contact or
+salvage races. Boarding instead requires velocity matching. All closed
+forms here use the ideal engine and instantaneous nonanticipative response;
+they are not finite-band game values. Write $r=x_E-x_P$, $w=v_E-v_P$,
+and take capture to mean $|r|\le R$. Resources in this section may be
+physical, with $g=-\mu x/|x|^3$, or consistently normalized.
+
+\subsection{The four problems and verification}
+Let $z=(x_P,v_P,x_E,v_E,b_P,b_E)$ and
+\[
+ \mathcal D U=U_{x_P}\cdot v_P+U_{v_P}\cdot g(x_P)
+              +U_{x_E}\cdot v_E+U_{v_E}\cdot g(x_E).
+\]
+The Isaacs operator for pursuer running cost $\ell|a_P|^2$ is
+\begin{equation}
+\begin{split}
+\mathcal H_\ell U={}&\mathcal D U+
+ \inf_{a_P}\{U_{v_P}\cdot a_P+(\ell-U_{b_P})|a_P|^2\}\\
+ &+\sup_{a_E}\{U_{v_E}\cdot a_E-U_{b_E}|a_E|^2\}.
+\end{split}
+\end{equation}
+At a zero resource face the corresponding control is zero. Where
+$c_P=\ell-U_{b_P}>0$ and $c_E=U_{b_E}>0$, this becomes
+\begin{equation}
+ \begin{gathered}
+ \mathcal H_\ell U=\mathcal D U-
+ \frac{|U_{v_P}|^2}{4c_P}+\frac{|U_{v_E}|^2}{4c_E},\\
+ a_P^*=-\frac{U_{v_P}}{2c_P},\qquad a_E^*=\frac{U_{v_E}}{2c_E}.
+ \end{gathered}
+\end{equation}
+Zero or wrong-sign coefficients require evaluating the original extrema,
+including infinite values, rather than dividing by zero.
+Problems A1 and B1 minimize guaranteed interception time in free space
+and Kepler gravity, respectively: $1+\mathcal H_0V=0$, $V=0$ on capture.
+Problems A2 and B2 minimize worst-case pursuer effort to capture within
+remaining time $s$: $W_s=\mathcal H_1W$, with $W=0$ on capture and
+$W(0,z)=+\infty$ outside capture. Failure to capture by the deadline costs
+$+\infty$; the budget state remains a hard constraint.
+
+\begin{proposition}[Classical verification]
+Suppose a nonnegative differentiable solution satisfies the stated PDE,
+target and resource boundary conditions. Suppose its selectors generate
+well-posed admissible responses throughout the relevant domain. For time,
+the pursuer selector guarantees capture and the evader selector gives the
+opposing time bound. For deadline effort, assume additionally that the
+pursuer selector guarantees capture before the deadline. Then the solution
+is the respective value, provided the boundary limits used at capture
+and exhaustion exist.
+\end{proposition}
+Indeed, along the time pursuer selector, $dV/dt\le-1$ against every
+evader, whereas along the evader selector $dV/dt\ge-1$ against every
+pursuer. Integrate to capture; nonnegativity supplies the time upper
+bound. For remaining time $s'= -1$, along the deadline pursuer selector,
+$dW/dt+|a_P|^2\le0$, and along the evader selector the inequality reverses.
+Integration gives the opposing effort bounds; noncapture has infinite
+cost. Localization and boundary limits are essential. Nonsmooth values
+require viscosity and comparison hypotheses \cite{EvansSouganidis1984};
+this verification statement does not assert existence for an unrestricted
+singular orbital domain.
+
+\subsection{Closed forms and distinctions}
+Against a ballistic evader in free space, set
+$d(h)=(1-R/|r+hw|)_+(r+hw)$, with $d=0$ at zero separation. The exact
+prescribed-time interception effort and control are
+\begin{equation}
+ c(h)=\frac{3|d(h)|^2}{h^3},\qquad a_P(t)=\frac{3(h-t)}{h^3}d(h).
+\end{equation}
+These follow by projecting the required position onto the capture ball
+and using the single moment $\int_0^h(h-t)a_Pdt=d$. Deadline fuel is
+$\inf_{0<h\le T}c(h)$ and earliest interception is
+$\inf\{h:c(h)\le b_P\}$. In particular, if $c(h)>b_P$ for every
+$0<h\le T$, coasting is a zero-fuel evader win, even when fuel is available.
+
+For active interception with $w=0$, $D=|r|-R>0$, $b_P>b_E$ and
+$b_P\ge4b_E$, the exact guaranteed time is
+\begin{equation}
+ H_I=\left[\frac{3D^2}{(\sqrt{b_P}-\sqrt{b_E})^2}\right]^{1/3}.
+\end{equation}
+Put $k=\sqrt{b_E}/(\sqrt{b_P}-\sqrt{b_E})\le1$ and
+$a_0(t)=3D(1-t/H_I)r/(H_I^2|r|)$. The response $a_P=a_E+a_0$
+gives the upper bound by Minkowski. The opponent $a_E=ka_0$ prevents an
+earlier hit: at $t=sH_I< H_I$ any pursuer needs at least
+$C s^{-3}[1+kf(s)]^2$, where $C=3D^2/H_I^3$ and
+$f(s)=(3s^2-s^3)/2$. This exceeds $(1+k)^2C=b_P$ because
+\[
+\begin{split}
+1+kf(s)-(1+k)s^{3/2}
+={}&(1-k)(1-s^{3/2})\\
+ &+k[1+f(s)-2s^{3/2}]>0;
+\end{split}
+\]
+use $f(s)\ge s^3$. For point capture ($R=0$), full-state boarding takes
+$4^{1/3}H_I$ under these same hypotheses.
+
+For a prescribed exact endpoint at time $h$, let
+\begin{equation}
+ \begin{gathered}
+ C_I=3|r+hw|^2/h^3,\\
+ C_J=12|r|^2/h^3+12r\cdot w/h^2+4|w|^2/h.
+ \end{gathered}
+\end{equation}
+The endpoint minimax pursuer effort is
+\begin{equation}
+ M_{I,J}(h)=(\sqrt{b_E}+\sqrt{C_{I,J}(h)})^2.
+\end{equation}
+The copying response gives the upper bound. Choosing the evader control
+proportional to the minimum-norm endpoint correction gives the lower
+bound by orthogonal projection onto the endpoint moment constraints.
+This is an exact-time endpoint result. Minimizing it over deadlines gives
+a sufficient first-hit bound, not automatically the first-hit value.
+For perpetual avoidance of exact rendezvous at a nonzero phase state,
+$b_E\ge b_P$ gives least worst-case evader expenditure
+$F^J_\infty=b_P$. The parity feedback in Appendix~\ref{app:game} attains
+the upper bound; a smaller uniform expenditure cap would give the
+pursuer a strictly positive resource gap and finite-time rendezvous.
+
+\paragraph{Nonattainment matters.}
+Strict position-only escape can have an infimum without a minimizing
+control. An exhausted stationary pursuer at the origin and an evader
+coasting from $(-L,R)$ with velocity $(u,0)$ meet the capture boundary
+at $L/u$. Any arbitrarily small positive transverse thrust before that
+time avoids it forever, at cost tending to zero; zero thrust loses.
+There are also positive unattained infima. In one dimension take point
+capture, separation $L>0$, closing velocity $-u<0$, and an exhausted
+pursuer. The critical effort is $4u^3/(9L)$: the endpoint lower bound
+$3(ut-L)^2/t^3$ is largest at $t=3L/u$. Equality forces contact there.
+The safe profiles $r(t)=\delta+(L-\delta)(1-t/t_\delta)^3$ for
+$0\le t\le t_\delta=3(L-\delta)/u$, followed by rest at $\delta>0$,
+approach that cost as $\delta\downarrow0$ without attaining it.
+
+\subsection{Five-state reduction and scaling}
+In isotropic free space a value depends only on
+$(\rho_G,\xi_G,\omega_G,b_P,b_E)=(|r|^2,r\cdot w,|w|^2,b_P,b_E)$,
+where $\xi_G^2\le\rho_G\omega_G$. The drift is
+$2\xi_G U_{\rho_G}+\omega_G U_{\xi_G}$ and
+\begin{equation}
+ |U_w|^2=\rho_G U_{\xi_G}^2+4\xi_G U_{\xi_G}U_{\omega_G}
+                      +4\omega_G U_{\omega_G}^2.
+\end{equation}
+Both controlled velocity gradients have this squared norm. These chain
+rules reduce the free-space Isaacs equation to five states in $d=2$ or
+$3$. Under $t\mapsto\alpha t$, $r\mapsto\beta r$,
+$w\mapsto(\beta/\alpha)w$, resources scale as $\beta^2/\alpha^3$.
+Time values scale by $\alpha$, and deadline-fuel values by
+$\beta^2/\alpha^3$, with radius and deadline scaled as well. Scaling
+every strategy and opponent proves the rule for values, not only paths.
+
+Finally, restore dimensional mean motion $n$ in the CW matrices. As
+$n\to0$, $\Phi_n$ and $W_n$ converge to the double-integrator matrices.
+Theorem~1 therefore reduces to the free-space cubic
+\begin{equation}
+ (\sqrt{b_P}-\sqrt{b_E})^2H^3-4|w|^2H^2
+       -12r\cdot w H-12|r|^2=0.
+\end{equation}
+One takes this physical limit before setting the normalized mean motion
+to one.
+

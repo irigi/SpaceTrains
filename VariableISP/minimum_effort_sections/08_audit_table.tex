@@ -1,0 +1,13 @@
+\begin{center}\small
+\begin{tabular}{rrrrr}\toprule
+$\rho,\Theta$&days&$r_{\min}$ AU&$v_{e,\min}$&$v_{e,\max}$\\\midrule
+$5.2,80^\circ$&170.034&1.0000&40.60&2984.8\\
+$5.0,273.1^\circ$&206.560&0.16993&42.35&13001.0\\
+$5.2,385.2^\circ$&214.236&0.000273&4.85&1203.5\\\bottomrule
+\end{tabular}\end{center}
+Exhaust speeds are in km/s. All three paths fail the band. The first two
+have numerical radius minima above 0.1 AU; the last also fails the floor.
+Scaled endpoint residuals are below $4\,10^{-13}$ for the first two and
+$10^{-8}$ for the last. The long-arc solve uses polar equations and
+analytic shooting sensitivities to preserve its winding; a radial-velocity
+root refines its narrow perihelion, which uniform samples alone miss.

@@ -1,0 +1,238 @@
+\section{Joining transfers through planetary encounters}
+\label{sec:encounters}
+\subsection{An unpowered point event}
+In the zero-duration patched-conic model, let the planet state at
+encounter epoch $\tau$ be $(R_p,V_p)$ with acceleration $A_p$.
+Use common heliocentric units, incoming excess velocity
+$w_-=v^--V_p$, speed $s=|w_-|>0$, and rotation $Q(\alpha)$.
+The event map is
+\begin{equation}
+ r^-=r^+=R_p,\quad
+ v^+=V_p+Q(\alpha)w_-,\quad b^+=b^-.
+ \label{eq:pointflyby}
+\end{equation}
+The position is a mathematical encounter node, not a physical collision.
+With normalized planetary parameter $\bar\mu_p$ and minimum
+planetocentric periapsis $q_{\min}$,
+\begin{equation}
+ |\alpha|\le D(s)=2\arcsin(1/e),\qquad
+ e=1+\frac{q_{\min}s^2}{\bar\mu_p}.
+ \label{eq:turn}
+\end{equation}
+This preserves excess speed and consumes no propellant.
+The heliocentric energy change is
+$\Delta E_\odot=V_p\cdot(Qw_--w_-)$, and
+\begin{equation}
+ |\Delta v|\le\frac{2s}{1+q_{\min}s^2/\bar\mu_p}
+ \le\sqrt{\bar\mu_p/q_{\min}}.
+\end{equation}
+Zero excess speed is not a hyperbolic flyby. Zero turn is an
+infinite-periapsis limit of this event set; a finite-SOI model treats
+the geometry explicitly.
+
+A circular-rendezvous atlas fixes the ship velocity to the planet's,
+so it has $w_-=0$ at that endpoint and cannot supply general flyby legs.
+General endpoint actions are needed. Once they exist, one encounter
+can be parameterized by $(w_{-,x},w_{-,y},\alpha,\tau)$.
+For the sum $F$ of incoming and outgoing actions, let superscripts
+$-,+$ denote their adjacent endpoint covectors and put
+$w_+=Qw_-$. Equation~\eqref{eq:endpoint} gives
+\begin{equation}
+ \begin{split}
+ F_{w_-}&=p_v^- -Q^Tp_v^+,\\
+ F_\alpha&=-p_v^+\cdot\rot w_+,\\
+ F_\tau&=H^+-H^-+(p_r^- -p_r^+)\cdot V_p\\
+ &\hspace{18mm}+(p_v^- -p_v^+)\cdot A_p.
+ \end{split}
+ \label{eq:pointgrad}
+\end{equation}
+Here the planet-relative $w_-$ is held fixed when varying epoch;
+both endpoint velocities acquire $A_p\,d\tau$.
+Specifically, the incoming endpoint differential is
+$p_r^-\cdot V_p\,d\tau+p_v^-\cdot A_p\,d\tau-H^-d\tau$;
+the outgoing initial differential has the opposite covector signs and
+$+H^+d\tau$. Their sum is the stated $F_\tau$.
+
+Let $\eta_\pm\ge0$ multiply $\pm\alpha-D(w_-)\le0$ and
+$d_D=\nabla D=-4(q_{\min}/\bar\mu_p)w_-/
+(e\sqrt{e^2-1})$. Interior-event stationarity requires
+\begin{equation}
+ \begin{gathered}
+ p_v^-=Q^Tp_v^++(\eta_++\eta_-)d_D,\\
+ p_v^+\cdot\rot w_+=\eta_+-\eta_-,\qquad F_\tau=0,
+ \end{gathered}
+\end{equation}
+together with complementary slackness. An interior turn need not be
+maximum turn. At a prescribed periapsis and turn side $\sigma=\pm1$,
+the velocity Jacobian is
+\begin{equation}
+ M=Q+(\rot w_+)(\sigma d_D)^T,\qquad p_v^-=M^Tp_v^+.
+\end{equation}
+The extra term differentiates the speed-dependent turn; $\det M=1$.
+Resource costates match if the same resource passes unchanged.
+The position guard supplies an independent position-covector multiplier.
+The matched Hamiltonian combination is
+$H-p_r\cdot V_p-p_v\cdot A_p$, rather than $H$ alone.
+
+\subsection{A finite powered encounter}
+For an encounter with duration, use a planet-centered nonrotating patch,
+length scale $L$ and local units
+$T_p=\sqrt{L^3/\mu_p}$, $V_p^*=\sqrt{\mu_p/L}$,
+$J_p=(V_p^*)^2/T_p$.
+The controlled equations again have form \eqref{eq:kepler}, with
+$x$ the relative position and
+\begin{equation}
+ \varepsilon\le|x|\le\sigma_S,\quad
+ \varepsilon=r_{p,\min}/L,\quad \sigma_S=R_S/L.
+\end{equation}
+Choose inward entry and the first outward exit. With $L=R_S$,
+$\sigma_S=1$. Distinct loop branches require explicit labels.
+The engine selector and radial-floor conditions are those of
+Section~\ref{sec:constraints} in the new units.
+
+At an endpoint with positive planetary energy
+$E=|v|^2/2-1/|x|$, put $s=\sqrt{2E}$, $j=x\times v$ and
+\begin{equation}
+ e_v=(|v|^2-1/|x|)x-(x\cdot v)v,\quad e=|e_v|,\quad n=e_v/e.
+\end{equation}
+The hypothetical ballistic tails have excess-velocity labels
+\begin{equation}
+ w_{\infty,-}=\frac{s}{e}(n+js\rot n),\qquad
+ w_{\infty,+}=\frac{s}{e}(-n+js\rot n).
+\end{equation}
+Use the incoming expression at entry and outgoing expression at exit.
+Thrust can change their magnitudes. The unpowered equal-speed and
+maximum-turn constraints must not be imposed on this controlled phase.
+An $E\le0$ endpoint has no hyperbolic excess label, although finite-SOI
+crossing can still occur.
+
+The exact work and angular-momentum identities are
+\begin{equation}
+ E'=v\cdot u,\qquad j'=x\times u.
+ \label{eq:work}
+\end{equation}
+For positive-energy labels,
+$(s_+^2-s_-^2)/2=\int v\cdot u\,dt$.
+High periapsis speed increases instantaneous work per thrust increment
+when thrust is suitably aligned. The mission optimum must also satisfy
+exit geometry, timing and resource conditions. It does not follow by
+maximizing this work alone.
+An impulse is not a constant-power burn: compressing a nonzero
+$\Delta v$ into duration $\delta$ costs at least $|\Delta v|^2/\delta$.
+Likewise infinity-to-infinity hyperbolic flight has infinite duration;
+the optimized mission segment has finite SOI endpoints.
+
+On a connected unconstrained ideal phase,
+$p_v''=Dg(x)^Tp_v$. A positive-length coast forces $p_v=p_v'=0$
+there, hence everywhere by uniqueness. A nontrivial powered ideal
+extremal therefore has no positive-length coast interval.
+The finite-band selector admits coasts without $p_v=0$ and has no such
+restriction.
+
+\subsection{The moving SOI}
+Return to one common physical or heliocentric unit system.
+For ship coordinates $(X,V)$ put $x=X-R_p(t)$ and
+$v_{\rm rel}=V-V_p(t)$. The consistent global patch fields are
+\begin{equation}
+ G_\odot=-\mu_\odot X/|X|^3,\qquad
+ G_P=A_p-\mu_p x/|x|^3.
+ \label{eq:fields}
+\end{equation}
+Subtracting the origin acceleration gives the desired pure planetary
+relative dynamics. Solar tides inside the patch are omitted.
+
+The SOI guard is $c_S=(|x|^2-R_S^2)/2=0$. At a free transverse
+crossing with continuous state and mass, endpoint variation gives
+\begin{equation}
+ \begin{gathered}
+ p_X^+=p_X^-+\zeta x,\quad
+ p_V^+=p_V^-,\quad p_b^+=p_b^-,\\
+ H^+-H^-=\zeta x\cdot V_p.
+ \end{gathered}
+ \label{eq:soijump}
+\end{equation}
+These are hybrid junction conditions \cite{PakniyatCaines2021}.
+The equality multiplier $\zeta$ has no sign restriction; it is different
+from a radial exclusion multiplier. With unchanged engine and a unique
+regular selector,
+\begin{equation}
+ \zeta=-\frac{p_V\cdot(G^+-G^-)}{x\cdot v_{\rm rel}}.
+ \label{eq:zeta}
+\end{equation}
+To derive this, substitute $\Delta p_X=\zeta x$ into the Hamiltonian
+jump: $\Delta H=\zeta x\cdot V+p_V\cdot\Delta G$.
+Equating it to $\zeta x\cdot V_p$ and dividing by the nonzero transverse
+speed $x\cdot(V-V_p)$ yields \eqref{eq:zeta}.
+Grazing invalidates this chart. Coincident constraint events require
+their additional multipliers.
+
+A useful optimization chart is $(\theta,v_r,v_t,\tau)$:
+$X=R_p+R_Se_r(\theta)$,
+$V=V_p+v_re_r+v_te_\theta$.
+With $d_r=p_X^- -p_X^+$, $d_v=p_V^- -p_V^+$,
+\begin{equation}
+ \begin{split}
+ F_\theta&=R_Sd_r\cdot e_\theta
+             +d_v\cdot(v_re_\theta-v_te_r),\\
+ F_{v_r}&=d_v\cdot e_r,\qquad F_{v_t}=d_v\cdot e_\theta,\\
+ F_\tau&=H^+-H^-+d_r\cdot V_p+d_v\cdot A_p.
+ \end{split}
+ \label{eq:soichart}
+\end{equation}
+At a regular optimized crossing these derivatives vanish.
+The position jump in \eqref{eq:soijump} is normal to the surface, as
+required by the angle variation.
+
+Translation changes the Hamiltonian to
+\begin{equation}
+ H_{\rm rel}=H_{\rm global}-p_X\cdot V_p-p_V\cdot A_p,
+\end{equation}
+which is continuous at the interface. For a given continuous control
+the state variation also has saltation matrix
+\begin{equation}
+ \begin{gathered}
+ S=I+\frac{(f^+-f^-)n^T}{n^Tf^-+c_{S,t}},\\
+ n=(x,0,0),\qquad f^+-f^-=(0,\Delta G,0).
+ \end{gathered}
+\end{equation}
+It reproduces the covector jump through $p^-=S^Tp^+$.
+Full optimal-control shooting derivatives additionally need the
+selector and adjoint variations.
+
+\subsection{Units and mass across a route}
+Let $\lambda=L/R_0$ and $\gamma_\mu=\mu_p/\mu_\odot$.
+The local-to-Sun ratios are
+\begin{equation}
+ c_t=\frac{\lambda^{3/2}}{\sqrt{\gamma_\mu}},\quad
+ c_v=\sqrt{\gamma_\mu/\lambda},\quad
+ c_J=\frac{\gamma_\mu^{3/2}}{\lambda^{5/2}}.
+\end{equation}
+For actions normalized by their respective effort scales,
+\begin{equation}
+ p_X^{(0)}=\frac{c_J}{\lambda}p_x^{(p)},\quad
+ p_V^{(0)}=\frac{c_J}{c_v}p_v^{(p)},\quad
+ H^{(0)}=\frac{c_J}{c_t}H^{(p)}.
+ \label{eq:covscale}
+\end{equation}
+The resource covector is unchanged when resource and action use the
+same effort scale. Apply any frame rotation as well.
+This follows by preserving the physical endpoint differential, not
+by matching raw normalized covectors.
+
+For equal power on every leg, total physical effort and time are sums
+$\sum_i J_{0,i}J_i$ and $\sum_i T_{0,i}h_i$.
+For unequal constant powers without mass resets,
+\begin{equation}
+ \frac1{m_f}-\frac1{m_0}
+ =\sum_i\frac{J_{0,i}J_i}{2P_i}.
+ \label{eq:route_mass}
+\end{equation}
+Each leg starts at the preceding leg's actual final mass.
+Resource states cannot be reset to their original launch values.
+A moon patch uses its prescribed origin acceleration and the actual
+parent field outside; do not add the origin acceleration twice.
+
+A prescribed stop, a point flyby and an SOI crossing have different
+interface conditions. Once all interior variables are stationary,
+the envelope theorem leaves only the outer endpoint terms in a route
+timing derivative. It does not make each embedded phase satisfy $H=0$.

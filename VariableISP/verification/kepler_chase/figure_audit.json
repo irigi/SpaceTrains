@@ -1,0 +1,68 @@
+[
+  {
+    "label": "Figure: 1.5 AU, 34.7 degrees",
+    "rho": 1.5,
+    "angle_deg": 34.7,
+    "time_days": 42.54574937096926,
+    "radius_min_AU": 1.0,
+    "exhaust_min_kms": 20.367416457524705,
+    "exhaust_max_kms": 993.9135442058843,
+    "normalized_endpoint_residual": 1.7208456881689926e-15,
+    "effort_residual": 1.3322676295501878e-14,
+    "final_mass_kg": 999999.9999999988,
+    "effort_H_initial": 34.57326814148807,
+    "normal_fixed_endpoint_scaling_positive": true,
+    "normal_time_H_max_abs": 3.263833647793035e-12,
+    "q": [
+      29.57518597378163,
+      9.977698244710824,
+      4.723550915122258,
+      4.106669263923622,
+      -0.31214391796667423
+    ]
+  },
+  {
+    "label": "Figure: 5.0 AU, 273.1 degrees",
+    "rho": 5.0,
+    "angle_deg": 273.1,
+    "time_days": 206.55982945341535,
+    "radius_min_AU": 0.1699264249411811,
+    "exhaust_min_kms": 42.351429283041725,
+    "exhaust_max_kms": 13001.033250148452,
+    "normalized_endpoint_residual": 5.998653240801843e-10,
+    "effort_residual": -8.799920792057492e-10,
+    "final_mass_kg": 1000000.0000777146,
+    "effort_H_initial": 6.886321919700153,
+    "normal_fixed_endpoint_scaling_positive": true,
+    "normal_time_H_max_abs": 4.125255692599694e-12,
+    "q": [
+      -5.124455339535725,
+      -3.874442701625639,
+      -3.6295732801048333,
+      -0.15995519125763158,
+      1.2678662307249648
+    ]
+  },
+  {
+    "label": "Figure: 5.2 AU, 385.2 degrees",
+    "rho": 5.2,
+    "angle_deg": 385.2,
+    "time_days": 214.2360743856015,
+    "radius_min_AU": 0.00027320552067320534,
+    "exhaust_min_kms": 4.850821359386314,
+    "exhaust_max_kms": 1203.4918470489768,
+    "normalized_endpoint_residual": 9.691221075636136e-09,
+    "effort_residual": -2.056727943511305e-08,
+    "final_mass_kg": 1000000.0018163552,
+    "effort_H_initial": 6.210910504540044,
+    "normal_fixed_endpoint_scaling_positive": true,
+    "normal_time_H_max_abs": 2.1525457535309656e-06,
+    "q": [
+      -3.6039153692080728,
+      -2.212910022094881,
+      -4.050687111068531,
+      0.8846512951238714,
+      1.3043546876106509
+    ]
+  }
+]

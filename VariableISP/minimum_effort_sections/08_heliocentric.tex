@@ -1,0 +1,229 @@
+\section{Heliocentric checks and worked bounded cases}
+\label{sec:helio}
+Use $R_0=149597870700$ m and
+$\mu_\odot=1.32712440018\,10^{20}$ $\mathrm{m^3/s^2}$.
+Then $T_0=58.13244087$ days, $V_0=29.78469183$ km/s and
+$J_0=176.6257101$ $\mathrm{m^2/s^3}$.
+
+\subsection{Revisiting the Jupiter-class candidates of the transfer article}
+The ideal engine of \cite{OriginalKepler} has $P=1$ GW, $m_0=3\,10^6$ kg and
+$m_d=10^6$ kg: $\chi=3.774459936$ and $\kappa=7.548919872$.
+The public atlas of \cite{OriginalKepler} supplies warm starts, not
+certified trajectories. We independently integrate the normalized Cartesian state,
+effort adjoints and effort quadrature, and solve four endpoint equations
+plus $J=\kappa$. This avoids relying on the repository viewer's radius
+and angle acceptance tolerances. The geometries below reproduce the
+short-arc table and the two illustrated solar-pass families of the
+transfer article, allowing for its rounded figure labels.
+
+\input{minimum_effort_sections/08_audit_table}
+
+We also reconstruct all 73 rows of that article's $5.2$ AU final-polar-angle
+table, $\Theta=0^\circ,5^\circ,\ldots,360^\circ$, by independent continuation.
+Every row violates the exhaust band. Their reconstructed times range from
+$169.7643$ to $220.4991$ days (the $0^\circ$ row lies outside the abbreviated
+170--215 day range). Scaled endpoint residuals are below $4.8\,10^{-11}$.
+The radial audit locates turning points rather than only testing a time grid:
+\begin{center}\small
+\begin{tabular}{lrr}\toprule
+Final-angle rows&Band rejected&Floor rejected\\\midrule
+$0^\circ$--$300^\circ$ (61 rows)&61&0\\
+$305^\circ$--$360^\circ$ (12 rows)&12&12\\\bottomrule
+\end{tabular}\end{center}
+For example, the numerical minimum radius is $0.1011887$ AU at $300^\circ$
+and $0.090577$ AU at $305^\circ$. Thus none of these 73 candidates, nor
+either illustrated solar-pass candidate, survives both operational checks.
+
+The audit evaluates $v_e=V_0(\chi+I)/|u|$ and the radius on a dense
+40001-point reconstruction, with continuous refinement of the long-arc
+perihelion and exhaust extrema. Each reported band rejection has a large
+violation on a continuous powered interval, so it does not depend on
+interpreting an isolated zero-thrust sample. Clipping a failed trajectory
+to the band does not repair its endpoint. The input seeds and normalized initial covectors are provided as
+supplementary material.
+
+\subsection{A local certificate demonstration: a 2.9-day solar hop}
+This example raises the heliocentric radius from $1$ to $1.001$ AU
+in $2.90663$ days and ends on a slightly eccentric orbit. Its purpose
+is to demonstrate an explicit feasible path together with global effort
+and time bounds on a small, fully checkable case.
+For this auditable local example, keep $P=1$ GW and $m_0=3\,10^6$ kg,
+but choose the smaller resource $\kappa=0.0320066666667$. Begin on the
+unit circular orbit and let $c=0.4$, $H=0.05$. Define a physical
+heliocentric path through its normalized polar coordinates:
+\begin{equation}
+ \begin{gathered}
+ r(t)=1+ct^2,\qquad \theta(t)=\frac{t}{\sqrt{1+ct^2}},\\
+ v_r=2ct,\qquad v_\theta=r^{-1/2}.
+ \end{gathered}
+\end{equation}
+Since $\theta'=r^{-3/2}$, exact substitution into the Kepler equations
+gives $u_r=2c$ and $u_\theta=ct/r^{3/2}$. Thus this is a continuously
+powered exact path with $r\ge1$ AU, not a patched approximation. Its
+endpoint defines the target: take the unforced Kepler orbit through
+$(r(H),\theta(H),v_r(H),v_\theta(H))$ at epoch $H$. The arrival orbit is
+slightly eccentric.
+Coasting along that orbit is admissible on the short horizon used below.
+The same backward comparison used below bounds its separation from the
+unit circle by $0.0031$ on $[0,H]$, so the target orbit also clears the floor.
+
+The effort and a convenient elementary upper bound are
+\begin{equation}
+\begin{split}
+ J&=4c^2H+c^2\int_0^H\frac{t^2}{(1+ct^2)^3}dt\\
+  &=0.0320066546838,\\
+ U&=4c^2H+c^2H^3/3=0.0320066666667=\kappa.
+\end{split}
+\end{equation}
+Mass accounting gives $m_d=2974774.5061$ kg from the budget and an actual
+propellant expenditure $25225.4845$ kg for this witness. The burn satisfies
+$0.8\le|u|\le\sqrt{0.64+0.16H^2}$ and $\chi\le w\le\chi+U$.
+Consequently its full-power exhaust remains between $140.4825$ and
+$141.7181$ km/s, strictly within the required band, throughout the path.
+
+Here is a global, conservative lower-bound calculation, which also
+brackets the minimum time instead of assigning optimality to this shaped
+path. Compare every competitor of effort at most $U$ with the unit
+circular coast. In a position tube of radius $d=0.1$, the gravity
+Lipschitz constant is $K=2/0.9^3$, $\omega=\sqrt K$.
+Variation of constants and Cauchy--Schwarz give
+\begin{equation}
+ |\delta r(t)|\le k_r(t)\sqrt J,\qquad
+ |\delta v(t)|\le k_v(t)\sqrt J,
+\end{equation}
+where $k_r,k_v$ are those in Section~\ref{sec:verification}. Since
+$\sqrt U k_r(H)<0.0012<0.1$, the first-exit argument validates this tube
+for every cheaper competitor, irrespective of its thrust direction.
+The target endpoint has $|\delta v(H)|>0.0399$ and
+$k_v(H)^2\le H\cosh^2(\omega H)<1.007H$. Therefore
+\begin{equation}
+ 0.0316=L\le F^*(0,H)\le U=0.0320066666667.
+\end{equation}
+The clipping argument from \eqref{eq:globalL} covers more expensive
+competitors as well. These same bounds hold for the restricted engine,
+because its witness passes the band and its competitors are a subset of
+the ideal ones.
+
+For an earlier arrival at $h_-=0.049$, compare the ballistic target to
+the unit coast backward from $H$. At $H$, $|\delta r|<0.00101$ and
+$|\delta v|<0.041$. Over $H-h_-=0.001$, the comparison inequalities
+give $|\delta r|<0.0011$ and a change in $\delta v$ of less than
+$K(0.0011)(0.001)<0.0000031$. Hence every affordable earlier competitor
+would need
+\begin{equation}
+ J\ge\frac{(0.0399-0.0000031)^2}{1.007(0.049)}
+   >0.0322591>\kappa,
+\end{equation}
+a contradiction. Coast extension and the monotone value then exclude
+all still earlier arrivals. Thus the resource-to-time-to-fuel calculation is
+\begin{equation}
+ \boxed{\begin{gathered}0.049<h^*(\kappa)\le0.05,\\
+ 2.84848<T^*\le2.90663\ {\rm days}.\end{gathered}}
+\end{equation}
+The stated fuel is that of the witness path; the optimal duration lies
+somewhere in this interval. The conservative decimal
+inequalities can be checked by rational Taylor enclosures; a supplementary
+checker does so for the bounds used in the time bracket.
+
+
+\subsection{A certified 70-day Earth--Mars witness}
+\label{sec:marswitness}
+For an interplanetary performance point, return to $P=1$ GW,
+$m_0=3\,10^6$ kg and $m_d=10^6$ kg, hence
+$\kappa=7.548919872$. Use coplanar circular planetary orbits at
+$1$ and $R_M=1.524$ AU in the solar two-body model. The following
+explicit path gives full position-and-velocity rendezvous in exactly
+70 days, with useful jet power fixed at 1 GW throughout. The exhaust
+schedule is variable and satisfies the two-sided $50$--$250$ km/s band.
+
+Let $H=70(86400)/T_0$ and $q=0.51011006$, with the decimal exact.
+Set $c_q=(1-q^2)/(1+q^2)$ and $s_q=2q/(1+q^2)$. The endpoint states are
+\begin{equation}
+\begin{gathered}
+ r_0=(1,0),\qquad v_0=(0,1),\\
+ r_8=R_M(c_q,s_q),\qquad
+ v_8=R_M^{-1/2}(-s_q,c_q).
+\end{gathered}
+\end{equation}
+The circular target passes through this endpoint at $H$. Thus its
+initial phase is $2\arctan q-H/R_M^{3/2}$, approximately
+$17.3820101^\circ$ ahead of Earth; arrival longitude is approximately
+$54.0531714^\circ$. Planetary
+escape, capture, parking-orbit costs and departure waiting time are
+outside this heliocentric model.
+
+\begin{table*}[t]
+\centering\small
+\caption{Exact rational interior knots of the 70-day witness. Entries
+are exact defining decimals. Positions and velocities use the solar normalized units.
+Endpoint knots are $t_0=0$, $t_8=H$ and the analytic states in the text.}
+\label{tab:marsknots}
+\begin{tabular}{rrrrrr}\toprule
+$j$ & $t_j/H$ & $r_{jx}$ & $r_{jy}$ & $v_{jx}$ & $v_{jy}$\\\midrule
+1 & 0.137169299389 & 1.001350238628 & 0.168727459300 & 0.017525621592 & 1.046344765303\\
+2 & 0.274338598779 & 1.006411818893 & 0.346210491047 & 0.046245191438 & 1.105077859977\\
+3 & 0.411507898168 & 1.017566072445 & 0.534820743099 & 0.091838207401 & 1.182668462417\\
+4 & 0.548677197557 & 1.037723200329 & 0.738442255030 & 0.154970973170 & 1.288219089473\\
+5 & 0.661507898168 & 1.043707872696 & 0.902107682569 & -0.064178195495 & 1.117609239693\\
+6 & 0.774338598779 & 1.020891188142 & 1.041194789559 & -0.269833623616 & 0.926300052106\\
+7 & 0.887169299389 & 0.970819319098 & 1.152810168550 & -0.465866897104 & 0.712855383845\\
+\bottomrule\end{tabular}
+\end{table*}
+
+On interval $j=0,\ldots,7$, put $\Delta_j=t_{j+1}-t_j$,
+$s=(t-t_j)/\Delta_j$ and use cubic Hermite interpolation:
+\begin{equation}
+\begin{split}
+ r(t)={}&(2s^3-3s^2+1)r_j
+       +(s^3-2s^2+s)\Delta_j v_j\\
+ &+(-2s^3+3s^2)r_{j+1}
+       +(s^3-s^2)\Delta_j v_{j+1}.
+\end{split}
+\label{eq:marshermite}
+\end{equation}
+Table~\ref{tab:marsknots} and the analytic endpoints specify the whole
+path. Define its control and mass by
+\begin{equation}
+\begin{gathered}
+ u=r''+r/|r|^3,\qquad I(t)=\int_0^t|u|^2\,ds,\\
+ m(t)=\frac{m_0\chi}{\chi+I(t)},\qquad
+ v_e(t)=V_0\frac{\chi+I(t)}{|u(t)|}.
+\end{gathered}
+\end{equation}
+The position and velocity are continuous and the endpoint conditions
+hold exactly by construction. Acceleration may jump at knots; the
+model imposes no thrust-slew constraint. Each one-sided control value
+passes the band. The resulting mass, thrust and exhaust obey the
+constant-power equations exactly almost everywhere.
+
+A whole-interval enclosure gives
+\begin{equation}
+\begin{gathered}
+ 2.5212<J<2.5307< U_M=2.6<\kappa,\\
+ 99<v_e(t)<102\ {\rm km/s},\qquad |r(t)|>0.999\ {\rm AU},\\
+ 1.2014\,10^6<m_0-m(H)<1.2041\,10^6\ {\rm kg}.
+\end{gathered}
+\end{equation}
+In particular, the spacecraft retains over $1.7959\,10^6$ kg, above
+the dry-mass floor. Consequently, for this target phase,
+\begin{equation}
+ \boxed{F_{\rm band}^*(0,H)\le U_M=2.6,\qquad T_{\rm band}^*(\kappa)\le70\ {\rm days}.}
+\end{equation}
+This is an unoptimized upper bound on the minimum time. Comparing it
+with an ideal-engine optimum for the same endpoints, to measure the
+time cost of the band, is left for future work.
+
+Here is a reproducible enclosure prescription. Form the Hermite cubic
+coefficients from the defining decimals, using outward interval arithmetic
+at 60 significant decimal digits, including the square roots in $T_0$,
+$V_0$ and the terminal velocity. Subdivide each of the eight local
+$s$ intervals into 128 equal parts. Horner evaluation encloses $r$ and
+$r''$; square, sum and take an outward square root to bound $|r|$,
+then enclose $u$ and $|u|^2$. Multiplying each latter enclosure by its
+time width gives lower and upper Riemann bounds for $I$. For the
+exhaust check on a subinterval, use the cumulative lower bound at its
+start and cumulative upper bound at its end. This monotonic enclosure
+covers every time within it. The resulting bounds imply the displayed
+coarse inequalities. A standalone supplementary checker implements
+this recipe; a separate floating-point quadrature and dynamics
+integration provide independent numerical cross-checks.

@@ -37,3 +37,12 @@ build/
 __pycache__/
 *.pyc
 build-*/
+
+# LaTeX build files of the VariableISP articles
+VariableISP/*.aux
+VariableISP/*.bbl
+VariableISP/*.blg
+VariableISP/*.log
+VariableISP/*.out
+VariableISP/*.toc
+VariableISP/**/__pycache__/

@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "CW_correction_effort": 5.561869292231833e-06,
+  "moment_error": 1.018477431463646e-18,
+  "relative_free_limit_errors": [
+    0.00016471908493964627,
+    1.5910052675982556e-05,
+    1.5854077610732986e-06
+  ],
+  "tube_bound": 0.0013709567544534043,
+  "tube_radius": 0.01,
+  "pursuer_budget_bound": 1.1581171298618375e-05,
+  "actual_pursuer_expenditure": 9.21578938996279e-06,
+  "nonlinear_rendezvous_error": 2.7149920686887476e-16,
+  "ballistic_c_200": 0.375,
+  "active_endpoint_M_200": 0.6599489742783177,
+  "ballistic_endpoint_propellant_kg": 0.18746485034057514
+}

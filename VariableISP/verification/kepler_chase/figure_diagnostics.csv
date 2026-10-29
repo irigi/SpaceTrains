@@ -1,0 +1,6 @@
+figure,status,time_days,radius_min_AU,exhaust_min_kms,exhaust_max_kms,normal_time_H_max_abs
+1,aggregate_historical_final_angle_plot; only 5.2 AU subset independently reconstructed,,,,,
+2,aggregate_historical_departure_phase_plot; trajectories not individually verified,,,,,
+3,independent_reconstruction_of_caption_geometry; not identified with historical plotted controls,206.55982945341535,0.1699264249411811,42.351429283041725,13001.033250148452,4.125255692599694e-12
+4,independent_reconstruction_of_caption_geometry; not identified with historical plotted controls,42.54574937096926,1.0,20.367416457524705,993.9135442058843,3.263833647793035e-12
+5,independent_reconstruction_of_caption_geometry; not identified with historical plotted controls,214.2360743856015,0.00027320552067320534,4.850821359386314,1203.4918470489768,2.1525457535309656e-06

@@ -1,0 +1,64 @@
+{
+  "repository": "https://github.com/irigi/VariableISPRocketTrajectories",
+  "commit": "bdc9698212c92cd0815d9251c7d777d47cefd706",
+  "atlas_source_path": "atlas/trajectory_atlas.npz",
+  "atlas_source_sha256": "aee69ee6dac3674a8046fc938041b280551ed92e7490179266c67db5ac06be0d",
+  "derived_seeds_sha256": "e2848c4ef8a0e2fe2ada220aa768acfe7424223284022b7522bbacf36ab003b5",
+  "seed_extraction": "Three unchanged rows in their original array coordinates; other data entries replaced with NaN. Grid axes retained.",
+  "seeds": [
+    {
+      "indices": [
+        54,
+        18,
+        72
+      ],
+      "rho": 5.422221006501586,
+      "kappa": 8.36273113489589,
+      "theta": 1.4519966046003239,
+      "raw_parameters": [
+        -0.00022347646738259117,
+        -674.9238341682156,
+        -1449.913185375061,
+        0.0,
+        -3343796.8459513723,
+        190.5198199979746
+      ]
+    },
+    {
+      "indices": [
+        53,
+        18,
+        101
+      ],
+      "rho": 4.825522042741279,
+      "kappa": 8.36273113489589,
+      "theta": 4.8206287272730775,
+      "raw_parameters": [
+        0.0003883532224775318,
+        1445.7115158679367,
+        1339.149816816551,
+        0.0,
+        2131371.9451299557,
+        195.89539794038828
+      ]
+    },
+    {
+      "indices": [
+        53,
+        17,
+        117
+      ],
+      "rho": 4.825522042741279,
+      "kappa": 6.539597448296789,
+      "theta": 6.679184381161494,
+      "raw_parameters": [
+        0.00023114995266668823,
+        676.8814969637524,
+        1296.9417386777134,
+        0.0,
+        -8628224.43569303,
+        214.2630719744751
+      ]
+    }
+  ]
+}
