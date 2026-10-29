@@ -1,0 +1,54 @@
+\subsection{Provenance, scope and conventions}
+The starting points are the author's constant-power Kepler transfer and
+rocket pursuit--evasion articles \cite{OriginalKepler,OriginalChase}.
+Inherited results include inverse-mass accounting, ideal free-space
+transfers, the Kepler similarity reduction, interception and deadline-fuel
+games, and the inertial gravity-compensation certificate. This article
+develops the moving-endpoint derivatives $F_h,F_d$, the nonconvexity
+example, the corrected bounded resource adjoint, the radial-measure
+specialization, flyby and SOI junctions, the circular-spiral model, and the
+CW rendezvous game. These are extensions or specializations of classical
+optimal-control and game theory, not replacements for it
+\cite{Pontryagin1962,Lawden1963,Isaacs1965}.
+The planar restriction is deliberate. The original chase article also
+treats $d=3$; the inertial free-space results below hold in either dimension.
+
+The original source snapshots used here are pinned to repository commit
+\nolinkurl{bdc9698212c92cd0815d9251c7d777d47cefd706}; the bibliography gives
+the repository and filenames. All proofs needed for the stated analytical
+results are included here. Numerical scripts and input data are distributed
+with this revision; a numerical observation is distinguished from a proof.
+
+\begin{center}\small
+\begin{tabular}{@{}p{.32\columnwidth}p{.61\columnwidth}@{}}
+\toprule Convention&Translation\\\midrule
+Kepler time Hamiltonian&$H_T=\lambda\cdot f-1$, maximized; mass is a state\\
+Ideal thrust gain&$C_m=\lambda_m m^2>0$, $k_T=P/C_m$\\
+Physical effort costates&$p_{r,\rm phys}=2k_T\lambda_r$, $p_{v,\rm phys}=2k_T\lambda_v$\\
+Normalized costates&$p_r=(R_0/J_0)p_{r,\rm phys}$, $p_v=(V_0/J_0)p_{v,\rm phys}$\\
+Chase resource&$b_{\rm chase}=J_0b$ in $\mathrm{m^2/s^3}$\\
+Kepler capability&$\kappa=\chi_d-\chi$\\
+Mass ratio&$\eta_m=\chi_d/\chi=m_0/m_d$ (Kepler's $\eta$)\\
+Exhaust limits&$\nu_\pm=V_{e,\pm}/V_0$\\
+Minimizing DP convention&$p=-\nabla_s U$ along a differentiable optimal cost-to-go; also convert objective units\\
+\bottomrule
+\end{tabular}\end{center}
+The costate gain conversion is for an ideal interior arc: there $k_T$ is
+constant and $a=k_T\lambda_v=p_{v,\rm phys}/2$. Applying the same constant
+conversion across a capped boundary is invalid. Multipliers for mass or
+resource endpoints must be transformed with their state coordinate.
+
+\begin{center}\small
+\begin{tabular}{@{}p{.32\columnwidth}p{.61\columnwidth}@{}}
+\toprule Symbol&Meaning and separation\\\midrule
+$\beta_{\rm jet}$&$P/m_0$, W/kg; distinct from hardware coefficient $\beta_{\rm sys}$, kg/W\\
+$Dg$&Jacobian of gravity; $D$ in the variational matrix is $BB^T/2$\\
+$D(s)$&Flyby turn bound; $D$ in the interception section is separation beyond capture radius\\
+$D$ in the spiral&Progress $|q_i-q_f|$ in Section~\ref{sec:stations}; distinct from the turn bound and matrix block\\
+$C$&Resource coefficient $p_b+\ell_2$; $C(h)$ is a rendezvous effort; $\mathsf C$ denotes coast\\
+$\omega$&Target mean motion in timing; local comparison frequency in verification, defined there; primer slope below is $n$\\
+$L,\mathcal L$&Physical length (or a labeled lower bound), and the angular costate integral, respectively\\
+$\eta_m,\eta$&Mass ratio and residual-error coefficient in the global-gap test, respectively\\
+\bottomrule
+\end{tabular}\end{center}
+

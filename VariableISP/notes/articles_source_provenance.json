@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/irigi/VariableISPRocketTrajectories",
+  "commit": "bdc9698212c92cd0815d9251c7d777d47cefd706",
+  "edited_bases": [
+    "handoff/original_articles/KeplerVariableISPRockets.tex",
+    "handoff/original_articles/RocketsChaseAstra.tex"
+  ],
+  "original_source_sha256": {
+    "KeplerVariableISPRockets.tex": "0504c4905927b505bbc7d142fa4424ddb53a56f23573611362551c7539a6eb4e",
+    "RocketPursuitEvasionReferences.bib": "654b322e946aabd5a2d60f4b659be3d14d0139cee4352f49b6f6ceb7af3fc925",
+    "RocketsChaseAstra.tex": "3728613f81e0b2b53e4bb0ef98c771bb775fb16b4f689f9cecba60f4f4d279be"
+  },
+  "figures": "Recovered from embedded image streams of docs/KeplerVariableISPRockets.pdf at the pinned commit; original image data preserved. PNG plots correspond to original article_003 and article_004; JPEG panels to article_001, article_005 and article_002.",
+  "compiled_original_pdf_sha256": "78cef0127ed571f98eb50df52a688b3346926d55afd9b4caef8ecefdd3b1d40f",
+  "bibliography": "Kepler references.bib reconstructed from the printed bibliography of the pinned compiled original, plus existing verified reference entries for the additions. Chase bibliography retained and extended."
+}

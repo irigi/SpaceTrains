@@ -1,0 +1,63 @@
+{
+  "case1": {
+    "w": 0.2,
+    "vmin": 0.4,
+    "vmax": 2,
+    "C": 1,
+    "s": [
+      0.05,
+      0.15,
+      0.4,
+      2
+    ],
+    "a": [
+      0,
+      0.1,
+      0.2,
+      0.5
+    ],
+    "Cdot": [
+      0,
+      -0.025,
+      0,
+      2.5
+    ]
+  },
+  "case2": {
+    "P": 0.5,
+    "V": 1.0,
+    "m0": 1.0,
+    "lambda_m0": 0.4,
+    "lambda_v0": 0.6,
+    "lambda_v_slope": 0.2,
+    "t": 0.1,
+    "m": 0.9,
+    "lambda_m": 0.46781678575732366,
+    "C_initial": 0.4,
+    "C_final": 0.37893159646343216,
+    "Cdot_final": -0.22207021436318253,
+    "z_final": 0.7362806443271199,
+    "ode_error": 3.297362383136715e-14
+  },
+  "case3": {
+    "w0": 0.2,
+    "a": 0.05,
+    "vmin": 0.4,
+    "vmax": 2,
+    "h": 1,
+    "ideal_J": 0.0025000000000000005,
+    "ideal_wf": 0.2025,
+    "throttled_wf": 0.20506302410488578,
+    "throttled_resource_effort": 0.005063024104885766,
+    "extra_resource": 0.0025630241048857656,
+    "throttled_fuel_fraction": 0.024690087971667274,
+    "ideal_fuel_fraction": 0.012345679012345734,
+    "initial_duty": 0.5,
+    "final_duty": 0.48765495601416636
+  },
+  "physical": {
+    "useful_power_per_initial_mass_W_per_kg": 540,
+    "initial_min_acceleration_m_s2": 0.00432,
+    "initial_max_acceleration_m_s2": 0.0216
+  }
+}

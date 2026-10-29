@@ -1,0 +1,340 @@
+\section{Corrected capped free-space propagation}
+\label{app:repair}
+For the dimensional time problem in one dimension, let
+$l=\lambda_v$ with $l'=-\lambda_x$ and $\lambda_x$ constant.
+On a powered fixed-sign interval, write $|l|=L_a+nt$.
+For fixed exhaust $V$ set $F=2P/V$, $\sigma=2P/V^2$ and
+$C_m=\lambda_m m^2$. Correct differentiation gives
+\begin{equation}
+ m'=-\sigma,\quad
+ \lambda_m'=\frac{F|l|}{m^2},\quad
+ C_m'=\frac{2P|l|}{V}-\frac{4PC_m}{mV^2}.
+\end{equation}
+Thus $C_m$ is not constant on this boundary. With
+$B=n/\sigma$ and $A=L_a+Bm_a$,
+\begin{equation}
+ \begin{gathered}
+ m=m_a-\sigma t,\\
+ \lambda_m=\lambda_{m,a}
+ +V\left[A\left(\frac1m-\frac1{m_a}\right)
+                  +B\log\frac m{m_a}\right].
+ \end{gathered}
+\end{equation}
+For thrust sign $\epsilon=\pm1$,
+\begin{equation}
+ \begin{split}
+ v&=v_a+\epsilon V\log(m_a/m),\\
+ x&=x_a+v_at+\epsilon V
+                \left[t-\frac m\sigma\log(m_a/m)\right].
+ \end{split}
+\end{equation}
+On an ideal interior arc $C_m$ is constant and $a=Pl/C_m$;
+on a coast both $m$ and $\lambda_m$ are constant.
+
+\subsection{What survives and what is replaced}
+The pointwise selector survives when evaluated with the current $C_m$.
+The fixed-exhaust state maps above, the interior-arc mass formula, and
+the exchange argument excluding an avoidable powered--coast rearrangement
+under its monotone braking hypotheses also survive. On an interior arc
+$l=l_a-nt$,
+\begin{equation}
+ \frac1{m(t)}=\frac1{m_a}+\frac{P}{2C_m^2}
+       (l_a^2t-l_an t^2+n^2t^3/3).
+\end{equation}
+Integrating $a=Pl/C_m$ gives quadratic velocity and cubic position.
+The raw primer remains affine globally; its scaled acceleration does not.
+The old threshold $6-4\sqrt2$, root $r_1$, formulas for $m_4,m_5,m_6$,
+the $(M,\omega)$ endpoint reduction, and the $m_s/m_6$ rejection tests
+derived from constant $C_m$ on boundary arcs are withdrawn. They are not
+repaired by simply substituting a terminal value of $C_m$.
+
+For clarity, the surviving exchange argument uses states only. In a
+coast/ceiling-brake mixture with duty fraction $\delta\in[0,1]$, write
+$s(t)=\int\delta\,dt$. Then $m=m_a-\sigma s$ and
+$v=v_a-V\log(m_a/m)$. Final mass and velocity depend only on total
+powered time. Exchanging a burn followed by a coast of length $c$ for
+coast followed by burn increases distance by $c\,\Delta v>0$, where
+$\Delta v$ is the burn's velocity decrement. Repetition puts all coasting
+first. If the braking interval has $0\le v\le v_a$ and $v_a>0$, its
+original coast distance is reproduced by a shorter leading coast of
+duration $\int_{\rm coast}v\,dt/v_a$. Mass, terminal velocity and distance
+are unchanged, while elapsed time strictly decreases whenever a positive
+coast follows a positive brake. Approximation extends this state argument
+to fractional mixtures. It remains valid independently of the incorrect
+old adjoint; with the corrected adjoint there is no sliding branch to
+which it needs to be applied.
+
+\subsection{Ceiling-only topology and the unresolved two-sided case}
+Consider the ceiling-only, positive-distance, rest-to-rest problem with
+$C_m>0$ and positive dry mass. Normalize the constant $\lambda_x=n>0$;
+the primer is $l=n(t_z-t)$. Define
+$z=Vm|l|/(2C_m)$. The selector gives interior $\mathsf U$ for $z>1$,
+ceiling burn $\mathsf B$ for $1/2<z<1$, and coast $\mathsf C$ for $z<1/2$.
+On a ceiling arc,
+\begin{equation}
+ \frac{z'}z=\frac{|l|'}{|l|}+\frac{\sigma}{m}(1-2z),
+ \qquad \sigma=2P/V^2.
+\end{equation}
+On an interior arc $z'/z=|l|'/|l|-\sigma z^2/m$; on a coast it is
+$|l|'/|l|$. During boost $|l|'<0$, so $z$ decreases strictly through
+$\mathsf U_+,\mathsf B_+,\mathsf C$, with initial truncations allowed.
+On braking $|l|'=n>0$. At $z=1/2$ both the coast and boundary vector
+fields have $z'>0$. Thus $\mathsf C\to\mathsf B_-$ is regular and cannot
+return to the tie: every encounter with that level would point upward.
+No sliding arc or terminal $m_6$ event is available.
+
+At $z=1$ both powered fields give
+$z'/z=n/|l|-\sigma/m$. The quantity
+$k=mn/(\sigma|l|)$ decreases strictly throughout braking, since $m$
+decreases and $|l|$ increases. An upward crossing $\mathsf B_-\to\mathsf U_-$
+can occur only while $k>1$, and a subsequent downward crossing
+$\mathsf U_-\to\mathsf B_-$ only when $k<1$; no further reversal is
+possible. Consequently every such finite-switch normal candidate has
+the ordered pattern
+\begin{equation}
+ \mathsf U_+\;\mathsf B_+\;\mathsf C\;\mathsf B_-\;
+ \mathsf U_-\;\mathsf B_-,
+\end{equation}
+with absent intervals and endpoint truncations permitted. In particular
+the last boundary burn ends at the endpoint, not at a return to coast.
+This is a ceiling-only one-dimensional result. It does not classify the
+game's two-sided $50$--$250$ km/s engine. In particular, the $50$ km/s
+lower exhaust limit caps acceleration and introduces additional arcs.
+
+To state precisely what remains unresolved here, write $V_-=50$ km/s,
+$V_+=250$ km/s, $\rho_V=V_+/V_-=5$, and define $z$ with $V=V_+$.
+For $C_m>0$, the dimensional selector becomes
+\begin{equation}
+ |a|=\begin{cases}
+ 0,&z<1/2,\\
+ 2P/(mV_+),&1/2<z<1,\\
+ P|l|/C_m,&1<z<\rho_V,\\
+ 2P/(mV_-),&z>\rho_V.
+ \end{cases}
+\end{equation}
+The last region is a maximum-acceleration ($a_+$) arc, denoted
+$\mathsf A_\pm$ according to thrust sign. Its state and mass-adjoint
+maps are the fixed-exhaust maps above with $V=V_-$, and
+\begin{equation}
+ \frac{z'}z=\frac{|l|'}{|l|}
+   +\frac{\sigma_-}{m}\left(1-\frac{2z}{\rho_V}\right),
+ \qquad\sigma_-=2P/V_-^2.
+\end{equation}
+Thus the selector and propagation are available for both boundaries,
+but a complete two-sided switching-topology theorem, including all
+$\mathsf A_\pm$ visits and admissible endpoint truncations, is left open
+in this article. Neither the sequence above nor the numerical test below
+is offered as that theorem. Gravity, abnormality and other endpoint
+conditions require further analysis as well.
+
+\subsection{An endpoint reduction that uses the correct adjoint}
+This reduction and its numerical fixture retain the ceiling-only
+assumptions of the proved topology.
+Use homogeneity to fix $n=1$. The two shooting unknowns are $t_z$ and
+$\lambda_m(0)>0$. Propagate the exact interior, boundary and coast maps,
+switching with the current $z$, until the first exhaustion $m=m_d$.
+Call that time $T(t_z,\lambda_m(0))$. Solve
+\begin{equation}
+ x(T;t_z,\lambda_m(0))=L,\qquad
+ v(T;t_z,\lambda_m(0))=0.
+\end{equation}
+Reject trajectories without exhaustion or with invalid adjoint sign or
+switch inequalities. Alternatively use $T$ as a third unknown and add
+$m(T)=m_d$ as a third residual. Normalize the free-time Hamiltonian
+afterward if a positive normal scaling exists; search competing solutions.
+This is an endpoint reduction, not a claim of uniqueness or global
+optimality.
+
+For $P=1/2$, $V=2$, $m_0=1$, $m_d=1/2$, $L=1$, independent numerical
+integration of the corrected selector gives
+$t_z=1.22365494$, $\lambda_m(0)=0.61524660$, $T=2.35199587$;
+the maximum endpoint residual is $9.6\,10^{-8}$. The coast is approximately
+$[0.80144,1.64581]$. Direct transcription with piecewise-constant
+acceleration, exact $(x,v,1/m)$ propagation and the ceiling imposed at
+each burn cell's final mass gives:
+\begin{center}\begin{tabular}{rrr}\toprule
+Burn cells&Time&Endpoint error\\\midrule
+12&2.35489579&$2.6\,10^{-12}$\\
+24&2.35338380&$1.4\,10^{-12}$\\
+48&2.35267314&$1.3\,10^{-12}$\\\bottomrule
+\end{tabular}\end{center}
+The within-cell ceiling holds because inverse mass increases monotonically
+and the acceleration is constant. Ceiling violations at optimizer tolerance
+are below $9\,10^{-13}$. The transcription independently checks the
+trajectory equations and approaches the shooting time from above; this
+mesh study is not a proof of the global minimum.
+
+\section{The opposing CW strategy}
+\label{app:game}
+For $b_P>b_E$ let $H$ solve the game equation and put
+$k=\sqrt{b_E}/(\sqrt{b_P}-\sqrt{b_E})$.
+The evader starts with $u_E=ka_H$.
+Any rendezvous at $t<H$ needs relative correction $a_t$.
+Minimum-norm orthogonality and
+$\int_0^t a_H\cdot a_t\,ds=C(H)$ imply
+\begin{equation}
+ \int_0^t(|u_P|^2-|u_E|^2)ds
+ \ge C(t)+2kC(H)>b_P(0)-b_E(0).
+\end{equation}
+Rendezvous cannot occur before, or at, the first resource parity.
+At parity the evader switches to the following feedback, which also
+handles an initial $b_E\ge b_P$.
+
+Reset the clock at a nonzero state $z_*$ and let
+$l=z_*/|z_*|$. Introduce virtual evader reserve
+$q(0)=b_P(0)$, $q'=-|u_E|^2$ and define
+\begin{equation}
+ \begin{gathered}
+ Y=l^T\Phi(-t)z,\quad
+ c=B^T\Phi(-t)^Tl,\quad \delta=q-b_P,\\
+ u_E=(\delta/Y)c.
+ \end{gathered}
+\end{equation}
+Initially $Y>0$, $\delta=0$. While $Y>0$,
+$\delta'=|u_P|^2-|u_E|^2$, so $\delta\ge0$, and
+\begin{equation}
+ (\delta Y^2)'=Y^2|u_P-u_E|^2\ge0.
+\end{equation}
+If the product becomes positive, $\delta\le q(0)$ prevents any
+finite zero of $Y$. If it stays zero, both controls vanish almost
+everywhere and $Y$ stays constant. Thus rendezvous is prevented
+and the virtual budget bounds actual evader expenditure.
+The zero-reserve case is coasting. This completes the opposing
+bound under the theorem's information convention.
+
+\section{An explicit nonlinear capture tube}
+\label{app:tube}
+To make \eqref{eq:cwcert} constructive, define
+\begin{equation}
+ \begin{split}
+ g_h&=h+h^2+\tfrac23h^3,\\
+ G_1&=\tfrac12h^2+\tfrac13h^3+\tfrac16h^4,\\
+ G_2&=\tfrac13h^3+\tfrac12h^4+\tfrac7{15}h^5
+                     +\tfrac29h^6+\tfrac4{63}h^7.
+ \end{split}
+\end{equation}
+For rotating state $s=(q,v)$ put
+\begin{equation}
+ \begin{split}
+ F_h(s)&=|q|+(\tfrac32h^2+h^3)|q_x|+g_h|v|,\\
+ D_h&=F_h(z_0)+\sqrt{C(h)G_2},\\
+ E_h&=F_h(s_{E0})+\sqrt{b_EG_2}.
+ \end{split}
+\end{equation}
+The two algebraic conditions
+\begin{equation}
+ \begin{gathered}
+ E_h+D_h+N_\epsilon G_1<\epsilon,\\
+ \sqrt{b_P}\ge\sqrt{b_E}+\sqrt{C(h)}
+                      +L_\epsilon\sqrt h\,D_h
+ \end{gathered}
+\end{equation}
+certify nonlinear rendezvous by $h$.
+Indeed $\norm{\Pi\Phi(t)B}\le t+t^2+2t^3/3$ and
+$|\Pi\Phi(t)s|\le F_h(s)$ for $0\le t\le h$.
+Variation of constants bounds the evader by
+$E_h+N_\epsilon G_1$ and the relative path by $D_h$.
+The first inequality prevents a first exit of either ship.
+The second bounds the compensation effort.
+For a physical exclusion radius also require
+$R_0(1-\epsilon)\ge r_{\min}$.
+
+Failure of either inequality is inconclusive.
+Appendix~\ref{app:inertial} supplies an inertial half-space certificate for wider separations.
+
+\section{An inertial half-space rendezvous certificate}
+\label{app:inertial}
+Here all quantities are physical and $g(x)=-\mu x/|x|^3$; use $\mu=1$
+for normalized quantities. Put $r_0=x_{E0}-x_{P0}$,
+$w_0=v_{E0}-v_{P0}$ and $s=t/h$. The free-space rendezvous correction
+and its relative path are
+\begin{align}
+ a_h(t)&=6r_0/h^2+4w_0/h-(12r_0/h^3+6w_0/h^2)t,\\
+ r_J(t)&=(1-3s^2+2s^3)r_0+h(s-2s^2+s^3)w_0.
+\end{align}
+Thus $\int|a_h|^2=C_J(h)$ from Section~\ref{sec:interception}, and direct
+polynomial integration gives
+\begin{equation}
+ I_J=\int_0^h|r_J|^2dt=
+ \frac{13h}{35}|r_0|^2+\frac{11h^2}{105}r_0\cdot w_0
+                      +\frac{h^3}{105}|w_0|^2.
+\end{equation}
+Choose a unit vector $n$ and $r_*>0$. Require, for every $0\le t\le h$,
+\begin{equation}
+\begin{split}
+ n\cdot(x_{E0}+tv_{E0})-\frac{\mu t^2}{2r_*^2}
+ -\sqrt{b_Et^3/3}\\
+ -\max\{n\cdot r_J(t),0\}>r_*.
+\end{split}
+\label{eq:halfspace}
+\end{equation}
+A simpler sufficient scalar check replaces the linear term by the minimum
+of its two endpoint values and subtracts
+$\mu h^2/(2r_*^2)+\sqrt{b_Eh^3/3}+D_J$, where
+$D_J=|r_0|+4h|w_0|/27$.
+If also
+\begin{equation}
+ \sqrt{b_P}\ge\sqrt{b_E}+\sqrt{C_J(h)}
+                   +\frac{2\mu}{r_*^3}\sqrt{I_J},
+\end{equation}
+the response $a_P=a_E+g(x_E)-g(x_P)+a_h$ guarantees full-state
+rendezvous by $h$. To prove the corridor, before a first exit the evader
+gravitational displacement in direction $n$ is bounded below by
+$-\mu t^2/(2r_*^2)$ and its controlled displacement by
+$-\sqrt{b_Et^3/3}$. Since $x_P=x_E-r_J$, \eqref{eq:halfspace} excludes
+a first exit of either ship. Their joining segment is in the convex
+half-space $n\cdot x\ge r_*$, so
+$|g(x_E)-g(x_P)|\le K_g|r_J|$, $K_g=2\mu/r_*^3$.
+Minkowski and the quadrature then prove the resource bound. Choose
+$r_*\ge r_{\min}$ if an exclusion floor is imposed. A failed sufficient
+test is inconclusive, and finite-band admissibility is an additional check.
+
+\section{CW entries and the rational Jensen calculation}
+\label{app:interval}
+Write $S=\sin h$, $C_h=\cos h$, $S_2=\sin(2h)$. The unit-mean-motion
+transition matrix is
+\begin{equation}
+\Phi(h)=\begin{pmatrix}
+4-3C_h&0&S&2(1-C_h)\\
+6(S-h)&1&-2(1-C_h)&4S-3h\\
+3S&0&C_h&2S\\
+-6(1-C_h)&0&-2S&4C_h-3
+\end{pmatrix}.
+\end{equation}
+The symmetric Gramian has upper-triangle entries
+\begin{align*}
+W_{11}&=13h/2-8S+3S_2/4,\\
+W_{12}&=-3(h-S)^2,\\
+W_{13}&=4(1-C_h)-3S^2/2,\\
+W_{14}&=-11h+14S-3S_2/2,\\
+W_{22}&=3h^3+14h+24hC_h-32S-3S_2,\\
+W_{23}&=5h+6hC_h-8S-3S_2/2,\\
+W_{24}&=6S^2+4(1-C_h)-12hS+9h^2/2,\\
+W_{33}&=5h/2-3S_2/4,\\
+W_{34}&=3S^2+6(C_h-1),\\
+W_{44}&=19h+3S_2-24S.
+\end{align*}
+These follow by integrating $\Phi(t)BB^T\Phi(t)^T$ entrywise.
+For the Jensen fixture, $y=\Phi(h)\xi=(1,1-3h/2,0,-3/2)^T$.
+Evaluate $c=y^TW^{-1}y$ at rational $h=10,21/2,11$ using interval
+Gaussian elimination. The following construction specifies the interval
+calculation without requiring an external supplement. For each sine or
+cosine at argument $x\in\{h,2h\}$, sum its rational Taylor polynomial
+through degree 181 or 180, respectively; append the symmetric Lagrange
+remainder interval $[-|x|^{d+1}/(d+1)!,|x|^{d+1}/(d+1)!]$.
+Convert fractions outward to 70 decimal digits. Round every subsequent
+interval arithmetic operation outward, check that each elimination pivot
+excludes zero, solve $Wq=y$, and form $y^Tq$.
+The deliberately widened enclosures are $|c(h)-\bar c(h)|\le2\,10^{-20}$,
+with the following rational centers:
+\begin{center}\begin{tabular}{rl}\toprule
+$h$&$\bar c(h)$\\\midrule
+10&0.08299553059490180337\\
+10.5&0.08164450969532354695\\
+11&0.08014088306972455432\\\bottomrule
+\end{tabular}\end{center}
+Consequently the Jensen gap differs from
+$7.630286301036810\,10^{-5}$ by at most $4\,10^{-20}$ and is strictly positive.
+The argument in Section~\ref{sec:timing} transfers this leading sign to
+the nonlinear value for sufficiently small perturbations; it does not
+supply an explicit largest perturbation.

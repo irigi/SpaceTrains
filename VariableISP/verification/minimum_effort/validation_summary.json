@@ -1,0 +1,139 @@
+{
+  "pdf_pages": 19,
+  "tex_overfull_boxes": 0,
+  "unresolved_references": 0,
+  "jupiter_rows": 73,
+  "jupiter_band_rejections": 73,
+  "jupiter_floor_rejections": 12,
+  "maximum_table_scaled_endpoint_residual": 4.798680897089014e-11,
+  "figure_cases": [
+    {
+      "rho": 5.2,
+      "theta_deg": 80,
+      "time_days": 170.03357288611687,
+      "h": 2.924934345345211,
+      "p0": [
+        3.8754278639832735,
+        3.097520793230079,
+        2.356076464059883,
+        5.011615021336104
+      ],
+      "residual_max": 5.995204332975845e-15,
+      "radius_min_AU": 1.0,
+      "exhaust_min_kms": 40.60126633479335,
+      "exhaust_max_kms": 2984.8096024830343,
+      "effort": 7.548919872499686,
+      "band_pass": false,
+      "floor_pass": true,
+      "min_radius_time_days": 0.0,
+      "max_exhaust_time_days": 79.47794280629317,
+      "min_exhaust_time_days": 0.0
+    },
+    {
+      "rho": 5.0,
+      "theta_deg": 273.1,
+      "time_days": 206.55982945341535,
+      "h": 3.5532626250322963,
+      "p0": [
+        -5.124455339535725,
+        -4.034397892883271,
+        -3.874442701625639,
+        -3.6295732801048333
+      ],
+      "residual_max": 3.801476929839051e-13,
+      "radius_min_AU": 0.1699264587614497,
+      "exhaust_min_kms": 42.351429283041725,
+      "exhaust_max_kms": 13000.993706810836,
+      "effort": 7.548919872502539,
+      "band_pass": false,
+      "floor_pass": true,
+      "min_radius_time_days": 51.49536548273645,
+      "max_exhaust_time_days": 102.00957177556917,
+      "min_exhaust_time_days": 0.0
+    },
+    {
+      "rho": 5.2,
+      "theta_deg": 385.2,
+      "time_days": 214.2360743856015,
+      "h": 3.6853101499082888,
+      "p0": [
+        -3.6039153692080728,
+        -1.3282587269710096,
+        -2.212910022094881,
+        -4.050687111068531
+      ],
+      "polar_p0": [
+        -3.6039153692080728,
+        -2.212910022094881,
+        -4.050687111068531
+      ],
+      "polar_angular_costate": 0.8846512951238714,
+      "residual_max": 2.056727943511305e-08,
+      "shooting_residual": 9.691221075636136e-09,
+      "radius_min_AU": 0.00027320552067320534,
+      "exhaust_min_kms": 4.850821371453231,
+      "exhaust_max_kms": 1203.4918470489768,
+      "effort": 7.54891985193239,
+      "band_pass": false,
+      "floor_pass": false,
+      "perihelion_time_days": 53.447941486140174
+    }
+  ],
+  "capped_check": "passed independent mesh study",
+  "worked_exact_inequalities": "passed",
+  "jensen_exact_inequalities": "passed",
+  "existing_integration_checks": "passed",
+  "scope": "Original numerical candidate audits and exact local bound checks retained. Added endpoint-exact Hermite Earth\u2013Mars witness with outward interval feasibility certificate and a 70-day upper bound, not an optimum or a measured band penalty.",
+  "two_sided_topology": "explicitly unresolved in this article; ceiling-only theorem retained",
+  "mars_witness_certificate": {
+    "passed": true,
+    "duration_days": 70,
+    "target_radius_AU": "1.524",
+    "departure_phase_ahead_deg_approx": 17.382010125706266,
+    "arrival_polar_angle_deg_approx": 54.053171423910904,
+    "hermite_segments": 8,
+    "subintervals_per_segment": 128,
+    "effort_enclosure": [
+      "2.52123783808713635524809930290623889840745195388631935170328",
+      "2.53064128529429292638897693976429943710904153938931422128950"
+    ],
+    "effort_upper_bound": "2.6",
+    "available_effort_budget": [
+      "7.54891987249966955518580265602576481454732662728544240811739",
+      "7.54891987249966955518580265602576481454732662728544240811776"
+    ],
+    "propellant_kg_enclosure": [
+      "1201409.88106087708414143488851630729789862773328682335742494",
+      "1204092.30385418086827071182255680254938538974587259358865241"
+    ],
+    "radius_AU_enclosure": [
+      "0.999999999999999999999999999999999999999999999999999999999999",
+      "1.52451165483763332983075067404602233456935095375310829435150"
+    ],
+    "exhaust_m_per_s_enclosure": [
+      "99508.3804526236673046545159599512036957356987766483009347248",
+      "101599.272679546064281775452863794012532345669077534145632274"
+    ],
+    "normalized_acceleration_enclosure": [
+      "1.10697927907321244170265280211336233788948441450201462847543",
+      "1.87050388590340840162119417207981046301971697049135438567071"
+    ],
+    "claim": "Exact analytic endpoint states; continuous-time finite-band feasibility; T_star <= 70 days for the specified circular target phase. No global optimality or band-delay estimate."
+  },
+  "mars_witness_crosscheck": {
+    "passed": true,
+    "quadrature_effort": 2.5259373398351226,
+    "mass_formula_kg": 1797248.5404580405,
+    "integrated_mass_kg": 1797248.5404573302,
+    "maximum_kinematic_knot_error": 1.7486012637846216e-15,
+    "propellant_kg": 1202751.4595419595,
+    "endpoint_position": [
+      0.8946401486049271,
+      1.2337726713232684
+    ],
+    "endpoint_velocity": [
+      -0.6557792876825496,
+      0.47552234947391536
+    ]
+  }
+}

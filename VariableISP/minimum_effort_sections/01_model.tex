@@ -1,0 +1,153 @@
+\section{From propellant to a planning problem}
+\label{sec:model}
+The planning task is to move a spacecraft between prescribed orbital
+states, possibly through planetary encounters, with finite propellant and
+constant available useful jet power. The central question is how much
+effort a specified arrival date requires. Once that function is available,
+the earliest affordable arrival follows from a time search. This order
+of calculation also exposes the marginal cost of changing dates and the
+conditions needed to join independently represented trajectory phases.
+
+All motion here is planar. Planet ephemerides are prescribed circular,
+coplanar orbits; stations may orbit a planet or moon. Within each
+gravitational patch the relative dynamics are controlled Kepler motion.
+An unpowered point flyby and a finite planetary segment are alternative
+encounter models. The ideal engine supplies useful analytic benchmarks;
+the operational model uses full power or coast with exhaust speed in
+the specified $50$--$250\,\mathrm{km/s}$ band. Observations in the
+pursuit problem are instantaneous.
+
+\subsection{The exact mass identity}
+Let $P>0$ be constant useful jet power during a burn, $m$ the spacecraft
+mass, $v_e$ exhaust speed and $a$ thrust acceleration magnitude. Then
+\begin{equation}
+ P=\tfrac12(-\dot m)v_e^2,\qquad ma=(-\dot m)v_e.
+\end{equation}
+Eliminating $v_e$ gives
+\begin{equation}
+ \begin{gathered}
+ \frac{d}{dt}\frac1m=\frac{a^2}{2P},\qquad j=\int_0^T a^2dt,\\
+ m_f=\left(\frac1{m_0}+\frac{j}{2P}\right)^{-1}.
+ \end{gathered}
+ \label{eq:mass}
+\end{equation}
+Coasting has $a=0$ and constant mass. Thus, for fixed initial mass and
+power, minimizing propellant is exactly minimizing $j$. With dry mass
+$m_d$, the available physical effort is
+$B=2P(m_d^{-1}-m_0^{-1})$.
+Electrical input power must first be converted to useful jet power.
+The assumed $P$ does not increase as a fixed spacecraft becomes lighter.
+
+For a primary with parameter $\mu$, choose a length $R_0$ and define
+\begin{equation}
+ \begin{gathered}
+ T_0=\sqrt{R_0^3/\mu},\quad V_0=\sqrt{\mu/R_0},\\
+ A_0=\mu/R_0^2,\quad J_0=V_0^2/T_0.
+ \end{gathered}
+\end{equation}
+Dimensionless variables then obey
+\begin{equation}
+ \begin{gathered}
+ r'=v,\qquad v'=g(r)+u,\\
+ g(r)=-r/|r|^3,\qquad J=\int_0^h|u|^2dt,
+ \end{gathered}
+ \label{eq:kepler}
+\end{equation}
+where $h=T/T_0$ and $j=J_0J$. Define
+\begin{equation}
+ \begin{gathered}
+ \chi=\frac{2P}{m_0J_0},\quad
+ \chi_d=\frac{2P}{m_dJ_0},\quad
+ \kappa=\chi_d-\chi,\\
+ w=\frac{2P}{mJ_0}=\chi_d-b,\qquad
+ w'=|u|^2,\quad b'=-|u|^2.
+ \end{gathered}
+ \label{eq:resource}
+\end{equation}
+Initially $b=\kappa$. In particular
+\begin{equation}
+ \frac{m_f}{m_0}=\frac{\chi}{\chi+J},\qquad
+ J\le\kappa.
+ \label{eq:massratio}
+\end{equation}
+This inverse-mass state makes resource propagation additive, including
+across coasts and unpowered encounters.
+
+\subsection{Ideal and bounded engines}
+The ideal problem permits any square-integrable planar $u$. The
+full-power/coast engine instead admits
+\begin{equation}
+ \begin{gathered}
+ \mathcal U(b)=\{0\}\cup\{u:w/\nu_+\le|u|\le w/\nu_-\},\\
+ \nu_\pm=V_{e,\pm}/V_0.
+ \end{gathered}
+ \label{eq:controlset}
+\end{equation}
+At $b=0$ only coast remains. A powered acceleration approaching zero
+requires unbounded exhaust speed, so an ideal solution need not obey a
+finite ceiling even when most of its burn does.
+
+The ideal circular-endpoint action depends on $(\rho,\Theta,h)$, where
+the departure radius is the length scale and $\rho$ is the arrival
+radius ratio. Budget $\kappa$ determines affordability afterward.
+The bounded action additionally depends on $\chi,\nu_-,\nu_+$ and the
+available reserve. Fixing the band ratio removes one coordinate but
+does not remove $\chi$. If $\mu,V_{e,+}$ and initial specific useful power
+$\beta_{\rm jet}=P/m_0$ are all fixed across a vehicle family, the restricted
+relation
+\begin{equation}
+ \chi=\frac{2\beta_{\rm jet}\mu}{V_{e,+}^{5}}\nu_+^5
+\end{equation}
+removes one more coordinate. Changing fuel load at fixed hardware power
+does not preserve that family assumption.
+
+\subsection{A free-space benchmark}
+For $g=0$, fixed initial and final states and duration $h$, set
+$d_r=r_f-r_0-hv_0$, $d_v=v_f-v_0$. The minimum effort is
+\begin{equation}
+ J_{\rm fs}=
+ \frac{12|d_r|^2}{h^3}
+ -\frac{12d_r\cdot d_v}{h^2}
+ +\frac{4|d_v|^2}{h}.
+ \label{eq:free}
+\end{equation}
+To see this, write the endpoint constraints as the two moments of $u$,
+whose Gramian is
+\begin{equation}
+ W_0=\begin{pmatrix}h^3I/3&h^2I/2\\h^2I/2&hI\end{pmatrix}.
+\end{equation}
+The minimum-norm control is affine in time, and its squared norm is
+$(d_r,d_v)^TW_0^{-1}(d_r,d_v)$, giving \eqref{eq:free}.
+For a dimensional rest-to-rest displacement $L$,
+\begin{equation}
+ a(t)=\frac{6L}{T^2}\left(1-\frac{2t}{T}\right),\qquad
+ j=\frac{12L^2}{T^3}.
+\end{equation}
+Consequently
+$T_{\min}=[6L^2/(P(m_d^{-1}-m_0^{-1}))]^{1/3}$
+in this ideal free-space problem.
+Gravity changes the endpoint moments, so \eqref{eq:free} is not in
+general a lower bound on Kepler effort.
+
+\input{minimum_effort_sections/00_bridge}
+\subsection{Power--mass closure}
+For design studies, let $m_d=m_{\rm pay}+\beta_{\rm sys}P$ and fix
+$\mathcal R=m_{\rm prop}/m_d$. A useful hardware model is
+\[
+\beta_{\rm sys}=\frac{1}{(1-\varphi)\alpha_{\rm eng}}
++\frac{\varphi}{(1-\varphi)\rho_{\rm rad}},
+\]
+where $\varphi$ is the rejected fraction of input power,
+$\alpha_{\rm eng}$ the engine specific input power and $\rho_{\rm rad}$
+the radiator specific rejected power. Both specific powers are in W/kg.
+Substituting $m_0=(1+\mathcal R)m_d$ into the ideal rest-to-rest formula gives
+\begin{equation}
+ T^3=\frac{6L^2(1+\mathcal R)}{\mathcal R}
+          \left(\frac{m_{\rm pay}}P+\beta_{\rm sys}\right).
+\end{equation}
+Thus $T_\infty=[6L^2(1+\mathcal R)\beta_{\rm sys}/\mathcal R]^{1/3}$,
+$P_{\rm knee}=m_{\rm pay}/\beta_{\rm sys}$, and
+$T=T_\infty(1+P_{\rm knee}/P)^{1/3}$. This inherited hardware closure
+\cite{OriginalKepler} is an ideal free-space design benchmark, not a
+finite-band orbital prediction. It complements the fixed-hardware mass
+identity without identifying W/kg with kg/W.

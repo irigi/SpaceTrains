@@ -1,0 +1,16 @@
+{
+  "cells": 2044,
+  "tables": {
+    "tab:transfer_times_final_anomaly": 511,
+    "tab:transfer_times_initial_anomaly": 511,
+    "tab:transfer_times_final_anomaly_return": 511,
+    "tab:transfer_times_initial_anomaly_return": 511
+  },
+  "statuses": {
+    "unresolved_solver_output": 181,
+    "independent_fixed_geometry_dry_mass_reconstruction": 73,
+    "historical_trajectory_parameters_unavailable": 1790
+  },
+  "genuine_infeasibility_certificates": 0,
+  "qualification": "Reconstructions do not identify every historical branch. Blank diagnostics mean unavailable, not zero. U cells remain unresolved; no feasibility lower bound was fabricated."
+}

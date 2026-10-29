@@ -1,0 +1,187 @@
+\section{Engine limits and the solar floor}
+\label{sec:constraints}
+\subsection{The bounded-engine selector}
+For normal running cost $\ell_0+\ell_2|u|^2$, set
+$C=p_b+\ell_2$. Fixed-time effort uses $(\ell_0,\ell_2)=(0,1)$;
+minimum time uses $(1,0)$. The Hamiltonian is
+\begin{equation}
+ H=p_r\cdot v+p_v\cdot g-\ell_0+p_v\cdot u-C|u|^2.
+\end{equation}
+Let $s=|p_v|$, $a_-=w/\nu_+$ and $a_+=w/\nu_-$. For $C>0$,
+\begin{equation}
+ \widehat a=\operatorname{clip}(s/(2C),a_-,a_+),\qquad
+ \mathcal G=\max(0,s\widehat a-C\widehat a^2).
+ \label{eq:selector}
+\end{equation}
+Burn in direction $p_v/s$ when the powered gain is positive and coast
+when it is negative. At a tie both maximize. For $C\le0$, compare
+coast with $a_+$. If $s=0$ and a burn wins, its direction is not
+determined by this pointwise condition.
+
+For $C>0$ the four regular magnitude regions are
+\begin{equation}
+ a^*=\begin{cases}
+ 0&s<Ca_-,\\
+ a_-&Ca_-<s<2Ca_-,\\
+ s/(2C)&2Ca_-<s<2Ca_+,\\
+ a_+&s>2Ca_+.
+ \end{cases}
+\end{equation}
+The lowest powered thrust uses maximum exhaust; the highest uses
+minimum exhaust. State and costate evolution determines the order of
+these modes along a transfer.
+
+The kinematic adjoints retain \eqref{eq:idealPMP}, but the resource
+adjoint changes on a fixed-exhaust boundary:
+\begin{equation}
+ \begin{gathered}
+ C'=\frac{s-2Ca}{\nu}\quad(a=w/\nu),\\
+ C'=0\quad\hbox{on interior burns and coasts}.
+ \end{gathered}
+ \label{eq:Cprime}
+\end{equation}
+Indeed $\partial a/\partial b=-1/\nu$, so differentiation of the
+optimized Hamiltonian gives \eqref{eq:Cprime}. Ordinary switches
+inside $b>0$ have continuous states and costates. Dry-mass exhaustion
+is a state-constraint event and requires its additional multiplier.
+For free inactive terminal reserve in an isolated effort problem,
+$p_b(h)=0$; an embedded leg receives its resource covector from the
+next leg.
+
+Autonomy and rotational symmetry preserve $H^*$ and $\mathcal L$
+on the regular phase. The old claim that $\lambda_m m^2$ stays
+constant on every capped arc fails because the acceleration bounds
+depend on mass. Appendix~\ref{app:repair} supplies the corrected
+one-dimensional propagation. There is no derived universal finite
+switching sequence for the Kepler problem.
+
+With ordinary ballistic endpoint ephemerides, the bounded counterparts
+of \eqref{eq:dates} are
+\begin{equation}
+ F_h=-\mathcal G_f,\qquad
+ F_d=\mathcal G_0-\mathcal G_f,
+ \label{eq:boundeddate}
+\end{equation}
+when terminal resource variations vanish or are included through their
+transversality conditions. The ideal case has $p_b=0$ and
+$\mathcal G=|u|^2$.
+
+\subsection{Auditing an ideal trajectory}
+Given an endpoint-exact ideal path, write
+$I(t)=\int_0^t|u|^2ds$ and $w_I=\chi+I$. Its actual full-power exhaust
+on a burn is $\nu_e=w_I/|u|$. It is band-feasible precisely when
+$I(h)\le\kappa$ and
+\begin{equation}
+ w_I/\nu_+\le|u|\le w_I/\nu_-
+ \label{eq:bandaudit7}
+\end{equation}
+almost everywhere on powered intervals; exact coasts pass separately.
+Certified interval bounds can establish \eqref{eq:bandaudit7}
+between samples. Clipping a violating control changes its endpoint.
+If a globally ideal-minimal path passes this audit, it is also globally
+minimal in the restricted problem at that time.
+
+Continuous throttling is a different engine model. For duty fraction
+$\delta$, $a=\delta w/\nu$ and $w'=a^2/\delta$.
+The fuel-minimal realization of a prescribed acceleration history uses
+\begin{equation}
+ \nu=\min(\nu_+,w/a),\qquad
+ w'=\max(a^2,wa/\nu_+).
+ \label{eq:throttle}
+\end{equation}
+It also requires $a\le w/\nu_-$ and $w(h)\le\chi_d$.
+This scalar equation preserves the prescribed spatial path exactly
+under continuous throttling. An on/off approximation must preserve
+both mean acceleration and mass flow: a duty cycle has mean effort
+rate $\delta a_{\rm burn}^2$, not $(\delta a_{\rm burn})^2$.
+Exact endpoint correction for finite pulses is an additional problem.
+
+\subsection{A hard radial constraint}
+Set $R_c=r_{\min}/R_0$ and impose
+$c=(R_c^2-|r|^2)/2\le0$. For the solar model
+$r_{\min}=0.1$ AU; $R_c=0.1$ only when $R_0=1$ AU.
+With radial and tangential speeds $y,z$,
+\begin{equation}
+ \begin{gathered}
+ R'=y,\qquad
+ y'=z^2/R-1/R^2+u_r,\\
+ \theta'=z/R,\qquad z'=u_\theta-yz/R.
+ \end{gathered}
+\end{equation}
+The constraint has relative order two:
+$c'=-r\cdot v$ and
+$c''=-|v|^2+1/R-r\cdot u$.
+At a boundary interval,
+\begin{equation}
+ \begin{gathered}
+ R=R_c,\quad y=0,\quad z'=u_\theta,\\
+ u_r=A(z):=R_c^{-2}-z^2/R_c.
+ \end{gathered}
+ \label{eq:boundary}
+\end{equation}
+A circular coast with $z=\pm R_c^{-1/2}$ is a zero-effort globally
+minimal boundary arc for its own endpoints. Thus boundary intervals
+must be permitted.
+
+Using the original measure-costate convention, a nonnegative measure
+$dM$ is supported on the contact set \cite{HartlSethiVickson1995,BonnansHermant2009}:
+\begin{equation}
+ dp_r=-Dg^Tp_v\,dt-r\,dM,\qquad dp_v=-p_r\,dt.
+\end{equation}
+At an atom $\gamma\ge0$,
+$p_r^+=p_r^--\gamma r$ and $p_v^+=p_v^-$.
+The ideal thrust is continuous, while its derivative can jump.
+Tangency makes the Hamiltonian continuous; rotational symmetry
+preserves $\mathcal L$. Higher-order transformed adjoints use a
+different representation and should not be mixed with these jumps.
+
+For the ideal boundary problem, substituting \eqref{eq:boundary}
+gives $J_B=\int(A(z)^2+z'^2)dt$ and
+\begin{equation}
+ z''=-\frac{\mathcal L}{2R_c}-\frac{2A(z)z}{R_c}.
+\end{equation}
+The original radial adjoint fixes its measure density:
+\begin{equation}
+ \mu_M=
+ \frac{-4A/R_c^3-6z'^2/R_c-8zz''/R_c-2Az^2/R_c^2}{R_c}
+ \ge0.
+ \label{eq:density}
+\end{equation}
+For completeness, on the circle
+$p_v=2Ae_r+2z'e_\theta$ and $e_r'=(z/R_c)e_\theta$ give
+$p_r=-p_v'=6zz'e_r/R_c-2(z''+Az/R_c)e_\theta$.
+The radial component of $p_r'=-Dg^Tp_v-R_ce_r\mu_M$, with
+$Dg\,e_r=2e_r/R_c^3$, gives \eqref{eq:density} term by term.
+This sign test and the entry/exit conditions are part of the solution.
+For constant $z$, a subcircular boundary burn has $\mu_M<0$ and
+fails the normal necessary conditions.
+
+With engine bounds the boundary is feasible only if $|A|\le a_+$ and
+\begin{equation}
+ \sqrt{\max(0,a_-^2-A^2)}
+ \le |u_\theta|\le\sqrt{a_+^2-A^2}.
+\end{equation}
+Coast is separately possible when $A=0$. Add the radial measure to
+the bounded-engine adjoints and retain \eqref{eq:Cprime}.
+
+A smooth radial penalty preserves time and rotation symmetry but
+changes the objective and its sensitivities. It does not in general
+enforce the hard floor. The barrier $\epsilon/(R-R_c)^2$ on
+$R>R_c$ excludes contact at finite penalized cost and can initialize
+continuation, but cannot itself represent a boundary interval.
+For a regular constrained minimum with fixed endpoints,
+\begin{equation}
+ \frac{\partial J^*}{\partial R_c}=R_cM([0,h])\ge0.
+\end{equation}
+The physical effort must be reported separately from any penalty cost.
+
+For runtime safety, a cubic Bezier position interpolant $p$ with
+controls $B_i$ has squared-radius Bernstein coefficients
+\begin{equation}
+ c_k=\sum_{i+j=k}
+ \frac{\binom3i\binom3j}{\binom6k}B_i\cdot B_j.
+\end{equation}
+If a validated trajectory error is $|r-p|\le E$, then
+$\min_k c_k\ge(R_c+E)^2$ is a sufficient segment pass.
+Subdivide unresolved segments. The error enclosure must include
+trajectory and arithmetic error, not just interpolation of sampled data.

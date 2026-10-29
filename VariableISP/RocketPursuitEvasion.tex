@@ -1,11 +1,11 @@
 % Use the companion article's IEEE class where installed.
-% The portable fallback preserves an A4, Times, two-column journal layout.
+% The portable fallback preserves an A4, Latin Modern, two-column journal layout.
 \IfFileExists{IEEEtran.cls}{%
   \documentclass[journal,a4paper]{IEEEtran}
 }{%
   \documentclass[10pt,twocolumn,a4paper]{article}
   \usepackage[textwidth=181mm,textheight=257mm,top=19mm,columnsep=4.5mm]{geometry}
-  \usepackage{times}
+  \usepackage{lmodern}
   \renewcommand{\thesection}{\Roman{section}}
   \renewcommand{\thesubsection}{\Alph{subsection}}
   \date{}
@@ -29,12 +29,12 @@
 
 \begin{document}
 \title{Pursuit, Rendezvous, and Evasion With Constant-Power, Variable-$I_{\!sp}$ Rockets}
-%\author{Jan~Ol\v{s}ina\\[1ex] Independent Researcher, Prague, Czech Republic\\
-%email: \texttt{jan.olsina@gmail.com}, ORCID: \texttt{0009-0003-9816-3958}.}
+\author{Jan~Ol\v{s}ina\\[1ex] Independent Researcher, Prague, Czech Republic\\
+email: \texttt{jan.olsina@gmail.com}, ORCID: \texttt{0009-0003-9816-3958}.}
 \maketitle
 
 \begin{abstract}
-We study pursuit and evasion by constant-useful-power rockets with continuously variable exhaust speed. Position-only interception is optimized for minimum guaranteed time or minimum worst-case propellant expenditure by a deadline; exact position-and-velocity rendezvous is optimized for minimum guaranteed time. Both capture modes are treated in free space and in a Kepler field. An inverse-mass transformation converts propellant constraints into integral bounds on squared acceleration. We derive the Hamilton--Jacobi--Isaacs equations, feedback selectors, characteristic ordinary differential equations, and global verification theorems. For ideal free-space rendezvous with instantaneous observation of the evader's acceleration, we obtain a complete analytical solution: a square-root resource gap determines a unique cubic time equation, and explicit opposing strategies prove its optimality for arbitrary initial relative position and velocity. When the evader has at least the pursuer's remaining acceleration budget, a constructive survival strategy also attains the least worst-case escape expenditure. Further results include an exact active-interception family, closed-form ballistic benchmarks, mass and exhaust-speed histories, and a rigorous gravity-compensated Kepler capture bound. General orbital values remain nonlinear feedback problems. Strict position-only escape can have an unattained fuel infimum, so attained optima and limiting values are distinguished throughout.
+We study pursuit and evasion by constant-useful-power rockets with continuously variable exhaust speed. Position-only interception is optimized for minimum guaranteed time or minimum worst-case propellant expenditure by a deadline; exact position-and-velocity rendezvous is optimized for minimum guaranteed time. Both capture modes are treated in free space and in a Kepler field. An inverse-mass transformation converts propellant constraints into integral bounds on squared acceleration. We derive the Hamilton--Jacobi--Isaacs equations, feedback selectors, characteristic ordinary differential equations, and global verification theorems. For ideal free-space rendezvous with instantaneous observation of the evader's acceleration, we obtain a complete analytical solution: a square-root resource gap determines a unique cubic time equation, and explicit opposing strategies prove its optimality for arbitrary initial relative position and velocity. When the evader has at least the pursuer's remaining acceleration budget, a constructive survival strategy also attains the least worst-case escape expenditure. A planar Clohessy--Wiltshire rendezvous theorem gives the local Kepler counterpart, with an explicit opposing strategy and a sufficient nonlinear capture tube. These exact response guarantees require current acceleration observations and are not established for delayed sensing. Further results include an exact active-interception family, closed-form ballistic benchmarks, mass and exhaust-speed histories, and a rigorous gravity-compensated Kepler capture bound. General orbital values remain nonlinear feedback problems. Strict position-only escape can have an unattained fuel infimum, so attained optima and limiting values are distinguished throughout.
 \end{abstract}
 
 \section{Introduction}
@@ -110,6 +110,32 @@ At full power the admissible acceleration set is
 \end{align}
 At $b=0$ this is replaced by $\{\mathbf0\}$. A ceiling on exhaust speed alone gives a \emph{minimum nonzero acceleration}, not a maximum acceleration. An artificial bound $\norm{\mathbf a_i}\le A_i$ is another useful regularization, but is a different model until a justified limit is taken. Section~\ref{sec:bounded} gives selectors for these sets.
 
+
+\subsection{Conventions Shared With the Transfer Article}
+For the same physical minimum-time objective, a smooth cost-to-go $V$
+uses minimizing dynamic programming here. The companion uses the
+maximizing Hamiltonian $\mathcal H_T=\lambda\cdot f-1$. The sign and
+coordinate changes are:
+\begin{center}\small
+\begin{tabular}{@{}p{.31\columnwidth}p{.64\columnwidth}@{}}\toprule
+Quantity & Correspondence\\\midrule
+Kinematic covectors & $\lambda_x=-V_x$, $\lambda_v=-V_v$\\
+Budget and units & $b=2P(m_d^{-1}-m^{-1})$, $\mathrm{m^2/s^3}$\\
+Resource covector & $\lambda_b=-V_b$\\
+Mass covector & $\lambda_m=(2P/m^2)\lambda_b=-(2P/m^2)V_b$\\
+Interior gain & $C_m=\lambda_m m^2=-2PV_b$, $k_T=P/C_m$\\
+Normalized budget & $\bar b=b/J_0$, $J_0=R_0^2/T_0^3$\\
+Exhaust parameters & $\nu_\pm=v_{e,\pm}/(R_0/T_0)$\\\bottomrule
+\end{tabular}
+\end{center}
+The covector formulas compare the same objective in the same units;
+changing objective units also rescales its covectors. For a differentiable
+game value the sign reversal exchanges min and max in the entire Isaacs
+operator. It does not convert the evader into a second independent
+minimum-time optimizer. The ideal interior constancy of $C_m$ fails
+on mass-dependent exhaust boundaries, as stated in
+Section~\ref{sec:bounded} and the corrected companion appendix.
+
 \subsection{Motion and Capture}
 In an inertial frame,
 \begin{subequations}\label{eq:fullstate}
@@ -146,7 +172,7 @@ The simultaneous equalities are essential: crossing the same point at different 
 The Kepler field is singular at the central body. Results below apply to noncolliding admissible trajectories. A global numerical problem must prescribe a collision rule or a minimum central distance and the associated individual viability constraints. One consistent choice is to restrict each pilot to trajectories with $\norm{\mathbf x_i}\ge r_{\min}>0$, on the set of states from which that individual restriction is viable. Such constraints require their own state-constraint boundary treatment; a collision is not silently counted as successful evasion. No particular value of $r_{\min}$ is imposed here. Local equations are valid throughout the nonsingular domain, and global certificates must cover the entire region actually used.
 
 \subsection{Information and Objectives}
-Both pilots know the model, clock, positions, velocities, and remaining budgets exactly. They may change controls at every instant and use the observation history, but cannot anticipate future choices. A pursuer strategy $\alpha$ maps an admissible evader input history to a pursuer input history nonanticipatively; $\beta$ is the corresponding evader strategy. Admissibility includes the strategy's own budget against \emph{every} opposing input. Standard nonanticipative or compatible sampled-feedback formulations may be used, with their information convention fixed consistently \cite{EvansSouganidis1984}.
+Both pilots know the model, clock, positions, velocities, and remaining budgets exactly. They may change controls at every instant and use the observation history, but cannot anticipate future choices. A pursuer strategy $\alpha$ maps an admissible evader input history to a pursuer input history nonanticipatively; $\beta$ is the corresponding evader strategy. Admissibility includes the strategy's own budget against \emph{every} opposing input. General value constructions may use an explicitly specified nonanticipative or sampled-feedback formulation; the exact response theorems below specifically use instantaneous acceleration observation and cannot simply be transferred to a delayed sampled implementation \cite{EvansSouganidis1984}.
 
 Notation such as $\sup_{\mathbf a_E}$ below means the supremum over all admissible opposing input functions, including functions generated by causal state feedback. It does not mean a preannounced maneuver. Two unrestricted nonanticipative response maps should not simply be composed if doing so would create an ill-defined algebraic loop; the verification results use well-posed feedback dynamics.
 
@@ -702,6 +728,163 @@ Replace $C_J$ by $C_I=3\norm{\mathbf r_0+h\mathbf w_0}^2/h^3$, and $I_J$ by
 \end{equation}
 Use $\mathbf r_I$ in \eqref{eq:corridor}. The endpoint is exact position coincidence, so it also suffices for a positive capture radius. These compensation strategies are for ideal engines; finite instantaneous engine limits require checking their full acceleration histories.
 
+\subsection{The Exact Local CW Rendezvous Game}
+\label{sec:cwgame}
+Near a prograde circular reference orbit of mean motion $n$, the planar
+Clohessy--Wiltshire (CW) equations retain the linear solar tide and Coriolis
+terms \cite{ClohessyWiltshire1960}. In physical units, with rotating state
+$s=(x,y,\dot x,\dot y)$, write $\dot s=A_ns+B\mathbf a$, where
+\begin{equation}
+ A_n=\begin{pmatrix}0&0&1&0\\0&0&0&1\\3n^2&0&0&2n\\0&0&-2n&0\end{pmatrix},
+ \qquad B=\begin{pmatrix}0&0\\0&0\\1&0\\0&1\end{pmatrix}.
+\end{equation}
+Let $z=s_E-s_P$, $\Phi(t)=\exp(A_nt)$ and define
+\begin{equation}
+\begin{gathered}
+ K(t)=\Phi(-t)B,\qquad M(h)=\int_0^h K(t)K(t)^T\dd t,\\
+ C_{\rm CW}(h)=z_0^TM(h)^{-1}z_0,\qquad
+ a_h(t)=K(t)^TM(h)^{-1}z_0.
+\end{gathered}
+\label{eq:CWgram}
+\end{equation}
+Here $C_{\rm CW}$ and $b_i$ both have units $\mathrm{m^2/s^3}$.
+Controllability makes $M(h)$ positive definite for $h>0$. For $z_0\ne0$,
+$C_{\rm CW}$ decreases strictly and continuously from infinity to zero;
+$C_{\rm CW}'(h)=-|K(h)^TM(h)^{-1}z_0|^2$. Strict decrease follows from
+controllability on each nonempty interval; the large-time limit follows
+from the trigonometric-polynomial CW transition matrix.
+
+\begin{theorem}[Ideal planar CW rendezvous]
+\label{thm:CW}
+Assume unrestricted square-integrable accelerations, no additional state
+constraints, and instantaneous observation of the evader's current
+acceleration by the pursuer. For $z_0\ne0$ and $b_P>b_E$, the guaranteed
+rendezvous time is the unique $H>0$ satisfying
+\begin{equation}
+ \boxed{C_{\rm CW}(H)=(\sqrt{b_P}-\sqrt{b_E})^2.}
+\end{equation}
+It is infinite when $b_P\le b_E$, and zero at $z_0=0$.
+\end{theorem}
+\begin{proof}
+For the upper bound, use $\mathbf a_P=\mathbf a_E+a_H$.
+Then $z(t)=\Phi(t)[z_0-\int_0^tK(s)a_H(s)\dd s]$, so $z(H)=0$.
+Minkowski gives $\|\mathbf a_P\|_2\le\sqrt{b_E}+\sqrt{C_{\rm CW}(H)}
+=\sqrt{b_P}$ against every allowed evader.
+
+For the opposing bound put $k=\sqrt{b_E}/(\sqrt{b_P}-\sqrt{b_E})$.
+The evader starts with $\mathbf a_E=ka_H$ until resource parity.
+Any rendezvous at $t<H$ requires a pursuer correction with moments
+$\int_0^tK(s)(\mathbf a_P-\mathbf a_E)\dd s=z_0$.
+Minimum-norm orthogonality gives
+\begin{equation}
+\begin{split}
+ \int_0^t(|\mathbf a_P|^2-|\mathbf a_E|^2)\dd s
+ &\ge C_{\rm CW}(t)+2kC_{\rm CW}(H)\\
+ &>b_P(0)-b_E(0).
+\end{split}
+\end{equation}
+Thus rendezvous is impossible before or at first resource parity.
+The planned evader burn spends at most $b_E(0)$ by $H$.
+
+At parity, reset time at the nonzero state $z_*$ and put
+$l=z_*/|z_*|$. Introduce a virtual evader reserve $q(0)=b_P(0)$,
+$\dot q=-|\mathbf a_E|^2$. Define
+\begin{equation}
+\begin{gathered}
+ Y=l^T\Phi(-t)z,\quad c=B^T\Phi(-t)^Tl,\quad\delta=q-b_P,\\
+ \mathbf a_E=(\delta/Y)c.
+\end{gathered}
+\label{eq:CWparity}
+\end{equation}
+Initially $Y>0$, $\delta=0$. While $Y>0$, the feedback preserves
+$\delta\ge0$ and
+\begin{equation}
+ (\delta Y^2)'=Y^2|\mathbf a_P-\mathbf a_E|^2\ge0.
+\end{equation}
+If the product becomes positive, $\delta\le q(0)$ prevents $Y$ from
+vanishing at finite time. If it stays zero, both controls vanish almost
+everywhere and $Y$ stays constant. The virtual budget bounds actual
+expenditure. The same strategy starts immediately when $b_E\ge b_P$;
+if $b_P=0$ it is simply coasting. This proves the lower bound.
+\end{proof}
+The result concerns full-state rendezvous. In the dimensional limit
+$n\to0$, $A_n$ becomes the free-space double integrator and
+\begin{equation}
+ C_{\rm CW}(h)\longrightarrow
+ \frac{12|\mathbf r_0|^2}{h^3}
+ +\frac{12\mathbf r_0\cdot\mathbf w_0}{h^2}
+ +\frac{4|\mathbf w_0|^2}{h}=C_J(h).
+\end{equation}
+Hence the value equation reduces to the free-space cubic in
+Theorem~\ref{thm:exactJ}. Taking this physical limit precedes any
+normalization that sets $n=1$.
+
+\subsubsection{A Sufficient Nonlinear Extension and Explicit Tube}
+Let the reference radius be $R_c$, $n^2=\mu/R_c^3$, and use normalized
+position $q$, time $\tau=nt$, acceleration $u=\mathbf a/(R_cn^2)$ and
+budget $\bar b=b/(R_c^2n^3)$. In these units the exact rotating Kepler
+field is
+\begin{equation}
+ q''+2Jq'=\operatorname{diag}(3,0)q+u+N(q),
+ \quad J=\begin{pmatrix}0&-1\\1&0\end{pmatrix},
+\end{equation}
+where
+\begin{equation}
+ N(q)=-\frac{e_1+q}{|e_1+q|^3}+e_1-\operatorname{diag}(2,-1)q.
+\end{equation}
+On $|q|\le\epsilon<1$, Taylor's formula and
+$\|D^2g(x)[a,b]\|\le6|a||b|/|x|^4$ give
+\begin{equation}
+ |N|\le N_\epsilon=\frac{3\epsilon^2}{(1-\epsilon)^4},\qquad
+ \operatorname{Lip}(N)\le L_\epsilon=\frac{6\epsilon}{(1-\epsilon)^4}.
+\end{equation}
+Compute the preceding CW objects with $n=1$, normalized states and horizon
+$h$. The response $u_P=u_E+a_h+N(q_E)-N(q_P)$ makes relative motion
+exactly the CW correction path $z_h$. If both ships stay in the ball,
+Minkowski yields the sufficient resource condition
+\begin{equation}
+\begin{split}
+ \sqrt{\bar b_P}&\ge\sqrt{\bar b_E}+\sqrt{C_{\rm CW}(h)}\\
+ &+L_\epsilon\left(\int_0^h|\Pi z_h|^2\dd\tau\right)^{1/2},
+\end{split}
+\end{equation}
+Here $\Pi=(I,0)$. The ball can be certified rather than assumed. Define
+\begin{align}
+ g_h&=h+h^2+2h^3/3,\nonumber\\
+ G_1&=h^2/2+h^3/3+h^4/6,\nonumber\\
+ G_2&=h^3/3+h^4/2+7h^5/15+2h^6/9+4h^7/63,\nonumber\\
+ F_h(s)&=|q|+(3h^2/2+h^3)|q_x|+g_h|v|,\nonumber\\
+ D_h&=F_h(z_0)+\sqrt{C_{\rm CW}(h)G_2},\nonumber\\
+ E_h&=F_h(s_{E0})+\sqrt{\bar b_EG_2}.
+\end{align}
+The explicit sufficient test is
+\begin{equation}
+\begin{gathered}
+ E_h+D_h+N_\epsilon G_1<\epsilon,\\
+ \sqrt{\bar b_P}\ge\sqrt{\bar b_E}+\sqrt{C_{\rm CW}(h)}
+                      +L_\epsilon\sqrt h\,D_h.
+\end{gathered}
+\label{eq:CWtube}
+\end{equation}
+Indeed, the CW matrix exponential obeys
+$\|\Pi\Phi(\tau)B\|\le\tau+\tau^2+2\tau^3/3$ and
+$|\Pi\Phi(\tau)s|\le F_h(s)$ for $0\le\tau\le h$.
+Variation of constants and Cauchy--Schwarz bound the evader displacement
+by $E_h+N_\epsilon G_1$ and the relative path by $D_h$. The first
+inequality excludes a first exit of either ship; the second supplies
+its uniform fuel bound. Impose $R_c(1-\epsilon)\ge r_{\min}$ for a
+physical exclusion radius. Failure of this sufficient test is inconclusive.
+
+This local certificate incorporates the linear tide exactly and compensates
+only the nonlinear remainder, whose Lipschitz bound is $O(\epsilon)$.
+It can therefore be sharper locally than compensating the entire field
+with $K_g$. It does not uniformly dominate the inertial half-space
+certificate above, which remains useful at wide separations. These are
+ideal-engine results: a finite-band guarantee additionally requires
+admissibility of the feedback against every allowed opponent. Delayed
+acceleration observation invalidates the cancellation used by this proof,
+so the exact value and stated capture time are no longer guaranteed.
+
 \subsection{B2: Minimum Fuel With Capture by a Deadline}
 The fuel value solves
 \begin{equation}
@@ -1075,7 +1258,7 @@ At $\mathbf h=0$ direction is immaterial. For the minimizing quadratic with $c>0
 
 Insert the resulting extrema in \eqref{eq:Hgeneral} or \eqref{eq:HE}. For a mass-independent ball bound $\norm{\mathbf a}\le A$, a coercive selector is simply radially clipped at $A$. An exhaust-speed ceiling alone retains the gap between coast and minimum powered acceleration described in the companion article.
 
-With mass-dependent control boundaries, \eqref{eq:canonical} must be replaced by the canonical equations of the \emph{optimized constrained Hamiltonian}. In particular, $\dot\eta_i=-\partial K^*/\partial b_i$ can be nonzero on exhaust-boundary arcs. The constant-budget-costate result is for unconstrained interior arcs, not a universal first integral of the bounded game.
+With mass-dependent control boundaries, \eqref{eq:canonical} must be replaced by the canonical equations of the \emph{optimized constrained Hamiltonian}. In particular, $\dot\eta_i=-\partial K^*/\partial b_i$ can be nonzero on exhaust-boundary arcs. The constant-budget-costate result is for unconstrained interior arcs, not a universal first integral of the bounded game. This agrees with the corrected companion appendix: on a fixed-exhaust burn $\dot\lambda_m=(2P/V)|\lambda_v|/m^2$, and $C_m=\lambda_m m^2$ varies. Its proved free-space switching sequence is ceiling-only; adding a lower exhaust limit introduces maximum-acceleration arcs whose complete topology is left open there.
 
 Rapid switching or relaxed controls may improve existence properties, but relaxation must retain the pair $(\mathbf a,-\norm{\mathbf a}^2)$ when taking convex combinations. Replacing an averaged acceleration by its square would generally give the wrong propellant flow. If a relaxed optimum exists, additional work is needed to show exact realization by an ordinary control rather than approximation through fast switching.
 
@@ -1188,9 +1371,9 @@ Equality is attained by
 Consequently, in this special case,
 \begin{align}
  V_A&=\inf\{h>0:c(h)\le b_P\},\label{eq:ballisticV}\\
- W_A(T)&=\inf_{0<h\le T}c(h)
- \quad\text{if this infimum is feasible within }b_P.\label{eq:ballisticW}
+ W_A(T)&=\inf_{0<h\le T}c(h).\label{eq:ballisticW}
 \end{align}
+The second equality requires that this infimum be feasible within $b_P$.
 Otherwise $W_A=+\infty$. An initially captured state has value zero. If a constructed endpoint path captures earlier, terminate it then. Conversely every first-capture path obeys the same lower bound at its own capture time. These observations justify the first-hit interpretation of \eqref{eq:ballisticV}--\eqref{eq:ballisticW}, not just the endpoint problem.
 
 For point interception ($R=0$), put $R_2=\norm{\mathbf r_0}^2$, $Q=\mathbf r_0\cdot\mathbf w_0$, and $W_2=\norm{\mathbf w_0}^2$. Then
@@ -1226,7 +1409,7 @@ The companion rest-to-rest transfer has expenditure $12D^2/T^3$ instead of $3D^2
 \subsection{An Exact Interception Game With Two Powered Ships}
 \begin{theorem}[Equal-velocity interception with a resource margin]
 \label{thm:activeinterception}
-Suppose $\mathbf w_0=0$, $D=\norm{\mathbf r_0}-R>0$, $b_P>b_E$, and $b_P\ge4b_E$. Under ideal instantaneous-response controls,
+Suppose $\mathbf w_0=0$, $D=\norm{\mathbf r_0}-R>0$, $b_P>b_E$, and $b_P\ge4b_E$. Assume ideal uncapped controls and instantaneous observation of the evader's current acceleration by the pursuer. Then,
 \begin{equation}
  \boxed{V_A=H_I=\left[\frac{3D^2}
                   {(\sqrt{b_P}-\sqrt{b_E})^2}\right]^{1/3}.}
@@ -1305,7 +1488,7 @@ It respects the budget pathwise; if capture occurs earlier, the response is stop
 Theorem~\ref{thm:activeinterception} proves equality in the stated equal-velocity resource-margin regime and replaces the distance by its excess over $R$. Outside that regime, \eqref{eq:copybound} is only a sufficient bound. The strategy uses the stated exact nonanticipative information convention; delayed measurements or restricted acceleration sensing require a different guarantee. It also need not satisfy finite instantaneous acceleration or exhaust-speed bounds. In a Kepler field, the additional unequal-gravity cost must be included, as in Section~\ref{sec:keplerboarding}.
 
 \subsection{Exact Prescribed-Time Endpoint Expenditure}
-An auxiliary endpoint game gives a useful explicit fuel guarantee. Prescribe $h>0$ and continue the dynamics to $h$ even if the target was met earlier. Require either exact position coincidence or exact rendezvous at $h$. Let $C(h)$ be, respectively,
+Under instantaneous observation of the evader's current acceleration, an auxiliary endpoint game gives a useful explicit fuel guarantee. Prescribe $h>0$ and continue the dynamics to $h$ even if the target was met earlier. Require either exact position coincidence or exact rendezvous at $h$. Let $C(h)$ be, respectively,
 \begin{equation}
  C_I(h)=\frac{3\norm{\mathbf r_0+h\mathbf w_0}^2}{h^3}
  \quad\text{or}\quad C_J(h).
@@ -1327,13 +1510,38 @@ Consequently, the first-interception deadline value satisfies
 \end{equation}
 whenever a minimizing endpoint candidate fits the pursuer's reserve. For an initially separated point target, its candidates are exactly $T$ and the admissible times \eqref{eq:ballisticstationary}, because the displayed objective increases with $C_I$. Positive interception radius can only improve this upper bound. First-hit stopping can reduce expenditure, so the endpoint equality must not be asserted as an equality for the general deadline game.
 
+
+\subsection{A Numerical Ballistic Check and the First-Hit Distinction}
+Take a one-dimensional point target with $r_0=1000$ m, $w_0=-10$ m/s,
+and $b_E=0$. The exact endpoint requirement costs
+\begin{equation}
+ c(h)=\frac{3(1000-10h)^2}{h^3}\quad[\mathrm{m^2/s^3}].
+\end{equation}
+At $h=100$ s, the two coasting paths meet and $c(100)=0$. Thus
+$W_A(200)=0$: the first-hit game terminates at 100 s with zero fuel.
+If instead coincidence is imposed at exactly 200 s and motion continues
+through earlier meetings, $c(200)=0.375$ and the endpoint minimax is
+$M(200)=(\sqrt0+\sqrt{0.375})^2=0.375$.
+For $P_P=1$ MW and $m_{P0}=1000$ kg, this expenditure corresponds to
+$0.187465$ kg of propellant by \eqref{eq:propellant}; coasting still costs zero.
+
+For comparison, with the same initial state but an active evader allowed
+$b_E=0.04$, the fixed-time endpoint minimax becomes
+$M(200)=(0.2+\sqrt{0.375})^2=0.659949$ in the same units, provided
+the pursuer has that reserve. This latter evader is no longer ballistic;
+zero-cost first-hit capture is not asserted against it. The distinction
+is between the first meeting and an enforced endpoint at the deadline.
+
 \section{Conclusion}
 The variable-specific-impulse chase is a differential game in kinematic state and two remaining acceleration budgets. Free-space and Kepler dynamics enter the same separable Isaacs construction. Minimum guaranteed time uses a unit running cost and an absorbing capture target; minimum fuel by a deadline uses squared pursuer acceleration, zero cost at first capture, and infeasibility outside capture at the deadline. The evader's preference for least-fuel winning escape requires a separate survival game with the optimization roles reversed.
 
 Exact position-and-velocity rendezvous has a complete analytical solution in ideal free space under instantaneous response: the pursuer wins precisely when its remaining acceleration budget exceeds the evader's, and its optimal time is the unique positive root of an explicit cubic. A resource-parity escape feedback and a moment-projection lower bound prove optimality of both strategies. The least worst-case fuel cost of winning perpetual rendezvous avoidance is attained and equals the pursuer's remaining acceleration budget in the transformed units. Explicit active-interception and ballistic families, together with prescribed-time endpoint minimax formulas, supply further closed-form results.
 
-For general orbital interception and rendezvous, the HJI boundary problems, feedback selectors, and state--costate ODEs specify the numerical mathematical solution. Gravity-compensated bounds provide explicit sufficient capture certificates. The verification theorems establish global optimality when feasibility, admissibility, regularity, and boundary conditions are certified; shooting extremals alone do not. Strict position-only escape can have an unattained fuel infimum, in which case winning sets, infimal costs, and winning $\varepsilon$-optimal strategies are the appropriate solution objects.
+For general orbital interception and rendezvous, the HJI boundary problems, feedback selectors, and state--costate ODEs specify the numerical mathematical solution. The planar CW game gives an exact local linear value and an opposing parity strategy. Its explicit nonlinear tube and the inertial half-space bound provide complementary sufficient Kepler capture certificates. The verification theorems establish global optimality when feasibility, admissibility, regularity, and boundary conditions are certified; shooting extremals alone do not. Strict position-only escape can have an unattained fuel infimum, in which case winning sets, infimal costs, and winning $\varepsilon$-optimal strategies are the appropriate solution objects.
+
+\section*{AI-assistance acknowledgment}
+AI assistance was used for mathematical discussion, derivations, code development and editing. Reproducible checks and their limits are identified in the accompanying revision record; this acknowledgment does not assert an independent human review of every revised result.
 
 \bibliographystyle{ieeetr}
-\bibliography{RocketPursuitEvasionReferences}
+{\footnotesize\bibliography{bib/RocketPursuitEvasionReferences}}
 \end{document}

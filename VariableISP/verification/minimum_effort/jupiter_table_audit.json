@@ -1,0 +1,1316 @@
+[
+  {
+    "angle_deg": 0,
+    "time_days": 220.49912292664203,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 38.16046927522322,
+    "exhaust_max_sample_kms": 9408.302982284304,
+    "initial_exhaust_kms": 38.16046927522322,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 8.007483565108942e-15,
+    "q": [
+      6.0595093372532896,
+      5.667155814477209,
+      -1.6122176821729883,
+      -4.647741994598549,
+      1.3331698465005632
+    ]
+  },
+  {
+    "angle_deg": 5,
+    "time_days": 214.66021184114186,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 37.431680239788825,
+    "exhaust_max_sample_kms": 5115.085047176289,
+    "initial_exhaust_kms": 37.431680239788825,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.7055801215803967e-14,
+    "q": [
+      6.3312389202601365,
+      5.86005153938706,
+      -1.3193495455728588,
+      -4.8174965544078825,
+      1.3063324971996824
+    ]
+  },
+  {
+    "angle_deg": 10,
+    "time_days": 208.89754088240227,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 36.787491859553576,
+    "exhaust_max_sample_kms": 3501.4164565863666,
+    "initial_exhaust_kms": 36.787491859553576,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.991251773527438e-14,
+    "q": [
+      6.5928741095978864,
+      6.03253568379613,
+      -0.9818829881790874,
+      -4.939437944456324,
+      1.2791200260264364
+    ]
+  },
+  {
+    "angle_deg": 15,
+    "time_days": 203.2982457604059,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 36.237740173501344,
+    "exhaust_max_sample_kms": 2667.2869613948797,
+    "initial_exhaust_kms": 36.237740173501344,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 8.715250743307479e-15,
+    "q": [
+      6.834893487644524,
+      6.175700726118679,
+      -0.5985976285721043,
+      -5.001423952311698,
+      1.2519502210531972
+    ]
+  },
+  {
+    "angle_deg": 20,
+    "time_days": 197.9495980480247,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.79270219949468,
+    "exhaust_max_sample_kms": 2168.194612057612,
+    "initial_exhaust_kms": 35.79270219949468,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 5.9396931817445875e-15,
+    "q": [
+      7.045766159062239,
+      6.2794818474674985,
+      -0.1702880061895176,
+      -4.991269992621066,
+      1.2252885722553513
+    ]
+  },
+  {
+    "angle_deg": 25,
+    "time_days": 192.93434146081782,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.46253109602818,
+    "exhaust_max_sample_kms": 1845.9572798645745,
+    "initial_exhaust_kms": 35.46253109602818,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 8.805456364058273e-15,
+    "q": [
+      7.212381832755912,
+      6.333192411926537,
+      0.2996327759848449,
+      -4.897982547793306,
+      1.1996260606174889
+    ]
+  },
+  {
+    "angle_deg": 30,
+    "time_days": 188.3259052475264,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.25660942185677,
+    "exhaust_max_sample_kms": 1630.726642617903,
+    "initial_exhaust_kms": 35.25660942185677,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 6.876443858772063e-15,
+    "q": [
+      7.32089019335549,
+      6.326333940756868,
+      0.804707584197931,
+      -4.713224298132133,
+      1.1754501298154572
+    ]
+  },
+  {
+    "angle_deg": 35,
+    "time_days": 184.18423141476708,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.18290503558415,
+    "exhaust_max_sample_kms": 1487.554891530889,
+    "initial_exhaust_kms": 35.18290503558415,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.816391647148976e-15,
+    "q": [
+      7.357907526936159,
+      6.249601769892503,
+      1.33533155984961,
+      -4.432760548719719,
+      1.1532126436523245
+    ]
+  },
+  {
+    "angle_deg": 40,
+    "time_days": 180.55289583941348,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.24741583346518,
+    "exhaust_max_sample_kms": 1397.892951081265,
+    "initial_exhaust_kms": 35.24741583346518,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.096345236817342e-15,
+    "q": [
+      7.3119288991974205,
+      6.095931864182531,
+      1.8790659521764577,
+      -4.057569008024206,
+      1.1332999158620896
+    ]
+  },
+  {
+    "angle_deg": 45,
+    "time_days": 177.45793204551015,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.45376273937391,
+    "exhaust_max_sample_kms": 1352.1699225547313,
+    "initial_exhaust_kms": 35.45376273937391,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.3065937221057311e-14,
+    "q": [
+      7.174691056814919,
+      5.861394238612411,
+      2.4213735558545166,
+      -3.594327464551134,
+      1.1160097075439448
+    ]
+  },
+  {
+    "angle_deg": 50,
+    "time_days": 174.90837767747266,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 35.80294456771849,
+    "exhaust_max_sample_kms": 1346.7136666280428,
+    "initial_exhaust_kms": 35.80294456771849,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 8.465450562766819e-15,
+    "q": [
+      6.942210967121668,
+      5.545756992863305,
+      2.9466752866342856,
+      -3.0551308818188327,
+      1.1015384099699457
+    ]
+  },
+  {
+    "angle_deg": 55,
+    "time_days": 172.89820843580026,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 36.293222308398704,
+    "exhaust_max_sample_kms": 1382.8269577148274,
+    "initial_exhaust_kms": 36.293222308398704,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 7.882583474838611e-15,
+    "q": [
+      6.6152931384715,
+      5.152618507851406,
+      3.4395504135139277,
+      -2.4564817977000435,
+      1.08997916006215
+    ]
+  },
+  {
+    "angle_deg": 60,
+    "time_days": 171.40912098928501,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 36.9200713892752,
+    "exhaust_max_sample_kms": 1467.4896655375255,
+    "initial_exhaust_kms": 36.9200713892752,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.554312234475219e-14,
+    "q": [
+      6.199429305831701,
+      4.689105012072144,
+      3.885880851647323,
+      -1.8177692334372328,
+      1.0813293486662923
+    ]
+  },
+  {
+    "angle_deg": 65,
+    "time_days": 170.41360638439818,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 37.67613619703432,
+    "exhaust_max_sample_kms": 1616.1426245472464,
+    "initial_exhaust_kms": 37.67613619703432,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.1213252548714081e-14,
+    "q": [
+      5.704154594592053,
+      4.165219434812479,
+      4.273773793459222,
+      -1.15954130278657,
+      1.0755045901596236
+    ]
+  },
+  {
+    "angle_deg": 70,
+    "time_days": 169.8778707198198,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 38.55113875494514,
+    "exhaust_max_sample_kms": 1859.837024835283,
+    "initial_exhaust_kms": 38.55113875494514,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.1324274851176597e-14,
+    "q": [
+      5.142026527256502,
+      3.59297926844242,
+      4.594165654932036,
+      -0.5018692785927622,
+      1.0723559006199668
+    ]
+  },
+  {
+    "angle_deg": 75,
+    "time_days": 169.7643307976558,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 39.53172469776497,
+    "exhaust_max_sample_kms": 2263.8663930183084,
+    "initial_exhaust_kms": 39.53172469776497,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.9012569296705806e-15,
+    "q": [
+      4.527434053263912,
+      2.9854899856861876,
+      4.8410854079594445,
+      0.13697869172804925,
+      1.071687315115067
+    ]
+  },
+  {
+    "angle_deg": 80,
+    "time_days": 170.03357288617224,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 40.60126633464992,
+    "exhaust_max_sample_kms": 2984.767555223101,
+    "initial_exhaust_kms": 40.60126633464992,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.566591466608315e-15,
+    "q": [
+      3.8754278639667983,
+      2.356076464051609,
+      5.011615021361612,
+      0.7414443291909533,
+      1.0732720343964042
+    ]
+  },
+  {
+    "angle_deg": 85,
+    "time_days": 170.64577868480373,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 41.739678903860764,
+    "exhaust_max_sample_kms": 4502.931538524386,
+    "initial_exhaust_kms": 41.739678903860764,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.3156142841808105e-14,
+    "q": [
+      3.2007119853980717,
+      1.7175544431164722,
+      5.10561944233975,
+      1.2991555749893204,
+      1.0768660676408648
+    ]
+  },
+  {
+    "angle_deg": 90,
+    "time_days": 171.56168856687148,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 42.92333802144965,
+    "exhaust_max_sample_kms": 9322.359939679496,
+    "initial_exhaust_kms": 42.92333802144965,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.2335245592207684e-15,
+    "q": [
+      2.516874165944428,
+      1.0816820925594126,
+      5.125329409221571,
+      1.801030577022386,
+      1.0822190313063247
+    ]
+  },
+  {
+    "angle_deg": 95,
+    "time_days": 172.74319831708866,
+    "radius_min_AU": 1.0,
+    "exhaust_min_sample_kms": 44.12520916120535,
+    "exhaust_max_sample_kms": 183955.6486417724,
+    "initial_exhaust_kms": 44.12520916120535,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 6.800116025829084e-15,
+    "q": [
+      1.8358767592991014,
+      0.4587974735756234,
+      5.074854136016365,
+      2.2411019267922963,
+      1.0890822181676008
+    ]
+  },
+  {
+    "angle_deg": 100,
+    "time_days": 174.15368631476818,
+    "radius_min_AU": 0.999994984449631,
+    "exhaust_min_sample_kms": 45.31530682032052,
+    "exhaust_max_sample_kms": 8900.057991252539,
+    "initial_exhaust_kms": 45.31530682032052,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 5.2735593669694936e-15,
+    "q": [
+      1.1677895674138028,
+      -0.14237549035687952,
+      4.959685425996512,
+      2.6161604462001664,
+      1.0972142933357483
+    ]
+  },
+  {
+    "angle_deg": 105,
+    "time_days": 175.7581559042967,
+    "radius_min_AU": 0.9994188620993267,
+    "exhaust_min_sample_kms": 46.461582801527555,
+    "exhaust_max_sample_kms": 4745.934775465423,
+    "initial_exhaust_kms": 46.461582801527555,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 4.274358644806853e-15,
+    "q": [
+      0.5207229932600479,
+      -0.7147824042609354,
+      4.786236457498001,
+      2.925306755468708,
+      1.1063850651759
+    ]
+  },
+  {
+    "angle_deg": 110,
+    "time_days": 177.52326102704433,
+    "radius_min_AU": 0.9970226212115507,
+    "exhaust_min_sample_kms": 47.531291741510714,
+    "exhaust_max_sample_kms": 3352.4178609774817,
+    "initial_exhaust_kms": 47.531291741510714,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.9976021664879227e-15,
+    "q": [
+      -0.09908895043116378,
+      -1.2529892038271169,
+      4.561441429814239,
+      3.1694794798709873,
+      1.1163777776476382
+    ]
+  },
+  {
+    "angle_deg": 115,
+    "time_days": 179.4172668674071,
+    "radius_min_AU": 0.992025046822238,
+    "exhaust_min_sample_kms": 48.4927962461261,
+    "exhaust_max_sample_kms": 2676.2171334811906,
+    "initial_exhaust_kms": 48.4927962461261,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.0547118733938987e-15,
+    "q": [
+      -0.6871051591751048,
+      -1.7530611163839482,
+      4.29242845365029,
+      3.351008062545448,
+      1.1269903221390678
+    ]
+  },
+  {
+    "angle_deg": 120,
+    "time_days": 181.4099834814573,
+    "radius_min_AU": 0.9839777160743925,
+    "exhaust_min_sample_kms": 49.317665183882454,
+    "exhaust_max_sample_kms": 2294.012135161256,
+    "initial_exhaust_kms": 49.317665183882454,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 7.382983113757291e-15,
+    "q": [
+      -1.2402362337115171,
+      -2.2123982208056208,
+      3.98626803092802,
+      3.473219650684622,
+      1.1380357011753461
+    ]
+  },
+  {
+    "angle_deg": 125,
+    "time_days": 183.4726997485357,
+    "radius_min_AU": 0.9726330971315174,
+    "exhaust_min_sample_kms": 49.98281361306834,
+    "exhaust_max_sample_kms": 2062.8802633055698,
+    "initial_exhaust_kms": 49.98281361306834,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.1796119636642288e-14,
+    "q": [
+      -1.756579499828997,
+      -2.629550561412311,
+      3.6497928436201983,
+      3.5401150357535878,
+      1.1493420104926813
+    ]
+  },
+  {
+    "angle_deg": 130,
+    "time_days": 185.57813730259443,
+    "radius_min_AU": 0.9578818763068757,
+    "exhaust_min_sample_kms": 50.47236800945454,
+    "exhaust_max_sample_kms": 1921.9413173686546,
+    "initial_exhaust_kms": 50.47236800945454,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 8.826273045769994e-15,
+    "q": [
+      -2.235155474814079,
+      -3.004030278571953,
+      3.2894806174473317,
+      3.556118281266971,
+      1.1607521479864356
+    ]
+  },
+  {
+    "angle_deg": 135,
+    "time_days": 187.70043875220406,
+    "radius_min_AU": 0.9397205913043499,
+    "exhaust_min_sample_kms": 50.77894766629826,
+    "exhaust_max_sample_kms": 1841.5533947571853,
+    "initial_exhaust_kms": 50.77894766629826,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 5.412337245047638e-15,
+    "q": [
+      -2.6756636588465974,
+      -3.336133350278998,
+      2.911389700590541,
+      3.525897761396552,
+      1.172123410386659
+    ]
+  },
+  {
+    "angle_deg": 140,
+    "time_days": 189.81520068208712,
+    "radius_min_AU": 0.9182344273003077,
+    "exhaust_min_sample_kms": 50.90414178375018,
+    "exhaust_max_sample_kms": 1806.1991862301022,
+    "initial_exhaust_kms": 50.90414178375018,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.199040866595169e-14,
+    "q": [
+      -3.0782700913447694,
+      -3.626779526242343,
+      2.5211359229171655,
+      3.4542517916555804,
+      1.1833271001404666
+    ]
+  },
+  {
+    "angle_deg": 145,
+    "time_days": 191.89955871126145,
+    "radius_min_AU": 0.8935880138344846,
+    "exhaust_min_sample_kms": 50.85810956817681,
+    "exhaust_max_sample_kms": 1807.8055785043493,
+    "initial_exhaust_kms": 50.85810956817681,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 9.769962616701378e-15,
+    "q": [
+      -3.44343554436619,
+      -3.8773758273108263,
+      2.123898666266474,
+      3.3460487208399847,
+      1.194248232712993
+    ]
+  },
+  {
+    "angle_deg": 150,
+    "time_days": 193.93232822054236,
+    "radius_min_AU": 0.8660200816778019,
+    "exhaust_min_sample_kms": 50.65839085654216,
+    "exhaust_max_sample_kms": 1842.7422263595593,
+    "initial_exhaust_kms": 50.65839085654216,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 5.551115123125783e-15,
+    "q": [
+      -3.7717910142719155,
+      -4.089706328681007,
+      1.7244435281578707,
+      3.2062082899883504,
+      1.2047854038832964
+    ]
+  },
+  {
+    "angle_deg": 155,
+    "time_days": 195.8941991810451,
+    "radius_min_AU": 0.8358390255010995,
+    "exhaust_min_sample_kms": 50.3281377742329,
+    "exhaust_max_sample_kms": 1910.4899610327398,
+    "initial_exhaust_kms": 50.3281377742329,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.1775302954930567e-14,
+    "q": [
+      -4.0640653550099355,
+      -4.265848476882348,
+      1.3271485249395878,
+      3.039707689516457,
+      1.214850842667811
+    ]
+  },
+  {
+    "angle_deg": 160,
+    "time_days": 197.76797595815384,
+    "radius_min_AU": 0.8034169190541116,
+    "exhaust_min_sample_kms": 49.89403453745308,
+    "exhaust_max_sample_kms": 2012.8747263086223,
+    "initial_exhaust_kms": 49.89403453745308,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 5.6066262743570405e-15,
+    "q": [
+      -4.3210671351218375,
+      -4.408113542860463,
+      0.9360209815604468,
+      2.8515922801846063,
+      1.224370634238168
+    ]
+  },
+  {
+    "angle_deg": 165,
+    "time_days": 199.53884289043162,
+    "radius_min_AU": 0.7691799245019485,
+    "exhaust_min_sample_kms": 49.38416449021943,
+    "exhaust_max_sample_kms": 2154.0626040695593,
+    "initial_exhaust_kms": 49.38416449021943,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.7755575615628914e-15,
+    "q": [
+      -4.543717725258968,
+      -4.51900583604123,
+      0.5546941179733125,
+      2.6469687362034753,
+      1.2332850478617952
+    ]
+  },
+  {
+    "angle_deg": 170,
+    "time_days": 201.19462509600183,
+    "radius_min_AU": 0.733593713543309,
+    "exhaust_min_sample_kms": 48.82603615037048,
+    "exhaust_max_sample_kms": 2340.7050125035466,
+    "initial_exhaust_kms": 48.82603615037048,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.2985248687018567e-14,
+    "q": [
+      -4.733124612470055,
+      -4.601192341545611,
+      0.18639703440949046,
+      2.4309598613989727,
+      1.2415488529126948
+    ]
+  },
+  {
+    "angle_deg": 175,
+    "time_days": 202.726004428636,
+    "radius_min_AU": 0.6971436910260129,
+    "exhaust_min_sample_kms": 48.24492337429628,
+    "exhaust_max_sample_kms": 2582.1732741997926,
+    "initial_exhaust_kms": 48.24492337429628,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.1934897514720433e-14,
+    "q": [
+      -4.8906742067205835,
+      -4.657472506240723,
+      -0.16610023776145066,
+      2.2086080840764897,
+      1.2491314647331335
+    ]
+  },
+  {
+    "angle_deg": 180,
+    "time_days": 204.1266472709467,
+    "radius_min_AU": 0.6603114031735063,
+    "exhaust_min_sample_kms": 47.662625476657915,
+    "exhaust_max_sample_kms": 2891.438288884859,
+    "initial_exhaust_kms": 47.662625476657915,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.3850032232198828e-14,
+    "q": [
+      -5.018115594116197,
+      -4.690738405210292,
+      -0.5005551009131797,
+      1.9847292635733111,
+      1.2560167504493756
+    ]
+  },
+  {
+    "angle_deg": 185,
+    "time_days": 205.3932079113947,
+    "radius_min_AU": 0.6235500635582577,
+    "exhaust_min_sample_kms": 47.0967091994332,
+    "exhaust_max_sample_kms": 3285.8375051790267,
+    "initial_exhaust_kms": 47.0967091994332,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 5.766220834146907e-15,
+    "q": [
+      -5.117605746378377,
+      -4.703919401798078,
+      -0.815314499703991,
+      1.7637365064618302,
+      1.26220235860888
+    ]
+  },
+  {
+    "angle_deg": 190,
+    "time_days": 206.52518936960828,
+    "radius_min_AU": 0.5872629532434522,
+    "exhaust_min_sample_kms": 46.5602445698464,
+    "exhaust_max_sample_kms": 3789.1977435943963,
+    "initial_exhaust_kms": 46.5602445698464,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.3614109839465982e-14,
+    "q": [
+      -5.191695731916922,
+      -4.699912022720622,
+      -1.1093490094910483,
+      1.5494678718595036,
+      1.2676985166597734
+    ]
+  },
+  {
+    "angle_deg": 195,
+    "time_days": 207.52466849442726,
+    "radius_min_AU": 0.5517880475189558,
+    "exhaust_min_sample_kms": 46.06198700992793,
+    "exhaust_max_sample_kms": 4432.412732869721,
+    "initial_exhaust_kms": 46.06198700992793,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 4.385380947269368e-15,
+    "q": [
+      -5.243254577549849,
+      -4.681502601979661,
+      -1.382243306240675,
+      1.3450547275630775,
+      1.2725263461935918
+    ]
+  },
+  {
+    "angle_deg": 200,
+    "time_days": 208.39591597852828,
+    "radius_min_AU": 0.5173906805158855,
+    "exhaust_min_sample_kms": 45.606900520583345,
+    "exhaust_max_sample_kms": 5257.403221781009,
+    "initial_exhaust_kms": 45.606900520583345,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.7422508708241367e-14,
+    "q": [
+      -5.275345654764597,
+      -4.65129420240318,
+      -1.6341396842758886,
+      1.15285688876847,
+      1.276715841933699
+    ]
+  },
+  {
+    "angle_deg": 205,
+    "time_days": 209.1449568530288,
+    "radius_min_AU": 0.4842640664394345,
+    "exhaust_min_sample_kms": 45.19688156218463,
+    "exhaust_max_sample_kms": 6318.308150155317,
+    "initial_exhaust_kms": 45.19688156218463,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.8199664825478976e-14,
+    "q": [
+      -5.291081960231457,
+      -4.6116487325125,
+      -1.8656440753322225,
+      0.9744716169908747,
+      1.280303714291888
+    ]
+  },
+  {
+    "angle_deg": 210,
+    "time_days": 209.77911950633396,
+    "radius_min_AU": 0.4525358940461591,
+    "exhaust_min_sample_kms": 44.83154283030347,
+    "exhaust_max_sample_kms": 7684.955664460939,
+    "initial_exhaust_kms": 44.83154283030347,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.6367796834847468e-14,
+    "q": [
+      -5.293487682270374,
+      -4.564650848210563,
+      -2.077711942048625,
+      0.8108050570513207,
+      1.283331294579102
+    ]
+  },
+  {
+    "angle_deg": 215,
+    "time_days": 210.30661311712862,
+    "radius_min_AU": 0.4222784929589573,
+    "exhaust_min_sample_kms": 44.50894627436002,
+    "exhaust_max_sample_kms": 9435.75880759148,
+    "initial_exhaust_kms": 44.50894627436002,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.453592884421596e-14,
+    "q": [
+      -5.285385965847214,
+      -4.512094636811672,
+      -2.2715324233217555,
+      0.6621837460897123,
+      1.2858426576036914
+    ]
+  },
+  {
+    "angle_deg": 220,
+    "time_days": 210.73615968677046,
+    "radius_min_AU": 0.393520210494844,
+    "exhaust_min_sample_kms": 44.22621926851736,
+    "exhaust_max_sample_kms": 11650.471852818957,
+    "initial_exhaust_kms": 44.22621926851736,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 4.135580766728708e-14,
+    "q": [
+      -5.269321997489501,
+      -4.455489608005354,
+      -2.448424793794717,
+      0.5284821337241549,
+      1.2878830522923626
+    ]
+  },
+  {
+    "angle_deg": 225,
+    "time_days": 211.07669283000973,
+    "radius_min_AU": 0.3662562801271991,
+    "exhaust_min_sample_kms": 43.98002994011021,
+    "exhaust_max_sample_kms": 14350.258512156348,
+    "initial_exhaust_kms": 43.98002994011021,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.930189507173054e-14,
+    "q": [
+      -5.247521146423781,
+      -4.396080277905289,
+      -2.609754901154967,
+      0.4092469112509821,
+      1.2894976698422451
+    ]
+  },
+  {
+    "angle_deg": 230,
+    "time_days": 211.33712445737947,
+    "radius_min_AU": 0.3404582167900115,
+    "exhaust_min_sample_kms": 43.766927500153464,
+    "exhaust_max_sample_kms": 17439.60644718124,
+    "initial_exhaust_kms": 43.766927500153464,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.7783331191244542e-14,
+    "q": [
+      -5.221876172071957,
+      -4.334873454565422,
+      -2.7568734886169204,
+      0.30380628993189296,
+      1.2907307339595122
+    ]
+  },
+  {
+    "angle_deg": 235,
+    "time_days": 211.52617353231776,
+    "radius_min_AU": 0.316081391739509,
+    "exhaust_min_sample_kms": 43.583569242074844,
+    "exhaust_max_sample_kms": 20584.17511623628,
+    "initial_exhaust_kms": 43.583569242074844,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 2.944866572818228e-14,
+    "q": [
+      -5.193955399656982,
+      -4.272668402888545,
+      -2.891074485021743,
+      0.21135910624812435,
+      1.2916248720340726
+    ]
+  },
+  {
+    "angle_deg": 240,
+    "time_days": 211.65224775526764,
+    "radius_min_AU": 0.29307083710451115,
+    "exhaust_min_sample_kms": 43.42686076683668,
+    "exhaust_max_sample_kms": 23107.706814582314,
+    "initial_exhaust_kms": 43.42686076683668,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.1435297153639112e-14,
+    "q": [
+      -5.165024104069639,
+      -4.210086560401044,
+      -3.013569512540849,
+      0.13104337272981115,
+      1.2922207163415225
+    ]
+  },
+  {
+    "angle_deg": 245,
+    "time_days": 211.72336823697745,
+    "radius_min_AU": 0.271365529455149,
+    "exhaust_min_sample_kms": 43.29403436159494,
+    "exhaust_max_sample_kms": 24224.10844300243,
+    "initial_exhaust_kms": 43.29403436159494,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.727573805178963e-14,
+    "q": [
+      -5.136072847708483,
+      -4.147598858310282,
+      -3.1254744791050633,
+      0.061986535973652404,
+      1.2925566850638217
+    ]
+  },
+  {
+    "angle_deg": 250,
+    "time_days": 211.74712789542644,
+    "radius_min_AU": 0.2509014640493593,
+    "exhaust_min_sample_kms": 43.182685965698596,
+    "exhaust_max_sample_kms": 23727.386412189102,
+    "initial_exhaust_kms": 43.182685965698596,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 7.158162951270697e-14,
+    "q": [
+      -5.107848283715499,
+      -4.085549745951055,
+      -3.2278045506749087,
+      0.0033407567470585134,
+      1.2926688990607398
+    ]
+  },
+  {
+    "angle_deg": 255,
+    "time_days": 211.73067563773876,
+    "radius_min_AU": 0.23161381698378875,
+    "exhaust_min_sample_kms": 43.09078610997835,
+    "exhaust_max_sample_kms": 21748.33428998347,
+    "initial_exhaust_kms": 43.09078610997835,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 4.465872116554692e-14,
+    "q": [
+      -5.0808834881382685,
+      -4.0241776953946795,
+      -3.32147454713336,
+      -0.04569339282115144,
+      1.2925911983757985
+    ]
+  },
+  {
+    "angle_deg": 260,
+    "time_days": 211.68071987006138,
+    "radius_min_AU": 0.213438444656881,
+    "exhaust_min_sample_kms": 43.01667575255453,
+    "exhaust_max_sample_kms": 19126.347913536618,
+    "initial_exhaust_kms": 43.01667575255453,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.888556143749611e-14,
+    "q": [
+      -5.055526061192742,
+      -3.9636323451534405,
+      -3.407302581549179,
+      -0.08585182137911919,
+      1.2923552303860883
+    ]
+  },
+  {
+    "angle_deg": 265,
+    "time_days": 211.603546255846,
+    "radius_min_AU": 0.19631291450621935,
+    "exhaust_min_sample_kms": 42.95905444100302,
+    "exhaust_max_sample_kms": 16352.374691035047,
+    "initial_exhaust_kms": 42.95905444100302,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 4.013456234019941e-14,
+    "q": [
+      -5.031963046017563,
+      -3.903988618915835,
+      -3.486015428312809,
+      -0.11779797397942225,
+      1.291990588365364
+    ]
+  },
+  {
+    "angle_deg": 270,
+    "time_days": 211.5050458125278,
+    "radius_min_AU": 0.18017721059612293,
+    "exhaust_min_sample_kms": 42.916965696468495,
+    "exhaust_max_sample_kms": 13823.418820570461,
+    "initial_exhaust_kms": 42.916965696468495,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.6685264281335321e-13,
+    "q": [
+      -5.010242226743943,
+      -3.845258207059917,
+      -3.5582546202870944,
+      -0.14211819053276017,
+      1.2915249847499133
+    ]
+  },
+  {
+    "angle_deg": 275,
+    "time_days": 211.39075037937616,
+    "radius_min_AU": 0.16497421696195003,
+    "exhaust_min_sample_kms": 42.889782770956344,
+    "exhaust_max_sample_kms": 11673.08185840437,
+    "initial_exhaust_kms": 42.889782770956344,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.189326415129699e-13,
+    "q": [
+      -4.990289670564674,
+      -3.787398783489117,
+      -3.6245826467931663,
+      -0.15931999690263599,
+      1.2909844476390515
+    ]
+  },
+  {
+    "angle_deg": 280,
+    "time_days": 211.26587322465755,
+    "radius_min_AU": 0.15065005111441532,
+    "exhaust_min_sample_kms": 42.877196771922,
+    "exhaust_max_sample_kms": 9891.490361098751,
+    "initial_exhaust_kms": 42.877196771922,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 9.162115510719104e-14,
+    "q": [
+      -4.971923542055817,
+      -3.7303212856386083,
+      -3.685488880236866,
+      -0.16983235682634432,
+      1.2903935322179823
+    ]
+  },
+  {
+    "angle_deg": 285,
+    "time_days": 211.1353531188827,
+    "radius_min_AU": 0.1371542983826645,
+    "exhaust_min_sample_kms": 42.87920839596166,
+    "exhaust_max_sample_kms": 8439.185571026368,
+    "initial_exhaust_kms": 42.87920839596166,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.4072744625746054e-13,
+    "q": [
+      -4.954864295170174,
+      -3.6738955333047123,
+      -3.7413950301357928,
+      -0.17400722834010365,
+      1.2897755410674423
+    ]
+  },
+  {
+    "angle_deg": 290,
+    "time_days": 211.00390061137372,
+    "radius_min_AU": 0.12444018291053782,
+    "exhaust_min_sample_kms": 42.89612401950421,
+    "exhaust_max_sample_kms": 7253.003465927662,
+    "initial_exhaust_kms": 42.89612401950421,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 6.183942247162122e-14,
+    "q": [
+      -4.93874137584215,
+      -3.617954414009315,
+      -3.792660036438258,
+      -0.1721220206893172,
+      1.2891527488935504
+    ]
+  },
+  {
+    "angle_deg": 295,
+    "time_days": 210.87604552994728,
+    "radius_min_AU": 0.11246470127311159,
+    "exhaust_min_sample_kms": 42.92855654407433,
+    "exhaust_max_sample_kms": 6284.413126768858,
+    "initial_exhaust_kms": 42.92855654407433,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 1.759703494030873e-13,
+    "q": [
+      -4.923096571864658,
+      -3.562296824908844,
+      -3.8395843912527234,
+      -0.1643827590023204,
+      1.288546628187837
+    ]
+  },
+  {
+    "angle_deg": 300,
+    "time_days": 210.75618488838262,
+    "radius_min_AU": 0.10118873831113578,
+    "exhaust_min_sample_kms": 42.97743109471444,
+    "exhaust_max_sample_kms": 5486.687388995098,
+    "initial_exhaust_kms": 42.97743109471444,
+    "band_rejected": true,
+    "floor_rejected": false,
+    "scaled_endpoint_residual": 3.439470930288735e-13,
+    "q": [
+      -4.907384146489688,
+      -3.5066895369781936,
+      -3.882413936307019,
+      -0.15092795561016017,
+      1.2879780727684635
+    ]
+  },
+  {
+    "angle_deg": 305,
+    "time_days": 210.64863043290578,
+    "radius_min_AU": 0.0905771806777044,
+    "exhaust_min_sample_kms": 43.043995338286145,
+    "exhaust_max_sample_kms": 4824.824045649287,
+    "initial_exhaust_kms": 43.043995338286145,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 2.915445662665661e-13,
+    "q": [
+      -4.890967907330557,
+      -3.450868139167015,
+      -3.9213432357141107,
+      -0.13183337814024793,
+      1.287467616058422
+    ]
+  },
+  {
+    "angle_deg": 310,
+    "time_days": 210.55765497599165,
+    "radius_min_AU": 0.08059904080454817,
+    "exhaust_min_sample_kms": 43.12983373750306,
+    "exhaust_max_sample_kms": 4270.764957509568,
+    "initial_exhaust_kms": 43.12983373750306,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 2.868261184119092e-13,
+    "q": [
+      -4.87311541529132,
+      -3.3945372321255105,
+      -3.956518680248347,
+      -0.1071181121866796,
+      1.2870356402713536
+    ]
+  },
+  {
+    "angle_deg": 315,
+    "time_days": 210.48753643217438,
+    "radius_min_AU": 0.07122760173067197,
+    "exhaust_min_sample_kms": 43.23688438558727,
+    "exhaust_max_sample_kms": 3803.772143648652,
+    "initial_exhaust_kms": 43.23688438558727,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 2.7017277304253184e-13,
+    "q": [
+      -4.852989660797376,
+      -3.3373700788946303,
+      -3.988041548630202,
+      -0.07675255311227863,
+      1.286702571299679
+    ]
+  },
+  {
+    "angle_deg": 320,
+    "time_days": 210.44259805682586,
+    "radius_min_AU": 0.06244059072605361,
+    "exhaust_min_sample_kms": 43.36745605366283,
+    "exhaust_max_sample_kms": 3406.2299884212957,
+    "initial_exhaust_kms": 43.36745605366283,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 1.4715451079894137e-12,
+    "q": [
+      -4.8296387710589554,
+      -3.279007992473353,
+      -4.015971339231967,
+      -0.04066923193185285,
+      1.2864890518966368
+    ]
+  },
+  {
+    "angle_deg": 325,
+    "time_days": 210.42724276289263,
+    "radius_min_AU": 0.054220386010318485,
+    "exhaust_min_sample_kms": 43.52424158804898,
+    "exhaust_max_sample_kms": 3065.5930877798373,
+    "initial_exhaust_kms": 43.52424158804898,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 4.3819115003174147e-13,
+    "q": [
+      -4.801984724252853,
+      -3.219059859278951,
+      -4.040329793909022,
+      0.0012223277654703987,
+      1.286416082572391
+    ]
+  },
+  {
+    "angle_deg": 330,
+    "time_days": 210.44597852937972,
+    "radius_min_AU": 0.04655425498151627,
+    "exhaust_min_sample_kms": 43.71032168110708,
+    "exhaust_max_sample_kms": 2771.6946521484324,
+    "initial_exhaust_kms": 43.71032168110708,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 2.4337337700686135e-12,
+    "q": [
+      -4.768812714036993,
+      -3.1571023768843656,
+      -4.061106157614913,
+      0.04901525532330491,
+      1.2865051154001006
+    ]
+  },
+  {
+    "angle_deg": 335,
+    "time_days": 210.5034308303365,
+    "radius_min_AU": 0.03943461274794863,
+    "exhaust_min_sample_kms": 43.929150242832094,
+    "exhaust_max_sample_kms": 2516.739566383138,
+    "initial_exhaust_kms": 43.929150242832094,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 1.0348111256774928e-12,
+    "q": [
+      -4.728763817857372,
+      -3.0926818347892513,
+      -4.0782643299047905,
+      0.10277786791218049,
+      1.2867780807495515
+    ]
+  },
+  {
+    "angle_deg": 340,
+    "time_days": 210.60433679406833,
+    "radius_min_AU": 0.03285927457037863,
+    "exhaust_min_sample_kms": 44.184509263374025,
+    "exhaust_max_sample_kms": 2294.479642429483,
+    "initial_exhaust_kms": 44.184509263374025,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 1.303901431271015e-12,
+    "q": [
+      -4.680335037425746,
+      -3.0253185861058585,
+      -4.09175261642174,
+      0.1625176478172143,
+      1.2872573213308038
+    ]
+  },
+  {
+    "angle_deg": 345,
+    "time_days": 210.75351468736238,
+    "radius_min_AU": 0.026831653276111155,
+    "exhaust_min_sample_kms": 44.48041779340403,
+    "exhaust_max_sample_kms": 2100.0343588365386,
+    "initial_exhaust_kms": 44.48041779340403,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 6.561327869913924e-12,
+    "q": [
+      -4.62189255551808,
+      -2.954515707866132,
+      -4.10151668739208,
+      0.22813600024788575,
+      1.2879654030670404
+    ]
+  },
+  {
+    "angle_deg": 350,
+    "time_days": 210.95580178308597,
+    "radius_min_AU": 0.021360822102517454,
+    "exhaust_min_sample_kms": 40.4088797862644,
+    "exhaust_max_sample_kms": 1929.6059080607836,
+    "initial_exhaust_kms": 44.82097790460041,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 4.391820240812194e-12,
+    "q": [
+      -4.551705897227628,
+      -2.8797736221723835,
+      -4.107515958398609,
+      0.299374946002224,
+      1.2889247705902995
+    ]
+  },
+  {
+    "angle_deg": 355,
+    "time_days": 211.21595449215124,
+    "radius_min_AU": 0.01646132748986809,
+    "exhaust_min_sample_kms": 35.75667012642238,
+    "exhaust_max_sample_kms": 1780.0155244980729,
+    "initial_exhaust_kms": 45.21014283011745,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 1.4596046593595702e-11,
+    "q": [
+      -4.4680118331255745,
+      -2.8006124297266233,
+      -4.109742767911285,
+      0.37576014462084484,
+      1.2901572203604599
+    ]
+  },
+  {
+    "angle_deg": 360,
+    "time_days": 211.5385078647563,
+    "radius_min_AU": 0.012152604933480459,
+    "exhaust_min_sample_kms": 30.975913221095798,
+    "exhaust_max_sample_kms": 1648.78468596605,
+    "initial_exhaust_kms": 45.65140258448342,
+    "band_rejected": true,
+    "floor_rejected": true,
+    "scaled_endpoint_residual": 4.798680897089014e-11,
+    "q": [
+      -4.36911589469049,
+      -2.7166030394332887,
+      -4.1082423504751615,
+      0.45654935067971114,
+      1.2916831814746117
+    ]
+  }
+]

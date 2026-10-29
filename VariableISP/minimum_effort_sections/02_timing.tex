@@ -1,0 +1,197 @@
+\section{Endpoint action and orbital timing}
+\label{sec:timing}
+\subsection{One Hamiltonian convention}
+Use the maximizing Hamiltonian with no factor $1/2$ in effort:
+\begin{equation}
+ \begin{gathered}
+ H=p_r\cdot v+p_v\cdot(g+u)-|u|^2,\\
+ u=p_v/2,\qquad
+ H^*=p_r\cdot v+p_v\cdot g+|p_v|^2/4,\\
+ p_r'=-Dg(r)^Tp_v,\qquad p_v'=-p_r.
+ \end{gathered}
+ \label{eq:idealPMP}
+\end{equation}
+On a smooth autonomous ideal phase, $H^*$ and
+$\mathcal L=p_r\cdot\rot r+p_v\cdot\rot v$ are constant, where
+$\rot(x,y)=(-y,x)$. These are costate integrals, distinct from
+mechanical energy and angular momentum.
+The velocity costate is the primer vector, with the effort normalization
+$u=p_v/2$ used here \cite{Lawden1963}.
+
+For a regular stationary action branch
+$S(s_0,s_f,t_0,t_f)$, with $s=(r,v)$, endpoint variation gives
+\begin{equation}
+ dS=p_f\cdot ds_f-p_0\cdot ds_0-H_fdt_f+H_0dt_0.
+ \label{eq:endpoint}
+\end{equation}
+This is the central sensitivity relation \cite{ClarkeLoewen1986}.
+It is a value derivative only where that branch is minimizing and the
+value is differentiable.
+
+For circular states
+$s_f=(\rho e_r(\Theta),\rho^{-1/2}e_\theta(\Theta))$, the intrinsic
+action $\mathcal E(\rho,\Theta,h)$ satisfies
+\begin{equation}
+ \begin{gathered}
+ \mathcal E_h=-H,\qquad \mathcal E_\Theta=\mathcal L,\\
+ \mathcal E_\rho=p_{r,f}\cdot e_r
+ -\tfrac12\rho^{-3/2}p_{v,f}\cdot e_\theta.
+ \end{gathered}
+\end{equation}
+An angle variation rotates both position and velocity. Cartesian
+endpoints are periodic in $\Theta$; the winding label must be tracked
+separately.
+
+\subsection{Moving-endpoint derivatives}
+Let $d,a$ be departure and arrival epochs, $h=a-d$, and let $\phi$
+be the target's phase at epoch zero. After rotating the departure
+state to angle zero,
+\begin{equation}
+ \Theta=\phi+\omega a-d+2\pi N,\qquad
+ \omega=\rho^{-3/2}.
+\end{equation}
+For arbitrary prescribed endpoint ephemerides,
+\begin{equation}
+ \begin{split}
+ \mathcal F_d\big|_a&=H_0-p_0\cdot\dot s_D(d),\\
+ \mathcal F_a\big|_d&=p_f\cdot\dot s_A(a)-H_f.
+ \end{split}
+ \label{eq:generaldate}
+\end{equation}
+If the endpoint ephemerides follow the same unforced dynamics as the
+adjacent ideal phase, $H=p\cdot f_{\rm ballistic}+|u|^2$.
+Thus, for $F(d,h)=\mathcal F(d,d+h)$,
+\begin{equation}
+ \boxed{F_h=-|u_f|^2,\qquad F_d=|u_0|^2-|u_f|^2.}
+ \label{eq:dates}
+\end{equation}
+The geometrically fixed-endpoint derivative is $-H$; the moving-arrival
+derivative is $-|u_f|^2$. Confusing them changes the time-search direction.
+For circular endpoints $F_d=(\omega-1)\mathcal L$.
+At an interior optimal departure date with fixed duration,
+$|u_0|=|u_f|$.
+
+Second derivatives require variational data. Writing
+$A=\left(\begin{smallmatrix}0&I\\Dg&0\end{smallmatrix}\right)$,
+$B=(0,I)^T$, $D=BB^T/2$, and
+$C_s=\operatorname{diag}(K,0)$ with
+$K=D_r^2(p_v\cdot g)$, the state--costate variation obeys
+\begin{equation}
+ \begin{pmatrix}\delta s\\\delta p\end{pmatrix}'
+ =\begin{pmatrix}A&D\\-C_s&-A^T\end{pmatrix}
+ \begin{pmatrix}\delta s\\\delta p\end{pmatrix}.
+ \label{eq:variational}
+\end{equation}
+Let its transition blocks be $M_{ss},M_{sp},M_{ps},M_{pp}$.
+For fixed initial state, solve
+$M_{sp}\delta p_0=\delta s_f-f_f\delta h$.
+For a moving ballistic arrival, the right side per unit duration
+is simply $-Bu_f$. Therefore
+\begin{equation}
+ F_{hh}=-\tfrac12p_{v,f}\cdot
+ \left[M_{pp}(-M_{sp}^{-1}Bu_f)+\dot p_f\right]_v.
+\end{equation}
+Indeed the total endpoint-costate derivative is
+$dp_f/dh=M_{pp}(dp_0/dh)+\dot p_f$. Differentiating
+$F_h=-p_{v,f}\cdot p_{v,f}/4$ gives the displayed expression.
+Use a linear solve and monitor conditioning. A singular block indicates
+a failing branch chart, not a value-gradient interpolation problem that
+can be repaired by smoothing.
+
+\subsection{From effort to time and fuel}
+Appending an admissible coast with the destination proves that the
+global moving-endpoint effort value $F^*(d,h)$ is nonincreasing in $h$.
+The argument needs position and velocity matching and an admissible
+destination orbit. It survives engine limits and safety constraints
+when those conditions hold. The earliest feasible duration is
+\begin{equation}
+ h^*(\kappa)=\inf\{h>0:F^*(d,h)\le\kappa\}.
+ \label{eq:timeinverse}
+\end{equation}
+On a regular ideal branch with $F_h\ne0$,
+\begin{equation}
+ \frac{dh^*}{d\kappa}=-\frac1{|u_f|^2},\qquad
+ h_{\rm new}=h+\frac{F(d,h)-\kappa}{|u_f|^2}.
+\end{equation}
+At the value level this recovers the original minimum-time problem
+exactly: a trajectory exhausts its permitted fuel precisely when its
+effort is $\kappa$, and $F^*\le\kappa$ is exactly existence of an affordable
+transfer when the fixed-time infimum is attained. At an unattained
+nonconvex boundary, use existence of a control with cost at most the
+budget as the feasibility predicate, rather than an infimum alone.
+For the original \emph{fixed final-angle} targeting problem, use
+$F(h)=\mathcal E(\rho,\Theta_{\rm fixed},h)$ in the same feasibility
+infimum, with $F_h=-H$; monotonicity and the displayed moving-target
+Newton denominator are not thereby implied. For a prescribed initial
+planet phase, use $\Theta(h)=\phi+\omega h$, and the ballistic-endpoint
+formulas above apply. At a specified duration these are the same
+fixed-time problem when their endpoint states agree.
+
+For an ideal normal Kepler time extremal ending at dry mass,
+the constant rescaling in the convention table gives the fixed-time
+effort PMP at $h=t_f/T_0$, including the same endpoint conditions.
+An extremal is thereby an effort extremal, not necessarily a minimum.
+For a global time minimizer on a regular continuous frontier, any strictly
+cheaper fixed-time transfer would retain budget slack under a small
+earlier-arrival endpoint correction, contradicting earliest arrival.
+Hence $F^*(d,h^*)=\kappa$ there and the original solution is also a
+fixed-time effort minimizer. This last implication requires that endpoint
+regularity; the infimum formula itself does not.
+
+Safeguard the step within a feasible/infeasible bracket. A stationary
+branch can give an affordable candidate without locating the globally
+earliest arrival.
+
+In physical units, at fixed $m_0,P$,
+\begin{equation}
+ \frac{dm_{\rm prop}}{dT}=-\frac{m_f^2}{2P}|a_f|^2.
+\end{equation}
+For prescribed final mass and fixed $P$, the required launch mass is
+$m_0=m_d/(1-m_dj/(2P))$, provided $j<2P/m_d$.
+For a redesigned family with $P/m_0=\beta_{\rm jet}$ instead,
+$m_0=m_d(1+j/(2\beta_{\rm jet}))$. These load-selection problems have different
+derivatives and must use different vehicle parameter updates.
+
+At a freely timed velocity-matched intermediate stop, adjacent ideal
+legs with equal power satisfy
+$dJ_{\rm total}/dt_j=|u_{j+1,0}|^2-|u_{j,f}|^2$ in common units.
+Different constant powers require the physical weights $1/(2P_j)$.
+For bounded engines, mass couples the leg actions; the augmented
+endpoint relation \eqref{eq:endpoint} is required.
+
+\subsection{Monotone does not mean convex}
+The global moving-endpoint value need not be convex, even near a
+circular coast and without switching between branches. Consider an
+arrival radius $1+\epsilon$ and initial phase $\epsilon$.
+Linearizing around the unit coast gives
+\begin{equation}
+ \begin{gathered}
+ F_\epsilon^*(h)=\epsilon^2 c(h)+O(\epsilon^3),\\
+ c(h)=[\Phi(h)\xi]^TW(h)^{-1}[\Phi(h)\xi],
+ \end{gathered}
+ \label{eq:nonconvex}
+\end{equation}
+where $\xi=(1,1,0,-3/2)^T$ and $\Phi,W$ are the CW transition matrix
+and Gramian in Section~\ref{sec:cw}. The coefficients are
+\begin{equation}
+ \begin{array}{c|c}
+ h&c(h)\\\hline
+ 10&0.0829955305949018\\
+ 10.5&0.0816445096953235\\
+ 11&0.0801408830697246
+ \end{array}
+\end{equation}
+and the midpoint exceeds the endpoint average by
+$7.6302863010368\,10^{-5}>0$. Appendix~\ref{app:interval} supplies the interval calculation and its remainder bounds.
+
+To justify the global expansion, CW controllability makes the endpoint
+derivative onto at zero control; the reduced cost Hessian there is $2I$.
+The nearby stationary branch has effort $O(\epsilon^2)$. Any cheaper
+competitor has control norm $O(\epsilon)$ and, by continuous dependence
+on a finite horizon, stays near the same nonsingular coast. On that
+small control ball the Lagrangian Hessian is $2I+O(\epsilon)$, hence
+positive. This establishes the expansion of the global value at the
+three horizons for sufficiently small positive $\epsilon$, and the
+strict Jensen violation follows. No numerical upper threshold on
+$\epsilon$ is asserted. Time search should exploit monotone feasibility,
+not assume convexity.

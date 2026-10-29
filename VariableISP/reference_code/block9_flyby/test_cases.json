@@ -1,0 +1,100 @@
+{
+  "case1": {
+    "mu_planet": 0.01,
+    "rmin": 0.01,
+    "planet_r": [
+      1,
+      0
+    ],
+    "planet_v": [
+      0.0,
+      1.0
+    ],
+    "incoming_excess": [
+      1.0,
+      0.0
+    ],
+    "turn": 1.0471975511965979,
+    "outgoing_excess": [
+      0.4999999999999999,
+      0.8660254037844387
+    ],
+    "outgoing_velocity": [
+      0.4999999999999999,
+      1.8660254037844388
+    ],
+    "delta_energy": 0.8660254037844387,
+    "fixed_radius_jacobian": [
+      [
+        1.5,
+        -0.8660254037844387
+      ],
+      [
+        0.288675134594813,
+        0.4999999999999999
+      ]
+    ],
+    "p_v_minus": [
+      -1.1547005383792515,
+      1.0
+    ],
+    "p_v_plus": [
+      -0.8660254037844387,
+      0.4999999999999999
+    ],
+    "p_r_minus": [
+      -0.3333333333333333,
+      0.0
+    ],
+    "p_r_plus": [
+      0.0,
+      0.0
+    ],
+    "H_minus": 1.4047005383792515,
+    "H_plus": 1.1160254037844388,
+    "upper_turn_multiplier": 1,
+    "epoch_residual": 1.1102230246251565e-16,
+    "jacobian_fd_error": 1.2640022362120362e-10
+  },
+  "case2": {
+    "turn": 0.3,
+    "incoming_excess": [
+      1.0,
+      0.0
+    ],
+    "outgoing_excess": [
+      0.955336489125606,
+      0.29552020666133955
+    ],
+    "p_v_minus": [
+      2.0,
+      0.0
+    ],
+    "p_v_plus": [
+      1.910672978251212,
+      0.5910404133226791
+    ],
+    "p_r_both": [
+      0,
+      0
+    ],
+    "H_minus": -1.0,
+    "H_plus": -0.9106729782512121,
+    "turn_multipliers": [
+      0,
+      0
+    ],
+    "epoch_residual": -1.1102230246251565e-16,
+    "radius_required": 0.05691732447718235
+  },
+  "case3": {
+    "mu_planet": 3e-06,
+    "rmin": 5e-05,
+    "excess_speed": 0.5,
+    "requested_turn": 0.6,
+    "max_turn": 0.38955528546870716,
+    "required_radius": 2.8606360341889475e-05,
+    "max_kick": 0.1935483870967742,
+    "status": "reject: turn requires periapsis below minimum"
+  }
+}

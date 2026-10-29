@@ -1,0 +1,100 @@
+\section{Local rendezvous and pursuit}
+\label{sec:cw}
+The same effort resource gives an exact local linear problem. In a frame
+rotating with a reference circle, use
+$s=(x,y,\dot x,\dot y)$ with unit mean motion. The planar
+Clohessy--Wiltshire system \cite{ClohessyWiltshire1960} is
+\begin{equation}
+ \begin{gathered}
+ s'=As+Bu,\\
+ A=\begin{pmatrix}
+ 0&0&1&0\\0&0&0&1\\3&0&0&2\\0&0&-2&0
+ \end{pmatrix},\quad B=\begin{pmatrix}0&0\\0&0\\1&0\\0&1\end{pmatrix}.
+ \end{gathered}
+\end{equation}
+Let $\Phi(t)=e^{At}$ and
+$W(h)=\int_0^h\Phi(t)BB^T\Phi(t)^Tdt$.
+Controllability makes $W$ positive definite for every $h>0$.
+For $y_f=s_f-\Phi(h)s_0$,
+\begin{equation}
+ J^*=y_f^TW^{-1}y_f,\qquad
+ u^*(t)=B^T\Phi(h-t)^TW^{-1}y_f.
+ \label{eq:cwcost}
+\end{equation}
+The reachable set at budget $b$ is the ellipsoid $J^*\le b$.
+Projecting to position uses the upper-left $2\times2$ block of $W$.
+The center is the unforced CW trajectory. Appendix~\ref{app:interval} gives the trigonometric transition and
+Gramian entries. Their Taylor series supply the small-time limit;
+a scaled Cholesky solve avoids explicit inversion.
+
+\subsection{The ideal rendezvous game}
+Let $z=s_E-s_P$, with reserves $b_E,b_P$. Set
+\begin{equation}
+ \begin{gathered}
+ K(t)=\Phi(-t)B,\qquad M(h)=\int_0^hK(t)K(t)^Tdt,\\
+ C(h)=z_0^TM(h)^{-1}z_0.
+ \end{gathered}
+\end{equation}
+For $z_0\ne0$, $C$ decreases continuously and strictly from infinity
+to zero. Its derivative is
+$C'(h)=-|K(h)^TM(h)^{-1}z_0|^2$.
+The strict monotonicity follows from controllability on every interval;
+the large-time zero limit follows from the explicit CW Gramian.
+
+\begin{theorem}[Ideal CW rendezvous]
+With unrestricted $L^2$ controls, no further state constraints and
+instantaneous observation of the evader's control by the pursuer,
+the minimum guaranteed time to full-state rendezvous is the unique
+$H>0$ solving
+\begin{equation}
+ C(H)=(\sqrt{b_P}-\sqrt{b_E})^2
+\end{equation}
+when $b_P>b_E$. If $b_P\le b_E$ and $z_0\ne0$, the value is
+infinite. At $z_0=0$ it is zero.
+\end{theorem}
+For the upper bound use $a_H(t)=K(t)^TM(H)^{-1}z_0$ and
+$u_P=u_E+a_H$. The relative endpoint is exactly zero, and
+Minkowski's inequality gives
+$\norm{u_P}_2\le\sqrt{b_E}+\sqrt{C(H)}=\sqrt{b_P}$.
+The opposing strategy and parity argument appear in
+Appendix~\ref{app:game}; the result uses the integral-constraint
+game framework \cite{Ibragimov2011}.
+Full-state rendezvous is not position-only interception or capture
+within a finite radius.
+
+\subsection{A sufficient nonlinear extension}
+For rotating position $q$, the exact Kepler equation is
+\begin{equation}
+ q''+2\rot q'=\operatorname{diag}(3,0)q+u+N(q),
+\end{equation}
+where
+$N(q)=-(e_1+q)/|e_1+q|^3+e_1-\operatorname{diag}(2,-1)q$.
+On $|q|\le\epsilon<1$,
+\begin{equation}
+ |N(q)|\le N_\epsilon=\frac{3\epsilon^2}{(1-\epsilon)^4},\quad
+ \operatorname{Lip}(N)\le L_\epsilon=
+                   \frac{6\epsilon}{(1-\epsilon)^4}.
+\end{equation}
+These finite-domain inequalities follow from
+$\norm{D^2g(x)[u,v]}\le6|u||v|/|x|^4$ and Taylor's formula.
+
+Use
+$u_P=u_E+a_h+N(q_E)-N(q_P)$. It cancels the nonlinear relative
+remainder, giving exactly the CW correction trajectory $z_h$.
+If both paths remain in the ball, then
+\begin{equation}
+ \sqrt{b_P}\ge\sqrt{b_E}+\sqrt{C(h)}
+       +L_\epsilon\left(\int_0^h|\Pi z_h(t)|^2dt\right)^{1/2}
+ \label{eq:cwcert}
+\end{equation}
+guarantees rendezvous by $h$, where $\Pi=(I,0)$.
+Appendix~\ref{app:tube} gives an explicit first-exit tube bound, and Appendix~\ref{app:inertial} gives an inertial half-space alternative for wider separations.
+The same tube inflates a single-ship reachable ellipsoid to budget
+$(\sqrt b+N_\epsilon\sqrt h)^2$, giving an outer reachability bound.
+
+These capture results concern the ideal engine. A restricted ship's
+reachable set is contained in the ideal set, but restricting both
+players need not preserve the ideal winner. A bounded-engine capture
+guarantee requires admissibility against every permitted opponent.
+Checking one saddle trajectory or clipping the compensating control
+does not establish that guarantee.

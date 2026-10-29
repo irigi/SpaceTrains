@@ -1,0 +1,60 @@
+{
+  "scope": "Double-precision integration checks; no general trajectory certification.",
+  "timing_identity_max_error": 1.2836953722228372e-16,
+  "nonconvex_coefficients": [
+    0.08299553059490153,
+    0.08164450969532333,
+    0.08014088306972438
+  ],
+  "jensen_gap": 7.630286301038569e-05,
+  "mass_equal_power": {
+    "final_mass": 970.8737864077669,
+    "phases": [
+      {
+        "entry_mass": 1000.0,
+        "chi": 1000.0,
+        "J": 10.0,
+        "J0": 2.0,
+        "P": 1000000.0,
+        "exit_mass": 990.0990099009902
+      },
+      {
+        "entry_mass": 990.0990099009902,
+        "chi": 404.0,
+        "J": 8.0,
+        "J0": 5.0,
+        "P": 1000000.0,
+        "exit_mass": 970.8737864077669
+      }
+    ],
+    "incorrect_reset_mass": 980.3921568627451
+  },
+  "mass_unequal_power": {
+    "final_mass": 980.3921568627451,
+    "phases": [
+      {
+        "entry_mass": 1000.0,
+        "chi": 1000.0,
+        "J": 10.0,
+        "J0": 2.0,
+        "P": 1000000.0,
+        "exit_mass": 990.0990099009902
+      },
+      {
+        "entry_mass": 990.0990099009902,
+        "chi": 808.0,
+        "J": 8.0,
+        "J0": 5.0,
+        "P": 2000000.0,
+        "exit_mass": 980.3921568627451
+      }
+    ]
+  },
+  "transverse_crossings": 256,
+  "soi_chart_max_error": 3.552713678800501e-15,
+  "saltation_max_error": 2.3314683517128287e-15,
+  "relative_H_max_error": 3.552713678800501e-15,
+  "normalized_action_pairing_relative_error": 6.5893956733230025e-15,
+  "cpp": "PASS: shared gain, mass map, 256 SOI API matches, bound compatibility",
+  "passed": true
+}

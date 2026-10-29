@@ -1,0 +1,45 @@
+{
+  "case1": {
+    "radius": 0.1,
+    "tangential_speed": 3.1622776601683795,
+    "duration": 0.02,
+    "angle_change": 0.6324555320336759,
+    "effort": 0,
+    "status": "globally minimal boundary coast for its own boundary endpoints"
+  },
+  "case2": {
+    "radius": 0.1,
+    "tangential_speed": 3.2,
+    "radial_thrust": -2.400000000000034,
+    "angular_costate": 30.72000000000044,
+    "multiplier_density": 145152.00000000204,
+    "duration": 0.0005,
+    "effort": 0.002880000000000082,
+    "kappa": 0.0032,
+    "remaining_budget": 0.000319999999999918,
+    "full_ode_max_error": 2.220446049250313e-15,
+    "band_a_min": 0.8,
+    "band_a_max": 4,
+    "allowed_abs_tangent": [
+      0,
+      3.2
+    ],
+    "status": "necessary-condition fixture; no global optimality claim"
+  },
+  "case3": {
+    "safe_line_y": 0.101,
+    "safe_line_x_endpoints": [
+      -0.02,
+      0.02
+    ],
+    "unsafe_cubic_x_controls": [
+      0.12,
+      0.08,
+      0.08,
+      0.12
+    ],
+    "unsafe_cubic_midpoint_radius": 0.09,
+    "radius_limit": 0.1,
+    "position_error_bound": 1e-05
+  }
+}

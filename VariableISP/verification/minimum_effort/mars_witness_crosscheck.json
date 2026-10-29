@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "quadrature_effort": 2.5259373398351226,
+  "mass_formula_kg": 1797248.5404580405,
+  "integrated_mass_kg": 1797248.5404573302,
+  "maximum_kinematic_knot_error": 1.7486012637846216e-15,
+  "propellant_kg": 1202751.4595419595,
+  "endpoint_position": [
+    0.8946401486049271,
+    1.2337726713232684
+  ],
+  "endpoint_velocity": [
+    -0.6557792876825496,
+    0.47552234947391536
+  ]
+}
