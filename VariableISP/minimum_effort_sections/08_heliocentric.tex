@@ -33,26 +33,20 @@ $305^\circ$--$360^\circ$ (12 rows)&12&12\\\bottomrule
 For example, the numerical minimum radius is $0.1011887$ AU at $300^\circ$
 and $0.090577$ AU at $305^\circ$. Thus none of these 73 candidates, nor
 either illustrated solar-pass candidate, survives both operational checks.
-These discrete results do not claim classification of every intervening
-angle, other planetary table, or competing winding.
 
 The audit evaluates $v_e=V_0(\chi+I)/|u|$ and the radius on a dense
 40001-point reconstruction, with continuous refinement of the long-arc
 perihelion and exhaust extrema. Each reported band rejection has a large
 violation on a continuous powered interval, so it does not depend on
-interpreting an isolated zero-thrust sample. A sampled pass, by contrast,
-is only a diagnostic unless supplemented by an enclosure. No failed band
-trajectory supplies a feasible
-upper bound for the restricted engine; clipping does not repair its
-endpoint. The full input seeds and normalized initial covectors accompany
+interpreting an isolated zero-thrust sample. Clipping a failed trajectory
+to the band does not repair its endpoint. The full input seeds and normalized initial covectors accompany
 the revision.
 
 \subsection{A local certificate demonstration: a 2.9-day solar hop}
 This example raises the heliocentric radius from $1$ to $1.001$ AU
 in $2.90663$ days and ends on a slightly eccentric orbit. Its purpose
 is to demonstrate an explicit feasible path together with global effort
-and time bounds. It is not an interplanetary planning-performance
-benchmark and does not measure the time penalty of the exhaust band.
+and time bounds on a small, fully checkable case.
 For this auditable local example, keep $P=1$ GW and $m_0=3\,10^6$ kg,
 but choose the smaller resource $\kappa=0.0320066666667$. Begin on the
 unit circular orbit and let $c=0.4$, $H=0.05$. Define a physical
@@ -68,7 +62,7 @@ gives $u_r=2c$ and $u_\theta=ct/r^{3/2}$. Thus this is a continuously
 powered exact path with $r\ge1$ AU, not a patched approximation. Its
 endpoint defines the target: take the unforced Kepler orbit through
 $(r(H),\theta(H),v_r(H),v_\theta(H))$ at epoch $H$. The arrival orbit is
-slightly eccentric; it is deliberately not described as circular boarding.
+slightly eccentric.
 Coasting along that orbit is admissible on the short horizon used below.
 The same backward comparison used below bounds its separation from the
 unit circle by $0.0031$ on $[0,H]$, so the target orbit also clears the floor.
@@ -126,10 +120,8 @@ all still earlier arrivals. Thus the resource-to-time-to-fuel calculation is
  \boxed{\begin{gathered}0.049<h^*(\kappa)\le0.05,\\
  2.84848<T^*\le2.90663\ {\rm days}.\end{gathered}}
 \end{equation}
-The stated fuel is for the explicit upper-bound witness; the exact
-optimal duration inside this interval is not claimed. The example supplies
-a local finite-band feasible upper bound and a genuine global lower bound,
-rather than an unqualified stationary time. The conservative decimal
+The stated fuel is that of the witness path; the optimal duration lies
+somewhere in this interval. The conservative decimal
 inequalities can be checked by rational Taylor enclosures; the supplied
 checker does so for the bounds used in the time bracket.
 
@@ -156,16 +148,14 @@ Set $c_q=(1-q^2)/(1+q^2)$ and $s_q=2q/(1+q^2)$. The endpoint states are
 The circular target passes through this endpoint at $H$. Thus its
 initial phase is $2\arctan q-H/R_M^{3/2}$, approximately
 $17.3820101^\circ$ ahead of Earth; arrival longitude is approximately
-$54.0531714^\circ$. These phases define the example, rather than an
-arbitrary launch epoch or a real-ephemeris Mars encounter. Planetary
+$54.0531714^\circ$. Planetary
 escape, capture, parking-orbit costs and departure waiting time are
 outside this heliocentric model.
 
 \begin{table*}[t]
 \centering\small
 \caption{Exact rational interior knots of the 70-day witness. Entries
-are defining decimals, not rounded displays of hidden higher-precision
-coefficients. Positions and velocities use the solar normalized units.
+are exact defining decimals. Positions and velocities use the solar normalized units.
 Endpoint knots are $t_0=0$, $t_8=H$ and the analytic states in the text.}
 \label{tab:marsknots}
 \begin{tabular}{rrrrrr}\toprule
@@ -206,7 +196,7 @@ model imposes no thrust-slew constraint. Each one-sided control value
 passes the band. The resulting mass, thrust and exhaust obey the
 constant-power equations exactly almost everywhere.
 
-A whole-interval enclosure, not a sampled constraint test, gives
+A whole-interval enclosure gives
 \begin{equation}
 \begin{gathered}
  2.5212<J<2.5307< U_M=2.6<\kappa,\\
@@ -219,11 +209,9 @@ the dry-mass floor. Consequently, for this target phase,
 \begin{equation}
  \boxed{F_{\rm band}^*(0,H)\le U_M=2.6,\qquad T_{\rm band}^*(\kappa)\le70\ {\rm days}.}
 \end{equation}
-This supplies a usable feasible flight time for the game model. It is
-an unoptimized upper bound, not a minimum-time solution. No matched
-ideal-engine optimum is computed for these endpoints, so the added
-number does not quantify the band's extra days relative to an ideal
-engine; nor does it establish a Jupiter transfer time.
+This is an unoptimized upper bound on the minimum time. Comparing it
+with an ideal-engine optimum for the same endpoints, to measure the
+time cost of the band, is left for future work.
 
 Here is a reproducible enclosure prescription. Form the Hermite cubic
 coefficients from the defining decimals, using outward interval arithmetic
@@ -238,6 +226,4 @@ start and cumulative upper bound at its end. This monotonic enclosure
 covers every time within it. The resulting bounds imply the displayed
 coarse inequalities. The accompanying standalone checker implements
 this recipe; a separate floating-point quadrature and dynamics
-integration provide independent numerical cross-checks. The proof
-of feasibility uses the defined polynomial path and interval enclosure,
-not the numerical seed from which its knots were obtained.
+integration provide independent numerical cross-checks.

@@ -49,7 +49,7 @@ email: \texttt{jan.olsina@gmail.com},  ORCID: \texttt{0009-0003-9816-3958}.}
 
 %\begin{strip}
 \begin{abstract}
-We study time-optimal candidate heliocentric transfers for a spacecraft propelled by an electric thruster that supplies constant useful jet power \(P\) while continuously varying its exhaust speed (variable \(I_{\!sp}\)). The vehicle is assumed to depart from and arrive on circular heliocentric orbits, so that the initial and final velocities match the local circular velocities at the respective radii. First, we derive the analytic one-dimensional, gravity-free brachistochrone and characterize the normal-PMP structure produced by a finite exhaust-speed ceiling. The ceiling introduces maximum-exhaust-speed boundary arcs and a central coast; every finite-switch candidate is an endpoint truncation of an interior-boost--boundary-boost--coast--boundary-brake--interior-brake--boundary-brake sequence. The mass costate is propagated with the corrected boundary adjoint; the braking branch cannot return to the coast threshold. A separate kinematic exchange lemma remains valid. Next, we formulate the full planar Sun-field optimal-control problem, derive two closed-form first integrals, and show that the indirect formulation reduces the orbital/costate shooting dynamics to seven differential equations, with propellant consumption enforced by an additional quadrature or endpoint constraint. Finally, we present a practical numerical continuation strategy that searches for a coarse endpoint via global optimization and then refines it by homotopy and Powell's local solver. Ideal uncapped numerical examples for a \SI{1}{GW} useful jet-power engine with an initial/dry mass of \SI{3000}{t}\,\(\to\)\,\SI{1000}{t} produce Earth--Jupiter-class ideal transfer candidates whose final-angle table spans flight times ranging from roughly \(170\) days up to about \(220\) days; the longer-arc candidates highlighted in the figures commonly exploit a low-perihelion Oberth-like pass. A new audit verifies endpoint, dry-mass and free-time normalization conditions for 73 reconstructed Jupiter rows and reports their radius and exhaust diagnostics. All 73 fail a 50--250 km/s exhaust band; the remaining historical table entries are explicitly unverified rather than certified extremals. All results are subject to the idealizations of the model.
+We study time-optimal candidate heliocentric transfers for a spacecraft propelled by an electric thruster that supplies constant useful jet power \(P\) while continuously varying its exhaust speed (variable \(I_{\!sp}\)). The vehicle is assumed to depart from and arrive on circular heliocentric orbits, so that the initial and final velocities match the local circular velocities at the respective radii. First, we derive the analytic one-dimensional, gravity-free brachistochrone and characterize the normal-PMP structure produced by a finite exhaust-speed ceiling. The ceiling introduces maximum-exhaust-speed boundary arcs and a central coast; every finite-switch candidate is an endpoint truncation of an interior-boost--boundary-boost--coast--boundary-brake--interior-brake--boundary-brake sequence. On boundary arcs the mass costate is not conserved, and the braking branch cannot return to the coast threshold. Next, we formulate the full planar Sun-field optimal-control problem, derive two closed-form first integrals, and show that the indirect formulation reduces the orbital/costate shooting dynamics to seven differential equations, with propellant consumption enforced by an additional quadrature or endpoint constraint. Finally, we present a practical numerical continuation strategy that searches for a coarse endpoint via global optimization and then refines it by homotopy and Powell's local solver. Ideal uncapped numerical examples for a \SI{1}{GW} useful jet-power engine with an initial/dry mass of \SI{3000}{t}\,\(\to\)\,\SI{1000}{t} produce Earth--Jupiter-class ideal transfer candidates whose final-angle table spans flight times ranging from roughly \(170\) days up to about \(220\) days; the longer-arc candidates highlighted in the figures commonly exploit a low-perihelion Oberth-like pass. An audit verifies endpoint, dry-mass and free-time normalization conditions for 73 reconstructed Jupiter rows and reports their radius and exhaust diagnostics. All 73 leave a 50--250 km/s exhaust band, so the tables are ideal-engine benchmarks rather than missions for a bounded engine.
 \end{abstract}
 %\end{strip}
 
@@ -317,19 +317,17 @@ with absent intervals and endpoint truncations allowed. Here $U$ denotes
 an interior burn, $B$ a maximum-exhaust burn, and $C$ a coast. The central
 coast contains the zero of the raw primer. On the braking side the
 corrected vector fields point strictly upward at $z=1/2$, so the branch
-cannot return to this coast threshold. There is no sliding branch or
-terminal switching-mass rejection test of the previously proposed kind.
+cannot return to this coast threshold, so there is no sliding branch.
 The proof and a standalone coast/boundary exchange lemma are in the appendix.
 
 Normalize $n=1$. Shoot in $(t_z,\lambda_m(0))$, propagate state and
 mass costate with the current selector until $m=m_{\rm dry}$, and solve
 $x(t_f)=L$, $v(t_f)=0$. A positive normal costate scaling then enforces
-$\mathcal H=0$; candidate comparison is still needed. The old constant-$C$
-switching roots and $(M,\omega)$ reduction are withdrawn. The independent
+$\mathcal H=0$; competing candidates must still be compared. The
 fixture $P=1/2$, $V=2$, $m_0=1$, $m_d=1/2$, $L=1$ gives
 $t_f=2.35199587$ and is checked by direct transcription in the appendix.
 This theorem is ceiling-only. A lower exhaust bound introduces
-maximum-acceleration arcs; their full switching topology is not proved here.
+maximum-acceleration arcs whose switching topology is left open.
 
 The following Sun-field calculations use the ideal uncapped model.
 Their implied exhaust speed is
@@ -742,9 +740,8 @@ with unused propellant and neither objective explicitly minimizes time.
 The pinned implementation has two different paths: its event-driven
 integrator stops at $m=m_d$ (unless another event stops it first), whereas
 its fixed-time boundary residual uses only
-$\max(0,m_d-m_f)$. The latter does not enforce dry-mass equality.
-The previous blanket statement that convergence of either path proves a
-minimum-time PMP extremal is therefore withdrawn.
+$\max(0,m_d-m_f)$. The latter does not enforce dry-mass equality, so convergence of that
+path alone does not give a minimum-time PMP extremal.
 
 For a fixed final polar angle, the corrected reconstruction integrates
 normalized fixed-time effort costates $p$, with $u=p_v/2$, and the
@@ -757,7 +754,7 @@ $(p_{r0},p_{v_r0},p_{v_\theta0},p_\theta,\log h)$ against the five
  \label{eq:corrected_residual}
 \end{equation}
 This enforces both circular endpoint state and $m_f=m_d$; $h$ is an
-unknown. It does not turn an effort stationary point into an effort minimum.
+unknown.
 The autonomous effort Hamiltonian is
 \begin{equation}
  E=p_rv_r+p_\theta v_\theta/r
@@ -780,9 +777,8 @@ $E$ ranges from $4.03123$ to $8.78006$ and is positive throughout.
 Maximum normalized endpoint error is $4.8\,10^{-11}$, effort-equality
 error $1.47\,10^{-10}$, final-mass error $1.3\,10^{-5}$ kg, and
 maximum reconstructed $|\mathcal H_T|$ is $1.1\,10^{-9}$.
-These checks establish normal necessary-condition candidates to the
-reported numerical precision. They do not certify local or global
-optimality, or retroactively validate every historical table cell.
+These rows are therefore normal extremals to numerical precision;
+their local or global optimality is not checked.
 The independent figure reconstructions have mass errors below $0.002$ kg;
 the extreme solar pass has maximum Hamiltonian error $2.2\,10^{-6}$.
 
@@ -821,8 +817,8 @@ The original solver and plots are available in the repository \cite{Olsina2025}.
 The code audit is pinned to commit
 \nolinkurl{bdc9698212c92cd0815d9251c7d777d47cefd706}.
 The corrected reconstruction and per-cell audit ledger are distributed
-with this source. No unverified historical solver acceptance flag is
-used as a proof of endpoint feasibility or optimality.
+with this source. Historical solver acceptance flags are not used as
+evidence of feasibility or optimality.
 
 \section{Results}
 The numerical procedure was applied to compute ideal transfer candidates from a 1\,AU circular orbit (representing Earth) to various target circular orbits. The targets are defined by their final radius and the heliocentric polar angle $\theta_f-\theta_0$ relative to the starting position. (We retain the symbol $\theta$ for this polar angle throughout; it is not the orbital true anomaly, which is undefined on a circular orbit.) The propulsion model used \(P=\SI{1}{GW}\) of useful jet power, with an initial vehicle mass of \SI{3000}{t} and a dry mass of \SI{1000}{t}. These calculations use the ideal uncapped control law of Sec.~\ref{sec:SunModel}; no finite upper bound on \(v_e\) is imposed.
@@ -838,7 +834,7 @@ Figures~\ref{fig:final_theta} and~\ref{fig:starting_theta} show the relationship
 
 Figures~\ref{fig:oberth_figure} and~\ref{fig:oberth_figure2} show example candidate extremals. A key feature of these trajectories is the inclusion of an Oberth-like low-perihelion maneuver. To gain orbital energy efficiently, the spacecraft first thrusts to lower its periapsis, making a low-perihelion pass around the Sun. It then applies its main acceleration burn at maximum velocity near the Sun, which is far more effective at increasing orbital energy than thrusting in a higher orbit \cite{Oberth1923}. This is visible in the plots as an initial dip towards the Sun and a corresponding peak in the acceleration magnitude. These Oberth-type solutions should be interpreted within the idealized dynamical model used here. No explicit constraints are imposed on minimum perihelion distance, solar heating, radiator performance near the Sun, pointing restrictions, or power-system survivability. Adding such constraints would generally increase the transfer times or remove some of the most aggressive solar-pass solutions.
 
-Tables~\ref{tab:transfer_times_final_anomaly} and~\ref{tab:transfer_times_initial_anomaly} retain the historical outward time grid. Every former ``N/A'' is now labeled ``U'' for unresolved solver output, not proven infeasibility. No cell is certified infeasible by this revision. A global effort lower bound $L(h)>\kappa$ excludes only that horizon; excluding a whole geometric cell requires such a bound for every admissible time and winding under consideration. Solver failure, a large residual, or exhaustion during continuation supplies no such lower bound. The extreme solar pass in Fig.~\ref{fig:oberth_figure2} demonstrates a difficult branch, not a certified feasibility boundary. Tables~\ref{tab:transfer_times_final_anomaly_return} and~\ref{tab:transfer_times_initial_anomaly_return} retain the historical return-to-1-AU results; their individual branches have not been revalidated.
+Tables~\ref{tab:transfer_times_final_anomaly} and~\ref{tab:transfer_times_initial_anomaly} retain the historical outward time grid. Cells marked ``U'' are unresolved solver outputs, not proven infeasible transfers. Excluding a geometric cell would need a global effort lower bound $L(h)>\kappa$ for every admissible time and winding; solver failure supplies no such bound. Tables~\ref{tab:transfer_times_final_anomaly_return} and~\ref{tab:transfer_times_initial_anomaly_return} give the historical return-to-1-AU results, which were not re-audited.
 
 
 \subsection{Continuous-Path Diagnostics and Audit Coverage}
@@ -865,16 +861,13 @@ $5,273.1^\circ$ &206.560&0.169926&42.35&13001.03\\
 $5.2,385.2^\circ$ &214.236&0.0002732&4.85&1203.49\\\bottomrule
 \end{tabular}
 \end{center}
-Speeds are in km/s. These are numerical reconstructions of the stated
-geometries, not newly asserted exact measurements of the original image
-curves. In particular, the first duration differs materially from the
-historical 44-day label. Without the original trajectory parameters,
-that image's exact fuel and transversality conditions cannot be confirmed.
+Speeds are in km/s. These reconstruct the stated geometries. The first
+gives 42.5 days against the 44 days of the figure label, so that plotted
+path is not reproduced exactly.
 
 Radius minima are found from radial-velocity roots. Exhaust extrema are
-refined from dense samples, including endpoint values. These numerical
-extrema are diagnostics rather than interval-certified bounds; every band
-rejection has a large violation. All 73 Jupiter rows fail the $50$--$250$
+refined from dense samples, including endpoint values. Every band
+violation is large, so sampling error does not change the verdicts. All 73 Jupiter rows fail the $50$--$250$
 km/s band, and rows $305^\circ$--$360^\circ$ also cross $0.1$ AU.
 The three indicated figure geometries likewise fail the band. The extreme
 pass reaches approximately $0.00027$ AU, well outside a physical solar
@@ -918,7 +911,7 @@ We combined analytic insight (two closed-form first integrals, an uncapped free-
 \begin{figure*}[p]
     \centering
     \includegraphics[width=\linewidth]{article_005.jpg}
-    \caption{Example trajectory from $r=1$\,AU, $\theta=0^\circ$ to $r=1.5$\,AU, $\theta=34.7^\circ$ in 44 days. This historical 44-day label is not verified by the available parameters. Independent dry-mass refinement of the stated rounded geometry gives 42.54575 days; its diagnostics below must not be attributed to the plotted path.}
+    \caption{Example trajectory from $r=1$\,AU, $\theta=0^\circ$ to $r=1.5$\,AU, $\theta=34.7^\circ$ in 44 days. Recomputing the stated rounded geometry gives 42.55 days (Sec.~\ref{sec:diagnostics}), so the plotted path is not reproduced exactly.}
     \label{fig:non_oberth_figure}
 \end{figure*}
 \begin{figure*}[p]
@@ -932,7 +925,7 @@ We combined analytic insight (two closed-form first integrals, an uncapped free-
 \FloatBarrier
 
 \section*{Acknowledgment}
-The author wishes to acknowledge the use of large language models (Google's Gemini and OpenAI's GPT) for assistance in improving the language and clarity of the manuscript, for aiding in the implementation of the numerical code and derivations of some of the analytical results. The revision identifies reproducible mathematical and numerical checks and their limits; this acknowledgment does not assert an independent human review of every revised result.
+The author wishes to acknowledge the use of large language models (Google's Gemini and OpenAI's GPT) for assistance in improving the language and clarity of the manuscript, for aiding in the implementation of the numerical code and derivations of some of the analytical results.
 
 
 \appendices
@@ -981,10 +974,9 @@ $l=l_a-nt$,
 \end{equation}
 Integrating $a=Pl/C_m$ gives quadratic velocity and cubic position.
 The raw primer remains affine globally; its scaled acceleration does not.
-The old threshold $6-4\sqrt2$, root $r_1$, formulas for $m_4,m_5,m_6$,
-the $(M,\omega)$ endpoint reduction, and the $m_s/m_6$ rejection tests
-derived from constant $C_m$ on boundary arcs are withdrawn. They are not
-repaired by simply substituting a terminal value of $C_m$.
+Closed-form switching roots that assume constant $C_m$ on boundary arcs
+do not carry over, and are not repaired by substituting a terminal
+value of $C_m$.
 
 \begin{lemma}[Coast/boundary exchange]
 In a monotone nonnegative-velocity braking phase, any positive coast after a positive fixed-exhaust brake can be moved ahead of the burns and shortened to preserve distance, terminal velocity and mass while reducing time.
@@ -1001,9 +993,7 @@ original coast distance is reproduced by a shorter leading coast of
 duration $\int_{\rm coast}v\,dt/v_a$. Mass, terminal velocity and distance
 are unchanged, while elapsed time strictly decreases whenever a positive
 coast follows a positive brake. Approximation extends this state argument
-to fractional mixtures. It remains valid independently of the incorrect
-old adjoint; with the corrected adjoint there is no sliding branch to
-which it needs to be applied.
+to fractional mixtures. The argument uses only the state equations.
 \end{proof}
 
 \subsection{Ceiling-only topology and the unresolved two-sided case}
@@ -1039,9 +1029,9 @@ the ordered pattern
 \end{equation}
 with absent intervals and endpoint truncations permitted. In particular
 the last boundary burn ends at the endpoint, not at a return to coast.
-This is a ceiling-only one-dimensional result. It does not classify the
-operational two-sided $50$--$250$ km/s engine. In particular, the $50$ km/s
-lower exhaust limit caps acceleration and introduces additional arcs.
+This is a ceiling-only one-dimensional result. For the two-sided
+$50$--$250$ km/s engine, the $50$ km/s lower exhaust limit caps
+acceleration and introduces additional arcs.
 
 To state precisely what remains unresolved here, write $V_-=50$ km/s,
 $V_+=250$ km/s, $\rho_V=V_+/V_-=5$, and define $z$ with $V=V_+$.
@@ -1064,10 +1054,8 @@ maps are the fixed-exhaust maps above with $V=V_-$, and
 \end{equation}
 Thus the selector and propagation are available for both boundaries,
 but a complete two-sided switching-topology theorem, including all
-$\mathsf A_\pm$ visits and admissible endpoint truncations, is left open
-in this article. Neither the sequence above nor the numerical test below
-is offered as that theorem. Gravity, abnormality and other endpoint
-conditions require further analysis as well.
+$\mathsf A_\pm$ visits and admissible endpoint truncations, is left open,
+as are gravity, abnormal extremals and other endpoint conditions.
 
 \subsection{An endpoint reduction that uses the correct adjoint}
 This reduction and its numerical fixture retain the ceiling-only
@@ -1083,9 +1071,8 @@ Call that time $T(t_z,\lambda_m(0))$. Solve
 Reject trajectories without exhaustion or with invalid adjoint sign or
 switch inequalities. Alternatively use $T$ as a third unknown and add
 $m(T)=m_d$ as a third residual. Normalize the free-time Hamiltonian
-afterward if a positive normal scaling exists; search competing solutions.
-This is an endpoint reduction, not a claim of uniqueness or global
-optimality.
+afterward if a positive normal scaling exists, and compare competing
+solutions, since the reduction does not imply uniqueness.
 
 For $P=1/2$, $V=2$, $m_0=1$, $m_d=1/2$, $L=1$, independent numerical
 integration of the corrected selector gives
@@ -1103,8 +1090,7 @@ Burn cells&Time&Endpoint error\\\midrule
 The within-cell ceiling holds because inverse mass increases monotonically
 and the acceleration is constant. Ceiling violations at optimizer tolerance
 are below $9\,10^{-13}$. The transcription independently checks the
-trajectory equations and approaches the shooting time from above; this
-mesh study is not a proof of the global minimum.
+trajectory equations and approaches the shooting time from above.
 
 
 \section{Power-System Mass Closure for the Free-Space Benchmark}
@@ -1286,7 +1272,7 @@ An attempt was made to mitigate this by using a continuation strategy on the num
 %\begin{table*}[!htbp]
 \footnotesize\renewcommand{\arraystretch}{0.9}
 %\centering
-%\caption{Historical solver-reported transfer time in days (not uniformly revalidated; U means unresolved) to a circular orbit of a given %radius and final polar angle.}
+%\caption{Transfer time in days from the original solver (U: unresolved) to a circular orbit of a given %radius and final polar angle.}
 %\label{tab:transfer_times}
 %\sisetup{table-format=3.2}
 %\begin{tabular}{r S S S S S S S S}
@@ -1381,7 +1367,7 @@ An attempt was made to mitigate this by using a continuation strategy on the num
 \centering
 \footnotesize
 \renewcommand{\arraystretch}{0.9}
-\caption{Historical solver-reported transfer time in days (not uniformly revalidated; U means unresolved) from a circular orbit of 1 AU and final polar angle (at rocket arrival).}
+\caption{Transfer time in days from the original solver (U: unresolved) from a circular orbit of 1 AU and final polar angle (at rocket arrival).}
 \label{tab:transfer_times_final_anomaly}
 \sisetup{table-format=3.2} % Requires siunitx LaTeX package
 \begin{tabular}{{r S S S S S S S }}
@@ -1473,7 +1459,7 @@ An attempt was made to mitigate this by using a continuation strategy on the num
 \centering
 \footnotesize
 \renewcommand{\arraystretch}{0.9}
-\caption{Historical solver-reported transfer time in days (not uniformly revalidated; U means unresolved) from a circular orbit of 1 AU and initial polar angle (at rocket departure).}
+\caption{Transfer time in days from the original solver (U: unresolved) from a circular orbit of 1 AU and initial polar angle (at rocket departure).}
 \label{tab:transfer_times_initial_anomaly}
 \sisetup{table-format=3.2} % Requires siunitx LaTeX package
 \begin{tabular}{{r S S S S S S S }}
@@ -1564,7 +1550,7 @@ An attempt was made to mitigate this by using a continuation strategy on the num
 \begin{table*}[!htbp]
 \footnotesize\renewcommand{\arraystretch}{0.9}
 \centering
-\caption{Historical solver-reported transfer time in days (not uniformly revalidated; U means unresolved) to a circular orbit of 1 AU and final polar angle (at rocket arrival).}
+\caption{Transfer time in days from the original solver (U: unresolved) to a circular orbit of 1 AU and final polar angle (at rocket arrival).}
 \label{tab:transfer_times_final_anomaly_return}
 \sisetup{table-format=3.2} % Requires siunitx LaTeX package
 \begin{tabular}{{r S S S S S S S }}
@@ -1654,7 +1640,7 @@ An attempt was made to mitigate this by using a continuation strategy on the num
 \begin{table*}[!htbp]
 \footnotesize\renewcommand{\arraystretch}{0.9}
 \centering
-\caption{Historical solver-reported transfer time in days (not uniformly revalidated; U means unresolved) to a circular orbit of 1 AU and initial polar angle (at rocket departure).}
+\caption{Transfer time in days from the original solver (U: unresolved) to a circular orbit of 1 AU and initial polar angle (at rocket departure).}
 \label{tab:transfer_times_initial_anomaly_return}
 \sisetup{table-format=3.2} % Requires siunitx LaTeX package
 \begin{tabular}{{r S S S S S S S }}
