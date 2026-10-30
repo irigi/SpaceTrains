@@ -189,6 +189,10 @@ func _run() -> void:
         await _cargo_shots(rig)
         get_tree().quit()
         return
+    if OS.get_cmdline_user_args().has("--shot-planets"):
+        await _planet_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-close"):
         _report_path_end_gaps()
         await _docked_close_shot(rig)
@@ -822,3 +826,23 @@ func _routes_shots(rig: Node3D) -> void:
     var rect := Rect2i(main.inspector_panel.get_global_rect())
     image.get_region(rect.intersection(Rect2i(Vector2i.ZERO, image.get_size()))).save_png(out_dir.path_join("routes_inspector.png"))
     print("[ShotTour] saved routes_inspector")
+
+# Every textured body lit from about 40 degrees off the Sun line, at 3 and 12 planet radii
+# (texture resolution, colour and the terminator), at 1.3 radii (closest detail) and from the dark side.
+func _planet_shots(rig: Node3D) -> void:
+    var sun: Node3D = main.entity_nodes.get("sun")
+    for body_id in ["mercury", "venus", "earth", "luna", "mars", "ceres", "jupiter", "saturn", "uranus", "neptune"]:
+        if not main.entity_nodes.has(body_id):
+            continue
+        var node: Node3D = main.entity_nodes[body_id]
+        main.select_entity(body_id, "body", true)
+        await get_tree().create_timer(0.3).timeout
+        var to_sun: Vector3 = (sun.global_position - node.global_position).normalized() if sun != null else Vector3.FORWARD
+        var radius := float(main.call("_body_display_scale", body_id))
+        for view in [["1.3r", 1.3, 0.7], ["3r", 3.0, 0.7], ["12r", 12.0, 0.7], ["night", 4.0, 2.4]]:
+            rig.set("yaw", atan2(to_sun.x, to_sun.z) + float(view[2]))
+            rig.set("pitch", -0.25)
+            rig.set("distance", maxf(radius * float(view[1]), float(rig.get("min_distance"))))
+            rig.call("_update_transform")
+            await get_tree().create_timer(0.5).timeout
+            await _shoot("planet_%s_%s" % [body_id, view[0]])

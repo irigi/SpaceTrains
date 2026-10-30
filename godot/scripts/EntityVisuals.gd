@@ -71,6 +71,49 @@ static func _standard(albedo: Color, roughness := 0.5, emission := Color.BLACK, 
         material.emission_energy_multiplier = emission_energy
     return material
 
+# The Sun light is strong (1.9) so the outer planets are not dim: a map, not a photograph.
+# Planet textures are albedo maps, so they are scaled down to keep the lit side below 1.0
+# before tone mapping: at full strength bright maps (Jupiter, Venus, Saturn) washed out to
+# white, crossed the glow threshold and bloomed, and ACES pushed Mars and Earth oversaturated.
+const PLANET_EXPOSURE := 0.5
+const CLOUD_SHADER := """
+shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_back, specular_disabled;
+uniform sampler2D clouds : hint_default_black, filter_linear_mipmap_anisotropic;
+uniform float exposure = 0.5;
+uniform float opacity = 0.85;
+void fragment() {
+    ALBEDO = vec3(exposure);
+    ROUGHNESS = 1.0;
+    ALPHA = clamp(texture(clouds, UV).r * opacity, 0.0, 1.0);
+}
+"""
+static var _cloud_material: ShaderMaterial
+
+static func _planet_material(texture: Texture2D) -> StandardMaterial3D:
+    var material := _standard(Color(PLANET_EXPOSURE, PLANET_EXPOSURE, PLANET_EXPOSURE), 1.0)
+    material.albedo_texture = texture
+    # Mipmaps + anisotropy: no shimmer at a distance, sharp near the limb.
+    material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+    material.metallic_specular = 0.1
+    return material
+
+# Earth's cloud layer: a slightly larger sphere with the cloud map as alpha.
+static func _ensure_clouds(container: Node3D) -> void:
+    if container.has_node("clouds"):
+        return
+    if _cloud_material == null:
+        var shader := Shader.new()
+        shader.code = CLOUD_SHADER
+        _cloud_material = ShaderMaterial.new()
+        _cloud_material.shader = shader
+        _cloud_material.set_shader_parameter("clouds", load("res://assets/planets/earth_clouds.jpg"))
+        _cloud_material.set_shader_parameter("exposure", PLANET_EXPOSURE)
+    var clouds := _named(_sphere(1.004, 128, 64), "clouds")
+    clouds.material_override = _cloud_material
+    clouds.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    container.add_child(clouds)
+
 static func apply_visuals(container: Node3D, kind: String, data: Dictionary, faction_colors: Dictionary) -> void:
     var faction_color: Color = faction_colors.get(String(data.get("faction_id", "")), Color(0.95, 0.82, 0.36))
     var materials := {}
@@ -82,12 +125,11 @@ static func apply_visuals(container: Node3D, kind: String, data: Dictionary, fac
         else:
             var texture_path := "res://assets/planets/%s.jpg" % body_id
             if ResourceLoader.exists(texture_path):
-                var material := _standard(Color.WHITE, 0.9)
-                var texture: Texture2D = load(texture_path)
-                material.albedo_texture = texture
-                materials["hull"] = material
+                materials["hull"] = _planet_material(load(texture_path))
+                if body_id == "earth":
+                    _ensure_clouds(container)
             else:
-                materials["hull"] = _standard(body_color(body_id), 0.82)
+                materials["hull"] = _standard(body_color(body_id) * PLANET_EXPOSURE, 1.0)
     elif kind == "station":
         # The faction band on the habitat ring(s); the rest is ModelMaterials' shared paint.
         Materials.set_band(Materials.instance_materials(container)["band"], faction_color)

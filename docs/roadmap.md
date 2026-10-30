@@ -106,8 +106,8 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
 Later (user, 2026-10-27), visuals:
-- **Planet textures:** most planets (Earth and perhaps Mars aside) look oversaturated on the lit side and visibly
-  low resolution. Needs better textures and/or tuned lighting and tone mapping.
+- **Planet textures:** done 2026-10-30 (8k/4k maps with mipmaps, albedo scaled against the Sun light, Mars and
+  Venus desaturated, Earth's clouds, Saturn's ring map; `docs/modules/ui_observer.md`, "Planet surfaces").
 - **Stations orbiting their planets:** at 5 days/s real orbital speeds are impractical (a low Earth orbit would
   be ~80 revolutions a second), but a station hovering at a fixed point over the planet looks wrong too. Needs
   a display convention, e.g. a visual orbital rate capped to a few seconds per revolution (or slowed by a
