@@ -1,5 +1,5 @@
 # Procedural space ambience: starfield skybox, bloom + sun halo, orbit rings,
-# Saturn's ring. Everything is generated at runtime — no texture assets.
+# Saturn's ring (its radial map is the one texture asset).
 extends Node3D
 
 const STAR_COUNT := 3800
@@ -201,30 +201,29 @@ func set_ring_visible(body_id: String, visible_flag: bool) -> void:
 
 # --- Saturn ring -------------------------------------------------------------
 
-# Flat annulus around the planet, in units of the (already scaled) planet radius.
+# Flat annulus around the planet, in units of the (already scaled) planet radius: the C ring's
+# inner edge to the A ring's outer edge, coloured by the radial ring map (Solar System Scope).
 static func make_planet_ring() -> MeshInstance3D:
-    var inner := 1.35
-    var outer := 2.3
-    var segments := 96
+    var inner := 1.24
+    var outer := 2.27
+    var segments := 256
     var vertices := PackedVector3Array()
-    var colors := PackedColorArray()
+    var uvs := PackedVector2Array()
     var indices := PackedInt32Array()
     for i in range(segments + 1):
         var angle := TAU * float(i) / float(segments)
         var direction := Vector3(cos(angle), 0.0, sin(angle))
         vertices.append(direction * inner)
         vertices.append(direction * outer)
-        # Subtle radial banding baked into vertex alpha.
-        var band := 0.55 + 0.25 * sin(angle * 0.0 + float(i % 5))
-        colors.append(Color(0.85, 0.78, 0.6, 0.55))
-        colors.append(Color(0.7, 0.62, 0.48, 0.12 * band))
+        uvs.append(Vector2(0.0, 0.5))
+        uvs.append(Vector2(1.0, 0.5))
         if i < segments:
             var base := i * 2
             indices.append_array([base, base + 1, base + 2, base + 1, base + 3, base + 2])
     var arrays := []
     arrays.resize(Mesh.ARRAY_MAX)
     arrays[Mesh.ARRAY_VERTEX] = vertices
-    arrays[Mesh.ARRAY_COLOR] = colors
+    arrays[Mesh.ARRAY_TEX_UV] = uvs
     arrays[Mesh.ARRAY_INDEX] = indices
     var mesh := ArrayMesh.new()
     mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -232,10 +231,14 @@ static func make_planet_ring() -> MeshInstance3D:
     instance.name = "PlanetRing"
     instance.mesh = mesh
     var material := StandardMaterial3D.new()
+    # Unshaded at the brightness of a lit planet (EntityVisuals.PLANET_EXPOSURE x Sun light).
     material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
     material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    material.vertex_color_use_as_albedo = true
+    material.albedo_texture = load("res://assets/planets/saturn_ring.png")
+    material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+    material.texture_repeat = false
     material.cull_mode = BaseMaterial3D.CULL_DISABLED
     instance.material_override = material
+    instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     instance.rotation_degrees = Vector3(27.0, 0.0, 0.0)
     return instance

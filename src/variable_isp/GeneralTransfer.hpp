@@ -77,7 +77,7 @@ struct EndPoint {
     double effort {0.0};       // ∫|p|² dt
     double sweep_rad {0.0};    // unwrapped heliocentric angle swept
     double min_radius {0.0};
-    double hamiltonian {0.0};  // h = −w·v + p·g + |p|²/2 (conserved; dJ/dT = −2h)
+    double hamiltonian {0.0};  // h = −w·v + p·g + |p|²/2 (conserved; dJ/dT = −2h for a fixed target)
     std::size_t steps {0};
     // ∂(r, v, p, w, E)(T)/∂(p0, w0): 9 rows x 4 columns (when requested).
     std::array<std::array<double, 4>, 9> stm {};
@@ -204,6 +204,13 @@ Solution continue_in_boundary(
     double T,
     const BoundaryHomotopyOptions& options = {},
     const ShootingOptions& shooting = {});
+
+// dJ/dT of a converged fixed-T solution when T changes and the arrival point moves with the
+// target: −2h − 2 w·ṙ_A + 2 p·v̇_A (MinimumEffortPlanning, eq. "generaldate", in this file's
+// convention p = a). For a fixed target it is −2h; for a target coasting on a Kepler orbit
+// (a planet or station on its circle) it is −|p(T)|², never positive, so lengthening always
+// saves effort on a regular branch. Valid for rendezvous and intercept (p(T) = 0).
+double effort_time_slope(const EndPoint& end, const TargetPoint& target);
 
 // Lengthen a converged fixed-T solution until its effort fits `budget` (effort falls with T on
 // the usual branch): safeguarded secant search over fixed-T, warm-started shootings. Returns

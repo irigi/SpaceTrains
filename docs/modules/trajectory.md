@@ -109,6 +109,12 @@ to atlas costates, so the rest of the planner is unchanged. The finite-differenc
 - **Fuel fit.** When the corrected path needs at most 10% more effort than the fuel allows and no larger
   budget carries it, `fit_effort_by_time` changes T until it fits (56% of candidates used to be rejected as
   fuel-limited). Fits up to 1.6x and 2x over were measured on 2026-10-21: 7x the planning time.
+  The fit takes Newton steps on J(T) = budget with the exact slope for a moving arrival,
+  dJ/dT = −2h − 2 w·ṙ_A + 2 p·v̇_A (`effort_time_slope`; −|p(T)|² for a station on its circle, from
+  `VariableISP/MinimumEffortPlanning`, section 2.2). The fixed-target slope −2h it used before
+  (2026-10-30) pointed the wrong way for 24% of moving-target transfers: 26% of fits failed in a probe
+  of 300 planet-to-planet cases, 3% now. Steps grow at most 2.5x the last one that worked (effort is
+  nearly flat in T on many-turn paths).
 - **Shared refinements.** The geometric refinement of an atlas cell is cached per (route, plan time, cell):
   the path does not depend on the ship, so plans differing only in payload or fuel reuse it and apply their
   own fuel check.

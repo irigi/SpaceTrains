@@ -48,6 +48,14 @@
   stands in when a model is a few pixels; screen-space labels beside icons (bodies, then stations, then ships in
   flight; overlap culling); Sun halo and bloom; sunlight with a gentle falloff, and a weak fill light from the
   camera that reaches only ships and stations (render layer 2), so their night sides stay readable.
+- **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), 8k for
+  Earth, Moon, Mars and Mercury, 4k for Jupiter, Saturn, Venus and Ceres, 2k for Uranus and Neptune; imported
+  VRAM-compressed (BPTC) with mipmaps and drawn with anisotropic filtering (~250 MB of video memory). The maps are
+  albedo, scaled by `PLANET_EXPOSURE` (0.5) against the strong Sun light (1.9): at full strength the bright maps
+  washed out to white and bloomed. Mars and Venus maps are desaturated in the files (Mars 0.62, Venus 0.55).
+  Earth has a cloud layer (`_ensure_clouds`, 8k cloud map as alpha on a sphere 0.4% larger); Saturn's ring uses
+  the radial ring map from 1.24 to 2.27 planet radii. `--shot-planets` shoots every textured body at 1.3, 3 and
+  12 radii and from the night side.
 - **Ship models** (`ShipModels.gd`, 2026-10-23): built from the design's components with the schematic's layout
   (`ShipLayout.gd`, shared with `ui/ShipSchematic.gd`), so the map shows the same parts in the same order and
   proportions, in metres, at true scale (roadmap step 6): `Main.MODEL_SIZE_EXAGGERATION` (1.0) times real size, so a

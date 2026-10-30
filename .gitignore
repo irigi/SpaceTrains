@@ -46,3 +46,5 @@ VariableISP/*.log
 VariableISP/*.out
 VariableISP/*.toc
 VariableISP/**/__pycache__/
+# Planet textures need their import settings (VRAM compression, mipmaps).
+!godot/assets/planets/*.import

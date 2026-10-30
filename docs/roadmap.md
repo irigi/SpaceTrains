@@ -80,8 +80,8 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 
 ### Next steps, in order
 
-1. **Space chases in the game** — built 2026-10-28 overnight on `feature/failures_salvage`, awaiting review
-   (decisions in `docs/plans/overnight_2026-10-28.md`; design in `docs/modules/ships_and_fleet.md`, "Failures and
+1. **Space chases in the game** — built 2026-10-28 overnight, merged (PR #26), review accepted by the user
+   2026-10-30 (decisions in `docs/plans/overnight_2026-10-28.md`; design in `docs/modules/ships_and_fleet.md`, "Failures and
    salvage" and "Police inspections"):
    - **Failures:** Weibull hull lives (shape 3, mean 30 y × 1.10, exact in expectation against the capital charge);
      a ship that fails in flight becomes a derelict coasting on its orbit; its owner may replace it first.
@@ -106,8 +106,8 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
 Later (user, 2026-10-27), visuals:
-- **Planet textures:** most planets (Earth and perhaps Mars aside) look oversaturated on the lit side and visibly
-  low resolution. Needs better textures and/or tuned lighting and tone mapping.
+- **Planet textures:** done 2026-10-30 (8k/4k maps with mipmaps, albedo scaled against the Sun light, Mars and
+  Venus desaturated, Earth's clouds, Saturn's ring map; `docs/modules/ui_observer.md`, "Planet surfaces").
 - **Stations orbiting their planets:** at 5 days/s real orbital speeds are impractical (a low Earth orbit would
   be ~80 revolutions a second), but a station hovering at a fixed point over the planet looks wrong too. Needs
   a display convention, e.g. a visual orbital rate capped to a few seconds per revolution (or slowed by a
