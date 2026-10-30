@@ -1136,6 +1136,10 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
 }
 
 
+double effort_time_slope(const EndPoint& end, const TargetPoint& target) {
+    return -2.0 * end.hamiltonian - 2.0 * dot(end.primer.w, target.velocity) + 2.0 * dot(end.primer.p, target.acceleration);
+}
+
 Solution fit_effort_by_time(const Propagator& propagator, const State& start, const Target& target,
     EndCondition end_condition, const Solution& from, double budget, double relative_tolerance,
     const ShootingOptions& shooting) {
@@ -1145,11 +1149,14 @@ Solution fit_effort_by_time(const Propagator& propagator, const State& start, co
     Solution a = from;  // over budget
     if (a.end.effort <= budget) return a;
     const double T0 = a.T;
-    // Direction and first step from dJ/dT ≈ −2h (exact for a fixed target): with h < 0 the
-    // effort falls toward shorter transfers. Steps stay within [2%, 30%] of T.
-    const double direction = a.end.hamiltonian >= 0.0 ? 1.0 : -1.0;
-    double dT = std::abs(a.end.hamiltonian) > 0.0 ? (a.end.effort - budget) / (2.0 * std::abs(a.end.hamiltonian)) : 0.05 * T0;
-    dT = std::clamp(dT, 0.02 * T0, 0.3 * T0);
+    const auto slope_at = [&](const Solution& s) { return effort_time_slope(s.end, target(s.T)); };
+    // Newton on J(T) = budget with the exact slope. On a regular branch to a moving target the
+    // effort falls as T grows; aim 5% past the Newton point (J is usually convex in T, so the
+    // tangent undershoots) to land on the feasible side.
+    double slope = slope_at(a);
+    const double direction = slope <= 0.0 ? 1.0 : -1.0;
+    double dT = slope != 0.0 ? 1.05 * (a.end.effort - budget) / std::abs(slope) : 0.05 * T0;
+    dT = std::clamp(dT, 1e-3 * T0, 0.3 * T0);
     Solution feasible;
     bool bracketed = false;
     for (int iteration = 0; iteration < 20; ++iteration) {
@@ -1160,23 +1167,31 @@ Solution fit_effort_by_time(const Propagator& propagator, const State& start, co
         if (!b.converged || b.end.effort >= a.end.effort) {
             // Not converged, or past the effort minimum: shorter step.
             dT *= 0.3;
-            if (dT < 2e-3 * T0) break;
+            if (dT < 2e-4 * T0) break;
             continue;
         }
         if (b.end.effort <= budget) {
             feasible = b;
             bracketed = true;
             if (b.end.effort >= budget * (1.0 - relative_tolerance)) break;
-            // Regula falsi inside [a, b].
+            // Inside [a, b]: Newton from a, regula falsi if it leaves the bracket.
+            const double width = std::abs(b.T - a.T);
+            const double newton = slope != 0.0 ? (a.end.effort - budget) / std::abs(slope) : -1.0;
             const double frac = (a.end.effort - budget) / (a.end.effort - b.end.effort);
-            dT = std::max(1e-4 * T0, frac * std::abs(b.T - a.T));
+            dT = (newton > 0.0 && newton < width) ? newton : frac * width;
+            dT = std::max(1e-4 * T0, dT);
             continue;
         }
-        // Still over budget: secant extrapolation from (a, b).
-        const double slope = (a.end.effort - b.end.effort) / std::abs(b.T - a.T);
-        const double next = (b.end.effort - budget) / slope;
+        // Still over budget: Newton from b.
+        const double slope_b = slope_at(b);
+        const double secant = (a.end.effort - b.end.effort) / std::abs(b.T - a.T);
+        const double rate = (slope_b * direction < 0.0) ? std::abs(slope_b) : secant;
+        // Where the effort is nearly flat in T (many-turn paths) the tangent asks for a huge
+        // step: grow by at most 2.5x the last step that worked.
+        const double next = std::min(1.05 * (b.end.effort - budget) / rate, 2.5 * std::abs(b.T - a.T));
         a = std::move(b);
-        dT = bracketed ? std::min(next, std::abs(feasible.T - a.T)) : std::clamp(1.2 * next, 0.01 * T0, 0.3 * a.T);
+        slope = slope_b;
+        dT = bracketed ? std::min(next, std::abs(feasible.T - a.T)) : std::clamp(next, 1e-3 * T0, 0.3 * a.T);
     }
     if (!bracketed) {
         Solution none;
@@ -1196,10 +1211,14 @@ Solution spend_effort_by_time(const Propagator& propagator, const State& start, 
     Solution a = from;  // feasible: effort below the budget
     if (a.end.effort >= budget * (1.0 - relative_tolerance)) return a;
     const double T0 = a.T;
-    // Effort rises toward shorter transfers when h > 0 (dJ/dT = −2h).
-    const double direction = a.end.hamiltonian >= 0.0 ? -1.0 : 1.0;
-    double dT = std::abs(a.end.hamiltonian) > 0.0 ? (budget - a.end.effort) / (2.0 * std::abs(a.end.hamiltonian)) : 0.05 * T0;
-    dT = std::clamp(dT, 0.02 * T0, 0.3 * T0);
+    const auto slope_at = [&](const Solution& s) { return effort_time_slope(s.end, target(s.T)); };
+    // Newton on J(T) = budget with the exact slope, toward shorter transfers when the effort
+    // falls with T. Aim 5% short of the Newton point: J is usually convex in T, so the tangent
+    // overshoots toward shorter times.
+    double slope = slope_at(a);
+    const double direction = slope <= 0.0 ? -1.0 : 1.0;
+    double dT = slope != 0.0 ? 0.95 * (budget - a.end.effort) / std::abs(slope) : 0.05 * T0;
+    dT = std::clamp(dT, 1e-3 * T0, 0.3 * T0);
     bool bracketed = false;
     double over_T = 0.0;
     double over_effort = 0.0;
@@ -1210,22 +1229,31 @@ Solution spend_effort_by_time(const Propagator& propagator, const State& start, 
         propagations += b.propagations;
         if (!b.converged || b.end.min_radius < min_radius || b.end.effort <= a.end.effort) {
             dT *= 0.3;
-            if (dT < 2e-3 * T0) break;
+            if (dT < 2e-4 * T0) break;
             continue;
         }
         if (b.end.effort <= budget) {
-            const double slope = (b.end.effort - a.end.effort) / std::abs(b.T - a.T);
+            const double slope_b = slope_at(b);
+            const double step = std::abs(b.T - a.T);
+            const double secant = (b.end.effort - a.end.effort) / step;
             a = std::move(b);
+            slope = slope_b;
             if (a.end.effort >= budget * (1.0 - relative_tolerance)) break;
-            const double next = (budget - a.end.effort) / slope;
-            dT = bracketed ? std::min(next, 0.9 * std::abs(over_T - a.T)) : std::clamp(1.2 * next, 0.005 * T0, 0.3 * a.T);
+            const double rate = (slope_b * direction > 0.0) ? std::abs(slope_b) : secant;
+            // Where the effort is nearly flat in T (many-turn paths) the tangent asks for a huge
+            // step: grow by at most 2.5x the last step that worked.
+            const double next = std::min(0.95 * (budget - a.end.effort) / rate, 2.5 * step);
+            dT = bracketed ? std::min(next, 0.9 * std::abs(over_T - a.T)) : std::clamp(next, 1e-3 * T0, 0.3 * a.T);
         } else {
-            // Over the budget: regula falsi inside [a, b].
+            // Over the budget: Newton from a inside [a, b], regula falsi if it leaves the bracket.
             bracketed = true;
             over_T = b.T;
             over_effort = b.end.effort;
+            const double width = std::abs(over_T - a.T);
+            const double newton = slope * direction > 0.0 ? (budget - a.end.effort) / std::abs(slope) : -1.0;
             const double frac = (budget - a.end.effort) / (over_effort - a.end.effort);
-            dT = std::max(1e-4 * T0, frac * std::abs(over_T - a.T));
+            dT = (newton > 0.0 && newton < width) ? newton : frac * width;
+            dT = std::max(1e-4 * T0, dT);
         }
     }
     a.propagations = from.propagations + propagations;
