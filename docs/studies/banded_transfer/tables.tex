@@ -1,0 +1,94 @@
+\newcommand{\tabships}{
+\begin{tabular}{lrrrrrrrr}\toprule
+Ship & dry (t) & tank (t) & payload (t) & $m_0$ (t) & power (MW) & $a_{\min}$ (mm/s$^2$) & $a_{\max}$ (mm/s$^2$) & cr/day \\ \midrule
+Freighter & 34.1 & 30 & 15.0 & 79.1 & 10.0 & 1.01 & 5.1 & 16 \\
+Courier & 24.9 & 30 & 3.0 & 57.9 & 18.0 & 2.49 & 12.4 & 14 \\
+Bulk tanker & 86.9 & 100 & 200.0 & 386.9 & 40.0 & 0.83 & 4.1 & 27 \\
+Liner & 198.4 & 60 & 14.0 & 272.4 & 100.0 & 2.94 & 14.7 & 69 \\
+Large liner & 885.5 & 300 & 65.0 & 1250.5 & 500.3 & 3.20 & 16.0 & 296 \\
+\bottomrule\end{tabular}}
+\newcommand{\tabsametime}{
+\begin{tabular}{lrrrrrrrrr}\toprule
+Ship & cases & min \% & max \% & mean \% & coast & sep.\ mean & sep.\ max & no B & branch \\
+ & & \multicolumn{3}{c}{A's extra propellant over B} & of $T$ & \multicolumn{2}{c}{($10^6$ km)} & & \\ \midrule
+Freighter & 222 & 0.04 & 16.9 & 0.80 & 14\% & 1.9 & 57.3 & 12 & 0 \\
+Courier & 213 & 0.08 & 44.7 & 1.25 & 15\% & 5.2 & 504.5 & 19 & 2 \\
+Bulk tanker & 221 & 0.02 & 9.7 & 0.96 & 15\% & 1.6 & 18.0 & 12 & 1 \\
+Liner & 216 & 0.62 & 36.8 & 6.75 & 36\% & 10.4 & 307.8 & 18 & 0 \\
+Large liner & 213 & 0.54 & 37.4 & 6.09 & 34\% & 9.4 & 295.0 & 21 & 0 \\
+\bottomrule\end{tabular}}
+\newcommand{\tabmintime}{
+\begin{tabular}{lrrrrrrr}\toprule
+Ship & departures & A flies & B flies & solver miss & min \% & max \% & mean \% \\
+ & & \multicolumn{3}{c}{} & \multicolumn{3}{c}{A's extra time over B} \\ \midrule
+Freighter & 234 & 234 & 234 & 16 & 0.0 & 66.9 & 7.34 \\
+Courier & 234 & 234 & 234 & 25 & 0.0 & 52.3 & 4.94 \\
+Bulk tanker & 234 & 234 & 234 & 15 & 0.0 & 48.3 & 2.24 \\
+Liner & 234 & 234 & 234 & 22 & 0.0 & 33.9 & 2.63 \\
+Large liner & 234 & 234 & 234 & 25 & 0.0 & 58.5 & 2.53 \\
+\bottomrule\end{tabular}}
+\newcommand{\tabeconomic}{
+\begin{tabular}{lrrrrrrr}\toprule
+Ship & cases & min \% & max \% & mean \% & $T_A/T_B$ & fuel$_A$/fuel$_B$ & solver miss \\
+ & & \multicolumn{3}{c}{A's extra trip cost over B} & \multicolumn{2}{c}{mean, B solved} & \\ \midrule
+Freighter & 234 & 0.00 & 6.25 & 0.81 & 1.009 & 1.037 & 21 \\
+Courier & 234 & 0.00 & 2.87 & 1.41 & 0.996 & 1.114 & 25 \\
+Bulk tanker & 234 & 0.00 & 4.44 & 1.23 & 0.998 & 1.094 & 43 \\
+Liner & 234 & 0.00 & 31.22 & 2.81 & 1.022 & 1.077 & 31 \\
+Large liner & 234 & 0.00 & 30.43 & 3.01 & 1.026 & 1.080 & 28 \\
+\bottomrule\end{tabular}}
+\newcommand{\tabtanks}{
+\begin{tabular}{lrrrrrrrrr}\toprule
+Ship & \multicolumn{4}{c}{A: best tank} & \multicolumn{4}{c}{B: best tank} & differ \\
+ & 50\% & 100\% & 150\% & 200\% & 50\% & 100\% & 150\% & 200\% &  \\ \midrule
+Freighter & 189 & 42 & 2 & 1 & 189 & 42 & 2 & 1 & 10 \\
+Courier & 217 & 11 & 3 & 3 & 220 & 8 & 2 & 4 & 5 \\
+Bulk tanker & 171 & 58 & 4 & 1 & 186 & 42 & 5 & 1 & 21 \\
+Liner & 41 & 110 & 55 & 28 & 56 & 105 & 56 & 17 & 49 \\
+Large liner & 58 & 107 & 63 & 6 & 75 & 117 & 41 & 1 & 52 \\
+\bottomrule\end{tabular}}
+\newcommand{\tabtiming}{
+\begin{tabular}{lrrrrrrr}\toprule
+ & solved & median & mean & p90 & p99 & max & over 100\,ms \\ \midrule
+Earliest arrival, ideal engine & 240/240 & 2.7 & 5.2 & 11.1 & 52 & 69 & 0 \\
+Earliest arrival, A & 240/240 & 5.4 & 20.3 & 57.4 & 238 & 366 & 12 \\
+Earliest arrival, B & 237/240 & 9.3 & 243.7 & 136.3 & 5760 & 21909 & 26 \\
+One B solve, from the ideal seed & 237/240 & 1.1 & 9.4 & 3.9 & 206 & 360 & 6 \\
+One B solve, warm (neighbouring $T$) & 237/240 & 0.5 & 1.7 & 1.0 & 4 & 175 & 1 \\
+B search that fails & 3 &  & 69397 &  &  & 112745 &  \\
+\bottomrule\end{tabular}}
+\newcommand{\tabtuning}{
+\begin{tabular}{lrrrrrr}\toprule
+Variant & solved & A flies: solved & median & mean & mean & propagations \\
+ & & & \multicolumn{2}{c}{ms, solved} & ms, failed & mean \\ \midrule
+default & 457/720 & 350/399 & 1.7 & 50 & 1169 & 228 \\
+no smoothing fallback & 449/720 & 343/399 & 1.6 & 15 & 52 & 134 \\
+finite-difference Jacobian & 435/720 & 330/399 & 2.7 & 29 & 289 & 414 \\
+DOPRI5 (1e-10) & 459/720 & 353/399 & 2.5 & 67 & 611 & 221 \\
+DOP853 at 1e-9 & 451/720 & 344/399 & 1.6 & 60 & 1208 & 239 \\
+fallback smoothing down to 1e-3 & 456/720 & 349/399 & 2.0 & 54 & 1205 & 229 \\
+band in one step & 458/720 & 352/399 & 1.1 & 43 & 1230 & 233 \\
+no secant predictor & 407/720 & 300/399 & 2.0 & 95 & 1151 & 191 \\
+\bottomrule\end{tabular}}
+\newcommand{\sameN}{1085}
+\newcommand{\sameMin}{0.02}
+\newcommand{\sameMean}{3.1}
+\newcommand{\sameMedian}{0.9}
+\newcommand{\sameMax}{45}
+\newcommand{\sameNoB}{82}
+\newcommand{\sameBranch}{3}
+\newcommand{\timeMean}{3.9}
+\newcommand{\timeMax}{67}
+\newcommand{\timeMiss}{103}
+\newcommand{\onlyB}{0}
+\newcommand{\nBase}{1170}
+\newcommand{\nAll}{4680}
+\newcommand{\econMean}{1.85}
+\newcommand{\econMax}{31.2}
+\newcommand{\econMiss}{148}
+\newcommand{\bSolves}{262\,044}
+\newcommand{\bFailPct}{18.5}
+\newcommand{\checkMedianM}{20}
+\newcommand{\checkNinetyNine}{7}
+\newcommand{\checkBad}{1}
+\newcommand{\timingN}{240}
