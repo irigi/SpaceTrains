@@ -16,6 +16,11 @@
 - Starfield, Sun bloom/halo, planet textures, orbit rings, procedural ship/station meshes, trails, engine glow.
 - Economy: dynamic prices, credits, trade settlement, storage caps, profit-based dispatch; fleet-collapse fix (730-day audit: 0 stranded). Fleet investment (v27-v28): treasuries buy ships for routes they commit to for 180 days, long-laid-up ships are sold. Fuel factories at five stations, bulk tankers, fuel-aware planning (v29).
 
+### Study — banded-exhaust transfers (2026-10-31, branch `feature/banded_solver`)
+
+- A standalone optimal solver for the 50-250 km/s band (`src/variable_isp/BandedTransfer.*`, its own library, not linked by the game), and a study against "plan ideal, fly throttled": `docs/studies/banded_transfer/banded_transfer.pdf`.
+- Result: cargo ships lose about 1% with the throttled plan, liners 3-7%. Recommendation: keep the throttled plan as the planner; banded solves at most as an optional, time-boxed refinement. Open: engine tiers, tanks and coasting (to discuss with the user).
+
 ## Current Plan (updated 2026-10-27) — start here
 
 **Status.** `main` holds the game up to the economy overhaul (PR #21), the 3D models at true scale (PR #22), the
