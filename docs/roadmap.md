@@ -112,7 +112,9 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    Linux PC (Windows by MinGW cross-compiling). Checked: the Linux package outside the repo (screenshot tour,
    save/load, bridge exits), the Windows test suites, bridge and game under wine (also a non-ASCII user folder).
    Open: the user's test on the Win11 laptop (under wine the UI's symbol glyphs, ◆ ▶ ●, were missing: wine has no
-   symbol font; if Windows misses them too, bundle a fallback font); later AppImage, Inno Setup installer, CI,
+   symbol font; if Windows misses them too, bundle a fallback font). Next session first (user, 2026-11-01): the
+   marker in front of each ship in the ship list looked like a strange character under wine, not just a box;
+   find which glyph the list uses and what Godot falls back to, and check it on Windows. Later AppImage, Inno Setup installer, CI,
    code signing, maybe smaller textures (the package is ~230 MB, mostly 8k planet maps).
 
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
