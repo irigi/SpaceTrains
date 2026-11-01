@@ -11,51 +11,61 @@ Large liner & 885.5 & 300 & 65.0 & 1250.5 & 500.3 & 3.20 & 16.0 & 296 \\
 \begin{tabular}{lrrrrrrrrr}\toprule
 Ship & cases & min \% & max \% & mean \% & coast & sep.\ mean & sep.\ max & no B & branch \\
  & & \multicolumn{3}{c}{A's extra propellant over B} & of $T$ & \multicolumn{2}{c}{($10^6$ km)} & & \\ \midrule
-Freighter & 222 & 0.04 & 16.9 & 0.80 & 14\% & 1.9 & 57.3 & 12 & 0 \\
-Courier & 213 & 0.08 & 44.7 & 1.25 & 15\% & 5.2 & 504.5 & 19 & 2 \\
-Bulk tanker & 221 & 0.02 & 9.7 & 0.96 & 15\% & 1.6 & 18.0 & 12 & 1 \\
-Liner & 216 & 0.62 & 36.8 & 6.75 & 36\% & 10.4 & 307.8 & 18 & 0 \\
-Large liner & 213 & 0.54 & 37.4 & 6.09 & 34\% & 9.4 & 295.0 & 21 & 0 \\
+Freighter & 223 & 0.04 & 42.8 & 0.91 & 15\% & 2.4 & 123.8 & 11 & 0 \\
+Courier & 216 & 0.08 & 44.7 & 1.18 & 15\% & 4.9 & 504.5 & 16 & 2 \\
+Bulk tanker & 221 & 0.02 & 9.7 & 0.95 & 15\% & 1.8 & 57.1 & 13 & 0 \\
+Liner & 220 & 0.62 & 36.8 & 6.91 & 37\% & 10.4 & 307.8 & 14 & 0 \\
+Large liner & 216 & 0.54 & 37.4 & 6.14 & 35\% & 9.5 & 295.0 & 18 & 0 \\
 \bottomrule\end{tabular}}
 \newcommand{\tabmintime}{
 \begin{tabular}{lrrrrrrr}\toprule
-Ship & departures & A flies & B flies & solver miss & min \% & max \% & mean \% \\
- & & \multicolumn{3}{c}{} & \multicolumn{3}{c}{A's extra time over B} \\ \midrule
-Freighter & 234 & 234 & 234 & 16 & 0.0 & 66.9 & 7.34 \\
-Courier & 234 & 234 & 234 & 25 & 0.0 & 52.3 & 4.94 \\
-Bulk tanker & 234 & 234 & 234 & 15 & 0.0 & 48.3 & 2.24 \\
-Liner & 234 & 234 & 234 & 22 & 0.0 & 33.9 & 2.63 \\
-Large liner & 234 & 234 & 234 & 25 & 0.0 & 58.5 & 2.53 \\
+Ship & departures & solver miss & max \% & mean \% & max \% & mean \% & mean \% \\
+ & & & \multicolumn{2}{c}{A longer than B} & \multicolumn{2}{c}{B shorter than A} & B solved \\ \midrule
+Freighter & 234 & 15 & 67.0 & 7.34 & 40.1 & 5.84 & 6.24 \\
+Courier & 234 & 21 & 52.3 & 4.96 & 34.3 & 4.05 & 4.45 \\
+Bulk tanker & 234 & 15 & 48.3 & 2.21 & 32.6 & 1.98 & 2.11 \\
+Liner & 234 & 16 & 33.9 & 2.94 & 25.3 & 2.68 & 2.88 \\
+Large liner & 234 & 21 & 58.5 & 2.62 & 36.9 & 2.36 & 2.59 \\
 \bottomrule\end{tabular}}
 \newcommand{\tabeconomic}{
 \begin{tabular}{lrrrrrrr}\toprule
-Ship & cases & min \% & max \% & mean \% & $T_A/T_B$ & fuel$_A$/fuel$_B$ & solver miss \\
- & & \multicolumn{3}{c}{A's extra trip cost over B} & \multicolumn{2}{c}{mean, B solved} & \\ \midrule
-Freighter & 234 & 0.00 & 6.25 & 0.81 & 1.009 & 1.037 & 21 \\
-Courier & 234 & 0.00 & 2.87 & 1.41 & 0.996 & 1.114 & 25 \\
-Bulk tanker & 234 & 0.00 & 4.44 & 1.23 & 0.998 & 1.094 & 43 \\
-Liner & 234 & 0.00 & 31.22 & 2.81 & 1.022 & 1.077 & 31 \\
-Large liner & 234 & 0.00 & 30.43 & 3.01 & 1.026 & 1.080 & 28 \\
+Ship & cases & solver miss & max \% & mean \% & mean \% & $T_A/T_B$ & fuel$_A$/fuel$_B$ \\
+ & & & \multicolumn{2}{c}{with fallback} & B solved & \multicolumn{2}{c}{mean, where B's plan won} \\ \midrule
+Freighter & 234 & 19 & 6.25 & 0.82 & 0.89 & 1.009 & 1.037 \\
+Courier & 234 & 21 & 2.87 & 1.44 & 1.58 & 0.996 & 1.113 \\
+Bulk tanker & 234 & 38 & 4.61 & 1.27 & 1.52 & 0.996 & 1.099 \\
+Liner & 234 & 24 & 31.22 & 3.10 & 3.46 & 1.025 & 1.076 \\
+Large liner & 234 & 25 & 30.43 & 3.11 & 3.49 & 1.027 & 1.078 \\
 \bottomrule\end{tabular}}
 \newcommand{\tabtanks}{
 \begin{tabular}{lrrrrrrrrr}\toprule
 Ship & \multicolumn{4}{c}{A: best tank} & \multicolumn{4}{c}{B: best tank} & differ \\
  & 50\% & 100\% & 150\% & 200\% & 50\% & 100\% & 150\% & 200\% &  \\ \midrule
-Freighter & 189 & 42 & 2 & 1 & 189 & 42 & 2 & 1 & 10 \\
-Courier & 217 & 11 & 3 & 3 & 220 & 8 & 2 & 4 & 5 \\
-Bulk tanker & 171 & 58 & 4 & 1 & 186 & 42 & 5 & 1 & 21 \\
-Liner & 41 & 110 & 55 & 28 & 56 & 105 & 56 & 17 & 49 \\
-Large liner & 58 & 107 & 63 & 6 & 75 & 117 & 41 & 1 & 52 \\
+Freighter & 188 & 42 & 2 & 2 & 189 & 42 & 2 & 1 & 11 \\
+Courier & 219 & 9 & 4 & 2 & 223 & 5 & 3 & 3 & 6 \\
+Bulk tanker & 171 & 58 & 3 & 2 & 186 & 42 & 4 & 2 & 20 \\
+Liner & 39 & 110 & 55 & 30 & 53 & 106 & 56 & 19 & 51 \\
+Large liner & 55 & 109 & 62 & 8 & 72 & 119 & 39 & 4 & 52 \\
+\bottomrule\end{tabular}}
+\newcommand{\tabpolicy}{
+\begin{tabular}{lrrrrrrr}\toprule
+Ship & solved & mean \% & max \% & solved & mean \% & full B \% & p99 ms \\
+ & \multicolumn{3}{c}{fuel at A's shortest time} & \multicolumn{3}{c}{cost of A's cheapest trip} & \\ \midrule
+Freighter & 223/234 & 0.87 & 42.8 & 216/234 & 0.39 & 0.82 & 1223 \\
+Courier & 216/234 & 1.03 & 44.7 & 216/234 & 1.04 & 1.44 & 886 \\
+Bulk tanker & 221/234 & 0.90 & 9.7 & 201/234 & 1.05 & 1.27 & 939 \\
+Liner & 219/234 & 6.46 & 36.8 & 206/234 & 1.27 & 3.10 & 802 \\
+Large liner & 216/234 & 5.67 & 37.4 & 204/234 & 1.47 & 3.11 & 1223 \\
 \bottomrule\end{tabular}}
 \newcommand{\tabtiming}{
 \begin{tabular}{lrrrrrrr}\toprule
  & solved & median & mean & p90 & p99 & max & over 100\,ms \\ \midrule
-Earliest arrival, ideal engine & 240/240 & 2.7 & 5.2 & 11.1 & 52 & 69 & 0 \\
-Earliest arrival, A & 240/240 & 5.4 & 20.3 & 57.4 & 238 & 366 & 12 \\
-Earliest arrival, B & 237/240 & 9.3 & 243.7 & 136.3 & 5760 & 21909 & 26 \\
-One B solve, from the ideal seed & 237/240 & 1.1 & 9.4 & 3.9 & 206 & 360 & 6 \\
-One B solve, warm (neighbouring $T$) & 237/240 & 0.5 & 1.7 & 1.0 & 4 & 175 & 1 \\
-B search that fails & 3 &  & 69397 &  &  & 112745 &  \\
+Earliest arrival, ideal engine & 240/240 & 2.5 & 5.0 & 11.3 & 53 & 72 & 0 \\
+Earliest arrival, A & 240/240 & 5.5 & 21.2 & 55.0 & 248 & 319 & 15 \\
+Earliest arrival, B & 237/240 & 9.7 & 163.4 & 113.6 & 6061 & 13079 & 26 \\
+One B solve, from the ideal seed & 237/240 & 1.1 & 8.3 & 3.4 & 177 & 308 & 6 \\
+One B solve, warm (neighbouring $T$) & 237/240 & 0.5 & 1.5 & 1.0 & 5 & 140 & 1 \\
+B search that fails & 3 &  & 47672 &  &  & 74260 &  \\
 \bottomrule\end{tabular}}
 \newcommand{\tabtuning}{
 \begin{tabular}{lrrrrrr}\toprule
@@ -70,25 +80,47 @@ fallback smoothing down to 1e-3 & 456/720 & 349/399 & 2.0 & 54 & 1205 & 229 \\
 band in one step & 458/720 & 352/399 & 1.1 & 43 & 1230 & 233 \\
 no secant predictor & 407/720 & 300/399 & 2.0 & 95 & 1151 & 191 \\
 \bottomrule\end{tabular}}
-\newcommand{\sameN}{1085}
+\newcommand{\sameN}{1096}
 \newcommand{\sameMin}{0.02}
-\newcommand{\sameMean}{3.1}
-\newcommand{\sameMedian}{0.9}
+\newcommand{\sameMean}{3.2}
+\newcommand{\sameMedian}{1.0}
 \newcommand{\sameMax}{45}
-\newcommand{\sameNoB}{82}
-\newcommand{\sameBranch}{3}
-\newcommand{\timeMean}{3.9}
+\newcommand{\sameNoB}{72}
+\newcommand{\sameBranch}{2}
+\newcommand{\timeMean}{4.0}
 \newcommand{\timeMax}{67}
-\newcommand{\timeMiss}{103}
+\newcommand{\timeSaveMean}{3.4}
+\newcommand{\timeSaveMax}{40}
+\newcommand{\timeSaveMeanSolved}{3.7}
+\newcommand{\timeMiss}{88}
 \newcommand{\onlyB}{0}
 \newcommand{\nBase}{1170}
 \newcommand{\nAll}{4680}
-\newcommand{\econMean}{1.85}
+\newcommand{\econMean}{1.95}
 \newcommand{\econMax}{31.2}
-\newcommand{\econMiss}{148}
-\newcommand{\bSolves}{262\,044}
-\newcommand{\bFailPct}{18.5}
+\newcommand{\econMiss}{127}
+\newcommand{\econMeanSolved}{2.19}
+\newcommand{\tankDiffer}{140}
+\newcommand{\tankPairs}{1170}
+\newcommand{\tankDiffPct}{12}
+\newcommand{\tankDiffLinerPct}{22}
+\newcommand{\tankDiffCargoPct}{5}
+\newcommand{\bUnverified}{1\,772}
+\newcommand{\bConverged}{228\,027}
+\newcommand{\bUnverifiedPct}{0.78}
+\newcommand{\checkMaxKm}{100}
+\newcommand{\polSolvedPct}{94}
+\newcommand{\polEconSolvedPct}{89}
+\newcommand{\polFuelMean}{3.0}
+\newcommand{\polCostMean}{1.04}
+\newcommand{\polCostMax}{2.5}
+\newcommand{\polMsMedian}{2.6}
+\newcommand{\polMsNinetyNine}{1031}
+\newcommand{\polMsMax}{2997}
+\newcommand{\bSolves}{271\,903}
+\newcommand{\bFailPct}{16.1}
 \newcommand{\checkMedianM}{20}
-\newcommand{\checkNinetyNine}{7}
-\newcommand{\checkBad}{1}
+\newcommand{\checkNinetyNine}{6}
+\newcommand{\checkBad}{0}
+\newcommand{\checkMaxTiming}{44.2}
 \newcommand{\timingN}{240}

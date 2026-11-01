@@ -24,12 +24,12 @@ The game's drives are confined to an exhaust band of 50--250\,km/s. Two ways of 
 the game's five plasma hulls (four tank sizes each), eight heliocentric routes and 18--36 departure angles per route. \textbf{A}~plans the
 ideal path and flies it inside the band, throttling at 250\,km/s where the path asks for less thrust than the drive
 gives at full power. \textbf{B}~plans the true optimum inside the band, with a new solver written for this study.
-At the same transfer time A burns a median 0.9\% (mean \sameMean\%, maximum \sameMax\%) more propellant than B.
+At the same transfer time A burns a median \sameMedian\% (mean \sameMean\%, maximum \sameMax\%) more propellant than B.
 The cargo hulls lose about 1\%. The liners lose 6--7\%, because their power-to-mass ratio puts their thrust at
 250\,km/s above what most of the path asks for. On a full tank B's shortest trip is \timeSaveMean\% shorter than A's
 on average, and up to \timeSaveMax\% shorter on short inner-system windows (there A takes up to \timeMax\% longer).
 The cheapest trip costs \econMean\% more with A on average, up to \econMax\%
-for the liners. B's paths coast for 15\% (cargo) to 35\% (liners) of the trip and leave A's path by
+for the liners. B's paths coast for 15\% (cargo) to 35--37\% (liners) of the trip and leave A's path by
 $10^6$--$10^8$\,km on the outer legs. The cheapest tank differs between A and B on \tankDiffPct\% of the departures
 (\tankDiffLinerPct\% for the liners, \tankDiffCargoPct\% for the cargo hulls). Every B plan is checked by
 re-propagation at $10^{-12}$ and rejected if it does not reproduce. B solves in about
@@ -271,8 +271,8 @@ less the reserve.}
 
 \paragraph{Shape of the optimum.} B is bang--coast--bang wherever A throttles. Inside the band it follows the ideal
 thrust law. Where the ideal thrust drops below the ceiling, B burns at full power and 250\,km/s, then coasts, then
-burns again (Figures~\ref{fig:paths-inner} and~\ref{fig:paths-outer}). Coasting takes 14--15\% of a cargo
-transfer and 34--36\% of a liner transfer (Figure~\ref{fig:arcs}). The floor is almost never touched (below 0.1\%
+burns again (Figures~\ref{fig:paths-inner} and~\ref{fig:paths-outer}). Coasting takes about 15\% of a cargo
+transfer and 35--37\% of a liner transfer (Figure~\ref{fig:arcs}). The floor is almost never touched (below 0.1\%
 of the time in every case): at the times compared here the ideal thrust exceeds the floor only near the ends, and
 B's continuation turns those into slightly longer ceiling burns.
 
@@ -340,8 +340,8 @@ middle pairs are the same comparison read both ways: $T_A/T_B - 1$ and $1 - T_B/
 \paragraph{Cheapest trip and tank choice.} With propellant at the game's price and time at each ship's daily cost,
 the cheapest trip with A costs \econMean\% more than with B on average with fallback, \econMeanSolved\% where B
 solved (Table~\ref{tab:econ}). That is 1\% for
-cargo and 3\% for the liners, up to 31\%. At the optimum B flies slightly longer (by 1--3\%) and burns 4--11\% less.
-The economics pick long, cheap transfers: cargo ships burn 26--41\% of a standard tank and liners about 70\%. That
+cargo and 3\% for the liners, up to 31\%. At the optimum the two transfer times are within 3\% of each other (B is 2--3\% shorter for the liners), and A burns 4--11\% more.
+The economics pick long, cheap transfers: cargo ships burn 28--40\% of a standard tank and liners about 70\%. That
 is why the half-size tank is the cheapest choice for most cargo departures (Table~\ref{tab:tanks},
 Figure~\ref{fig:tanks}): a smaller tank means less mass to push, and the cargo hulls seldom need more. Banded
 planning makes small tanks more attractive still. It moves the liners towards the standard and half tanks, because
@@ -376,13 +376,13 @@ bisection.
 \begin{itemize}
 \item \textbf{Single solves.} One B solve from the ideal seed takes a median 1.1\,ms. A warm solve from a
   neighbouring time takes 0.5\,ms, faster than one ideal solve.
-\item \textbf{Searches.} A full B search takes a median 9\,ms, against 3\,ms for the ideal engine and 5\,ms for A.
-\item \textbf{The tail.} 10\% of B searches take more than 136\,ms. Searches that fail take 15--113\,s each,
+\item \textbf{Searches.} A full B search takes a median 10\,ms, against 3\,ms for the ideal engine and 5\,ms for A.
+\item \textbf{The tail.} 10\% of B searches take more than 114\,ms. Searches that fail take 15--74\,s each,
   spent in the smoothing fallback on case after case.
 \end{itemize}
-Over the whole study, 18.5\% of the \bSolves{} fixed-time B solves failed. Most of those are at times where the
+Over the whole study, \bFailPct\% of the \bSolves{} fixed-time B solves failed. Most of those are at times where the
 fuel curve has already ended (very long or infeasible), but they are what makes the sweeps slow: the study took
-6.8 hours on 8--10 threads.
+7.9 hours on 13 threads.
 
 \paragraph{Accuracy.}
 \label{sec:accuracy}
@@ -424,7 +424,7 @@ third of the trip, and paths that differ from the ideal ones by millions of kilo
   stores one atlas of efforts and serves all hulls, loads and porkchops from it. The banded optimum depends on
   $s_0 = 2P/m_0$, so on the hull, the load and the tank. Porkchops and the planner's caches would need a dimension
   per ship state, or live solves.
-\item \textbf{Live solves have a heavy tail.} The median (1\,ms per solve, 9\,ms per search) is affordable. The
+\item \textbf{Live solves have a heavy tail.} The median (1\,ms per solve, 10\,ms per search) is affordable. The
   failures are not: a failing search with the smoothing fallback can block for a minute. That tail is the study's
   research configuration, which spends seconds per case on coverage. A game solver would run exact-only and fly A
   when it fails; the policy benchmark below measures that.
@@ -439,7 +439,7 @@ re-propagation, and A's plan when any step fails. Table~\ref{tab:policy} runs th
 departure of the study, at A's shortest time and on A's cheapest trip. It solves \polSolvedPct\% of the shortest-time
 cases and \polEconSolvedPct\% of the cheapest trips, and saves \polFuelMean\% of propellant and \polCostMean\% of trip cost on
 average with fallback (up to \polCostMax\%). A solve, verification included, takes a median \polMsMedian\,ms; the 99th
-percentile is \polMsNinetyNine\,ms and the worst \polMsMax\,ms (with the study's threads sharing the machine). What the
+percentile is \polMsNinetyNine\,ms and the worst \polMsMax\,ms (with the study's threads sharing the machine); 98\% of the successful policy solves finish within 50\,ms. What the
 policy cannot do is move the trip: it keeps A's time and tank, so it forgoes the shorter trips and the tank changes
 of full B. The column ``full B'' gives the full banded optimum's saving on the same trips for comparison.
 
