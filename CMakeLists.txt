@@ -94,6 +94,14 @@ add_executable(spacetrains_atlas_fill tools/atlas_fill/main.cpp)
 target_compile_options(spacetrains_atlas_fill PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_atlas_fill PRIVATE spacetrains_core)
 
+# Banded-exhaust solver (study code, docs/studies/banded_transfer): not linked by the game.
+add_library(spacetrains_banded STATIC src/variable_isp/BandedTransfer.cpp)
+target_compile_options(spacetrains_banded PRIVATE ${SPACETRAINS_WARNINGS})
+target_link_libraries(spacetrains_banded PUBLIC spacetrains_core)
+add_executable(spacetrains_banded_study tools/banded_study/main.cpp)
+target_compile_options(spacetrains_banded_study PRIVATE ${SPACETRAINS_WARNINGS})
+target_link_libraries(spacetrains_banded_study PRIVATE spacetrains_banded Threads::Threads)
+
 enable_testing()
 add_executable(spacetrains_tests tests/test_main.cpp)
 target_compile_options(spacetrains_tests PRIVATE ${SPACETRAINS_WARNINGS})
@@ -106,6 +114,12 @@ target_compile_options(spacetrains_variable_isp_tests PRIVATE ${SPACETRAINS_WARN
 target_link_libraries(spacetrains_variable_isp_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_variable_isp_tests COMMAND spacetrains_variable_isp_tests)
 set_tests_properties(spacetrains_variable_isp_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(spacetrains_banded_tests tests/banded_transfer_test.cpp)
+target_compile_options(spacetrains_banded_tests PRIVATE ${SPACETRAINS_WARNINGS})
+target_link_libraries(spacetrains_banded_tests PRIVATE spacetrains_banded)
+add_test(NAME spacetrains_banded_tests COMMAND spacetrains_banded_tests)
+set_tests_properties(spacetrains_banded_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(spacetrains_economy_tests tests/economy_test.cpp)
 target_compile_options(spacetrains_economy_tests PRIVATE ${SPACETRAINS_WARNINGS})
