@@ -58,6 +58,22 @@ build_template() {
     cp -u "$GODOT_SRC/bin/$file" "$RELEASE/templates/$file"
 }
 
+# Godot accepts only the posix-thread MinGW under the plain tool names. Instead of switching the
+# system's alternatives, a private prefix links those names to the -posix compilers.
+posix_mingw_prefix() {
+    local prefix="$RELEASE/mingw-posix"
+    mkdir -p "$prefix/bin"
+    for tool in /usr/bin/x86_64-w64-mingw32-*; do
+        ln -sf "$tool" "$prefix/bin/$(basename "$tool")"
+    done
+    for tool in gcc g++ c++ cpp gcc-ar gcc-nm gcc-ranlib; do
+        if [ -x "/usr/bin/x86_64-w64-mingw32-$tool-posix" ]; then
+            ln -sf "/usr/bin/x86_64-w64-mingw32-$tool-posix" "$prefix/bin/x86_64-w64-mingw32-$tool"
+        fi
+    done
+    echo "$prefix"
+}
+
 build_bridge() {
     local platform="$1"; shift
     echo "== Bridge ($platform)"
@@ -92,7 +108,8 @@ for p in "${platforms[@]}"; do
             (cd "$DIST" && tar czf "$(basename "$out").tar.gz" "$(basename "$out")")
             echo "== $out.tar.gz" ;;
         windows)
-            build_template windows godot.windows.template_release.double.x86_64.exe use_mingw=yes
+            build_template windows godot.windows.template_release.double.x86_64.exe use_mingw=yes \
+                mingw_prefix="$(posix_mingw_prefix)"
             build_bridge windows --toolchain "$REPO/cmake/mingw-w64-x86_64.cmake"
             out="$(assemble windows SpaceTrains.exe spacetrains_bridge.exe "Windows Desktop" | tail -1)"
             (cd "$DIST" && sed -i 's/$/\r/' "$out/README.txt" && rm -f "$(basename "$out").zip" \

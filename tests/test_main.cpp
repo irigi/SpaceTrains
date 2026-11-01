@@ -111,6 +111,19 @@ spacetrains::math::Vec3d interpolate_timed_path(
     return path[lower_index] * (1.0 - alpha) + path[upper_index] * alpha;
 }
 
+// A copied data root finds the atlas at tests/data/variable_isp next to it: a link to the repo's
+// tests, or, where links need privileges (Windows, wine), a copy of the atlas file alone.
+void link_tests_dir(const std::filesystem::path& repo_root, const std::filesystem::path& root) {
+    std::error_code error;
+    std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests", error);
+    if (error) {
+        const auto atlas_dir = std::filesystem::path("tests") / "data" / "variable_isp";
+        std::filesystem::create_directories(root / atlas_dir);
+        std::filesystem::copy_file(repo_root / atlas_dir / "variable_isp_atlas.bin",
+            root / atlas_dir / "variable_isp_atlas.bin", std::filesystem::copy_options::overwrite_existing);
+    }
+}
+
 // A copy of the data with passengers switched off (the economy before passengers), for tests
 // of that economy. Made once per run in the temp directory; the atlas is linked from the repo.
 std::string passengers_off_data(const std::filesystem::path& repo_root) {
@@ -119,7 +132,7 @@ std::string passengers_off_data(const std::filesystem::path& repo_root) {
         std::filesystem::remove_all(root);
         std::filesystem::create_directories(root);
         std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
-        std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+        link_tests_dir(repo_root, root);
         const auto path = root / "data" / "economy" / "passengers.csv";
         std::ifstream in(path);
         std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -1191,7 +1204,7 @@ int main() {
             std::filesystem::remove_all(root);
             std::filesystem::create_directories(root);
             std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
-            std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+            link_tests_dir(repo_root, root);
             std::ofstream(root / "data" / "economy" / "ship_environment.csv")
                 << "key,value\nradiation,1\nboiloff,1\ncold_storage,1\nwear,1\n";
             const auto env_root = (root / "data").string();
@@ -1258,7 +1271,7 @@ int main() {
             std::filesystem::remove_all(root);
             std::filesystem::create_directories(root);
             std::filesystem::copy(repo_root / "data", root / "data", std::filesystem::copy_options::recursive);
-            std::filesystem::create_directory_symlink(repo_root / "tests", root / "tests");
+            link_tests_dir(repo_root, root);
             const auto rewrite = [](const std::filesystem::path& path, const std::string& from, const std::string& to) {
                 std::ifstream in(path);
                 std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

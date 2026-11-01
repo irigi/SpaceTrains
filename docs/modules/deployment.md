@@ -49,7 +49,9 @@ files over a day old (left by a crash) are removed at start.
 
 1. Godot export templates, double precision, built once from `$GODOT_SRC` (default `~/src/godot-4.3-stable`, the
    tree the editor was built from) with `scons target=template_release precision=double production=yes`
-   (Windows: `use_mingw=yes`), copied to `build-release/templates/`. `godot/export_presets.cfg` (committed) points
+   (Windows: `use_mingw=yes`; Godot accepts only the posix-thread MinGW under the plain tool names, so the script
+   makes a private prefix of links, `build-release/mingw-posix`, instead of switching the system's
+   alternatives), copied to `build-release/templates/`. `godot/export_presets.cfg` (committed) points
    its "Linux" and "Windows Desktop" presets there, relative to `godot/`; it leaves out `godot/data/*`.
 2. The bridge in `build-release/<platform>/`, Release, `-DSPACETRAINS_STATIC_RUNTIME=ON` (Linux: static libstdc++
    and libgcc; MinGW: `-static`). Windows uses `cmake/mingw-w64-x86_64.cmake` (the posix-thread MinGW compilers;
@@ -59,6 +61,13 @@ files over a day old (left by a crash) are removed at start.
 
 Needs: `cmake`, `ninja`, `scons`, the double-precision Godot editor (`$GODOT4_BINARY`, default
 `~/.local/bin/godot4`), and for Windows `mingw-w64` and `zip`.
+
+## Tests on Windows
+
+The cross-compiled suites pass under wine (`ctest --test-dir build-release/windows`, with a scratch
+`WINEPREFIX`). Tests that copy the data link the repo's `tests/` next to the copy; where links need privileges
+(Windows, wine) they copy the atlas alone (`link_tests_dir` in `tests/test_main.cpp`). The Windows bridge also ran
+under wine with its paths in a folder named `Uživatel Olšina` (UTF-8 manifest).
 
 ## Limits
 
