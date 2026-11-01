@@ -44,8 +44,8 @@ files over a day old (left by a crash) are removed at start.
 
 ## Building
 
-`tools/package/build_release.sh [linux] [windows]` (default both) writes `dist/SpaceTrains-<git describe>-...`
-(`.tar.gz` for Linux, `.zip` for Windows). Steps:
+`tools/package/build_release.sh [linux] [windows]` (default both) writes `dist/SpaceTrains-<version>-...`
+(`<version>` is the commit date and hash, `-dirty` with uncommitted changes; `.tar.gz` for Linux, `.zip` for Windows). Steps:
 
 1. Godot export templates, double precision, built once from `$GODOT_SRC` (default `~/src/godot-4.3-stable`, the
    tree the editor was built from) with `scons target=template_release precision=double production=yes`

@@ -40,7 +40,11 @@ for p in "${platforms[@]}"; do
     esac
 done
 
-VERSION="$(git -C "$REPO" describe --tags --always --dirty)"
+# <date of the commit>-<short hash>[-dirty]; the repo's tags are milestones, not versions.
+VERSION="$(git -C "$REPO" log -1 --format=%cd --date=format:%Y%m%d)-$(git -C "$REPO" rev-parse --short HEAD)"
+if [ -n "$(git -C "$REPO" status --porcelain --untracked-files=no)" ]; then
+    VERSION="$VERSION-dirty"
+fi
 mkdir -p "$RELEASE/templates" "$DIST"
 
 # Godot export templates in double precision, built once (each takes a while).
