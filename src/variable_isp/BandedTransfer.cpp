@@ -561,6 +561,26 @@ Run integrate(const Flow& flow, Y<S>& y, double T, Arc arc, const Band& band, bo
                     last_rejected = true;  // do not grow h right after a switch
                     continue;
                 }
+            } else if (h > 1e-9 * std::max(1.0, T)) {
+                // Both ends on the same arc, but the step may leave it and come back (a grazing
+                // excursion). Look at interior points of the cubic Hermite interpolant; if one is
+                // on another arc, retry with the step ending there so the crossing is located above.
+                const auto y0 = values(y);
+                const auto f0 = values(k1);
+                const auto f1 = values(k_end);
+                double theta_hit = 0.0;
+                for (int j = 1; j < 8 && theta_hit == 0.0; ++j) {
+                    const double th = j / 8.0;
+                    const double h00 = (1.0 + 2.0 * th) * (1.0 - th) * (1.0 - th), h10 = th * (1.0 - th) * (1.0 - th);
+                    const double h01 = th * th * (3.0 - 2.0 * th), h11 = th * th * (th - 1.0);
+                    const auto at = [&](std::size_t i) { return h00 * y0[i] + h10 * h * f0[i] + h01 * yn[i] + h11 * h * f1[i]; };
+                    if (classify(std::hypot(at(4), at(5)), at(9), at(8), band) != arc) theta_hit = th;
+                }
+                if (theta_hit > 0.0) {
+                    h *= theta_hit;
+                    last_rejected = true;
+                    continue;
+                }
             }
         }
         run.time_on_arc[static_cast<int>(arc)] += h;

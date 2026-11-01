@@ -2,7 +2,8 @@
 // plan-banded (B) for the game's plasma ships on heliocentric legs between the planets.
 //
 //   spacetrains_banded_study tune  <out_dir>   solver variants on a tuning set
-//   spacetrains_banded_study study <out_dir>   the comparison (CSV files for make_figures.py)
+//   spacetrains_banded_study study <out_dir> [departures threads skip.csv stride only.csv]
+//                                              the comparison (CSV files for make_figures.py)
 //
 // Run from the repository root (reads data/).
 
@@ -203,6 +204,11 @@ Loaded loaded(const World& w, const ShipSpec& ship, double load_kg) {
     return l;
 }
 double burn_kg(const Loaded& l, double s_end) { return l.m0 * (1.0 - l.s0 / s_end); }
+
+// Acceptance of the 1e-12 re-propagation (the solver's tolerance is ~150 m exact, ~15 km smoothed).
+constexpr double kCheckMissKm = 100.0;
+constexpr double kCheckDvMps = 0.1;
+constexpr double kCheckFuelRel = 0.005;
 
 const g::Propagator& ideal_propagator() {
     static const g::Propagator p;
@@ -428,6 +434,30 @@ const b::Sample& sample_before(const std::vector<b::Sample>& path, double t) {
     return *(it - 1);
 }
 
+// Independent check of a B plan: re-propagate at 1e-12 and compare the end with the target and
+// the fuel with the solver's. Plans that do not reproduce are rejected (grazing extremals).
+struct Check {
+    double miss_km {0.0};
+    double dv_mps {0.0};
+    double dkg {0.0};
+    bool ok {false};
+};
+Check verify(const Leg& leg, const Loaded& load, const b::Solution& sol, const b::Options& options) {
+    b::Settings tight;
+    tight.relative_tolerance = 1e-12;
+    tight.absolute_tolerance = 1e-13;
+    const auto chk = b::Propagator(tight).propagate(leg.start, sol.primer, load.s0, load.band, sol.T, false, nullptr,
+        sol.exact ? 0.0 : options.smoothing_min);
+    const auto tp = leg.target(sol.T);
+    Check c;
+    c.miss_km = std::hypot(chk.state.r.x - tp.state.r.x, chk.state.r.y - tp.state.r.y) * kAu / 1000.0;
+    c.dv_mps = std::hypot(chk.state.v.x - tp.state.v.x, chk.state.v.y - tp.state.v.y) * kSpeedUnit;
+    const double kg = burn_kg(load, sol.end.s_flown);
+    c.dkg = burn_kg(load, chk.s_flown) - kg;
+    c.ok = chk.ok && c.miss_km <= kCheckMissKm && c.dv_mps <= kCheckDvMps && std::abs(c.dkg) <= kCheckFuelRel * kg + 1.0;
+    return c;
+}
+
 struct Outcome {
     bool ok {false};
     double kg {0.0};
@@ -442,8 +472,9 @@ struct ShipOnLeg {
     b::Propagator prop;
     b::Options options;
     // statistics of the banded solves
-    std::size_t b_solves {0}, b_fail {0}, b_cold {0};
+    std::size_t b_solves {0}, b_fail {0}, b_cold {0}, b_unverified {0};
     double b_ms {0.0}, a_ms {0.0};
+    double check_max_km {0.0};   // worst accepted re-propagation miss
     std::size_t a_runs {0};
 
     Outcome a_at(const Loaded& load, double T, const g::Primer& primer, std::vector<b::Sample>* samples = nullptr) {
@@ -468,7 +499,36 @@ struct ShipOnLeg {
             ++b_fail;
             return std::nullopt;
         }
+        const auto chk = verify(leg, load, sol, options);
+        if (!chk.ok) {
+            ++b_unverified;
+            return std::nullopt;
+        }
+        check_max_km = std::max(check_max_km, chk.miss_km);
         return sol;
+    }
+    // The production policy: one exact-only B solve (no smoothing fallback) from the ideal seed,
+    // verified; A is flown when it fails.
+    struct Policy {
+        bool ok {false};
+        double kg {0.0};
+        double ms {0.0};
+        std::size_t propagations {0};
+    };
+    Policy policy_at(const Loaded& load, double T, const g::Primer& ideal) const {
+        b::Options o;
+        o.smoothing = 0.0;
+        const double t0 = now_ms();
+        const b::Request req {leg.start, leg.target, load.s0, load.band, kMinRadius};
+        const auto sol = b::solve_fixed_time(prop, req, T, ideal, o);
+        Policy p;
+        p.propagations = sol.propagations;
+        if (sol.converged && verify(leg, load, sol, o).ok) {
+            p.ok = true;
+            p.kg = burn_kg(load, sol.end.s_flown);
+        }
+        p.ms = now_ms() - t0;
+        return p;
     }
 };
 
@@ -726,9 +786,21 @@ PathMetrics compare_paths(ShipOnLeg& sl, const Loaded& load, double T, const g::
 
 // Resume: legs listed in `skip` (a previous results.csv) are left out; on routes with no finished leg
 // only every `stride`-th departure is run.
+// `only` (a previous results.csv): run exactly the legs listed there.
 void run_study(const World& w, const std::filesystem::path& out_dir, int departures, unsigned threads, const std::string& skip,
-    int stride) {
-    std::set<std::string> done_legs, done_routes;
+    int stride, const std::string& only) {
+    std::set<std::string> done_legs, done_routes, only_legs;
+    if (!only.empty()) {
+        std::ifstream in(only);
+        std::string line;
+        std::getline(in, line);
+        while (std::getline(in, line)) {
+            std::vector<std::string> f;
+            std::stringstream ss(line);
+            for (std::string x; std::getline(ss, x, ',');) f.push_back(x);
+            if (f.size() > 4) only_legs.insert(f[3] + "," + f[4]);
+        }
+    }
     if (!skip.empty()) {
         std::ifstream in(skip);
         std::string line;
@@ -748,6 +820,10 @@ void run_study(const World& w, const std::filesystem::path& out_dir, int departu
         const std::string name = route.from + "-" + route.to;
         for (int k = 0; k < departures; ++k) {
             if (done_legs.contains(name + "," + std::to_string(k))) continue;
+            if (!only.empty()) {
+                if (only_legs.contains(name + "," + std::to_string(k))) legs.push_back(make_leg(w, route, k, departures));
+                continue;
+            }
             if (!done_routes.contains(name) && k % std::max(1, stride) != 0) continue;
             legs.push_back(make_leg(w, route, k, departures));
         }
@@ -767,7 +843,8 @@ void run_study(const World& w, const std::filesystem::path& out_dir, int departu
                "A_ok,A_grid_floor,A_tmin_d,A_kg,A_floor_limited,B_ok,B_grid_floor,B_tmin_d,B_kg,"
                "same_T_d,same_A_kg,same_B_kg,same_ideal_kg,coast_frac,ceiling_frac,interior_frac,floor_frac,switches,sep_max_km,sep_rms_km,"
                "econA_ok,econA_T_d,econA_kg,econA_load,econA_cost,econB_ok,econB_T_d,econB_kg,econB_load,econB_cost,"
-               "budget_kg,daily_cost,b_solves,b_fail,b_cold,b_ms,a_runs,a_ms\n";
+               "budget_kg,daily_cost,b_solves,b_fail,b_cold,b_ms,a_runs,a_ms,b_unverified,check_max_km,"
+               "polT_ok,polT_Akg,polT_kg,polT_ms,polT_props,polE_ok,polE_T_d,polE_load,polE_Akg,polE_kg,polE_ms,polE_props\n";
     std::ofstream curves(out_dir / "curves.csv");
     curves << "ship,route,index,phase_deg,T_d,ideal_kg,A_ok,A_kg,B_ok,B_kg,coast_frac,ceiling_frac,floor_frac\n";
     std::ofstream paths(out_dir / "paths.csv");
@@ -798,6 +875,7 @@ void run_study(const World& w, const std::filesystem::path& out_dir, int departu
                 // Same T: A's shortest time if A flies, else B's.
                 double same_T = 0.0, same_a = 0.0, same_b = 0.0, same_ideal = 0.0;
                 PathMetrics pm;
+                ShipOnLeg::Policy pol_t, pol_e;
                 if (ma.ok || mb.ok) {
                     same_T = ma.ok ? ma.T : mb.T;
                     const g::Primer ideal = ma.ok ? ma.ideal : mb.ideal;
@@ -805,6 +883,7 @@ void run_study(const World& w, const std::filesystem::path& out_dir, int departu
                     if (idsol) {
                         same_ideal = burn_kg(load, load.s0 + idsol->end.effort);
                         same_a = sl.a_at(load, same_T, idsol->primer).kg;
+                        if (ma.ok) pol_t = sl.policy_at(load, same_T, idsol->primer);
                         std::optional<b::Solution> bs;
                         if (!ma.ok) {
                             bs = mb.bsol;
@@ -823,15 +902,35 @@ void run_study(const World& w, const std::filesystem::path& out_dir, int departu
                 }
                 const auto ea = economic(sl, cv, false);
                 const auto eb = economic(sl, cv, true);
+                // The policy on A's cheapest trip: same T, same fuel load.
+                double pol_e_akg = 0.0;
+                if (ea.ok) {
+                    std::size_t near = ic.T.size();
+                    for (std::size_t i = 0; i < ic.T.size(); ++i) {
+                        if (ic.primer[i] && (near == ic.T.size() || std::abs(std::log(ic.T[i] / ea.T)) < std::abs(std::log(ic.T[near] / ea.T)))) near = i;
+                    }
+                    const auto id = near < ic.T.size() ? ideal_at(leg, ea.T, &*ic.primer[near]) : std::nullopt;
+                    if (id) {
+                        const auto le = loaded(w, ship, ea.load);
+                        const auto f = sl.prop.follow_ideal(leg.start, id->primer, le.s0, le.band, ea.T);
+                        if (f.ok && f.floor_ok()) {
+                            pol_e_akg = burn_kg(le, f.s_end);
+                            pol_e = sl.policy_at(le, ea.T, id->primer);
+                        }
+                    }
+                }
                 const double day = kTimeUnit / kDay;
                 res_rows += std::format(
                     "{},{},{},{}-{},{},{:.2f},{:.2f},{},{},{:.3f},{:.1f},{},{},{},{:.3f},{:.1f},{:.3f},{:.1f},{:.1f},{:.1f},{:.4f},{:.4f},{:.4f},{:.4f},{},{:.1f},{:.1f},"
-                    "{},{:.3f},{:.1f},{:.1f},{:.1f},{},{:.3f},{:.1f},{:.1f},{:.1f},{:.1f},{:.2f},{},{},{},{:.2f},{},{:.2f}\n",
+                    "{},{:.3f},{:.1f},{:.1f},{:.1f},{},{:.3f},{:.1f},{:.1f},{:.1f},{:.1f},{:.2f},{},{},{},{:.2f},{},{:.2f},{},{:.3f},"
+                    "{},{:.1f},{:.1f},{:.2f},{},{},{:.3f},{:.1f},{:.1f},{:.1f},{:.2f},{}\n",
                     ship.id, ship.hull, ship.tank_factor, leg.route.from, leg.route.to, leg.index, leg.phase_deg, leg.hohmann * day,
                     ma.ok, ma.at_grid_floor, ma.T * day, ma.kg, ma.limited_by_floor, mb.ok, mb.at_grid_floor, mb.T * day, mb.kg,
                     same_T * day, same_a, same_b, same_ideal, pm.frac[0], pm.frac[1], pm.frac[2], pm.frac[3], pm.switches, pm.sep_max_km,
                     pm.sep_rms_km, ea.ok, ea.T * day, ea.kg, ea.load, ea.cost, eb.ok, eb.T * day, eb.kg, eb.load, eb.cost, load.budget_kg,
-                    ship.daily_cost_cr, sl.b_solves, sl.b_fail, sl.b_cold, sl.b_ms, sl.a_runs, sl.a_ms);
+                    ship.daily_cost_cr, sl.b_solves, sl.b_fail, sl.b_cold, sl.b_ms, sl.a_runs, sl.a_ms, sl.b_unverified, sl.check_max_km,
+                    pol_t.ok, same_a, pol_t.kg, pol_t.ms, pol_t.propagations, pol_e.ok, ea.T * day, ea.load, pol_e_akg, pol_e.kg, pol_e.ms,
+                    pol_e.propagations);
                 if (base) {
                     for (std::size_t i = 0; i < ic.T.size(); ++i) {
                         if (!ic.primer[i]) continue;
@@ -917,7 +1016,7 @@ void run_timing(const World& w, const std::filesystem::path& out_dir, int depart
                             const double c0 = now_ms();
                             auto sol = b::solve_fixed_time(prop, breq, TT, id->primer, options, bw ? &*bw : nullptr);
                             if (!bw) cold_ms = now_ms() - c0;
-                            if (!sol.converged) return false;
+                            if (!sol.converged || !verify(leg, load, sol, options).ok) return false;
                             bw = sol.primer;
                             const bool fits = burn_kg(load, sol.end.s_flown) <= load.budget_kg;
                             if (fits) best = sol;
@@ -1029,7 +1128,7 @@ int main(int argc, char** argv) {
     if (mode == "study") {
         const int departures = argc > 3 ? std::stoi(argv[3]) : 36;
         const unsigned threads = argc > 4 ? static_cast<unsigned>(std::stoi(argv[4])) : std::max(1u, std::thread::hardware_concurrency());
-        run_study(w, out_dir, departures, threads, argc > 5 ? argv[5] : "", argc > 6 ? std::stoi(argv[6]) : 1);
+        run_study(w, out_dir, departures, threads, argc > 5 ? argv[5] : "", argc > 6 ? std::stoi(argv[6]) : 1, argc > 7 ? argv[7] : "");
         return 0;
     }
     std::fprintf(stderr, "unknown mode %s\n", mode.c_str());

@@ -1,6 +1,6 @@
 """Figures and tables of the banded-exhaust study from the driver's CSV output.
 
-    spacetrains_banded_study study  <data> 36 [threads] [done results.csv] [stride]
+    spacetrains_banded_study study  <data> 36 [threads] [done results.csv] [stride] [only results.csv]
     spacetrains_banded_study timing <data> 6
     spacetrains_banded_study tune   <data> <variant>   (0..8, one process each)
     python3 docs/studies/banded_transfer/make_figures.py <data> [<more data dirs>]
@@ -82,8 +82,9 @@ def stats(values):
     return min(v), max(v), statistics.fmean(v), len(v)
 
 
-# B as a planner would use it: the banded optimiser, and A's plan wherever the optimiser falls short
-# of it (B's optimum can never be worse than A, so a shortfall is a solver miss, counted separately).
+# "B with fallback": the banded optimiser's verified plan, and A's plan wherever the optimiser fails or
+# falls short of A (A's plan is feasible for the banded problem, so the true banded optimum is never worse;
+# a shortfall is the solver's, counted as a miss and scored as zero gain).
 
 def b_time(r):
     t = [num(r[f"{k}_tmin_d"]) for k in ("A", "B") if truthy(r[f"{k}_ok"])]
@@ -162,24 +163,25 @@ def tables(results, timing, tune, ships, out):
     # 2. Full tank: shortest transfer time, A against B.
     lines.append(r"\newcommand{\tabmintime}{")
     lines.append(r"\begin{tabular}{lrrrrrrr}\toprule")
-    lines.append(tex_row(["Ship", "departures", "A flies", "B flies", "solver miss", r"min \%", r"max \%", r"mean \%"]))
-    lines.append(r" & & \multicolumn{3}{c}{} & \multicolumn{3}{c}{A's extra time over B} \\ \midrule")
+    lines.append(tex_row(["Ship", "departures", "solver miss", r"max \%", r"mean \%", r"max \%", r"mean \%", r"mean \%"]))
+    lines.append(r" & & & \multicolumn{2}{c}{A longer than B} & \multicolumn{2}{c}{B shorter than A} & B solved \\ \midrule")
     for h in HULLS:
         rows = [r for r in base if r["hull"] == h]
-        fly_a = sum(1 for r in rows if truthy(r["A_ok"]))
-        fly_b = sum(1 for r in rows if math.isfinite(b_time(r)))
         miss = sum(1 for r in rows if b_time_miss(r))
         dt = [100 * (num(r["A_tmin_d"]) / b_time(r) - 1) for r in rows if truthy(r["A_ok"])]
-        lo, hi, mean, _ = stats(dt)
-        lines.append(tex_row([HULL_NAME[h], str(len(rows)), str(fly_a), str(fly_b), str(miss), fmt(lo, 1), fmt(hi, 1),
-                              fmt(mean, 2)]))
+        ds = [100 * (1 - b_time(r) / num(r["A_tmin_d"])) for r in rows if truthy(r["A_ok"])]
+        dsol = [100 * (1 - b_time(r) / num(r["A_tmin_d"])) for r in rows if truthy(r["A_ok"]) and not b_time_miss(r)]
+        _, hi, mean, _ = stats(dt)
+        _, shi, smean, _ = stats(ds)
+        lines.append(tex_row([HULL_NAME[h], str(len(rows)), str(miss), fmt(hi, 1), fmt(mean, 2), fmt(shi, 1), fmt(smean, 2),
+                              fmt(stats(dsol)[2], 2)]))
     lines.append(r"\bottomrule\end{tabular}}")
 
     # 3. Economic optimum (fuel bought + time): A against B, same tank.
     lines.append(r"\newcommand{\tabeconomic}{")
     lines.append(r"\begin{tabular}{lrrrrrrr}\toprule")
-    lines.append(tex_row(["Ship", "cases", r"min \%", r"max \%", r"mean \%", r"$T_A/T_B$", r"fuel$_A$/fuel$_B$", "solver miss"]))
-    lines.append(r" & & \multicolumn{3}{c}{A's extra trip cost over B} & \multicolumn{2}{c}{mean, B solved} & \\ \midrule")
+    lines.append(tex_row(["Ship", "cases", "solver miss", r"max \%", r"mean \%", r"mean \%", r"$T_A/T_B$", r"fuel$_A$/fuel$_B$"]))
+    lines.append(r" & & & \multicolumn{2}{c}{with fallback} & B solved & \multicolumn{2}{c}{mean, where B's plan won} \\ \midrule")
     for h in HULLS:
         rows = [r for r in base if r["hull"] == h and truthy(r["econA_ok"])]
         dc = [100 * (num(r["econA_cost"]) / b_cost(r)[0] - 1) for r in rows]
@@ -188,7 +190,8 @@ def tables(results, timing, tune, ships, out):
         tr = statistics.fmean([num(r["econA_T_d"]) / num(r["econB_T_d"]) for r in won]) if won else float("nan")
         fr = statistics.fmean([num(r["econA_kg"]) / num(r["econB_kg"]) for r in won]) if won else float("nan")
         miss = sum(1 for r in rows if b_cost_miss(r))
-        lines.append(tex_row([HULL_NAME[h], str(n), fmt(lo, 2), fmt(hi, 2), fmt(mean, 2), fmt(tr, 3), fmt(fr, 3), str(miss)]))
+        dsol = [100 * (num(r["econA_cost"]) / b_cost(r)[0] - 1) for r in rows if not b_cost_miss(r)]
+        lines.append(tex_row([HULL_NAME[h], str(n), str(miss), fmt(hi, 2), fmt(mean, 2), fmt(stats(dsol)[2], 2), fmt(tr, 3), fmt(fr, 3)]))
     lines.append(r"\bottomrule\end{tabular}}")
 
     # 4. Tank choice: which tank variant gives the cheapest trip, per approach.
@@ -199,6 +202,7 @@ def tables(results, timing, tune, ships, out):
     groups = defaultdict(list)
     for r in results:
         groups[(r["hull"], r["route"], r["index"])].append(r)
+    tank_differ, tank_pairs = {}, {}
     for h in HULLS:
         ca, cb = defaultdict(int), defaultdict(int)
         differ = 0
@@ -218,9 +222,41 @@ def tables(results, timing, tune, ships, out):
                 cb[best["B"]] += 1
             if "A" in best and "B" in best and best["A"] != best["B"]:
                 differ += 1
+        tank_differ[h] = differ
+        tank_pairs[h] = sum(1 for (hh, _, _) in groups if hh == h)
         tanks = ["0.5", "1", "1.5", "2"]
         lines.append(tex_row([HULL_NAME[h]] + [str(ca[t]) for t in tanks] + [str(cb[t]) for t in tanks] + [str(differ)]))
     lines.append(r"\bottomrule\end{tabular}}")
+
+    # 4b. The production policy: one exact-only, verified B solve on A's chosen trip, A when it fails.
+    fuel_price = num(ships[0]["fuel_cr_per_kg"]) if ships else float("nan")
+
+    def pol_fuel(r):   # A's extra propellant over the policy at A's shortest time (0 when the policy fails)
+        return 100 * (num(r["polT_Akg"]) / num(r["polT_kg"]) - 1) if truthy(r["polT_ok"]) else 0.0
+
+    def pol_cost(r):   # A's extra cost over the policy on A's cheapest trip (same T and fuel load)
+        if not truthy(r["polE_ok"]):
+            return 0.0
+        time_cost = num(r["polE_T_d"]) * num(r["daily_cost"])
+        return 100 * ((num(r["polE_Akg"]) * fuel_price + time_cost) / (num(r["polE_kg"]) * fuel_price + time_cost) - 1)
+
+    has_policy = bool(base) and "polT_ok" in base[0]
+    if has_policy:
+        lines.append(r"\newcommand{\tabpolicy}{")
+        lines.append(r"\begin{tabular}{lrrrrrrr}\toprule")
+        lines.append(tex_row(["Ship", "solved", r"mean \%", r"max \%", "solved", r"mean \%", r"full B \%", r"p99 ms"]))
+        lines.append(r" & \multicolumn{3}{c}{fuel at A's shortest time} & \multicolumn{3}{c}{cost of A's cheapest trip} & \\ \midrule")
+        for h in HULLS:
+            rt = [r for r in base if r["hull"] == h and truthy(r["A_ok"]) and num(r["polT_Akg"]) > 0]
+            re_ = [r for r in base if r["hull"] == h and num(r["polE_Akg"]) > 0]
+            ft = [pol_fuel(r) for r in rt]
+            ce = [pol_cost(r) for r in re_]
+            full = [100 * (num(r["econA_cost"]) / b_cost(r)[0] - 1) for r in re_]
+            ms = sorted([num(r["polT_ms"]) for r in rt] + [num(r["polE_ms"]) for r in re_])
+            lines.append(tex_row([HULL_NAME[h], f"{sum(truthy(r['polT_ok']) for r in rt)}/{len(rt)}", fmt(stats(ft)[2], 2),
+                                  fmt(stats(ft)[1], 1), f"{sum(truthy(r['polE_ok']) for r in re_)}/{len(re_)}", fmt(stats(ce)[2], 2),
+                                  fmt(stats(full)[2], 2), fmt(ms[min(len(ms) - 1, int(0.99 * len(ms)))], 0) if ms else "--"]))
+        lines.append(r"\bottomrule\end{tabular}}")
 
     # 5. Timing (one thread).
     if timing:
@@ -280,6 +316,11 @@ def tables(results, timing, tune, ships, out):
     dt = [100 * (num(r["A_tmin_d"]) / b_time(r) - 1) for r in base if truthy(r["A_ok"])]
     headline("timeMean", fmt(statistics.fmean(dt), 1))
     headline("timeMax", fmt(max(dt), 0))
+    ds = [100 * (1 - b_time(r) / num(r["A_tmin_d"])) for r in base if truthy(r["A_ok"])]
+    headline("timeSaveMean", fmt(statistics.fmean(ds), 1))
+    headline("timeSaveMax", fmt(max(ds), 0))
+    headline("timeSaveMeanSolved", fmt(statistics.fmean(
+        [100 * (1 - b_time(r) / num(r["A_tmin_d"])) for r in base if truthy(r["A_ok"]) and not b_time_miss(r)]), 1))
     headline("timeMiss", str(sum(1 for r in base if b_time_miss(r))))
     headline("onlyB", str(sum(1 for r in base if math.isfinite(b_time(r)) and not truthy(r["A_ok"]))))
     headline("nBase", str(len(base)))
@@ -288,6 +329,35 @@ def tables(results, timing, tune, ships, out):
     headline("econMean", fmt(statistics.fmean(econ), 2))
     headline("econMax", fmt(max(econ), 1))
     headline("econMiss", str(sum(1 for r in base if b_cost_miss(r))))
+    headline("econMeanSolved", fmt(statistics.fmean(
+        [100 * (num(r["econA_cost"]) / b_cost(r)[0] - 1) for r in base if truthy(r["econA_ok"]) and not b_cost_miss(r)]), 2))
+    td, tp = sum(tank_differ.values()), sum(tank_pairs.values())
+    liners = ("plasma_liner", "large_plasma_liner")
+    tdl, tpl = sum(tank_differ[h] for h in liners), sum(tank_pairs[h] for h in liners)
+    headline("tankDiffer", str(td))
+    headline("tankPairs", str(tp))
+    headline("tankDiffPct", fmt(100 * td / tp, 0))
+    headline("tankDiffLinerPct", fmt(100 * tdl / tpl, 0))
+    headline("tankDiffCargoPct", fmt(100 * (td - tdl) / (tp - tpl), 0))
+    if "b_unverified" in results[0]:
+        unv = sum(num(r["b_unverified"]) for r in results)
+        conv = sum(num(r["b_solves"]) - num(r["b_fail"]) for r in results)
+        headline("bUnverified", f"{unv:,.0f}".replace(",", "\\,"))
+        headline("bConverged", f"{conv:,.0f}".replace(",", "\\,"))
+        headline("bUnverifiedPct", fmt(100 * unv / conv, 2))
+        headline("checkMaxKm", fmt(max(num(r["check_max_km"]) for r in results), 0))
+    if has_policy:
+        rt = [r for r in base if truthy(r["A_ok"]) and num(r["polT_Akg"]) > 0]
+        re_ = [r for r in base if num(r["polE_Akg"]) > 0]
+        headline("polSolvedPct", fmt(100 * sum(truthy(r["polT_ok"]) for r in rt) / len(rt), 0))
+        headline("polEconSolvedPct", fmt(100 * sum(truthy(r["polE_ok"]) for r in re_) / len(re_), 0))
+        headline("polFuelMean", fmt(statistics.fmean(pol_fuel(r) for r in rt), 1))
+        headline("polCostMean", fmt(statistics.fmean(pol_cost(r) for r in re_), 2))
+        headline("polCostMax", fmt(max(pol_cost(r) for r in re_), 1))
+        ms = sorted([num(r["polT_ms"]) for r in rt] + [num(r["polE_ms"]) for r in re_])
+        headline("polMsMedian", fmt(statistics.median(ms), 1))
+        headline("polMsNinetyNine", fmt(ms[int(0.99 * len(ms))], 0))
+        headline("polMsMax", fmt(ms[-1], 0))
     solves = sum(num(r["b_solves"]) for r in results)
     fails = sum(num(r["b_fail"]) for r in results)
     headline("bSolves", f"{solves:,.0f}".replace(",", "\\,"))
@@ -296,7 +366,8 @@ def tables(results, timing, tune, ships, out):
         miss = sorted(num(r["B_check_miss_km"]) for r in timing if truthy(r["B_ok"]))
         headline("checkMedianM", fmt(1000 * statistics.median(miss), 0))
         headline("checkNinetyNine", fmt(miss[int(0.99 * len(miss))], 0))
-        headline("checkBad", str(sum(1 for x in miss if x > 1000)))
+        headline("checkBad", str(sum(1 for x in miss if x > 100)))
+        headline("checkMaxTiming", fmt(miss[-1], 1))
         headline("timingN", str(len(timing)))
     out.write_text("\n".join(lines) + "\n")
 
