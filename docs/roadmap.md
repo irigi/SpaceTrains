@@ -19,7 +19,7 @@
 ### Study — banded-exhaust transfers (2026-10-31)
 
 - A standalone optimal solver for the 50-250 km/s band (`src/variable_isp/BandedTransfer.*`, its own library; stored for reference, not used by the game), and a study against "plan ideal, fly throttled": `docs/studies/banded_transfer/banded_transfer.pdf`.
-- Result: cargo ships lose about 1% with the throttled plan, liners 3-7%. Decision (2026-10-31): nothing integrated into the game; the in-game band integration (`feature/exhaust_band`) stays unmerged. Open: engine tiers, tanks and coasting.
+- Result: cargo ships lose about 1% with the throttled plan, liners 3-7%. Decision (2026-10-31): nothing integrated into the game; the in-game band integration (`feature/exhaust_band`) stays unmerged. Engine tiers, bigger tanks and coasting were considered and dropped (user, 2026-11-01).
 
 ## Current Plan (updated 2026-10-27) — start here
 
@@ -107,6 +107,8 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    Points to check: how the game finds the bridge and data when installed, writable paths for saves and the
    snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
    The user can run Claude on a Windows machine to build and test there.
+   **Planned 2026-11-01** (`docs/plans/deployment.md`, branch `feature/deployment`): build on the Linux PC,
+   Windows by MinGW cross-compiling, the Win11 laptop for testing; archives first, installers later.
 
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
