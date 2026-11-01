@@ -1,6 +1,7 @@
 # Deployment plan (Linux and Windows 11)
 
-Roadmap step 2. Planned 2026-11-01 on `feature/deployment`; not built yet.
+Roadmap step 2. Planned and built 2026-11-01 on `feature/deployment`; the design as built is in
+`docs/modules/deployment.md` (this plan is kept until the Windows test on the user's laptop).
 
 **Goal.** One way to install and run SpaceTrains on Linux and Windows 11 without compiling anything.
 

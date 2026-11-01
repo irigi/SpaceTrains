@@ -107,8 +107,13 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    Points to check: how the game finds the bridge and data when installed, writable paths for saves and the
    snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
    The user can run Claude on a Windows machine to build and test there.
-   **Planned 2026-11-01** (`docs/plans/deployment.md`, branch `feature/deployment`): build on the Linux PC,
-   Windows by MinGW cross-compiling, the Win11 laptop for testing; archives first, installers later.
+   **Built 2026-11-01** on `feature/deployment` (design in `docs/modules/deployment.md`, plan in
+   `docs/plans/deployment.md`): `tools/package/build_release.sh` makes a Linux tar.gz and a Windows zip on the
+   Linux PC (Windows by MinGW cross-compiling). Checked: the Linux package outside the repo (screenshot tour,
+   save/load, bridge exits), the Windows test suites, bridge and game under wine (also a non-ASCII user folder).
+   Open: the user's test on the Win11 laptop (under wine the UI's symbol glyphs, ◆ ▶ ●, were missing: wine has no
+   symbol font; if Windows misses them too, bundle a fallback font); later AppImage, Inno Setup installer, CI,
+   code signing, maybe smaller textures (the package is ~230 MB, mostly 8k planet maps).
 
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
