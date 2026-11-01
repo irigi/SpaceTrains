@@ -127,7 +127,7 @@ std::vector<spacetrains::trajectory::TrajectoryAuditRecord> run_trajectory_sweep
     int sweep_days,
     int sweep_step_days) {
     spacetrains::variable_isp::VariableIspAtlas atlas;
-    atlas.load_binary((data_root.parent_path() / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin").string());
+    atlas.load_binary(spacetrains::simulation::Simulation::default_atlas_path(data_root.string()));
     spacetrains::trajectory::VariableIspTrajectoryPlanner ion_planner(universe, mechanics, atlas);
     spacetrains::trajectory::KeplerTrajectoryPlanner kepler_planner(universe, mechanics);
 

@@ -49,6 +49,11 @@ var snapshot_path := ""
 var command_path := ""
 var repo_root := ""
 var executable_path := ""
+var data_root := ""
+var atlas_path := ""
+var bridge_log_path := ""
+# A command file whose rename failed (Windows: the bridge had it open): written again next frame.
+var command_write_pending := false
 # Display clock (game seconds): bodies, stations and ships are placed at this time each
 # frame, from orbital elements and planned paths, so the picture moves smoothly even when
 # a simulation tick is slow.
@@ -164,8 +169,8 @@ var flow_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 
 func _ready() -> void:
-    repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
-    executable_path = repo_root.path_join("build/bin/spacetrains_bridge")
+    _resolve_install_paths()
+    _remove_stale_session_files()
     var session_id := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
     snapshot_path = ProjectSettings.globalize_path("user://spacetrains_snapshot_%s.json" % session_id)
     command_path = ProjectSettings.globalize_path("user://spacetrains_commands_%s.json" % session_id)
@@ -363,6 +368,8 @@ func _process(delta: float) -> void:
     var t := Time.get_ticks_usec()
     _read_snapshot()
     if _profile_enabled: _profiled("read+apply snapshot", t)
+    if command_write_pending:
+        _write_bridge_commands()
     _update_bridge_status()
     _advance_display_clock(delta)
     t = Time.get_ticks_usec()
@@ -443,13 +450,49 @@ func _unhandled_input(event: InputEvent) -> void:
         if event.double_click and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
 
+# Where the bridge, the data and the atlas are. From the editor (the source checkout): the repo
+# layout, build/bin and tests/data. An exported game: next to its executable, in bin/, data/
+# and atlas/ (docs/modules/deployment.md).
+func _resolve_install_paths() -> void:
+    var exe_suffix := ".exe" if OS.get_name() == "Windows" else ""
+    if OS.has_feature("template"):
+        repo_root = OS.get_executable_path().get_base_dir()
+        executable_path = repo_root.path_join("bin/spacetrains_bridge" + exe_suffix)
+        data_root = repo_root.path_join("data")
+        atlas_path = repo_root.path_join("atlas/variable_isp_atlas.bin")
+    else:
+        repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
+        executable_path = repo_root.path_join("build/bin/spacetrains_bridge" + exe_suffix)
+        data_root = repo_root.path_join("data")
+        atlas_path = repo_root.path_join("tests/data/variable_isp/variable_isp_atlas.bin")
+    bridge_log_path = ProjectSettings.globalize_path("user://logs/bridge.log")
+
+# Session files left behind by a crash (normally _exit_tree removes them): drop those over a day old.
+func _remove_stale_session_files() -> void:
+    var dir := DirAccess.open("user://")
+    if dir == null:
+        return
+    var now := Time.get_unix_time_from_system()
+    for file_name in dir.get_files():
+        if not (file_name.begins_with("spacetrains_snapshot_") or file_name.begins_with("spacetrains_commands_")):
+            continue
+        var path := "user://" + file_name
+        if now - FileAccess.get_modified_time(path) > 86400.0:
+            DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
-        _set_status("Bridge executable not found:\n%s\nBuild the project first." % executable_path)
+        var hint := "The installation is incomplete." if OS.has_feature("template") else "Build the project first."
+        _set_status("Simulation bridge not found:\n%s\n%s" % [executable_path, hint])
+        return
+    if not DirAccess.dir_exists_absolute(data_root):
+        _set_status("Game data not found:\n%s" % data_root)
         return
 
     var args := [
-        "--data-root", repo_root.path_join("data"),
+        "--data-root", data_root,
+        "--atlas", atlas_path,
+        "--log-file", bridge_log_path,
         "--snapshot-file", snapshot_path,
         "--command-file", command_path,
         "--step-seconds", str(BRIDGE_STEP_SECONDS),
@@ -471,7 +514,7 @@ func _update_bridge_status() -> void:
         return
     if not OS.is_process_running(bridge_pid):
         bridge_started = false
-        _set_status("The simulation bridge stopped.\nSee the terminal for its output.")
+        _set_status("The simulation bridge stopped.\nSee its log: %s" % bridge_log_path)
         return
     if current_snapshot_seq < 0:
         return
@@ -509,6 +552,7 @@ func _write_bridge_commands() -> void:
     var temp_path := command_path + ".tmp"
     var file := FileAccess.open(temp_path, FileAccess.WRITE)
     if file == null:
+        command_write_pending = true
         return
     var payload := {
         "paused": current_paused,
@@ -521,7 +565,7 @@ func _write_bridge_commands() -> void:
     }
     file.store_string(JSON.stringify(payload))
     file.close()
-    DirAccess.rename_absolute(temp_path, command_path)
+    command_write_pending = DirAccess.rename_absolute(temp_path, command_path) != OK
 
 # Planned paths by ship id ({path_id, trajectory_path, destination_body_at_arrival}), from
 # the bridge's paths file, which changes only when a ship gets a new plan.

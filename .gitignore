@@ -5,7 +5,7 @@
 # Godot-specific ignores
 *.import
 export.cfg
-export_presets.cfg
+# export_presets.cfg is committed (godot/export_presets.cfg: release presets, no secrets)
 
 # Imported translations (for po/csv)
 *.translation
@@ -48,3 +48,6 @@ VariableISP/*.toc
 VariableISP/**/__pycache__/
 # Planet textures need their import settings (VRAM compression, mipmaps).
 !godot/assets/planets/*.import
+
+# Release packages (tools/package/build_release.sh)
+/dist/

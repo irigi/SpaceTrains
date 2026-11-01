@@ -153,16 +153,24 @@ Simulation Simulation::from_data_root(const std::string& data_root) {
 
 Simulation Simulation::from_data_root(const std::string& data_root,
     const std::function<void(domain::UniverseDefinition&)>& adjust) {
+    return from_data_root(data_root, std::string {}, adjust);
+}
+
+std::string Simulation::default_atlas_path(const std::string& data_root) {
+    return (std::filesystem::path(data_root).parent_path() / "tests" / "data" / "variable_isp"
+        / "variable_isp_atlas.bin").string();
+}
+
+Simulation Simulation::from_data_root(const std::string& data_root, const std::string& atlas_file,
+    const std::function<void(domain::UniverseDefinition&)>& adjust) {
     data_loader::DataLoader loader;
     auto universe = loader.load_universe(data_root);
     adjust(universe);
     Simulation sim(std::move(universe));
     sim.thread_pool_ = std::make_unique<util::ThreadPool>();
 
-    // Try to load the VariableISP atlas. It lives next to the data root.
-    const std::filesystem::path data_path(data_root);
-    const std::filesystem::path atlas_path =
-        data_path.parent_path() / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin";
+    // Try to load the VariableISP atlas.
+    const std::filesystem::path atlas_path = atlas_file.empty() ? default_atlas_path(data_root) : atlas_file;
     if (std::filesystem::exists(atlas_path)) {
         try {
             sim.atlas_.load_binary(atlas_path.string());
