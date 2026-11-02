@@ -62,8 +62,15 @@ points), but the user has to choose by ear. So the first step makes a shortlist 
    plus his own terms).
    Original step:: 15–25 candidate recordings with verified licences, both moods, as a page of links
    and notes (length, performer, licence, source). The user listens and picks ~8–15.
-2. **Fetch and prepare** the picks: download into a fresh folder, convert to OGG, trim silences, even out
-   loudness, record each in the manifest.
+2. **Fetch and prepare** — done 2026-11-02. The user picked 13 of the 24 (shortlist numbers 1, 3, 4, 6, 7, 12,
+   13, 14, 15, 17, 18, 21, 23; the shortlist page is deleted): 65 minutes, 205 MB as downloaded (192 kbps MP3 up to
+   24-bit WAV), 52 MB after `tools/music/prepare_track.sh` (OGG Vorbis q4, ~95–125 kbps, 44.1 kHz stereo, silence
+   trimmed, metadata stripped). Loudness measured (EBU R128): gain to −20 LUFS, capped so no true peak goes above
+   −1 dBTP, kept in `manifest.csv` (`gain_db`); the files themselves are not changed. Clair de lune stays ~2 dB
+   quieter (its peaks allow no boost). `mood` is a first proposal: classical = 1, 3, 4, 6, 7 and Aphelion; quiet =
+   the rest. The `.ogg` files are in Git LFS (`.gitattributes`; GitHub Free: 10 GiB storage and 10 GiB downloads a
+   month). The manifest is a CSV under `godot/`, so Godot imports it as a translation like the data CSVs; the
+   player (step 3) must read it with `FileAccess` and make sure the export carries it.
 3. **Player in Godot:** Music node, bus, playlist, fades, controls, settings, now-playing note, key-binding
    table and test.
 4. **Credits:** in-game credits (help screen or a small panel) and `CREDITS.txt` in the package.
@@ -74,5 +81,5 @@ points), but the user has to choose by ear. So the first step makes a shortlist 
 ## Open for the user
 
 - Mix: mostly quiet with classical now and then (proposed), or classical first?
-- How much music: ~45–60 minutes proposed (50–60 MB).
+- How much music: settled, 65 minutes, 52 MB.
 - Generated pieces: wanted at all, or only if the free recordings leave gaps?
