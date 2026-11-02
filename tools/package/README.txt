@@ -26,3 +26,10 @@ If something goes wrong, the two logs are what to send.
 
 The first start takes a little longer: the simulation plans the opening fleet and keeps the
 result for later starts.
+
+Credits
+-------
+Planet maps: Solar System Scope (https://www.solarsystemscope.com/textures/), CC BY 4.0,
+based on NASA elevation and imagery data.
+Fonts: DejaVu Sans (Bitstream Vera licence), Noto Sans Symbols 2 (SIL Open Font License 1.1),
+Open Sans (Godot's built-in font, SIL Open Font License 1.1).

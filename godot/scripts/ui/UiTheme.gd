@@ -1,7 +1,7 @@
 extends RefCounted
 
-# Shared palette for all HUD panels. Everything is generated at runtime —
-# no font or texture assets are bundled with the project.
+# Shared palette for all HUD panels. Styles are generated at runtime; the only assets are two
+# fallback fonts for the UI's symbols (assets/fonts/ATTRIBUTION.md).
 const ACCENT := Color(0.35, 0.85, 0.95)
 const ACCENT_DIM := Color(0.35, 0.85, 0.95, 0.45)
 const PANEL_BG := Color(0.05, 0.08, 0.12, 0.82)
@@ -68,7 +68,21 @@ static func flat_style(bg: Color) -> StyleBoxFlat:
     style.set_content_margin_all(0)
     return style
 
+# Godot's built-in Open Sans has no symbols (● ▶ ◆ ⚠ → ⏸ ...), so without these it borrows from the
+# system's fonts, and wine has none with them. Set on the global default font, so tooltips and popups
+# (separate windows outside the UI root's theme) get them too.
+const SYMBOL_FONTS := ["res://assets/fonts/DejaVuSans.ttf", "res://assets/fonts/NotoSansSymbols2-Regular.ttf"]
+
+static func install_symbol_fonts() -> void:
+    var fallbacks: Array[Font] = []
+    for path in SYMBOL_FONTS:
+        var font := load(path) as Font
+        if font != null:
+            fallbacks.append(font)
+    ThemeDB.fallback_font.fallbacks = fallbacks
+
 static func build() -> Theme:
+    install_symbol_fonts()
     var theme := Theme.new()
     theme.default_font_size = 13
 

@@ -69,6 +69,14 @@ The cross-compiled suites pass under wine (`ctest --test-dir build-release/windo
 (Windows, wine) they copy the atlas alone (`link_tests_dir` in `tests/test_main.cpp`). The Windows bridge also ran
 under wine with its paths in a folder named `Uživatel Olšina` (UTF-8 manifest).
 
+## Fonts
+
+Godot's built-in Open Sans has no symbols (the ship list's ● ▶ ◆ markers, arrows, ⚠, ⏸), so they came from the
+system's fonts: fine on Linux and Windows, but wine has no font with them and Godot drew its missing-glyph box with
+the hex code (2026-11-02). `UiTheme.install_symbol_fonts` gives the global default font two bundled fallbacks,
+DejaVu Sans and Noto Sans Symbols 2 (`godot/assets/fonts/`, licences beside them, ~1.4 MB), so every platform
+draws the same glyphs. Checked on Linux with fontconfig pointed at an empty configuration (no system fonts).
+
 ## Limits
 
 - Linux: built on Ubuntu 24.04, so it needs glibc 2.39 or newer and a Vulkan driver.
