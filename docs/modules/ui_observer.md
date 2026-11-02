@@ -40,6 +40,13 @@
   ships in flight by interpolating their planned path at the display time, docked ships at their station. All in
   double precision relative to the focused entity (`entity_root`), then cast, so close-ups do not jitter;
   `world_root` holds the absolute-frame lines (orbit rings, planned paths, trails).
+- **Paths within one planet's system** (Earth–Luna ferries, moon hops, hops between two stations of one body:
+  `keplerian_planet_system`, `variable_isp_planet_system`, `keplerian_local`) are drawn around that planet, which is
+  their `frame`: the planned line, its fine version near the camera, the history trail and the destination ghost are
+  kept relative to the planet and follow it every frame (`_update_path_frames`). In the Sun's frame Earth moves
+  ~13 million km during a 5-day ferry hop, so the line was a streak along Earth's orbit with the transfer lost in it.
+  The ship's position is the same either way (planet(t) + offset(t)); display only. Burn markers shrink to a few
+  pixels close up (from afar they keep their old size, ~96,000 km).
 - **Orbit rings:** a 360-segment ring per body, and, for rings passing near the focus, a ring redrawn each frame with
   points concentrated at the camera (sinh spacing) in focus-relative coordinates: exact at any zoom. A moon's ring
   fades out when it is only a few pixels across.
@@ -249,7 +256,9 @@
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
   pressing T), and station close-ups at multiples of the model size; `--shot-fps` prints the frame rate at each stop;
-  `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations;
+  `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations
+  (Godot crashes on quit after it, also before 2026-11-02; the shots are saved first); `--shot-local-paths` shoots a
+  ferry of each kind flying within Earth's system (whole system, close up, the system again seconds later);
   `--shot-arrival` watches the next ship dock at 600x; `--shot-routes` shoots the Routes tab (Earth-Mars in each view, Earth-Jupiter and Earth-Saturn) and the inspector's windows, printing
   how long the windows took; `--shot-flows` turns the flow overlay on and shoots the inner system and Earth's; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
   every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider

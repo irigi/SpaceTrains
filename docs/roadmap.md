@@ -116,7 +116,8 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
 
 3. **Planet-system paths in the planet's frame** (user, 2026-11-02, next): Earth–Luna ferries (and moon hops
    elsewhere) are drawn in the Sun's frame, so the line is a streak along Earth's orbit. Draw them around the
-   planet, moving with it; display only. Plan: `docs/plans/local_frame_paths.md`.
+   planet, moving with it; display only. Plan: `docs/plans/local_frame_paths.md`. **Built 2026-11-02** on
+   `feature/music_and_local_paths` (`ui_observer.md`, "Paths within one planet's system"), awaiting the user's look.
 
 4. **Music** (user, 2026-11-02, next): free-to-use music only (public domain, CC0, CC BY with credits); moods
    from Frontier: Elite II's classical pieces and the *First Man* score. Shortlist with verified licences for the

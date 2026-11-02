@@ -4,7 +4,11 @@
 together that what the player sees is Earth's own motion, not the transfer. Draw these paths in Earth's
 frame instead.
 
-## What happens now
+**Status:** built 2026-11-02 as designed, inferred in the UI (no bridge field needed). Burn markers also
+shrink to a few pixels close up (their fixed ~96,000 km size swamped the Earth–Moon view). Checked with
+`--shot-local-paths` before/after (Kepler ellipse, plasma spiral, LEO hop). Kept until the user has looked.
+
+## What happened before
 
 - The planners already fly these hops around the planet, not the Sun: `TrajectoryPlanner.cpp` ("Different
   bodies of one planetary system", `keplerian_planet_system`: a Hohmann half ellipse around Earth timed for the

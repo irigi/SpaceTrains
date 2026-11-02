@@ -173,6 +173,10 @@ func _run() -> void:
         await _inspector_shots(rig)
         get_tree().quit()
         return
+    if OS.get_cmdline_user_args().has("--shot-local-paths"):
+        await _local_path_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-derelict"):
         await _derelict_shots(rig)
         get_tree().quit()
@@ -655,6 +659,42 @@ func _derelict_shots(rig: Node3D) -> void:
             rig.call("_update_transform")
             await get_tree().create_timer(1.0).timeout
             await _shoot(String(pick[1]) + String(view[1]))
+
+# Flights within one planet's system (Earth-Luna ferries, a plasma spiral) drawn around the
+# planet: the whole system with the ship selected, the ship close up, and the system again a
+# few seconds later (the line must have moved with the planet, not stayed behind).
+func _local_path_shots(rig: Node3D) -> void:
+    var picks := {}
+    for _attempt in range(40):  # wait up to 20 s of play for ferries in flight
+        picks = _local_path_picks()
+        if picks.size() >= 2:
+            break
+        await get_tree().create_timer(0.5).timeout
+    print("[ShotTour] local paths: %s" % [picks])
+    for kind in picks.keys():
+        var ship_id: String = picks[kind]
+        main.select_entity(ship_id, "ship", true)
+        for view in [[0.12, "_system"], [0.006, "_ship"], [0.12, "_system_later"]]:
+            if String(view[1]) == "_system_later":
+                await get_tree().create_timer(4.0).timeout
+            rig.set("distance", view[0])
+            rig.call("_update_transform")
+            await get_tree().create_timer(1.0).timeout
+            await _shoot("local_" + kind + String(view[1]))
+
+# One ship in flight within Earth's system per kind of path.
+func _local_path_picks() -> Dictionary:
+    var picks := {}
+    for ship_id in main.entity_details.keys():
+        if main.entity_kinds.get(ship_id, "") != "ship" or not main.ship_paths.has(ship_id):
+            continue
+        var detail: Dictionary = main.entity_details[ship_id]
+        var kind := String(detail.get("trajectory_type", ""))
+        if String(detail.get("phase", "")) != "in_transit" or (not kind.ends_with("planet_system") and kind != "keplerian_local"):
+            continue
+        if not picks.has(kind) and String(main.ship_paths[ship_id].get("frame", "earth")) == "earth":
+            picks[kind] = ship_id
+    return picks
 
 func _inspector_shots(rig: Node3D) -> void:
     var picks: Array = []
