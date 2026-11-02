@@ -19,6 +19,8 @@ const BINDINGS := [
     {"group": "Panels", "keys": "S", "inputs": [KEY_S], "action": "Statistics: money by account and source, with history"},
     {"group": "Panels", "keys": "H", "inputs": [KEY_H], "action": "This list of key bindings"},
     {"group": "Panels", "keys": "Esc", "inputs": [KEY_ESCAPE], "action": "Close the open panel"},
+    {"group": "Music", "keys": "N", "inputs": [KEY_N], "action": "Next track (Shift+N: music off / on)"},
+    {"group": "Music", "keys": "[ / ]", "inputs": [KEY_BRACKETLEFT, KEY_BRACKETRIGHT], "action": "Music volume down / up (the two keys right of P)"},
     {"group": "Game", "keys": "F5", "inputs": [KEY_F5], "action": "Quick save"},
     {"group": "Game", "keys": "F9", "inputs": [KEY_F9], "action": "Quick load"},
     {"group": "Debug", "keys": "F10", "inputs": [KEY_F10], "action": "Print the map state to the console"},

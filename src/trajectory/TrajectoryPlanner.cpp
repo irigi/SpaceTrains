@@ -260,8 +260,16 @@ TimedPath planet_system_path(
     dense.path.front() = start;
     dense.path.back() = finish;
 
+    // Thin the path by its shape around the planet: the heliocentric points are nearly a
+    // straight line (the planet's own motion), so thinning those left the transfer's curve
+    // too sparse and the map drew wobbles between the samples.
+    std::vector<math::Vec3d> relative;
+    relative.reserve(dense.path.size());
+    for (std::size_t i = 0; i < dense.path.size(); ++i) {
+        relative.push_back(dense.path[i] - mechanics.get_body_position(primary_id, dense.times_s[i]));
+    }
     TimedPath out;
-    for (const auto index : select_for_rendering(dense.path)) {
+    for (const auto index : select_for_rendering(relative)) {
         out.path.push_back(dense.path[index]);
         out.times_s.push_back(dense.times_s[index]);
     }

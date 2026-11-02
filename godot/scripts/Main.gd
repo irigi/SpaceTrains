@@ -1,6 +1,7 @@
 extends Node3D
 
 const POSITION_SCALE := 1.0 / 8_000_000_000.0
+const BURN_MARKER_SCALE := 0.012  # world units (~96,000 km): the burn markers' size from afar
 # Bodies are drawn at their true radius (a map icon stands in when they are a few pixels
 # across, as in Kerbal Space Program's map view). Ships and stations are tiny next to a
 # planet; their models are a few hundred kilometres, shown only up close, icons otherwise.
@@ -84,7 +85,8 @@ var entity_visual_signatures: Dictionary = {}
 var trail_nodes: Dictionary = {}
 var trail_path_signatures: Dictionary = {}
 var trail_points: Dictionary = {}  # ship_id -> {points (metres + time, as drawn), color, alpha}
-var ship_trail_history: Dictionary = {}   # ship_id -> Array of Vector3 (world_root local)
+var ship_trail_history: Dictionary = {}   # ship_id -> Array of Vector3 (world_root local, or its frame planet's)
+var history_frames: Dictionary = {}  # ship_id -> the planet its history trail is drawn around ("" for the Sun)
 var history_trail_nodes: Dictionary = {}  # ship_id -> MeshInstance3D
 var trail_sample_accum_s := 0.0
 const TRAIL_MAX_POINTS := 40
@@ -200,8 +202,18 @@ func _ready() -> void:
             ship_metres_to_world = POSITION_SCALE * maxf(float(arg.trim_prefix("--model-scale=")), 1.0e-3)
         if arg.begins_with("--shot-tour="):
             add_child(load("res://scripts/ShotTour.gd").new())
+    _start_music()
     if bridge_started:
         _set_status("Starting bridge…\n%s" % executable_path)
+
+# Background music (Music.gd), except in shot tours, headless runs and with --no-music.
+func _start_music() -> void:
+    if _print_status or DisplayServer.get_name() == "headless" or "--no-music" in OS.get_cmdline_user_args():
+        return
+    var music: Node = load("res://scripts/Music.gd").new()
+    music.name = "Music"
+    music.setup(ui_root)
+    add_child(music)
 
 func _setup_ui() -> void:
     ui_root = Control.new()
@@ -900,6 +912,7 @@ func _update_nodes(delta: float) -> void:
     if space_env != null:
         space_env.update_orbit_rings(world_root, bridge_state.get("bodies", []), body_positions, MapIconsScript.BODY_ICON_COLOR)
     _update_fine_rings()
+    _update_path_frames()
     _update_fine_paths()
     _update_path_clocks()
     if sun_light != null and entity_nodes.has("sun"):
@@ -1001,6 +1014,9 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
     }
     var origin_planet := _planet_of(String(cached["origin"]))
     cached["helio"] = origin_planet != "" and origin_planet != _planet_of(String(cached["destination"]))
+    # A flight within one planet's system (Earth-Luna ferries, moon hops) is drawn around that
+    # planet and moves with it: in the Sun's frame the planet's own motion would smear it out.
+    cached["frame"] = origin_planet if origin_planet != "" and not bool(cached["helio"]) else ""
     var times := PackedFloat64Array()
     var offsets := PackedFloat64Array()
     var raw := PackedFloat64Array()
@@ -1152,6 +1168,9 @@ func _rail_anchor_m(path: Dictionary, t: float) -> PackedFloat64Array:
     var destination := String(path.get("destination", ""))
     if origin == "" or destination == "":
         return PackedFloat64Array([0.0, 0.0, 0.0])
+    var frame := String(path.get("frame", ""))
+    if frame != "":
+        return _body_at_m(frame, t)
     var departure := float(path["departure"])
     var arrival := float(path["arrival"])
     if bool(path.get("helio", false)):
@@ -1165,6 +1184,29 @@ func _rail_anchor_m(path: Dictionary, t: float) -> PackedFloat64Array:
     var a := _body_at_m(origin, t)
     var b := _body_at_m(destination, t)
     return PackedFloat64Array([a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w])
+
+# The planet a path is drawn around (its "frame"), now and at time t; the Sun's origin for
+# paths without one.
+func _frame_now_m(frame: String) -> PackedFloat64Array:
+    return _body_m(frame) if frame != "" else PackedFloat64Array([0.0, 0.0, 0.0])
+
+func _frame_at_m(frame: String, t: float) -> PackedFloat64Array:
+    return _body_at_m(frame, t) if frame != "" else PackedFloat64Array([0.0, 0.0, 0.0])
+
+# A path's point at time t as drawn: relative to its frame planet at t (absolute without one).
+func _drawn_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
+    var p := _rail_point_m(path, t)
+    var frame := String(path.get("frame", ""))
+    if frame == "":
+        return p
+    var base := _body_at_m(frame, t)
+    return PackedFloat64Array([p[0] - base[0], p[1] - base[1], p[2] - base[2]])
+
+func _plus_m(a: PackedFloat64Array, b: PackedFloat64Array) -> PackedFloat64Array:
+    return PackedFloat64Array([a[0] + b[0], a[1] + b[1], a[2] + b[2]])
+
+func _minus_m(a: PackedFloat64Array, b: PackedFloat64Array) -> PackedFloat64Array:
+    return PackedFloat64Array([a[0] - b[0], a[1] - b[1], a[2] - b[2]])
 
 # Position on a cached path at time t, on the rail.
 func _rail_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
@@ -1543,6 +1585,23 @@ func _fine_path_material() -> ShaderMaterial:
         fine_path_material.shader = _trail_material().shader
     return fine_path_material
 
+# Lines drawn around a planet (planned paths and history trails of flights within one planet's
+# system) follow that planet every frame.
+func _update_path_frames() -> void:
+    for ship_id in trail_points.keys():
+        if trail_nodes.has(ship_id):
+            (trail_nodes[ship_id] as Node3D).position = _abs_render(_frame_now_m(String(trail_points[ship_id].get("frame", ""))))
+    for ship_id in history_frames.keys():
+        if history_trail_nodes.has(ship_id):
+            (history_trail_nodes[ship_id] as Node3D).position = _abs_render(_frame_now_m(String(history_frames[ship_id])))
+    # Burn markers of the selected path: as before from afar, never more than a few pixels
+    # close up (their fixed size is ~100,000 km, larger than an Earth-Luna transfer).
+    if trail_nodes.has(selected_id):
+        for marker_name in ["burn0", "burn1"]:
+            var marker: Node3D = (trail_nodes[selected_id] as Node3D).get_node_or_null(marker_name)
+            if marker != null and marker.visible and marker.is_inside_tree():
+                marker.scale = Vector3.ONE * minf(BURN_MARKER_SCALE, map_icons.world_size_for_pixels(marker, 4.0))
+
 # Moves the flown/ahead split of every drawn path to the display time (cheap: one
 # per-instance value per line, no rebuild).
 func _update_path_clocks() -> void:
@@ -1574,21 +1633,25 @@ func _update_fine_paths() -> void:
         for ship_id in trail_points.keys():
             if not ship_paths.has(ship_id) or not trail_nodes.has(ship_id) or not (trail_nodes[ship_id] as Node3D).visible:
                 continue
+            var local_m := _minus_m(focus_m, _frame_now_m(String(trail_points[ship_id].get("frame", ""))))
             var gap := INF
             for box in trail_points[ship_id]["boxes"]:
-                gap = minf(gap, _box_gap(box, focus_m))
+                gap = minf(gap, _box_gap(box, local_m))
             if gap <= draw_radius_m:
                 candidates.append([gap, ship_id])
         candidates.sort_custom(func(x, y): return x[0] < y[0])
         for k in range(mini(candidates.size(), FINE_PATH_MAX)):
             var ship_id: String = candidates[k][1]
-            if not _fine_path_current(ship_id, focus_m, camera_distance_m, hide_radius_m):
-                _build_fine_path(ship_id, focus_m, camera_distance_m, draw_radius_m)
+            # Paths around a planet are handled in its frame: the focus relative to the planet.
+            var frame_m := _frame_now_m(String(trail_points[ship_id].get("frame", "")))
+            var local_m := _minus_m(focus_m, frame_m)
+            if not _fine_path_current(ship_id, local_m, camera_distance_m, hide_radius_m):
+                _build_fine_path(ship_id, local_m, camera_distance_m, draw_radius_m)
             var entry: Dictionary = fine_paths[ship_id]
             var node: MeshInstance3D = entry["node"]
             if node == null or not bool(entry["drawn"]):
                 continue  # the path passes near the focus's box only, not the focus
-            node.position = _to_render(entry["focus"])
+            node.position = _to_render(_plus_m(entry["focus"], frame_m))
             node.visible = true
             active[ship_id] = true
     # A fine path drawn replaces the ship's history trail; one not drawn is hidden (and the
@@ -1658,7 +1721,7 @@ func _build_fine_path(ship_id: String, focus_m: PackedFloat64Array, camera_dista
         var t := a[3]
         var joined := not run.is_empty()  # the previous segment's end is this one's start
         while budget > 0:
-            var p := _rail_point_m(path, t)
+            var p := _drawn_point_m(path, t)
             if not joined:
                 run.append(PackedFloat64Array([p[0] - focus_m[0], p[1] - focus_m[1], p[2] - focus_m[2], t]))
                 budget -= 1
@@ -1763,8 +1826,13 @@ func _update_history_trails(delta: float) -> void:
                 if history_trail_nodes.has(entity_id):
                     (history_trail_nodes[entity_id] as MeshInstance3D).visible = false
             continue
+        # Around the planet for a flight within its system (as the planned path is drawn).
+        var frame := String((ship_paths.get(entity_id, {}) as Dictionary).get("frame", ""))
+        if String(history_frames.get(entity_id, "")) != frame:
+            ship_trail_history.erase(entity_id)
+        history_frames[entity_id] = frame
         var history: Array = ship_trail_history.get(entity_id, [])
-        history.append(_abs_render(_ship_m(entity_id)))
+        history.append(_abs_render(_minus_m(_ship_m(entity_id), _frame_now_m(frame))))
         if history.size() > TRAIL_MAX_POINTS:
             history.pop_front()
         ship_trail_history[entity_id] = history
@@ -2261,8 +2329,10 @@ func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, 
                 box[axis + 3] = maxf(box[axis + 3], point[axis])
         boxes.append(box)
     var epoch: float = points.front()[3]
+    var frame := String(path.get("frame", ""))
     trail_points[ship_id] = {"points": points, "boxes": boxes, "color": line_color, "alpha": base_alpha, "flown": elapsed_color, "epoch": epoch,
-        "sig": "%s|%s|%.3f" % [String(path["sig"]), is_selected, base_alpha]}
+        "frame": frame, "sig": "%s|%s|%.3f" % [String(path["sig"]), is_selected, base_alpha]}
+    trail_node.position = _abs_render(_frame_now_m(frame))
     var mesh := ImmediateMesh.new()
     mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
     var ahead := Color(line_color.r, line_color.g, line_color.b, base_alpha)
@@ -2277,7 +2347,8 @@ func _rebuild_trail_mesh(trail_node: Node3D, ship_id: String, ship: Dictionary, 
 
 # The drawn line follows the rail from departure to arrival (the wait for the launch
 # window lies on the planet's own orbit ring and is not drawn). Segments are subdivided,
-# finely near the planets where the camera may be close.
+# finely near the planets where the camera may be close. Points are relative to the path's
+# frame planet when it has one (the trail node then follows the planet).
 func _rail_line_m(path: Dictionary) -> Array:
     var times: PackedFloat64Array = path["t"]
     var departure := maxf(float(path["departure"]), times[0])
@@ -2300,9 +2371,9 @@ func _rail_line_m(path: Dictionary) -> Array:
         var pieces := clampi(int(ceil((t1 - t0) / step)), 1, 64)
         for j in range(pieces):
             var t := t0 + (t1 - t0) * float(j) / float(pieces)
-            var p := _rail_point_m(path, t)
+            var p := _drawn_point_m(path, t)
             points.append(PackedFloat64Array([p[0], p[1], p[2], t]))
-    var last := _rail_point_m(path, arrival)
+    var last := _drawn_point_m(path, arrival)
     points.append(PackedFloat64Array([last[0], last[1], last[2], arrival]))
     return points
 
@@ -2333,7 +2404,7 @@ func _update_burn_markers(trail_node: Node3D, first: PackedFloat64Array, last: P
             material.emission = line_color
             material.emission_energy_multiplier = 1.6
             marker.material_override = material
-            marker.scale = Vector3.ONE * 0.012
+            marker.scale = Vector3.ONE * BURN_MARKER_SCALE
             trail_node.add_child(marker)
         (marker.material_override as StandardMaterial3D).albedo_color = line_color
         (marker.material_override as StandardMaterial3D).emission = line_color
@@ -2360,7 +2431,18 @@ func _update_selected_overlay_positions() -> void:
         var ship: Dictionary = entity_details[selected_id]
         var destination_body: Dictionary = ship.get("destination_body_at_arrival", {})
         if not destination_body.is_empty():
-            destination_body_ghost.position = _scaled_position(destination_body)
+            destination_body_ghost.position = _destination_ghost_position(destination_body)
+
+# Where the selected ship's destination body will be at arrival; for a flight around a planet,
+# where it will be relative to the planet, drawn around the planet now (at the path's end).
+func _destination_ghost_position(destination_body: Dictionary) -> Vector3:
+    var path: Dictionary = ship_paths.get(selected_id, {})
+    var frame := String(path.get("frame", ""))
+    if frame == "":
+        return _scaled_position(destination_body)
+    var at_arrival := PackedFloat64Array([float(destination_body["x"]), float(destination_body.get("y", 0.0)), float(destination_body["z"])])
+    var relative := _minus_m(at_arrival, _body_at_m(frame, float(path["arrival"])))
+    return _abs_render(_plus_m(relative, _body_m(frame)))
 
 func _update_destination_body_ghost(ship: Dictionary) -> void:
     var destination_body: Dictionary = ship.get("destination_body_at_arrival", {})
@@ -2370,7 +2452,7 @@ func _update_destination_body_ghost(ship: Dictionary) -> void:
         return
     var ghost := _ensure_destination_body_ghost()
     var body_id := String(destination_body.get("id", ""))
-    ghost.position = _scaled_position(destination_body)
+    ghost.position = _destination_ghost_position(destination_body)
     ghost.scale = Vector3.ONE * _body_display_scale(body_id)
     ghost.material_override = _make_destination_ghost_material(body_id)
     ghost.visible = true

@@ -1,0 +1,2 @@
+# Music is stored with Git LFS (git lfs install once per machine).
+godot/assets/music/*.ogg filter=lfs diff=lfs merge=lfs -text
