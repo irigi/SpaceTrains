@@ -21,7 +21,7 @@
 - A standalone optimal solver for the 50-250 km/s band (`src/variable_isp/BandedTransfer.*`, its own library; stored for reference, not used by the game), and a study against "plan ideal, fly throttled": `docs/studies/banded_transfer/banded_transfer.pdf`.
 - Result: cargo ships lose about 1% with the throttled plan, liners 3-7%. Decision (2026-10-31): nothing integrated into the game; the in-game band integration (`feature/exhaust_band`) stays unmerged. Engine tiers, bigger tanks and coasting were considered and dropped (user, 2026-11-01).
 
-## Current Plan (updated 2026-10-27) — start here
+## Current Plan (updated 2026-11-02) — start here
 
 **Status.** `main` holds the game up to the economy overhaul (PR #21), the 3D models at true scale (PR #22), the
 station systems view (PR #23), the clean-up review (PR #24, merged 2026-10-26) and the statistics views (2026-10-27,
@@ -113,6 +113,14 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    and the user's test on the Win11 laptop (2026-11-02: all fine, symbol glyphs included; DejaVu Sans and Noto Sans
    Symbols 2 are bundled as fallbacks, `deployment.md`, "Fonts"). Later AppImage, Inno Setup installer, CI,
    code signing, maybe smaller textures (the package is ~230 MB, mostly 8k planet maps).
+
+3. **Planet-system paths in the planet's frame** (user, 2026-11-02, next): Earth–Luna ferries (and moon hops
+   elsewhere) are drawn in the Sun's frame, so the line is a streak along Earth's orbit. Draw them around the
+   planet, moving with it; display only. Plan: `docs/plans/local_frame_paths.md`.
+
+4. **Music** (user, 2026-11-02, next): free-to-use music only (public domain, CC0, CC BY with credits); moods
+   from Frontier: Elite II's classical pieces and the *First Man* score. Shortlist with verified licences for the
+   user to listen to, then a playlist player with volume, mute and credits. Plan: `docs/plans/music.md`.
 
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
 
