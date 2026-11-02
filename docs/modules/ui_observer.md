@@ -29,6 +29,7 @@
 | `EntityVisuals.gd`, `SpaceEnvironment.gd` | bodies, glows, the Sun, rings, stars, lighting |
 | `ShipModels.gd`, `StationModels.gd`, `ShipLayout.gd`, `MeshBuilder.gd`, `ModelMaterials.gd`, `ThermalPalette.gd` | 3D models (below) |
 | `ui/*.gd` | panels: top bar, registry, inspector, ship schematic, market, statistics, charts, comms log, help, key bindings, theme |
+| `Music.gd` | background music (below) |
 | `ShotTour.gd`, `DebugShot.gd`, `ModelGallery.gd` | dev: scripted screenshots and the model gallery |
 
 ## UI Surface
@@ -271,6 +272,17 @@
     running and cargo aboard; plasma ships also in the thermal view; the bulk carriers and the light freighter
     half-full and empty; every station (detailed) whole, a stretch of ring, the core and a docking hub with
     docked ships; and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
+
+- **Music** (`Music.gd`, added by `Main._start_music`): the tracks in `godot/assets/music/manifest.csv` (file, title,
+  composer, performer, licence, source, mood, gain_db; the `.ogg` files are in Git LFS) on their own `Music` bus.
+  Two shuffled decks by mood: two quiet tracks, then one classical (`QUIET_PER_CLASSICAL`), no repeat until a deck
+  is used up. 20–60 s of silence between tracks, 2 s fade-in, the manifest gain on the player (−20 LUFS, peaks
+  ≤ −1 dBTP; `tools/music/prepare_track.sh` converts a new track and prints its gain). A "now playing" note at the
+  bottom centre for 8 s. N next track, Shift+N off/on, [ / ] volume in 10 % steps (by key position, so the two keys
+  right of P on any layout); volume and on/off in `user://settings.cfg` (`[music]`). Off in shot tours, headless
+  runs and with `--no-music`; `--music-log` prints each start. The manifest keeps the "keep" importer (its
+  `.import` is committed), so Godot does not import it as a translation and the export carries it as is. A track
+  that does not load (e.g. a clone without Git LFS) is dropped with a warning.
 
 ## Data Flow
 

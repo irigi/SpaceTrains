@@ -202,8 +202,18 @@ func _ready() -> void:
             ship_metres_to_world = POSITION_SCALE * maxf(float(arg.trim_prefix("--model-scale=")), 1.0e-3)
         if arg.begins_with("--shot-tour="):
             add_child(load("res://scripts/ShotTour.gd").new())
+    _start_music()
     if bridge_started:
         _set_status("Starting bridge…\n%s" % executable_path)
+
+# Background music (Music.gd), except in shot tours, headless runs and with --no-music.
+func _start_music() -> void:
+    if _print_status or DisplayServer.get_name() == "headless" or "--no-music" in OS.get_cmdline_user_args():
+        return
+    var music: Node = load("res://scripts/Music.gd").new()
+    music.name = "Music"
+    music.setup(ui_root)
+    add_child(music)
 
 func _setup_ui() -> void:
     ui_root = Control.new()

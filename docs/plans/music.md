@@ -71,8 +71,10 @@ points), but the user has to choose by ear. So the first step makes a shortlist 
    the rest. The `.ogg` files are in Git LFS (`.gitattributes`; GitHub Free: 10 GiB storage and 10 GiB downloads a
    month). The manifest is a CSV under `godot/`, so Godot imports it as a translation like the data CSVs; the
    player (step 3) must read it with `FileAccess` and make sure the export carries it.
-3. **Player in Godot:** Music node, bus, playlist, fades, controls, settings, now-playing note, key-binding
-   table and test.
+3. **Player in Godot** — done 2026-11-02 (`godot/scripts/Music.gd`, described in `docs/modules/ui_observer.md`).
+   Decisions to review by ear: mix 2 quiet : 1 classical, 20–60 s silence, 2 s fade-in, default volume 60 %,
+   keys N / Shift+N / [ ]. Checked headless: playlist order, all 13 streams load, play, skip, off/on, volume
+   saved; the exported pack carries the tracks and the manifest (+55 MB).
 4. **Credits:** in-game credits (help screen or a small panel) and `CREDITS.txt` in the package.
 5. **Checks:** parse check; run the game and confirm playback and volume (the user listens: Claude can see
    playback state and logs only); package size noted; the Windows package still builds.

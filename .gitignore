@@ -4,6 +4,8 @@
 
 # Godot-specific ignores
 *.import
+# The music manifest is read as a plain file (importer "keep"), not a translation
+!godot/assets/music/manifest.csv.import
 export.cfg
 # export_presets.cfg is committed (godot/export_presets.cfg: release presets, no secrets)
 
