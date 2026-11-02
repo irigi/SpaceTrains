@@ -1,4 +1,5 @@
 #include <cmath>
+#include <random>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -537,6 +538,84 @@ void verify_general_transfer(const std::filesystem::path& dataset_path, const Va
               << " STM refines)\n";
 }
 
+// The solvers answer in a frame of the request's own (x along the start, counter-clockwise), so a
+// transfer rotated or mirrored about the Sun gives the same effort and the same primer, turned
+// with it; and multiple shooting returns as complete an end point as single shooting.
+void verify_frame_invariance() {
+    namespace g = spacetrains::variable_isp::general;
+    const g::Propagator propagator;
+    std::mt19937_64 rng(7);
+    std::uniform_real_distribution<double> u(0.0, 1.0);
+    const auto turn = [](g::Vec2 a, double angle, bool mirror) {
+        const g::Vec2 b {std::cos(angle) * a.x - std::sin(angle) * a.y, std::sin(angle) * a.x + std::cos(angle) * a.y};
+        return mirror ? g::Vec2 {b.x, -b.y} : b;
+    };
+    const auto turn_state = [&](const g::State& s, double angle, bool mirror) {
+        return g::State {turn(s.r, angle, mirror), turn(s.v, angle, mirror)};
+    };
+    const auto polar = [](double r, double th, double vr, double vt) {
+        const g::Vec2 er {std::cos(th), std::sin(th)}, et {-std::sin(th), std::cos(th)};
+        return g::State {r * er, vr * er + vt * et};
+    };
+    std::size_t solved = 0;
+    for (int i = 0; i < 24; ++i) {
+        // Random planar orbits, like visp_bench set C, starting at a random angle.
+        const double r0 = 0.6 + 1.2 * u(rng), r1 = 0.6 + 1.2 * u(rng);
+        const double th0 = 6.283185307179586 * u(rng);
+        const g::State start = polar(r0, th0, 0.1 * (u(rng) - 0.5), std::sqrt(1.0 / r0) * (0.9 + 0.2 * u(rng)));
+        const g::State quarry = polar(r1, th0 + 2.0 * (u(rng) - 0.5), 0.1 * (u(rng) - 0.5), std::sqrt(1.0 / r1) * (0.9 + 0.2 * u(rng)));
+        const double T = 0.5 + 2.5 * u(rng);
+        g::TransferRequest request;
+        request.start = start;
+        request.target = g::coasting_target(quarry);
+        request.end_condition = i % 2 == 0 ? g::EndCondition::Rendezvous : g::EndCondition::Intercept;
+        request.min_radius = 0.1;
+        const auto base = g::solve_transfer(propagator, request, T);
+        for (const bool mirror : {false, true}) {
+            const double angle = 6.283185307179586 * u(rng);
+            g::TransferRequest other = request;
+            other.start = turn_state(start, angle, mirror);
+            other.target = g::coasting_target(turn_state(quarry, angle, mirror));
+            const auto turned = g::solve_transfer(propagator, other, T);
+            require(turned.converged == base.converged, "a rotated or mirrored transfer should solve the same way");
+            if (!base.converged) continue;
+            require(std::abs(turned.end.effort - base.end.effort) <= 1e-6 * base.end.effort,
+                "a rotated or mirrored transfer should cost the same");
+            const g::Vec2 p = turn(base.primer.p, angle, mirror);
+            require(g::norm(turned.primer.p - p) <= 1e-6 * (g::norm(p) + 1e-6), "the primer should turn with the transfer");
+            require(std::abs(std::abs(turned.end.sweep_rad) - std::abs(base.end.sweep_rad)) < 1e-6, "the sweep should not change");
+            // The end point and transition matrix are in the caller's frame: they match a direct rollout.
+            const auto direct = propagator.propagate(other.start, turned.primer, T, true);
+            require(g::norm(direct.state.r - turned.end.state.r) < 1e-6, "the end state should be in the caller's frame");
+            for (std::size_t r = 0; r < 9; ++r)
+                for (std::size_t c = 0; c < 4; ++c)
+                    require(std::abs(direct.stm[r][c] - turned.end.stm[r][c]) <= 1e-5 * (1.0 + std::abs(direct.stm[r][c])),
+                        "the transition matrix should be in the caller's frame");
+        }
+        if (base.converged) ++solved;
+        // Multiple shooting from nodes on the solved path returns h and the STM, as shoot does.
+        if (base.converged && i < 6) {
+            const std::size_t K = 3;
+            std::vector<std::array<double, 8>> nodes;
+            std::array<double, 8> x {start.r.x, start.r.y, start.v.x, start.v.y, base.primer.p.x, base.primer.p.y, base.primer.w.x,
+                base.primer.w.y};
+            for (std::size_t k = 0; k < K; ++k) {
+                nodes.push_back(x);
+                x = propagator.propagate_segment(x, T / static_cast<double>(K)).x;
+            }
+            const auto ms = g::multiple_shoot(propagator, start, request.target, request.end_condition, T, nodes);
+            require(ms.converged, "multiple shooting should converge from the solved path");
+            const auto direct = propagator.propagate(start, ms.primer, T, true);
+            require(std::abs(ms.end.hamiltonian - direct.hamiltonian) <= 1e-6 * (1.0 + std::abs(direct.hamiltonian)),
+                "multiple shooting should return the Hamiltonian");
+            require(std::abs(ms.end.stm[0][0] - direct.stm[0][0]) <= 1e-6 * (1.0 + std::abs(direct.stm[0][0])),
+                "multiple shooting should return the transition matrix");
+        }
+    }
+    require(solved >= 18, "most random transfers should solve");
+    std::cout << "frame invariance verified (" << solved << " of 24 transfers, rotated and mirrored)\n";
+}
+
 // The game-facing chase adapter: a plasma freighter leaving Earth's orbit intercepts a ship
 // coasting outward on a Hohmann-like ellipse, given as a sampled path in SI units.
 void verify_chase_adapter() {
@@ -595,6 +674,7 @@ int main() {
 
     verify_sample_counts(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
     verify_general_transfer(repo_root / "tests/data/variable_isp/reference_unit.json", integrator);
+    verify_frame_invariance();
     verify_chase_adapter();
 
     std::cout << "VariableISP tests passed.\n";

@@ -793,6 +793,14 @@ Solution multiple_shoot(
     const auto& last = current.segments.back().x;
     end.state = {{last[0], last[1]}, {last[2], last[3]}};
     end.primer = {{last[4], last[5]}, {last[6], last[7]}};
+    const Vec2 g = gravity(end.state.r);
+    end.hamiltonian = -dot(end.primer.w, end.state.v) + dot(end.primer.p, g) + 0.5 * dot(end.primer.p, end.primer.p);
+    // The transition matrix of the whole arc, as shoot returns it: one propagation from the start.
+    if (solution.converged) {
+        const auto whole = propagator.propagate(start, solution.primer, T, true);
+        ++solution.propagations;
+        if (whole.ok) end.stm = whole.stm;
+    }
     solution.end = end;
     return solution;
 }
@@ -986,9 +994,8 @@ ShapeResult best_shape(const State& start, const State& end, double T, const Sol
     return best;
 }
 
-}  // namespace
-
-Solution solve_transfer(const Propagator& propagator, const TransferRequest& request, double T,
+// The solvers in the request's own frame (see Frame below); the public functions wrap these.
+Solution solve_transfer_in_frame(const Propagator& propagator, const TransferRequest& request, double T,
     const SolveOptions& options, const Primer* warm, const char** stage) {
     Solution best;
     std::size_t propagations = 0;
@@ -1065,7 +1072,7 @@ Solution solve_transfer(const Propagator& propagator, const TransferRequest& req
     return best;
 }
 
-Solution solve_min_time(const Propagator& propagator, const TransferRequest& request, double budget, double T_lo,
+Solution solve_min_time_in_frame(const Propagator& propagator, const TransferRequest& request, double budget, double T_lo,
     double T_hi, const MinTimeOptions& options) {
     std::size_t propagations = 0;
     const double ratio = std::pow(T_hi / T_lo, 1.0 / static_cast<double>(std::max<std::size_t>(1, options.grid - 1)));
@@ -1084,7 +1091,7 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
         const bool warm_ok = sol.converged && sol.end.min_radius >= request.min_radius;
         if (!warm_ok || (options.recheck_over_budget && sol.end.effort > budget)) {
             // Another branch may fit the budget at this T: the portfolio, keeping the cheaper.
-            auto fresh = solve_transfer(propagator, request, T, cheap);
+            auto fresh = solve_transfer_in_frame(propagator, request, T, cheap, nullptr, nullptr);
             propagations += fresh.propagations;
             if (fresh.converged && (!warm_ok || fresh.end.effort < sol.end.effort)) sol = std::move(fresh);
             else if (!warm_ok) sol = std::move(fresh);
@@ -1133,6 +1140,93 @@ Solution solve_min_time(const Propagator& propagator, const TransferRequest& req
     Solution none;
     none.propagations = propagations;
     return none;
+}
+
+// The request's own frame: x axis along the start position, and mirrored (y → −y) when the
+// transfer runs clockwise. The shooting steps scale and damp each coordinate separately, which
+// is not invariant under rotation, so without this the same transfer could find another branch,
+// or none, depending on where around the Sun it happens. A request starting on +x and running
+// counter-clockwise (the atlas) is already in its frame.
+struct Frame {
+    double c {1.0};  // cos and sin of the rotation into the frame
+    double s {0.0};
+    bool mirror {false};
+
+    Frame(const State& start, const State& end) {
+        const double r = norm(start.r);
+        if (r > 0.0) {
+            c = start.r.x / r;
+            s = -start.r.y / r;
+        }
+        mirror = cross(start.r, start.v) + cross(end.r, end.v) < 0.0;
+    }
+    [[nodiscard]] Vec2 in(Vec2 a) const {
+        const Vec2 b {c * a.x - s * a.y, s * a.x + c * a.y};
+        return mirror ? Vec2 {b.x, -b.y} : b;
+    }
+    [[nodiscard]] Vec2 out(Vec2 b) const {
+        if (mirror) b.y = -b.y;
+        return {c * b.x + s * b.y, -s * b.x + c * b.y};
+    }
+    [[nodiscard]] State in(const State& a) const { return {in(a.r), in(a.v)}; }
+    [[nodiscard]] State out(const State& b) const { return {out(b.r), out(b.v)}; }
+    [[nodiscard]] Primer in(const Primer& a) const { return {in(a.p), in(a.w)}; }
+    [[nodiscard]] Primer out(const Primer& b) const { return {out(b.p), out(b.w)}; }
+
+    [[nodiscard]] TransferRequest in(const TransferRequest& request) const {
+        TransferRequest framed = request;
+        framed.start = in(request.start);
+        framed.start.r = {norm(request.start.r), 0.0};  // exactly on +x
+        framed.target = [frame = *this, target = request.target](double T) {
+            const TargetPoint tp = target(T);
+            return TargetPoint {frame.in(tp.state), frame.in(tp.velocity), frame.in(tp.acceleration)};
+        };
+        return framed;
+    }
+    [[nodiscard]] Solution out(Solution solution) const {
+        const double sign = mirror ? -1.0 : 1.0;
+        solution.primer = out(solution.primer);
+        solution.initial_sweep *= sign;
+        EndPoint& end = solution.end;
+        end.state = out(end.state);
+        end.primer = out(end.primer);
+        end.sweep_rad *= sign;
+        // ∂x/∂u in the caller's frame is Qᵀ (∂x/∂u) Q: rows in 2-vector blocks (r, v, p, w; E
+        // unchanged), columns in blocks (p0, w0); a row pair times Q is out() of that pair too.
+        auto& m = end.stm;
+        for (auto& row : m) {
+            for (std::size_t c0 = 0; c0 < 4; c0 += 2) {
+                const Vec2 v = out(Vec2 {row[c0], row[c0 + 1]});
+                row[c0] = v.x;
+                row[c0 + 1] = v.y;
+            }
+        }
+        for (std::size_t r0 = 0; r0 < 8; r0 += 2) {
+            for (std::size_t c0 = 0; c0 < 4; ++c0) {
+                const Vec2 v = out(Vec2 {m[r0][c0], m[r0 + 1][c0]});
+                m[r0][c0] = v.x;
+                m[r0 + 1][c0] = v.y;
+            }
+        }
+        return solution;
+    }
+};
+
+}  // namespace
+
+Solution solve_transfer(const Propagator& propagator, const TransferRequest& request, double T,
+    const SolveOptions& options, const Primer* warm, const char** stage) {
+    const Frame frame(request.start, request.target(T).state);
+    const Primer framed_warm = warm != nullptr ? frame.in(*warm) : Primer {};
+    return frame.out(solve_transfer_in_frame(
+        propagator, frame.in(request), T, options, warm != nullptr ? &framed_warm : nullptr, stage));
+}
+
+Solution solve_min_time(const Propagator& propagator, const TransferRequest& request, double budget, double T_lo,
+    double T_hi, const MinTimeOptions& options) {
+    // One frame for the whole search, so the warm starts along the grid stay comparable.
+    const Frame frame(request.start, request.target(T_lo).state);
+    return frame.out(solve_min_time_in_frame(propagator, frame.in(request), budget, T_lo, T_hi, options));
 }
 
 
