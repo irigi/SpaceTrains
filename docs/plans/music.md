@@ -16,8 +16,8 @@ redistribute worldwide, bundled inside a game:
 - **Old composition ≠ free recording.** Wagner, Strauss, Grieg, Mussorgsky and Holst (died 1934, public domain
   in the EU since 2005) wrote public-domain music, but a modern orchestra's recording has its own copyright.
   We need recordings whose own rights are given away.
-- **Pre-1926 US recordings** (Edison and Victor 78s, Project Gutenberg's audio) are public domain in the US
-  but not necessarily in the EU, and sound like 78s. Avoid, unless the user likes that sound as a period piece.
+- **Old recordings** (Edison and Victor discs before 1926) are public domain in the US, and in the EU, where a
+  recording's term (then 50 years) ran out long ago; they sound like 78s, so use them only if the user likes that.
 - Every track gets a row in a manifest: title, composer, performer, licence, source URL, download date. The
   manifest makes the credits screen and `CREDITS.txt` in the package; a track with a doubtful row stays out.
 
@@ -55,7 +55,12 @@ points), but the user has to choose by ear. So the first step makes a shortlist 
 
 ## Steps
 
-1. **Shortlist** (Claude): 15–25 candidate recordings with verified licences, both moods, as a page of links
+1. **Shortlist** (Claude) — done 2026-11-02: 24 recordings with licences checked on each file page (Wikimedia
+   Commons API, Philip Milman's and Scott Buckley's pages), published as a private page for the user to listen and pick.
+   Strongest sources: US Marine Band / Air Force Band (public domain), Musopen Kickstarter (Czech National SO, public
+   domain), Peabody Symphony Mahler (CC0), Philip Milman / Lud and Schlatt (CC BY via YouTube), Scott Buckley (CC BY 4.0
+   plus his own terms).
+   Original step:: 15–25 candidate recordings with verified licences, both moods, as a page of links
    and notes (length, performer, licence, source). The user listens and picks ~8–15.
 2. **Fetch and prepare** the picks: download into a fresh folder, convert to OGG, trim silences, even out
    loudness, record each in the manifest.
