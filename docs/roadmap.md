@@ -107,14 +107,11 @@ cache, 5 d/s shows ~10 more frames over 50 ms a minute (ui_observer.md).
    Points to check: how the game finds the bridge and data when installed, writable paths for saves and the
    snapshot/command files, MSVC or MinGW for the C++ core, and the bridge being cleaned up when the game exits.
    The user can run Claude on a Windows machine to build and test there.
-   **Built 2026-11-01** on `feature/deployment` (design in `docs/modules/deployment.md`, plan in
-   `docs/plans/deployment.md`): `tools/package/build_release.sh` makes a Linux tar.gz and a Windows zip on the
-   Linux PC (Windows by MinGW cross-compiling). Checked: the Linux package outside the repo (screenshot tour,
-   save/load, bridge exits), the Windows test suites, bridge and game under wine (also a non-ASCII user folder).
-   Open: the user's test on the Win11 laptop. The ship-list marker
-   (2026-11-02): it was Godot's missing-glyph box with the hex code (e.g. 25CF for ●); the game now bundles
-   DejaVu Sans and Noto Sans Symbols 2 as fallbacks (`deployment.md`, "Fonts"), checked on Linux without system
-   fonts; the wine game run needs the sandbox off (no Vulkan inside it), so the Windows look waits for the laptop test. Later AppImage, Inno Setup installer, CI,
+   **Done 2026-11-02**, merged (design in `docs/modules/deployment.md`): `tools/package/build_release.sh` makes a
+   Linux tar.gz and a Windows zip on the Linux PC (Windows by MinGW cross-compiling). Checked: the Linux package
+   outside the repo (screenshot tour, save/load, bridge exits), the Windows test suites, bridge and game under wine,
+   and the user's test on the Win11 laptop (2026-11-02: all fine, symbol glyphs included; DejaVu Sans and Noto Sans
+   Symbols 2 are bundled as fallbacks, `deployment.md`, "Fonts"). Later AppImage, Inno Setup installer, CI,
    code signing, maybe smaller textures (the package is ~230 MB, mostly 8k planet maps).
 
 Later (user, 2026-10-26): more statistics views and porkchop plots, done (above). Left from it: the "who pays whom" matrix drilled down to accounts (the journal keeps sectors only).
