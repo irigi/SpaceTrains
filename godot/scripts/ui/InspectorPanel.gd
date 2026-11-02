@@ -656,7 +656,7 @@ func _add_station_people(detail: Dictionary, context: Dictionary) -> void:
             line = "Staff tours %.0f days · " % tour + line
         _add_note(line)
 
-# The station systems view (display only; docs/plans/station_structures.md, "Light view"): the
+# The station systems view (display only; docs/archive/station_structures.md, "Light view"): the
 # site, the works and their jobs, and the needs in Victoria 2's tiers. Derived from the economy's
 # numbers; the simulation ignores it.
 func _add_station_works(detail: Dictionary, context: Dictionary) -> void:

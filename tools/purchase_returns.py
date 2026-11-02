@@ -7,7 +7,7 @@ Every purchase logs the return its valuation promised ("ordered at ... : N%/yr e
 from several starting dates (verbose, so the purchase events are printed), matches the two and
 reports the medians by ship group. Run it after changing purchase valuations, fares, prices or ship
 classes: the estimate should stay within ~2x of the result (as cargo was on 2026-10-22), and a group
-whose earned return sits far below its expected one is being overbought (docs/plans/passenger_routes.md,
+whose earned return sits far below its expected one is being overbought (docs/archive/passenger_routes.md,
 "Check: are passenger purchases overvalued?").
 
     tools/purchase_returns.py [--binary build/bin/spacetrains_headless] [--days 1460] [--starts 0,90]

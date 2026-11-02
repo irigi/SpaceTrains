@@ -1,4 +1,4 @@
-// The station systems view (display only; docs/plans/station_structures.md, "Light view"):
+// The station systems view (display only; docs/archive/station_structures.md, "Light view"):
 // people, works and their jobs by kind, needs by tier, site and depot, derived from the
 // numbers the economy already has. Nothing here feeds back into the simulation.
 

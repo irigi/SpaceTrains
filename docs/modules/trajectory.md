@@ -166,7 +166,7 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
 
 Benchmarks: `spacetrains_visp_bench <A|R|AG|B|C|D|E|F>` (`tools/visp_bench/main.cpp`: A/R atlas cells as
 intercepts and rendezvous, AG the same through the general solver, B-F general-boundary sets). The solver's design
-brief is `docs/plans/variable-isp-solver-directions.md`.
+brief is `docs/studies/variable-isp-solver-directions.md`.
 
 ## Shared Helpers
 
