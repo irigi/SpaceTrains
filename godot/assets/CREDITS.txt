@@ -1,0 +1,89 @@
+SpaceTrains credits
+===================
+
+Music
+-----
+Recordings as listed (title, composer, performer, licence, source). All were converted to
+OGG Vorbis and had leading and trailing silence trimmed; the music itself is unchanged.
+
+"Ride of the Valkyries" by Richard Wagner
+  Performed by Philip Milman (Lud and Schlatt's Musical Emporium)
+  Licence: CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source: https://commons.wikimedia.org/wiki/File:Ride_of_the_Valkyries.ogg
+
+"The Blue Danube" by Johann Strauss II
+  Performed by "The President's Own" United States Marine Band
+  Licence: Public domain (US government work)
+  Source: https://commons.wikimedia.org/wiki/File:%22An_der_sch%C3%B6nen,_blauen_Donau%22_performed_by_the_U.S._Marine_Band.mp3
+
+"In the Hall of the Mountain King (Peer Gynt Suite No. 1)" by Edvard Grieg
+  Performed by Musopen Symphony (Czech National Symphony Orchestra)
+  Licence: Public domain
+  Source: https://commons.wikimedia.org/wiki/File:Grieg_-_Peer_Gynt_Suite_No._1,_Op._46_-_IV._In_the_Hall_of_the_Mountain_King_(Musopen_Symphony).flac
+
+"Also sprach Zarathustra: Sunrise" by Richard Strauss
+  Performed by Philip Milman (Lud and Schlatt's Musical Emporium)
+  Licence: CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source: https://commons.wikimedia.org/wiki/File:Richard_Strauss_-_Also_Sprach_Zarathustra_-_Phillip_Milman_-_Lud_and_Schlatts_Musical_Emporium.wav
+
+"Night on Bald Mountain" by Modest Mussorgsky
+  Performed by Musopen (performer not named)
+  Licence: Public domain
+  Source: https://commons.wikimedia.org/wiki/File:Modest_Mussorgsky_-_night_on_bald_mountain.ogg
+
+"Clair de lune (Suite bergamasque)" by Claude Debussy
+  Performed by Laurens Goedhart, piano
+  Licence: Public domain (released by the performer)
+  Source: https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg
+
+"Gymnopédie No. 1" by Erik Satie
+  Performed by Kevin MacLeod (incompetech.com)
+  Licence: CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source: https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1_(ISRC_USUAN1100787).mp3
+
+"Gymnopédie No. 2" by Erik Satie
+  Performed by Kevin MacLeod (incompetech.com)
+  Licence: CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source: https://commons.wikimedia.org/wiki/File:Gymnopedie_No._2_(ISRC_USUAN1100786).mp3
+
+"Morning Mood (Peer Gynt Suite No. 1)" by Edvard Grieg
+  Performed by Musopen Symphony (Czech National Symphony Orchestra)
+  Licence: Public domain
+  Source: https://commons.wikimedia.org/wiki/File:Grieg_-_Peer_Gynt_Suite_No._1,_Op._46_-_I._Morning_Mood_(Musopen_Symphony).flac
+
+"Cello Suite No. 1 in G major: Prélude" by Johann Sebastian Bach
+  Performed by Philip Milman (Lud and Schlatt's Musical Emporium)
+  Licence: CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source: https://commons.wikimedia.org/wiki/File:Bach_-_Cello_Suite_no._1_in_G_major,_BWV_1007_-_I._Pr%C3%A9lude,_Lud_and_Schlatts_Musical_Emporium.ogg
+
+"Permafrost" by Scott Buckley
+  Performed by Scott Buckley (www.scottbuckley.com.au)
+  Licence: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source: https://www.scottbuckley.com.au/library/wp-content/uploads/2022/08/Permafrost.mp3
+
+"She Moved Mountains" by Scott Buckley
+  Performed by Scott Buckley (www.scottbuckley.com.au)
+  Licence: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source: https://www.scottbuckley.com.au/library/wp-content/uploads/2014/07/sb_shemovedmountains.mp3
+
+"Aphelion" by Scott Buckley
+  Performed by Scott Buckley (www.scottbuckley.com.au)
+  Licence: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source: https://www.scottbuckley.com.au/library/wp-content/uploads/2026/04/Aphelion.mp3
+
+Planet maps
+-----------
+Solar System Scope (https://www.solarsystemscope.com/textures/), CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/), based on NASA elevation and imagery data.
+Changed: Venus and Mars desaturated, Mars brightened, Saturn's ring resampled, all re-encoded as JPEG.
+
+Fonts
+-----
+DejaVu Sans 2.37 (Bitstream Vera licence, DejaVu changes in the public domain),
+https://dejavu-fonts.github.io/
+Noto Sans Symbols 2 (SIL Open Font License 1.1), https://notofonts.github.io/
+Open Sans (Godot's built-in font, SIL Open Font License 1.1)
+
+Engine
+------
+Godot Engine (MIT licence), https://godotengine.org/license

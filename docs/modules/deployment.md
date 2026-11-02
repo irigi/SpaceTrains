@@ -4,7 +4,8 @@
 
 Release packages of SpaceTrains for Linux and Windows 11 that run without compiling anything: an archive to unpack
 and start. Everything is built on a Linux machine; Windows binaries are cross-compiled with MinGW-w64
-(user's decision, 2026-11-01). Installers (AppImage, Inno Setup), CI and code signing are later steps.
+(user's decision, 2026-11-01). Installers (AppImage, Inno Setup), CI and code signing are not planned: the
+archives are enough (user, 2026-11-02).
 
 ## Package layout
 
@@ -17,6 +18,7 @@ SpaceTrains-<version>-<linux|windows>-x86_64/
   atlas/variable_isp_atlas.bin             the VariableISP atlas (34 MB), outside data/ so the
                                            opening-cache key does not read it
   README.txt                               running, keys, where the user's files are
+  CREDITS.txt                              music, planet maps, fonts, engine
 ```
 
 The folder is only read. Saves, caches and logs go to Godot's `user://`
@@ -76,6 +78,20 @@ system's fonts: fine on Linux and Windows, but wine has no font with them and Go
 the hex code (2026-11-02). `UiTheme.install_symbol_fonts` gives the global default font two bundled fallbacks,
 DejaVu Sans and Noto Sans Symbols 2 (`godot/assets/fonts/`, licences beside them, ~1.4 MB), so every platform
 draws the same glyphs. Checked on Linux with fontconfig pointed at an empty configuration (no system fonts).
+
+## Credits and licences
+
+Everything bundled must be safe to redistribute worldwide inside a game on a public repo: public domain (CC0, PD
+Mark, US government works, pre-1926 recordings) or **CC BY** (credit only). Not NC, ND, SA, "personal use" or an
+unclear licence. An old composition is not enough: the recording needs its own free licence.
+
+`tools/package/make_credits.py` writes `godot/assets/CREDITS.txt` from `godot/assets/music/manifest.csv` (title,
+composer, performer, licence with its link, source; the changes made: converted to OGG, silence trimmed) plus the
+planet maps (Solar System Scope, CC BY 4.0), the fonts and Godot. Run it after changing the manifest; a licence it
+has no link for stops it. `build_release.sh` runs it with `--check` (fails if the file is out of date) and copies
+it into the package; the export carries it too (`include_filter="assets/CREDITS.txt"` in `export_presets.cfg`),
+and the help panel's Credits view shows it. Sources of the music: Wikimedia Commons (US Marine Band, Musopen,
+Philip Milman / Lud and Schlatt, Kevin MacLeod), Scott Buckley's site.
 
 ## Limits
 

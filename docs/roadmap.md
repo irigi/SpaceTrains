@@ -2,7 +2,7 @@
 
 Consolidated with the user 2026-11-02. Order: **To do** (top, in order) → **Parked** (kept in mind, not
 planned) → **Not doing** → standing decisions and checks → **Done**. The design as built is in `docs/modules/`
-(start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/`; shelved concepts in
+(start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (none open now); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
 **Status.** `main` holds everything up to PR #32 (planet-frame paths, music player), no open PRs.
@@ -11,9 +11,9 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
 
 ## To do
 
-1. **Music credits** (required: the CC BY recordings must be credited). In-game credits (help screen or a small
-   panel) and `CREDITS.txt` in the package, from `godot/assets/music/manifest.csv`; plan `docs/plans/music.md`,
-   steps 4-6. The user still has to listen and judge the mix (2 quiet : 1 classical, 20-60 s gaps, 60% volume).
+1. **Listen to the music** (user): judge the mix (2 quiet : 1 classical, 20-60 s gaps, 2 s fade-in, 60% volume,
+   keys N / Shift+N / [ ]); settings in `Music.gd`. Credits are done (2026-11-02: help panel H → Credits,
+   `CREDITS.txt` in the package; `deployment.md`, "Credits and licences").
 
 2. **Station models: no pop from simple to detailed** (user, 2026-11-02). Today the detailed model is only
    requested once the station is 90 px on screen (`Main.gd` `_update_station_lod`, `STATION_DETAIL_PX`) and

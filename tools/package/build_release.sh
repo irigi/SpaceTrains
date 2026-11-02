@@ -82,7 +82,7 @@ build_bridge() {
     cmake --build "$RELEASE/$platform" --target spacetrains_bridge -j"$JOBS"
 }
 
-# The package folder: the exported game, bin/, data/ (CSVs only), atlas/ and README.txt.
+# The package folder: the exported game, bin/, data/ (CSVs only), atlas/, README.txt and CREDITS.txt.
 assemble() {
     local platform="$1" game_file="$2" bridge_file="$3" preset="$4"
     local name="SpaceTrains-$VERSION-$platform-x86_64"
@@ -96,8 +96,12 @@ assemble() {
     (cd "$REPO" && find data -name '*.csv' -print0 | xargs -0 -I{} install -D -m 644 {} "$out/{}")
     cp "$REPO/tests/data/variable_isp/variable_isp_atlas.bin" "$out/atlas/"
     sed "s/@VERSION@/$VERSION/" "$REPO/tools/package/README.txt" > "$out/README.txt"
+    cp "$REPO/godot/assets/CREDITS.txt" "$out/CREDITS.txt"
     echo "$out"
 }
+
+# The credits must match the music manifest.
+python3 "$REPO/tools/package/make_credits.py" --check || die "CREDITS.txt is out of date."
 
 for p in "${platforms[@]}"; do
     case "$p" in
@@ -112,7 +116,7 @@ for p in "${platforms[@]}"; do
                 mingw_prefix="$(posix_mingw_prefix)"
             build_bridge windows --toolchain "$REPO/cmake/mingw-w64-x86_64.cmake"
             out="$(assemble windows SpaceTrains.exe spacetrains_bridge.exe "Windows Desktop" | tail -1)"
-            (cd "$DIST" && sed -i 's/$/\r/' "$out/README.txt" && rm -f "$(basename "$out").zip" \
+            (cd "$DIST" && sed -i 's/$/\r/' "$out/README.txt" "$out/CREDITS.txt" && rm -f "$(basename "$out").zip" \
                 && zip -qr "$(basename "$out").zip" "$(basename "$out")")
             echo "== $out.zip" ;;
     esac

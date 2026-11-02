@@ -283,6 +283,8 @@
   runs and with `--no-music`; `--music-log` prints each start. The manifest keeps the "keep" importer (its
   `.import` is committed), so Godot does not import it as a translation and the export carries it as is. A track
   that does not load (e.g. a clone without Git LFS) is dropped with a warning.
+  The help panel (H) has a Credits view showing `godot/assets/CREDITS.txt` (music, planet maps, fonts; written by
+  `tools/package/make_credits.py` from the manifest, `deployment.md`, "Credits and licences").
 
 ## Data Flow
 
