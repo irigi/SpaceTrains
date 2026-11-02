@@ -140,6 +140,13 @@ the mass; the unknowns are the primer (thrust p0 and its rate w0). Normalised un
   0.4–0.8 ms on the bench sets.
 - `solve_min_time` — earliest arrival for an effort budget (fuel load), never shorter than its lower bound
   `T_lo` (a first grid point that already fits is kept as it is).
+- Both solve in the request's own frame (x along the start position, mirrored when the transfer runs clockwise;
+  for `solve_min_time` fixed at `T_lo`) and turn the answer back, end point and transition matrix included. The
+  shooting steps scale and damp each coordinate separately, which is not rotation-invariant: without the frame,
+  13 of 2,000 bench-style cases (sets C/D) changed effort and 3 solved in only one orientation when rotated about
+  the Sun; with it, none (2026-11-02, from The Long Burn's port, `docs/bugs/spacetrains_upstream.md`). Atlas
+  cases start on +x and are already in their frame. `multiple_shoot` returns the Hamiltonian and, once
+  converged, the whole arc's transition matrix (one more propagation), like `shoot`.
 - `trajectory/ChaseSolver.hpp` — SI adapter: `path_target` follows another ship's `TrajectoryPlan` samples,
   `kepler_target` a two-body coast (a derelict), `plan_chase` returns the earliest interception or rendezvous for a
   ship's power and propellant (the fastest, whatever it costs; kept for chases that are races).
