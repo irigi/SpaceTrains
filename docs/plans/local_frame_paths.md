@@ -6,7 +6,8 @@ frame instead.
 
 **Status:** built 2026-11-02 as designed, inferred in the UI (no bridge field needed). Burn markers also
 shrink to a few pixels close up (their fixed ~96,000 km size swamped the Earth–Moon view). Checked with
-`--shot-local-paths` before/after (Kepler ellipse, plasma spiral, LEO hop). Kept until the user has looked.
+`--shot-local-paths` before/after (Kepler ellipse, plasma spiral, LEO hop). Checked by the user 2026-11-02, after a fix: `planet_system_path` thinned the samples by the heliocentric
+shape (nearly straight), so the drawn transfer wobbled by up to ~2,500 km; it now thins them around the planet.
 
 ## What happened before
 
