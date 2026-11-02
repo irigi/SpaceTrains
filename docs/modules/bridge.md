@@ -21,7 +21,11 @@
 ## Current Public Surface
 
 - `spacetrains_bridge --data-root ... --snapshot-file ... --command-file ... --step-seconds ... [--opening-cache DIR]
-  [--parent-pid PID] [--once] [--startup-steps N]` (`src/bridge/main.cpp`).
+  [--atlas FILE] [--log-file FILE] [--parent-pid PID] [--once] [--startup-steps N]` (`src/bridge/main.cpp`).
+  `--atlas` defaults to the checkout's `tests/data/variable_isp/variable_isp_atlas.bin`
+  (`Simulation::default_atlas_path`); `--log-file` sends everything written to stderr to that file (the UI passes
+  `user://logs/bridge.log`, since an installed game has no terminal). Paths are given as UTF-8; on Windows the
+  bridge's manifest makes that the process code page (`docs/modules/deployment.md`).
 - **Lifetime:** the bridge exits when the UI that started it is gone (Linux: the kernel signals it when its parent
   dies; elsewhere, and as a backstop, the loop checks for re-parenting or the `--parent-pid` process (Windows: its
   handle)). An orphaned bridge kept simulating at full speed and once froze the desktop.
@@ -78,7 +82,9 @@ Simulation -> snapshot + paths files -> Godot rendering/UI
 
 ## Deferred Work
 
-- A sturdier transport for Windows (roadmap: deployment), or a GDExtension.
+- A GDExtension instead of the file transport, if the files ever prove fragile. On Windows a rename over a file
+  the other side has open can fail: the bridge retries its snapshot renames and the UI rewrites its command file
+  on the next frame.
 
 ## Tests
 

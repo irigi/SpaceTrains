@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -30,6 +31,8 @@ namespace {
 
 struct BridgeConfig {
     std::string data_root;
+    std::string atlas_file;  // empty: the source checkout's tests/data/variable_isp
+    std::string log_file;  // empty: stderr (an installed game has no terminal)
     std::string snapshot_file;
     std::string command_file;
     bool once {false};
@@ -50,6 +53,10 @@ BridgeConfig parse_args(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--data-root" && i + 1 < argc) {
             config.data_root = argv[++i];
+        } else if (arg == "--atlas" && i + 1 < argc) {
+            config.atlas_file = argv[++i];
+        } else if (arg == "--log-file" && i + 1 < argc) {
+            config.log_file = argv[++i];
         } else if (arg == "--snapshot-file" && i + 1 < argc) {
             config.snapshot_file = argv[++i];
         } else if (arg == "--command-file" && i + 1 < argc) {
@@ -83,9 +90,16 @@ bool write_text_file(const std::string& path, const std::string& contents) {
             return false;
         }
     }
+    // On Windows the rename fails while the reader has the old file open: try a few times.
     std::error_code error;
-    std::filesystem::rename(temp_path, path, error);
-    return !error;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        std::filesystem::rename(temp_path, path, error);
+        if (!error) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return false;
 }
 
 // The UI writes its command file as one JSON object; until the closing brace is there the
@@ -153,7 +167,7 @@ std::string read_text_file(const std::string& path) {
 // atlas file's size and time (it lives next to the data, in tests/data). Saves use the
 // narrower Simulation::data_fingerprint, so a save still loads after, say, a price tweak;
 // the opening has to be planned again after any data change.
-std::string opening_fingerprint(const std::filesystem::path& data_root) {
+std::string opening_fingerprint(const std::filesystem::path& data_root, const std::filesystem::path& atlas) {
     std::uint64_t hash = 1469598103934665603ULL;
     const auto mix = [&](const std::string& text) {
         for (const char ch : text) {
@@ -173,7 +187,6 @@ std::string opening_fingerprint(const std::filesystem::path& data_root) {
         mix(std::filesystem::relative(file, data_root, error).generic_string());
         mix("\n" + read_text_file(file.string()) + "\n");
     }
-    const auto atlas = data_root.parent_path() / "tests" / "data" / "variable_isp" / "variable_isp_atlas.bin";
     if (std::filesystem::exists(atlas, error)) {
         mix(std::format("atlas|{}|{}", std::filesystem::file_size(atlas, error),
             std::filesystem::last_write_time(atlas, error).time_since_epoch().count()));
@@ -197,16 +210,28 @@ bool parse_bool_flag(const std::string& text, const std::string& key, bool fallb
     return fallback;
 }
 
-// "key":"value" (the UI writes paths without quotes or backslashes).
+// "key":"value", with the JSON escapes a path can carry (\\, \", \/); \uXXXX is not expected
+// (Godot writes non-ASCII as UTF-8).
 std::string parse_string_flag(const std::string& text, const std::string& key) {
     const auto marker = "\"" + key + "\":\"";
     const auto index = text.find(marker);
     if (index == std::string::npos) {
         return {};
     }
-    const auto start = index + marker.size();
-    const auto end = text.find('"', start);
-    return end == std::string::npos ? std::string {} : text.substr(start, end - start);
+    std::string value;
+    for (auto i = index + marker.size(); i < text.size(); ++i) {
+        const char ch = text[i];
+        if (ch == '"') {
+            return value;
+        }
+        if (ch == '\\' && i + 1 < text.size()) {
+            const char next = text[++i];
+            value += next == 'n' ? '\n' : next == 't' ? '\t' : next;
+        } else {
+            value += ch;
+        }
+    }
+    return {};  // no closing quote: the file is still being written
 }
 
 double parse_number_flag(const std::string& text, const std::string& key, double fallback) {
@@ -227,8 +252,20 @@ double parse_number_flag(const std::string& text, const std::string& key, double
 
 int main(int argc, char** argv) {
     const auto config = parse_args(argc, argv);
+    if (!config.log_file.empty()) {
+        // Everything the bridge and the simulation report (std::cerr) goes to this file.
+        std::error_code error;
+        std::filesystem::create_directories(std::filesystem::path(config.log_file).parent_path(), error);
+        if (std::freopen(config.log_file.c_str(), "w", stderr) != nullptr) {
+            std::setvbuf(stderr, nullptr, _IONBF, 0);
+        }
+    }
     const ParentWatch parent_watch(config.parent_pid);
-    auto simulation = spacetrains::simulation::Simulation::from_data_root(config.data_root);
+    const auto atlas_file = config.atlas_file.empty()
+        ? spacetrains::simulation::Simulation::default_atlas_path(config.data_root) : config.atlas_file;
+    std::cerr << std::format("[bridge] data {}, atlas {}\n", config.data_root, atlas_file);
+    auto simulation = spacetrains::simulation::Simulation::from_data_root(
+        config.data_root, atlas_file, [](spacetrains::domain::UniverseDefinition&) {});
     const auto bridge_start = std::chrono::steady_clock::now();
     std::uint64_t snapshot_seq = 0;
 
@@ -479,7 +516,7 @@ int main(int argc, char** argv) {
         std::error_code error;
         const auto build_time = std::filesystem::last_write_time(argv[0], error);
         opening_path = (std::filesystem::path(config.opening_cache_dir)
-            / std::format("opening_{}_{}.json", opening_fingerprint(config.data_root),
+            / std::format("opening_{}_{}.json", opening_fingerprint(config.data_root, atlas_file),
                 error ? 0 : build_time.time_since_epoch().count())).string();
     }
     bool opened_from_cache = false;

@@ -37,6 +37,12 @@ public:
     // The same, with the loaded universe adjusted first (tests: switches without data copies).
     [[nodiscard]] static Simulation from_data_root(const std::string& data_root,
         const std::function<void(domain::UniverseDefinition&)>& adjust);
+    // With the VariableISP atlas at the given path (an installed game keeps it outside the
+    // source tree); empty means default_atlas_path(data_root).
+    [[nodiscard]] static Simulation from_data_root(const std::string& data_root, const std::string& atlas_path,
+        const std::function<void(domain::UniverseDefinition&)>& adjust);
+    // The atlas in a source checkout: tests/data/variable_isp next to the data root.
+    [[nodiscard]] static std::string default_atlas_path(const std::string& data_root);
 
     // The simulation advances in fixed ticks of TICK_S game seconds, whatever the timewarp
     // or the caller's step: step() adds real_dt_s x timewarp and runs the whole ticks due.

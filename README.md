@@ -99,6 +99,13 @@ bindings; the list lives in `godot/scripts/ui/KeyBindings.gd`, and `tests/test_k
 handles a key or mouse button the list does not describe. A scripted screenshot tour for checking the map without sitting at the
 screen: `godot4 --path godot -- --shot-tour=/some/dir` (plus `--shot-day=N`, `--shot-saveload`, `--shot-smooth=SECONDS`).
 
+## Release Packages
+
+`tools/package/build_release.sh [linux] [windows]` builds `dist/SpaceTrains-<version>-linux-x86_64.tar.gz` and
+`dist/SpaceTrains-<version>-windows-x86_64.zip` on Linux (Windows by cross-compiling with MinGW-w64): unpack and
+run, nothing to compile. Needs the Godot 4.3 source tree for the double-precision export templates (built once),
+`scons`, and `mingw-w64` for Windows. Details: `docs/modules/deployment.md`.
+
 ## Documentation
 
 - [`docs/architecture_overview.md`](docs/architecture_overview.md): layers, modules, a tick

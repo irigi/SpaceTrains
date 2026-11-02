@@ -14,6 +14,20 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Release packages (tools/package/build_release.sh) link the C++ runtime statically, so the
+# bridge runs without the compiler's libraries installed (Windows: fully static, no DLLs).
+option(SPACETRAINS_STATIC_RUNTIME "Link the C++ runtime statically (release packages)" OFF)
+if(SPACETRAINS_STATIC_RUNTIME)
+    if(MINGW)
+        add_link_options(-static)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        add_link_options(-static-libstdc++ -static-libgcc)
+    endif()
+endif()
+if(WIN32)
+    enable_language(RC)
+endif()
+
 add_library(spacetrains_core
     src/data_loader/DataLoader.cpp
     src/data_loader/Csv.cpp
@@ -84,6 +98,10 @@ target_compile_options(spacetrains_headless PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_headless PRIVATE spacetrains_core Threads::Threads)
 
 add_executable(spacetrains_bridge src/bridge/main.cpp)
+if(WIN32)
+    # A manifest that makes narrow-string paths UTF-8 (src/bridge/windows).
+    target_sources(spacetrains_bridge PRIVATE src/bridge/windows/spacetrains_bridge.rc)
+endif()
 target_compile_options(spacetrains_bridge PRIVATE ${SPACETRAINS_WARNINGS})
 target_link_libraries(spacetrains_bridge PRIVATE spacetrains_core)
 
