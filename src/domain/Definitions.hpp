@@ -273,7 +273,7 @@ struct StationRadiationDefinition {
 };
 
 // The station systems view (data/stations/works.csv, station_systems.csv; display only, see
-// docs/plans/station_structures.md, "Light view"). A works makes one or more of a station's
+// docs/archive/station_structures.md, "Light view"). A works makes one or more of a station's
 // outputs; its jobs are its share of the station's jobs, split by kind with a typical staffing.
 struct StationWorksDefinition {
     std::string profile_id;      // "*" for every profile without a row of its own

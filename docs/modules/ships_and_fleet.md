@@ -128,7 +128,7 @@ Sources: `docs/ship_technology.md` ("Crew radiation", "Boil-off and wear"). Ever
 
 Switches and numbers: `data/economy/passengers.csv` (master switch `passengers`, on; sub-switches `rotation`,
 `migration`, `discretionary`). With `passengers,0` the economy runs without them: the liner classes do not load and
-cabins are never offered. Open points on routes and cabins: `docs/plans/passenger_routes.md`. A berth is costed as
+cabins are never offered. Open points on routes and cabins: `docs/archive/passenger_routes.md`. A berth is costed as
 linopt's per-passenger mass (2.5 t) plus a share of the habitat's constant part: about 3 t and 2,535 cr. `--econ-audit` reports passengers by kind, by station
 on every route to or from Titan, the routes where most people gave up (with legs flown, legs by ships with
 berths, and those that left empty while people waited), and the legs flown in all.
