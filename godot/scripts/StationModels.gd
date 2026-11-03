@@ -17,7 +17,8 @@ extends RefCounted
 #   shield, its radiators edge-on behind it.
 # - shielded_drum: a drum armoured in ice blocks inside three magnetic-shield coils.
 # - bola: habitat pods on long tethers (450 m), two crossed counter-rotating bolas from
-#   15,000 people.
+#   15,000 people, their planes far enough apart for the pods to pass. A pod is three
+#   drums standing on the tether, twelve flat decks each, sized by the people.
 # - rock: a hollowed asteroid spinning about its long axis, a lit window trench round
 #   its waist.
 # - module_wheel: twelve modules joined into a wheel (250 m), four spokes.
@@ -53,6 +54,12 @@ const TUBE_RATIO := 65.0 / 900.0
 const AREA_PER_PERSON_M2 := 70.0
 # How far the docking hubs stand beyond the habitat along the axis.
 const HUB_CLEARANCE_M := 200.0
+# Bola pods: drums with their axis along the tether, decks stacked towards the hub, the
+# lowest deck at the 1 g rim. Domes as a share of the drum radius; the gap between drums.
+const BOLA_DECKS := 12
+const BOLA_DECK_M := 5.0
+const BOLA_DOME := 0.3
+const BOLA_GAP_M := 16.0
 
 const DESIGN_BY_STATION := {
     "earth_l1": "garden_torus",
@@ -136,9 +143,16 @@ static func _habitat(data: Dictionary) -> Dictionary:
                 "surface_m": half * 0.98})
         "bola":
             var r := 450.0
-            var spinners := [[-45.0, 1.0, 0.0, false], [45.0, -1.0, PI * 0.5, false]] if two else [[0.0, 1.0, 0.0, false]]
-            h.merge({"kind": "bola", "rim_m": r, "spinners": spinners, "reach_m": 45.0 if two else 0.0,
-                "clear_m": (45.0 if two else 0.0) + 0.25 * CORE_M, "extent_m": r + 90.0})
+            # Each pod: three drums standing on the tether, BOLA_DECKS flat decks each.
+            var pods := 4.0 if two else 2.0
+            var dr := clampf(sqrt(pop * AREA_PER_PERSON_M2 / pods / (3.0 * BOLA_DECKS * PI)), 30.0, 70.0)
+            # The two bolas' planes far enough apart that their pods pass each other.
+            var off := dr + 20.0 if two else 0.0
+            var spinners := [[-off, 1.0, 0.0, false], [off, -1.0, PI * 0.5, false]] if two else [[0.0, 1.0, 0.0, false]]
+            var dome := BOLA_DOME * dr
+            var span := 3.0 * dr + BOLA_GAP_M + 100.0
+            h.merge({"kind": "bola", "rim_m": r, "drum_r_m": dr, "spinners": spinners, "reach_m": off + dr,
+                "clear_m": off + dr + 0.25 * CORE_M, "extent_m": Vector2(r + dome + 5.0, span).length()})
         "module_wheel":
             var r := MIN_RING_RADIUS_M
             h.merge({"kind": "wheel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
@@ -1250,7 +1264,7 @@ static func _rock_shape() -> Dictionary:
         var lat := absf(asin(d.z))
         if lat + rad > 1.1 or lat - 1.35 * rad < 0.08:
             continue
-        craters.append([d, rad, rng.randf_range(0.03, 0.07)])
+        craters.append([d, rad, rng.randf_range(0.03, 0.07), cos(1.7 * rad)])
     return {"waves": waves, "craters": craters}
 
 # The rock's surface point along the unit direction dir.
@@ -1261,12 +1275,17 @@ static func _rock_point(hab: Dictionary, shape: Dictionary, dir: Vector3) -> Vec
     var f := 1.0
     for w in shape["waves"]:
         f += float(w[1]) * sin((w[0] as Vector3).dot(dir) + float(w[2]))
+    # Craters: a bowl and a smooth raised rim (no step at the edge, so the grid resolves it).
     for cr in shape["craters"]:
-        var t := acos(clampf(dir.dot(cr[0]), -1.0, 1.0)) / float(cr[1])
+        var cosine := dir.dot(cr[0])
+        if cosine < float(cr[3]):
+            continue
+        var t := acos(minf(cosine, 1.0)) / float(cr[1])
+        var depth := float(cr[2])
         if t < 1.0:
-            f -= float(cr[2]) * (1.0 - t * t)
-        elif t < 1.35:
-            f += float(cr[2]) * 0.35 * (1.0 - (t - 1.0) / 0.35)
+            f -= depth * (1.0 - t * t)
+        var rim := (t - 0.95) / 0.25
+        f += 0.3 * depth * exp(-rim * rim)
     var lat := asin(clampf(dir.z, -1.0, 1.0))
     # The poles flatten towards the bare ellipsoid, where the spine's bearings sit.
     f = lerpf(f, 0.98, smoothstep(1.15, 1.4, absf(lat)))
@@ -1280,8 +1299,8 @@ static func _rock_point(hab: Dictionary, shape: Dictionary, dir: Vector3) -> Vec
 static func _rock(hab: Dictionary, detail: bool) -> Dictionary:
     var shape := _rock_shape()
     var b := MeshBuilder.new()
-    var n_lat := 72 if detail else 40
-    var n_lon := 160 if detail else 80
+    var n_lat := 160 if detail else 40
+    var n_lon := 360 if detail else 80
     var lat_max := deg_to_rad(84.0)
     # The grid, rows of latitude; the trench's walls get rows of their own.
     var lats: Array[float] = []
@@ -1377,65 +1396,95 @@ static func _rock(hab: Dictionary, detail: bool) -> Dictionary:
 
 # --- Bola ---------------------------------------------------------------------------
 #
-# Two habitat pods (three cans side by side, along the direction of motion) on tethers
-# from the spinning collar, one either side. DETAIL: the pod and its tether drawn as a
-# MultiMesh of the two turns.
+# Two habitat pods on tethers from the spinning collar, one either side. A pod is three
+# squat drums in a row along the direction of motion, each standing on the tether (its
+# axis radial): flat decks stacked towards the hub, the lowest at the 1 g rim, so every
+# deck is a floor. Domed ends (ballast and plant below, the tether bridle above), a
+# corridor between the drums, radiators beyond the end drums. DETAIL: the pod and its
+# tether drawn as a MultiMesh of the two turns.
 
 static func _bola(hab: Dictionary, detail: bool) -> Dictionary:
     var r := float(hab["rim_m"])
+    var dr := float(hab["drum_r_m"])
     var b := MeshBuilder.new()
     _collar(b, 0.24 * CORE_M, 14.0, detail, 7)
+    var mid := r - 0.5 * BOLA_DECKS * BOLA_DECK_M
     for turn in [0.0, PI]:
         var xf := Transform3D(Basis(Vector3(0, 0, 1), turn), Vector3.ZERO)
         if not detail:
-            _bola_pod(b, r, xf, false)
-        # Faction bands round each can.
-        for at in _bola_cans(r):
-            b.cylinder("band", 60.0, 72.0, 28.6, 48 if detail else 24, xf * Transform3D(_can_basis(), at), true)
+            _bola_pod(b, r, dr, xf, false)
+        # Faction bands round each drum, at mid height.
+        for y in _bola_drums(dr):
+            b.cylinder("band", mid - 3.0, mid + 3.0, dr + 0.4, 64 if detail else 32, xf * Transform3D(_drum_up(), Vector3(0, y, 0)), true)
     var result := {"arrays": b.commit_arrays(), "instanced": []}
     if detail:
         var pod := MeshBuilder.new()
-        _bola_pod(pod, r, Transform3D.IDENTITY, true)
+        _bola_pod(pod, r, dr, Transform3D.IDENTITY, true)
         result["instanced"].append({"arrays": pod.commit_arrays(), "turns": _turns(2, func(_k: int) -> bool: return true)})
     return result
 
-static func _bola_cans(r: float) -> Array:
-    return [Vector3(r, 0, -32.0), Vector3(r, 0, 32.0), Vector3(r + 50.0, 0, 0.0)]
+# The drums' places along the direction of motion (local Y).
+static func _bola_drums(dr: float) -> Array:
+    var step := 2.0 * dr + BOLA_GAP_M
+    return [-step, 0.0, step]
 
-# Local Z along +Y (the cans lie along the direction of motion).
+# Local Z along +Y (a can lying along the direction of motion).
 static func _can_basis() -> Basis:
     return Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
 
-static func _bola_pod(b: MeshBuilder, r: float, xf: Transform3D, detail: bool) -> void:
+# Local Z along +X (radially outwards): a drum's decks lie across it.
+static func _drum_up() -> Basis:
+    return Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0))
+
+static func _bola_pod(b: MeshBuilder, r: float, dr: float, xf: Transform3D, detail: bool) -> void:
     var rng := RandomNumberGenerator.new()
     rng.seed = 31
-    for at in _bola_cans(r):
-        var can := xf * Transform3D(_can_basis(), at)
-        b.vessel("blanket", -100.0, 100.0, 28.0, 14.0, 40 if detail else 20, can)
+    var height := BOLA_DECKS * BOLA_DECK_M
+    var top := r - height
+    var dome := BOLA_DOME * dr
+    var mid := r - 0.5 * height
+    var drums := _bola_drums(dr)
+    var segs := 64 if detail else 32
+    for y in drums:
+        var up := xf * Transform3D(_drum_up(), Vector3(0, y, 0))
+        b.vessel("blanket", top - dome, r + dome, dr, dome, segs, up)
         if detail:
-            for z in [-80.0, -40.0, 0.0, 40.0, 80.0]:
-                b.torus("steel", z, 28.2, 0.7, can, 40, 4)
-            for z in range(-74, 76, 12):
-                _window_ring(b, float(z), 28.0, 36, Vector2(2.0, 1.4), rng, can)
-    # Frames joining the cans.
-    for y in [-70.0, 0.0, 70.0]:
-        var cans := _bola_cans(r)
-        for k in range(3):
-            b.beam("truss", xf * (cans[k] + Vector3(0, y, 0)), xf * (cans[(k + 1) % 3] + Vector3(0, y, 0)), 3.0 if detail else 4.0)
-    # Radiators above and below.
+            # A hoop every three decks; a row of windows on every deck (not behind the band).
+            for k in range(0, BOLA_DECKS + 1, 3):
+                b.torus("steel", top + k * BOLA_DECK_M, dr + 0.2, 0.6, up, segs, 4)
+            for k in range(BOLA_DECKS):
+                var z := top + (k + 0.55) * BOLA_DECK_M
+                if absf(z - mid) > 4.0:
+                    _window_ring(b, z, dr, int(TAU * dr / 4.0), Vector2(2.2, 1.6), rng, up)
+            # The bridle's anchor on the upper dome, and plant on the lower one.
+            b.cylinder("metal", top - dome - 4.0, top - dome + 1.0, 5.0, 16, up)
+            for k in range(4):
+                var ang := TAU * (float(k) + 0.5) / 4.0
+                var at := Vector3(cos(ang) * 0.45 * dr, sin(ang) * 0.45 * dr, r + 0.6 * dome)
+                b.box("metal", Vector3(10.0, 10.0, 6.0), up * Transform3D(Basis.IDENTITY, at))
+    # Corridors between the drums, two decks up and near the top.
+    for x in [r - 2.5 * BOLA_DECK_M, top + 2.5 * BOLA_DECK_M]:
+        for k in range(2):
+            var a := Vector3(x, drums[k], 0.0)
+            var c := Vector3(x, drums[k + 1], 0.0)
+            b.cylinder("steel", 0.0, (c - a).length(), 5.0, 20 if detail else 10,
+                xf * Transform3D(Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0)), a))
+    # Radiators beyond the end drums, edge-on to the direction of motion.
+    var reach := float(drums[2]) + dr
     for s in [-1.0, 1.0]:
-        var at := xf * Transform3D(Basis.IDENTITY.rotated(Vector3(1, 0, 0), PI * 0.5), Vector3(r + 25.0, 0, s * 64.0))
+        var at := xf * Transform3D(Basis.IDENTITY.rotated(Vector3(1, 0, 0), PI * 0.5), Vector3(mid, s * (reach + 50.0), 0.0))
         if detail:
-            _panel_grid(b, "silver", Vector3(60.0, 0.3, 140.0), at, 3, 7)
+            _panel_grid(b, "silver", Vector3(height, 0.3, 84.0), at, 3, 5)
         else:
-            b.box("silver", Vector3(60.0, 0.3, 140.0), at)
-    # The tether: two cables with spreaders to a bridle at the pod; climber cars on it.
+            b.box("silver", Vector3(height, 0.3, 84.0), at)
+        b.beam("truss", xf * Vector3(mid, s * reach, 0.0), xf * Vector3(mid, s * (reach + 10.0), 0.0), 3.0)
+    # The tether: two cables with spreaders to a bridle above the pod; climber cars on it.
     var root := 0.24 * CORE_M
-    var bridle := r - 90.0
+    var bridle := top - dome - 120.0
     for s in [-1.0, 1.0]:
         b.beam("steel", xf * Vector3(root, 0, s * 3.0), xf * Vector3(bridle, 0, s * 3.0), 1.2 if detail else 2.0)
-    for target in [Vector3(r - 28.0, 0, -32.0), Vector3(r - 28.0, 0, 32.0), Vector3(r - 28.0, -70.0, 0.0), Vector3(r - 28.0, 70.0, 0.0)]:
-        b.beam("steel", xf * Vector3(bridle, 0, 0), xf * target, 0.8 if detail else 1.4)
+    for y in drums:
+        b.beam("steel", xf * Vector3(bridle, 0, 0), xf * Vector3(top - dome - 2.0, y, 0.0), 0.8 if detail else 1.4)
     if detail:
         var spreaders := int((bridle - root) / 30.0)
         for i in range(1, spreaders):

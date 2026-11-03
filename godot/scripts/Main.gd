@@ -147,6 +147,7 @@ const EntityVisualsScript := preload("res://scripts/EntityVisuals.gd")
 const ShipModelsScript := preload("res://scripts/ShipModels.gd")
 const StationModelsScript := preload("res://scripts/StationModels.gd")
 const ModelMaterialsScript := preload("res://scripts/ModelMaterials.gd")
+const EclipsesScript := preload("res://scripts/Eclipses.gd")
 const TopBarPanel := preload("res://scripts/ui/TopBar.gd")
 const EntityBrowserPanel := preload("res://scripts/ui/EntityBrowser.gd")
 const InspectorPanelScript := preload("res://scripts/ui/InspectorPanel.gd")
@@ -914,6 +915,7 @@ func _update_nodes(delta: float) -> void:
     # Docked ships, and ships near a station, after every station has its position for this frame.
     for entity_id in docked:
         _place_docked_ship(entity_nodes[entity_id], entity_id)
+    _update_eclipses()
     for entity_id in entity_nodes.keys():
         if entity_kinds.get(entity_id, "") == "ship" \
                 and String((entity_details.get(entity_id, {}) as Dictionary).get("phase", "idle")) == "in_transit":
@@ -942,6 +944,36 @@ func _update_nodes(delta: float) -> void:
     if space_env != null:
         space_env.update_camera(camera.global_position)
     _update_selected_overlay_positions()
+
+# Ships and stations in a planet's or moon's shadow (Eclipses.gd). A docked ship takes
+# its station's light.
+func _update_eclipses() -> void:
+    if not body_orbits.has("sun"):
+        return
+    var sun_m := _body_m("sun")
+    var sun_radius := float(body_orbits["sun"]["radius"])
+    var bodies: Array = []
+    for body_id in body_orbits.keys():
+        if body_id != "sun":
+            bodies.append([_body_m(body_id), float(body_orbits[body_id]["radius"])])
+    var shades := EclipsesScript.occluders(sun_m, sun_radius, bodies)
+    var at_station := {}
+    for entity_id in entity_nodes.keys():
+        var kind := String(entity_kinds.get(entity_id, ""))
+        if kind != "station" and kind != "ship":
+            continue
+        var key := String(entity_id)
+        if kind == "ship":
+            var detail: Dictionary = entity_details.get(entity_id, {})
+            if not String(detail.get("phase", "idle")) in ["in_transit", "derelict", "patrol"]:
+                key = String(detail.get("current_station_id", entity_id))
+        var level: int
+        if at_station.has(key):
+            level = at_station[key]
+        else:
+            level = EclipsesScript.level_of(EclipsesScript.lit_fraction(_entity_m(entity_id), sun_m, sun_radius, shades))
+            at_station[key] = level
+        EclipsesScript.apply(entity_nodes[entity_id], level)
 
 # Planets, moons and the Sun keep the camera out (OrbitCamera pushes it to their surface).
 func _update_camera_obstacles() -> void:
@@ -2123,6 +2155,8 @@ func _setup_scene_lighting() -> void:
     sun_light.shadow_enabled = false
     sun_light.light_color = Color(1.0, 0.96, 0.82)
     world_root.add_child(sun_light)
+    # Planets and moons shade ships and stations (Eclipses.gd).
+    EclipsesScript.make_lights(sun_light)
     # A weak light from the camera for ships and stations only (render layer 2, see
     # ModelMaterials.MODEL_LAYERS): their night sides stay readable without glowing, and
     # planets keep their dark sides.

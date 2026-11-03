@@ -436,6 +436,11 @@ func _close_zoom_shots(rig: Node3D) -> void:
 # into from far away (counting frames it is drawn coarse while well above the switch size,
 # the pop the player would see) and shot close; Mercury's shield must face the Sun.
 func _station_shots(rig: Node3D) -> void:
+    # The detailed models are built in the background after start-up; fly in once they are.
+    var waited := 0
+    while not bool(main.get("_stations_prefetched")) and waited < 1800:
+        await get_tree().process_frame
+        waited += 1
     print("[ShotTour] stations: detailed models ready %.1f s after start-up, at most %.1f ms of a frame spent on them" % [
         float(main.get("stations_prefetched_ms")) / 1000.0, float(main.get("prefetch_worst_ms"))])
     var ids: Array = []
@@ -461,6 +466,7 @@ func _station_shots(rig: Node3D) -> void:
         if sun_part != null and main.entity_nodes.has("sun"):
             var to_sun: Vector3 = ((main.entity_nodes["sun"] as Node3D).global_position - sun_part.global_position).normalized()
             line += ", shield facing the Sun %.3f (1 = square on)" % sun_part.global_transform.basis.x.normalized().dot(to_sun)
+        line += ", sunlight %d/%d" % [int(node.get_meta("eclipse_level", 8)), 8]
         print(line)
         await get_tree().create_timer(0.4).timeout
         await _shoot("station_%s" % station_id)

@@ -123,7 +123,8 @@ byte-identical.
   within one planet's system, music player (PRs #15-#16, #22-#23, #25, #32; `modules/ui_observer.md`); a design
   of its own for every station (torus pairs with mirrors or dry docks, Bernal sphere, sun-shaded and ice-armoured
   drums, bolas, hollowed asteroid, module wheel, carousel) with detailed models built in the background so they
-  never pop in (`feature/station_models_diverse`, 2026-11-03, awaiting the user's look);
+  never pop in, and planets and moons shading ships and stations (`feature/station_models_diverse`, 2026-11-03;
+  the user's first notes done: Mars pods with flat decks, eclipses, finer Ceres craters);
   save/load (F5/F9); code review and clean-up (PR #24).
 - **Deployment:** Linux tar.gz and Windows zip built on the Linux PC, tested on Windows 11 (PR #30,
   `modules/deployment.md`).

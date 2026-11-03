@@ -56,6 +56,14 @@
   stands in when a model is a few pixels; screen-space labels beside icons (bodies, then stations, then ships in
   flight; overlap culling); Sun halo and bloom; sunlight with a gentle falloff, and a weak fill light from the
   camera that reaches only ships and stations (render layer 2), so their night sides stay readable.
+- **Eclipses** (`Eclipses.gd`, 2026-11-03): planets and moons shade ships and stations. Shadow maps cannot
+  resolve a 2 km station beside a 12,000 km planet at true scale, so each frame `Main._update_eclipses` works
+  out, for every station and every ship in flight (docked ships take their station's), the share of the Sun's
+  disc left uncovered by any body (umbra and penumbra; only bodies near enough to cover over 1% of the disc are
+  tested). The share in eighths picks the model's render layer: layer 1 (the Sun light) when fully lit, else
+  layers 11-17, each lit by a copy of the Sun light at 1/8 ... 7/8 of its energy, or none in umbra. The fill light
+  and ambient light still reach shaded models, as on any night side. `--shot-stations` prints each station's
+  sunlight in eighths.
 - **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), 8k for
   Earth, Moon, Mars and Mercury, 4k for Jupiter, Saturn, Venus and Ceres, 2k for Uranus and Neptune; imported
   VRAM-compressed (BPTC) with mipmaps and drawn with anisotropic filtering (~250 MB of video memory). The maps are
@@ -115,8 +123,8 @@
   | Low Earth | `yard_torus` | Stanford torus pair; two dry docks between the rings, one hull half built (ribs, keel), one finished |
   | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators |
   | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
-  | Mars | `bola` | two crossed, counter-rotating bolas: pods of three cans on 450 m tethers with climber cars |
-  | Ceres | `rock` | hollowed asteroid (~300 m across, 1.35× that along the spin axis), craters, a lit window trench round the waist |
+  | Mars | `bola` | two crossed, counter-rotating bolas on 450 m tethers with climber cars, their planes ~140 m apart so the pods pass; a pod is three squat drums standing on the tether (axis radial), twelve flat 5 m decks each with the lowest at the 1 g rim, sized by the people (~70 m² of deck each) |
+  | Ceres | `rock` | hollowed asteroid (~300 m across, 1.35× that along the spin axis), craters with smooth raised rims (detailed grid 160 × 360), a lit window trench round the waist |
   | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, 250 m, four spokes |
   | Ganymede | `shielded_drum` | drum armoured in ice blocks, inside three superconducting shield coils held from the spine |
   | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms, 300 m |
@@ -149,9 +157,10 @@
       side, shield panels, Stanford-style sunlight windows on the inner shoulder, service lines inside, radiator
       fins underneath.
   - **No pop:** every station's detailed model is built in the background after start-up, one at a time
-    (`StationModels.prefetch`, ~0.2-0.6 s each on a worker thread, all ready a few seconds after start); the
-    meshes are made on the main thread, at most ~16 ms of one frame per station. A station is never drawn coarse
-    while it is big on screen (`--shot-stations` counts such frames while flying in to each station: 0).
+    (`StationModels.prefetch`, ~0.2-0.6 s each on a worker thread, Ceres ~1.4 s, all ready ~6 s after start);
+    the meshes are made on the main thread, at most ~23 ms of one frame per station (Ceres). A station is never drawn coarse
+    while it is big on screen (`--shot-stations` waits for the background builds, then counts such frames
+    while flying in to each station: 0).
   - Mercury's shield part turns about the station's axis to face the Sun each frame (`spin_rings` with the Sun's
     position).
   - The real sizes need no altitude cap (stations orbit at least 200 km up); `_station_display_scale` keeps one
