@@ -104,36 +104,58 @@
   - Far out, the billboard engine glow marks a running engine (`EntityVisuals.update_engine_glow`: thermal ships
     for `engine_burn_s` after departure and before arrival, plasma ships the whole transit, sized by jet power).
   - Until the designs file is read, a stand-in design is drawn.
-- **Station models** (`StationModels.gd`): generic, in metres at real size, at the ships' scale.
-  - The habitat ring is anchored on the Stanford torus (900 m radius, 65 m tube, 10,000 people): radius grows with
-    the square root of the people per ring, at least 250 m (1 g at 2 rpm), so 640-990 m for the stations today.
-    Rings turn at the rate that gives 1 g (about 0.1 rad/s, a turn a minute), in real time, and stop while the game
-    is paused (`Main.spin_clock_s`).
-  - Everything else is sized for the ships (40-140 m long; the large liner's radiators span ~200 m) and is the same
-    at every station: a spine with a docking hub and four 110 m berthing arms at each end; docked ships sit at the
-    arm ends, bow to the hub, queuing outwards 160 m apart when there are more ships than berths.
-  - A docked ship keeps its berth while docked; an arriving ship takes the lowest free one. Near a station a ship
-    in flight blends between its path (which ends at the station's centre) and its berth, by distance (full within
-    1.3 station radii, none beyond 4), so it docks without a jump and passes over the ring, not through it. In
-    practice ships arrive at speed (burns are impulsive), ~30 km per frame even at 600x, so this is rarely seen.
-  - One habitat ring, two counter-rotating ones from 15,000 people, a tube diameter apart (the Stanford ratio of
-    tube to ring, 130 m across a 1.8 km ring, is kept; two rings that nearly touched read as one fat drum).
-  - Two levels of detail (station radius above 90 px on screen, back below 60 px):
-    - coarse: a plain torus with two window strips, a plain spine, beams for arms and masts;
-    - detailed (~0.3 M triangles a ring, ~50 k the core; built on a worker thread in ~0.4 s, coarse until then):
-      the ring is cut into sectors (~100 m of rim, 6-10 between spokes) in four variants (spoke junction, two
-      home variants, greenhouse), each built once and drawn as a MultiMesh round the ring. Round the tube: the
-      faction band at the rim, rows of windows (some lit) or greenhouse glazing either side, shield panels with
-      seams top and bottom, Stanford-style sunlight windows on the inner shoulder, service lines inside, radiator
-      fins underneath, frames round the tube, airlocks, antennas, equipment and beacons. Spokes with frames and
-      elevator rails, a spinning hub collar with windows. The core: lattice spine, pressurized modules with
-      frames, windows and cupolas, hubs with windows, antennas and beacons, lattice berthing arms with propellant
-      lines and cradles (clamps, floodlights), banded tanks with feed lines, paneled solar arrays and radiators.
+- **Station models** (`StationModels.gd`): in metres at real size, at the ships' scale. Each station has a design
+  (`DESIGN_BY_STATION`, else by economy profile, else the plain torus): its own spinning habitat round a shared
+  docking core. Habitats turn at the rate that gives 1 g at their rim, in real time, and stop while the game is
+  paused (`Main.spin_clock_s`); they are sized by the seeded population.
+
+  | Station | Design | Habitat |
+  |---|---|---|
+  | Earth L1 | `garden_torus` | Stanford torus pair; 45° conical mirror crowns send sunlight into the rings' sunlight windows; two in three sectors greenhouses |
+  | Low Earth | `yard_torus` | Stanford torus pair; two dry docks between the rings, one hull half built (ribs, keel), one finished |
+  | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators |
+  | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
+  | Mars | `bola` | two crossed, counter-rotating bolas: pods of three cans on 450 m tethers with climber cars |
+  | Ceres | `rock` | hollowed asteroid (~300 m across, 1.35× that along the spin axis), craters, a lit window trench round the waist |
+  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, 250 m, four spokes |
+  | Ganymede | `shielded_drum` | drum armoured in ice blocks, inside three superconducting shield coils held from the spine |
+  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms, 300 m |
+
+  - Stanford torus: 900 m radius, 65 m tube, 10,000 people; radius grows with the square root of the people per
+    ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
+    flipped so both rings' sunlight windows (and crowns) face outwards.
+  - Ceres, Ganymede and Titan have a reactor on a boom (shadow shield, radiator wings) instead of solar arrays.
+  - The core is the same everywhere and sized for the ships (40-140 m long; the large liner's radiators span
+    ~200 m): a spine with a docking hub and four 110 m berthing arms at each end, 200 m beyond the habitat along
+    the axis, so docked ships clear it; storage tanks by capacity between the habitat and the lower hub;
+    radiators; a flavour by economy profile just beyond the habitat (between the rings for a torus pair):
+    greenhouses, fabrication blocks, sphere tank farm (also at fuel factories), solar furnace, container stacks,
+    ore bins, shuttle pads with a lander, extraction rigs. Pressurized modules line the spine outside a solid
+    habitat; bearings sit where the spine enters it.
+  - Docked ships sit at the arm ends, bow to the hub, queuing outwards 160 m apart when there are more ships than
+    berths. A docked ship keeps its berth while docked; an arriving ship takes the lowest free one. Near a station
+    a ship in flight blends between its path (which ends at the station's centre) and its berth, by distance (full
+    within 1.3 station radii, none beyond 4), so it docks without a jump and passes over the habitat, not through
+    it. In practice ships arrive at speed (burns are impulsive), ~30 km per frame even at 600x, so this is rarely
+    seen.
+  - Two levels of detail with the same shapes, so the switch is quiet (station radius above 30 px on screen, back
+    below 20 px):
+    - coarse: plain shapes, window strips, beams for arms and masts;
+    - detailed (100-330 k triangles): repeated parts (torus sectors, sphere gores, drum staves, bola pods,
+      wheel modules, carousel arms) built once and drawn as MultiMeshes of turns about the axis; lattice
+      trusses, panels, rows of windows (some lit), shield tiles, frames, airlocks, antennas, equipment and
+      beacons. Torus sectors (~100 m of rim, 6-10 between spokes) come in four variants (spoke junction, two home
+      variants, greenhouse); round the tube: the faction band at the rim, windows or greenhouse glazing either
+      side, shield panels, Stanford-style sunlight windows on the inner shoulder, service lines inside, radiator
+      fins underneath.
+  - **No pop:** every station's detailed model is built in the background after start-up, one at a time
+    (`StationModels.prefetch`, ~0.2-0.6 s each on a worker thread, all ready a few seconds after start); the
+    meshes are made on the main thread, at most ~16 ms of one frame per station. A station is never drawn coarse
+    while it is big on screen (`--shot-stations` counts such frames while flying in to each station: 0).
+  - Mercury's shield part turns about the station's axis to face the Sun each frame (`spin_rings` with the Sun's
+    position).
   - The real sizes need no altitude cap (stations orbit at least 200 km up); `_station_display_scale` keeps one
     (60% of the altitude) only for large `--model-scale` values.
-  - Storage tanks by capacity, solar arrays, radiators.
-  - A flavour by economy profile (`economy_profile_id` in the snapshot): greenhouses, fabrication blocks, sphere
-    tank farm (also at fuel factories), solar furnace, container stacks, ore bins, shuttle pads, extraction rigs.
 - **Paint** (`ModelMaterials.gd`): muted and matte, nothing self-lit except windows, hot nozzles, plumes and
   radiators while a drive runs:
   - white and gold insulation blankets;
@@ -260,18 +282,21 @@
   `--shot-close` adds a docked ship close up with a picking check and prints how far paths end from their stations
   (Godot crashes on quit after it, also before 2026-11-02; the shots are saved first); `--shot-local-paths` shoots a
   ferry of each kind flying within Earth's system (whole system, close up, the system again seconds later);
-  `--shot-arrival` watches the next ship dock at 600x; `--shot-routes` shoots the Routes tab (Earth-Mars in each view, Earth-Jupiter and Earth-Saturn) and the inspector's windows, printing
+  `--shot-stations` reports when every station's detailed model was ready and flies in to each station, counting
+  frames drawn coarse while big on screen (Mercury: whether its shield faces the Sun); `--shot-arrival` watches the next ship dock at 600x; `--shot-routes` shoots the Routes tab (Earth-Mars in each view, Earth-Jupiter and Earth-Saturn) and the inspector's windows, printing
   how long the windows took; `--shot-flows` turns the flow overlay on and shoots the inner system and Earth's; `--shot-stats[=3,4]` saves the statistics screen's tabs page by page; `--shot-inspector` saves the inspector page by page (cropped,
   every section unfolded) for three stations and a docked and a flying ship of each drive, and prints any child wider
   than the panel; `--shot-cargo` shoots up to four loaded ships in flight
   close up and prints their hold state, `--shot-cargo-angles` adds four views each; `--shot-pause` also checks the
   ring spin stops); `SPACETRAINS_GODOT_PROFILE=1` prints frame-time shares.
   - Model gallery: `godot4 --path godot -s res://scripts/ModelGallery.gd -- --designs=<snapshot>.designs --out=<dir>
-    [--only=id,prefix*] [--stations=<snapshot.json>] [--thermal]`. It renders every base class and one design per
-    module, coarse and detailed, from several views (plus the cargo bay close and from the side), with the engine
-    running and cargo aboard; plasma ships also in the thermal view; the bulk carriers and the light freighter
-    half-full and empty; every station (detailed) whole, a stretch of ring, the core and a docking hub with
-    docked ships; and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs.
+    [--only=id,prefix*] [--stations=<snapshot.json>] [--only_stations=id,id] [--thermal]`. It renders every base
+    class and one design per module, coarse and detailed, from several views (plus the cargo bay close and from the
+    side), with the engine running and cargo aboard; plasma ships also in the thermal view; the bulk carriers and
+    the light freighter half-full and empty; every station coarse and detailed from the same view, a stretch of the
+    habitat's rim, the core and a docking hub with docked ships, printing its detail build times and triangles;
+    and a contact sheet. `spacetrains_headless --snapshot-json <file>` writes both inputs (`--only=zzz` skips the
+    ships).
 
 - **Music** (`Music.gd`, added by `Main._start_music`): the tracks in `godot/assets/music/manifest.csv` (file, title,
   composer, performer, licence, source, mood, gain_db; the `.ogg` files are in Git LFS) on their own `Music` bus.

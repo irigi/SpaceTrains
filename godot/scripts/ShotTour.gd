@@ -197,6 +197,10 @@ func _run() -> void:
         await _planet_shots(rig)
         get_tree().quit()
         return
+    if OS.get_cmdline_user_args().has("--shot-stations"):
+        await _station_shots(rig)
+        get_tree().quit()
+        return
     if OS.get_cmdline_user_args().has("--shot-close"):
         _report_path_end_gaps()
         await _docked_close_shot(rig)
@@ -428,6 +432,39 @@ func _close_zoom_shots(rig: Node3D) -> void:
 
 # The next ship to dock, watched from its destination station at a slow timewarp: it
 # should ease into a berth over the ring, without a jump.
+# --shot-stations: when every station's detailed model was ready, then each station flown
+# into from far away (counting frames it is drawn coarse while well above the switch size,
+# the pop the player would see) and shot close; Mercury's shield must face the Sun.
+func _station_shots(rig: Node3D) -> void:
+    print("[ShotTour] stations: detailed models ready %.1f s after start-up, at most %.1f ms of a frame spent on them" % [
+        float(main.get("stations_prefetched_ms")) / 1000.0, float(main.get("prefetch_worst_ms"))])
+    var ids: Array = []
+    for entity_id in main.entity_nodes.keys():
+        if main.entity_kinds.get(entity_id, "") == "station":
+            ids.append(entity_id)
+    ids.sort()
+    for station_id in ids:
+        var node: Node3D = main.entity_nodes[station_id]
+        main.select_entity(station_id, "station", true)
+        var size: float = main.map_icons.model_world_size(node)
+        var coarse_frames := 0
+        var steps := 90
+        for i in range(steps):
+            var d := size * 100.0 * pow(2.5 / 100.0, float(i) / float(steps - 1))
+            rig.set("distance", maxf(d, float(rig.get("min_distance"))))
+            rig.call("_update_transform")
+            await get_tree().process_frame
+            if main.map_icons.projected_model_pixels(node) > main.STATION_DETAIL_PX * 1.2 and int(node.get_meta("lod", 0)) == 0:
+                coarse_frames += 1
+        var line := "[ShotTour] %s: %d frames coarse above the switch size while flying in" % [station_id, coarse_frames]
+        var sun_part := node.get_node_or_null("sun") as Node3D
+        if sun_part != null and main.entity_nodes.has("sun"):
+            var to_sun: Vector3 = ((main.entity_nodes["sun"] as Node3D).global_position - sun_part.global_position).normalized()
+            line += ", shield facing the Sun %.3f (1 = square on)" % sun_part.global_transform.basis.x.normalized().dot(to_sun)
+        print(line)
+        await get_tree().create_timer(0.4).timeout
+        await _shoot("station_%s" % station_id)
+
 func _arrival_shots(rig: Node3D) -> void:
     var pick := ""
     var soonest := INF

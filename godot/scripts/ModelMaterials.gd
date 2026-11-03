@@ -61,6 +61,12 @@ static func shared(slot: String) -> Material:
             m.emission_enabled = true
             m.emission = Color(1.0, 0.86, 0.62)
             m.emission_energy_multiplier = 0.6
+        "mirror":  # sunlight mirrors (habitat crowns)
+            m = _standard(Color(0.72, 0.74, 0.78), 0.12, 0.85)
+        "rock":  # asteroid regolith
+            m = _standard(Color(0.16, 0.155, 0.15), 0.95)
+        "ice":  # water-ice radiation shield blocks
+            m = _standard(Color(0.34, 0.36, 0.38), 0.85)
         "cargo_body":  # container walls and frames
             m = _standard(Color(0.42, 0.42, 0.41), 0.8)
         "cargo_mark":  # doors, stripes and tank shells, tinted per container (MultiMesh colour)
