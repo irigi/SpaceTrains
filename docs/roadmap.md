@@ -5,7 +5,7 @@ planned) → **Not doing** → standing decisions and checks → **Done**. The d
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (none open now); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
-**Status.** `main` holds everything up to PR #32 (planet-frame paths, music player), no open PRs.
+**Status.** `main` holds everything up to PR #34 (station designs, eclipses), no open PRs.
 Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 131 ships profitable,
 ~4,500 boardings, drift 0, ~150 s per run.
 
@@ -123,7 +123,7 @@ byte-identical.
   within one planet's system, music player (PRs #15-#16, #22-#23, #25, #32; `modules/ui_observer.md`); a design
   of its own for every station (torus pairs with mirrors or dry docks, Bernal sphere, sun-shaded and ice-armoured
   drums, bolas, hollowed asteroid, module wheel, carousel) with detailed models built in the background so they
-  never pop in, and planets and moons shading ships and stations (`feature/station_models_diverse`, 2026-11-03;
+  never pop in, and planets and moons shading ships and stations (PR #34, 2026-11-03;
   the user's first notes done: Mars pods with flat decks, eclipses, finer Ceres craters);
   save/load (F5/F9); code review and clean-up (PR #24).
 - **Deployment:** Linux tar.gz and Windows zip built on the Linux PC, tested on Windows 11 (PR #30,
