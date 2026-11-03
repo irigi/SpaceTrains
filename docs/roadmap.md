@@ -15,24 +15,13 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    keys N / Shift+N / [ ]); settings in `Music.gd`. Credits are done (2026-11-02: help panel H → Credits,
    `CREDITS.txt` in the package; `deployment.md`, "Credits and licences").
 
-2. **Station models: no pop from simple to detailed** (user, 2026-11-02). Today the detailed model is only
-   requested once the station is 90 px on screen (`Main.gd` `_update_station_lod`, `STATION_DETAIL_PX`) and
-   takes ~0.1-0.3 s on a worker thread, so the simple model shows first. Candidates: build every station's
-   detailed model in the background after start-up (9 stations, cached by key in `StationModels.gd`), and/or
-   request it when the station or a ship docked there is selected, or at a much lower on-screen size.
-
-3. **More diverse stations** (user, 2026-11-02). Today all 9 share one layout (spine, hubs, berths, habitat
-   ring(s), tanks, arrays) and differ only by a "flavour" per economy profile; Venus and Titan share
-   `chem_hub`. Design new concepts per station (sketched and plotted for the user first), then build them in
-   `StationModels.gd` with both levels of detail.
-
-4. **Stations orbiting their planets** (user, 2026-11-02: wanted, to be designed). Stations sit at a fixed angle
+2. **Stations orbiting their planets** (user, 2026-11-02: wanted, to be designed). Stations sit at a fixed angle
    from their planet in the simulation itself (`CelestialMechanics.cpp:56`, `theta_rad`). At 5 days/s a real
    low Earth orbit is ~80 turns a second. To decide: a display-only convention (visual rate capped to a few
    seconds per turn, true rate at low time speeds; ship paths near the station then disagree with it) or real
    orbits in the simulation (planning and economy change).
 
-5. **Engine-failure rescue** (user, 2026-11-02). A **plasma** ship's engine fails in flight (much more often
+3. **Engine-failure rescue** (user, 2026-11-02). A **plasma** ship's engine fails in flight (much more often
    than hull failures: nothing is lost but time); the ship coasts on its Kepler orbit. **One** rescue ship,
    newly spawned at the nearest larger station, same class as the police cutters, chases it (cheapest meeting,
    as police and salvage do); no trade ship or liner takes part. After the repair the ship re-plans from its
@@ -42,17 +31,17 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    Nuclear-thermal ships do not get engine failures. To settle in the plan: failure rate, repair time,
    where the rescuer goes afterwards, what passengers aboard do.
 
-6. **Patched conics: planets' gravity wells** (user, 2026-11-02). Interplanetary plans run station to station
+4. **Patched conics: planets' gravity wells** (user, 2026-11-02). Interplanetary plans run station to station
    around the Sun; the Kepler planner charges only the heliocentric burns (`TrajectoryPlanner.cpp` ~531), so
    leaving and entering a planet's gravity well appears to cost nothing. Measure first (Δv and propellant missing
    per route), then plan proper planet escape and capture arcs for both planners, with the economy effect
    benchmarked. Also the same-planet "local direct arc" approximation.
 
-7. **Account ledger in Statistics** (instead of a full who-pays-whom matrix, which would be ~160 × 160 accounts):
+5. **Account ledger in Statistics** (instead of a full who-pays-whom matrix, which would be ~160 × 160 accounts):
    pick one account (station, its residents, a ship, a faction, Earth, a colony) and see whom it paid and who paid
    it, by category, over time. Needs per-account records in the money journal (today it keeps 6 sectors).
 
-8. **Moon and outer-planet textures** (optional): Ganymede, Titan, Europa and Triton have no surface maps;
+6. **Moon and outer-planet textures** (optional): Ganymede, Titan, Europa and Triton have no surface maps;
    Uranus and Neptune use old small ones. Optionally make the package smaller (~230 MB, mostly the planet maps
    as imported textures).
 
@@ -70,7 +59,7 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
   capacity sized to use first (production is 8-10× use; cutting it to 3-5× caused shortages around Earth).
 - **Science samples that lose value with age** (would favour fast couriers); research stations as a type.
 - **More hull failures on screen:** the honest lever is shorter ship lifetimes (`lifetime_years`); engine
-  failures (to do 5) give the on-screen events instead.
+  failures (to do 3) give the on-screen events instead.
 
 ## Not doing (decided 2026-11-02 unless dated)
 
@@ -131,7 +120,11 @@ byte-identical.
   (PR #21) (`modules/economy.md`).
 - **UI:** the observer with display clock, close zoom, statistics screen (People, Flows, Routes with porkchops),
   ship schematic, 3D models at true scale, station systems view, planet textures, planet-frame paths for hops
-  within one planet's system, music player (PRs #15-#16, #22-#23, #25, #32; `modules/ui_observer.md`);
+  within one planet's system, music player (PRs #15-#16, #22-#23, #25, #32; `modules/ui_observer.md`); a design
+  of its own for every station (torus pairs with mirrors or dry docks, Bernal sphere, sun-shaded and ice-armoured
+  drums, bolas, hollowed asteroid, module wheel, carousel) with detailed models built in the background so they
+  never pop in, and planets and moons shading ships and stations (`feature/station_models_diverse`, 2026-11-03;
+  the user's first notes done: Mars pods with flat decks, eclipses, finer Ceres craters);
   save/load (F5/F9); code review and clean-up (PR #24).
 - **Deployment:** Linux tar.gz and Windows zip built on the Linux PC, tested on Windows 11 (PR #30,
   `modules/deployment.md`).

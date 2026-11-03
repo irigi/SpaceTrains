@@ -196,9 +196,27 @@ func _run() -> void:
         for key in ["light_freighter", "plasma_bulk_tanker", "deep_space_freighter", "luna_ferry"]:
             if designs.has(key):
                 ships.append([key, designs[key]])
+        var only_stations := _arg("only_stations")
         for station in json.data.get("stations", []):
+            if only_stations != "" and not String(station.get("id", "")) in only_stations.split(","):
+                continue
+            # Build times: the worker-thread part and the main-thread part (meshes, MultiMeshes).
+            var t0 := Time.get_ticks_usec()
+            var arrays := StationModels._detail_arrays(station)
+            var t1 := Time.get_ticks_usec()
+            var finished := StationModels._finish_detail(arrays)
+            var t2 := Time.get_ticks_usec()
+            print("[Gallery] %s (%s): detail build %.0f ms (worker) + %.1f ms (main), %d k triangles" % [String(station.get("id", "")),
+                StationModels.design_of(station), (t1 - t0) / 1000.0, (t2 - t1) / 1000.0, _station_triangles(finished) / 1000])
             var container := Node3D.new()
             _stage.add_child(container)
+            var radius := float(StationModels.model_info(station)["radius_m"])
+            var name := "station_%s" % String(station.get("id", ""))
+            # The coarse model from the same view, to compare with the detailed one.
+            StationModels.ensure(container, station, StationModels.COARSE)
+            Materials.set_band(Materials.instance_materials(container)["band"], Color(0.3, 0.55, 0.9))
+            _frame(radius * 1.1, "three_quarter")
+            await _shoot(out.path_join(name + "_coarse.png"))
             StationModels.ensure(container, station, StationModels.DETAIL)
             Materials.set_band(Materials.instance_materials(container)["band"], Color(0.3, 0.55, 0.9))
             # A few docked ships, as the map places them.
@@ -212,12 +230,11 @@ func _run() -> void:
                 var dir: Vector3 = berth["dir"]
                 ship.transform = Transform3D(Basis.looking_at(-dir, Vector3(0, 0, 1)),
                     (berth["pos"] as Vector3) + dir * (float(ship.get_meta("length_m", 50.0)) * 0.5 + 3.0))
-            var radius := float(container.get_meta("radius_m", 100.0))
-            var name := "station_%s" % String(station.get("id", ""))
             _frame(radius * 1.1, "three_quarter")
             tiles.append(await _shoot(out.path_join(name + ".png")))
-            # A stretch of the ring, filling the frame (about the core's distance from it).
-            _frame_at(Vector3(0.0, 0.0, float(container.get_meta("radius_m", 100.0)) * 0.91), 220.0, Vector3(0.55, 0.45, 0.7))
+            # A stretch of the habitat's rim, filling the frame.
+            var rim := float(container.get_meta("rim_m", radius * 0.9))
+            _frame_at(container.transform * Vector3(0.0, -rim, 0.0), 260.0, Vector3(0.55, 0.45, 0.7))
             await _shoot(out.path_join(name + "_ring.png"))
             # The docking core with its ships (the ring is ~1 km out).
             _frame(float(container.get_meta("core_radius_m", radius * 0.6)) * 1.1, "three_quarter")
@@ -233,6 +250,22 @@ func _run() -> void:
             print("[Gallery] %s (%s): radius %.0f m" % [String(station.get("id", "")), String(station.get("economy_profile_id", "")), radius])
     _contact_sheet(tiles, out.path_join("contact_sheet.png"))
     quit()
+
+static func _station_triangles(finished: Dictionary) -> int:
+    var count := 0
+    for key in ["hull", "sun", "extras"]:
+        var built: Dictionary = finished.get(key, {})
+        if not built.is_empty():
+            count += _mesh_triangles(built["mesh"])
+    for mm in finished["multimeshes"]:
+        count += _mesh_triangles((mm as MultiMesh).mesh) * (mm as MultiMesh).instance_count
+    return count
+
+static func _mesh_triangles(mesh: Mesh) -> int:
+    var count := 0
+    for i in range(mesh.get_surface_count()):
+        count += (mesh.surface_get_arrays(i)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+    return count
 
 func _contact_sheet(tiles: Array[Image], path: String) -> void:
     if tiles.is_empty():
