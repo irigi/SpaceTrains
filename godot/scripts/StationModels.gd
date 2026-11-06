@@ -9,7 +9,8 @@ extends RefCounted
 # - torus: the Stanford torus (900 m radius, 65 m tube, 10,000 people), radius with the
 #   square root of the people per ring, at least 250 m; two counter-rotating rings a tube
 #   diameter apart from 15,000 people. sunshade_torus (Earth L1): one large ring, a sun shield, no
-#   crowns. open_yard (Low Earth): no ring; a gantry cross with cargo containers and dry docks. garden_torus adds 45° mirror crowns that send
+#   crowns. open_yard (Low Earth): the torus pair with dry docks and a static cargo gantry
+#   (truss arms and containers, no crew, no spin). garden_torus adds 45° mirror crowns that send
 #   sunlight into the rings' sunlight windows and more greenhouse sectors; yard_torus adds
 #   two dry docks with hulls being built.
 # - sphere: a Bernal sphere (radius from ~70 m² of shell per person), polar glazing fed by
@@ -109,7 +110,7 @@ static func ring_radius_m(population: float) -> float:
 # 1.9 rpm, at the edge of comfort; at 0.38 g they spin at 1.1-1.2 rpm. Visual only.
 const GRAVITY_M_S2 := 9.81
 const GRAVITY_LOW_M_S2 := 3.73
-const LOW_GRAVITY_DESIGNS := ["shaded_drum", "shielded_drum", "rock", "module_wheel", "carousel", "open_yard"]
+const LOW_GRAVITY_DESIGNS := ["shaded_drum", "shielded_drum", "rock", "module_wheel", "carousel"]
 # Floor area each base size gives (module wheel: 12 modules 40 m wide on a 250 m rim; carousel: 12
 # cans of 22 m radius, 104 m long on a 300 m rim) and the open yard's arm length beyond its cans.
 const WHEEL_BASE_AREA_M2 := 62832.0
@@ -180,13 +181,6 @@ static func _habitat(data: Dictionary) -> Dictionary:
             var r := 300.0 * sc
             h.merge({"kind": "carousel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
                 "clear_m": 0.25 * CORE_M, "extent_m": r + 30.0 * sc})
-        "open_yard":
-            # Four crew cans on the gantry arms, the cans 70 m² a person in all: each can has radius
-            # R and length 2R (4 x 2πR x 2R = 16πR² = 70 people's area). Turns on its arms.
-            var can_r := sqrt(70.0 * pop / (16.0 * PI))
-            var d := can_r + YARD_ARM_CLEARANCE_M
-            h.merge({"kind": "open", "rim_m": d, "can_r_m": can_r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
-                "clear_m": 0.25 * CORE_M, "extent_m": d + can_r + 40.0})
         _:
             var r := ring_radius_m(pop) * (sqrt(2.0) if single else 1.0)
             var tube := TUBE_RATIO * r
@@ -354,6 +348,8 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
                 _dry_dock(b, side, flavour_z, detail, side > 0.0)
         "shielded_drum":
             _shield_coils(b, hab, detail)
+    if design == "open_yard":
+        _cargo_gantry(b, float(hab["rim_m"]) + float(hab["tube_m"]) + 120.0, detail)
     var sun := {}
     if design == "shaded_drum" or design == "sunshade_torus":
         sun = _sun_shield(hab, detail)
@@ -711,24 +707,25 @@ static func _sun_shield(hab: Dictionary, detail: bool) -> Dictionary:
 # (DETAIL only; turns only, no offsets, which Godot 4.3 MultiMeshes under scaled nodes
 # would misplace).
 
-# The open yard's turning part: four truss arms from the spine in the ecliptic and a crew can
-# on the end of each (the can's axis along the spine), so that the cans have gravity.
-static func _yard_cans(hab: Dictionary, detail: bool) -> Dictionary:
-    var b := MeshBuilder.new()
-    var d := float(hab["rim_m"])
-    var rc := float(hab["can_r_m"])
+# Low Earth's cargo gantry: four truss arms in the ecliptic, at 45° so they miss the dry docks, out
+# through the gap between the two rings (the crew rings are off the plane by a tube each), with
+# container stacks along the arms and at their ends. It does not turn: no crew, no gravity.
+static func _cargo_gantry(b: MeshBuilder, reach: float, detail: bool) -> void:
     for k in range(4):
-        var a := 0.5 * PI * float(k)
+        var a := 0.25 * PI + 0.5 * PI * float(k)
         var dir := Vector3(cos(a), sin(a), 0.0)
-        b.beam("truss", dir * 0.5 * CORE_M, dir * (d - rc), 2.0)
-        b.cylinder("blanket", -rc, rc, rc, 32 if detail else 16, Transform3D(Basis.IDENTITY, dir * d), true)
-        b.cylinder("glass", -rc, rc, rc + 0.6, 32 if detail else 16, Transform3D(Basis.IDENTITY, dir * d))
-    return {"arrays": b.commit_arrays(), "instanced": []}
+        var side := Vector3(-dir.y, dir.x, 0.0)
+        var xf := Basis(Vector3(0, 0, 1), a)
+        b.beam("truss", dir * 0.7 * CORE_M, dir * reach, 2.0)
+        for t in [0.55, 0.75, 0.95]:
+            for s in [-1.0, 1.0]:
+                b.box("metal", Vector3(30.0, 9.0, 9.0), Transform3D(xf, dir * (reach * t) + side * s * 12.0))
+        for s in [-1.0, 1.0]:
+            b.box("metal", Vector3(30.0, 9.0, 9.0), Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0))
+            b.box("metal", Vector3(30.0, 9.0, 9.0), Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0 + Vector3(0, 0, 9.0)))
 
 static func _spinner(hab: Dictionary, detail: bool) -> Dictionary:
     match String(hab["kind"]):
-        "open":
-            return _yard_cans(hab, detail)
         "sphere":
             return _sphere(hab, detail)
         "drum":
