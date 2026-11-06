@@ -15,3 +15,14 @@ under the [Creative Commons Attribution 4.0 International license](https://creat
 - all re-encoded as JPEG quality 90
 
 Based on NASA elevation and imagery data.
+
+## Europa and Ganymede
+
+- `europa.jpg`: Björn Jónsson's global colour map of Europa, 20000 x 10000 px, from 190 Galileo and 14 Voyager 2
+  images (NASA/JPL/PDS), reduced to 8192 x 4096 and cropped to remove the credit band. The south polar region
+  holds fictional data (Jónsson's choice). Source: https://www.planetary.org/articles/0218-mapping-europa
+- `ganymede.jpg`: Björn Jónsson's global map of Ganymede, 1800 x 900 px, from Voyager and Galileo images (NASA/JPL/USGS),
+  gaps near the poles cloned from adjacent data. Source: https://bjj.mmedia.is/data/ganymede/details.html
+
+Björn Jónsson's terms (https://bjj.mmedia.is/acknow.html): the maps may be used without special permission; credit
+"created by Björn Jónsson" (or equivalent) and the origin of the map.

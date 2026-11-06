@@ -31,17 +31,8 @@ Planet maps
 Solar System Scope (https://www.solarsystemscope.com/textures/), CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/), based on NASA elevation and imagery data.
 Changed: Venus and Mars desaturated, Mars brightened, Saturn's ring resampled, all re-encoded as JPEG.
-
-Fonts
------
-DejaVu Sans 2.37 (Bitstream Vera licence, DejaVu changes in the public domain),
-https://dejavu-fonts.github.io/
-Noto Sans Symbols 2 (SIL Open Font License 1.1), https://notofonts.github.io/
-Open Sans (Godot's built-in font, SIL Open Font License 1.1)
-
-Engine
-------
-Godot Engine (MIT licence), https://godotengine.org/license
+Europa and Ganymede: maps by Björn Jónsson (https://bjj.mmedia.is/acknow.html), created from NASA/JPL/PDS
+Galileo and Voyager images, used with credit to the author ("created by Björn Jónsson").
 """
 
 
