@@ -138,9 +138,9 @@
   | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
   | Mars | `bola` | two crossed, counter-rotating bolas on 450 m tethers with climber cars, their planes ~140 m apart so the pods pass; a pod is three squat drums standing on the tether (axis radial), twelve flat 5 m decks each with the lowest at the 1 g rim, sized by the people (~70 m² of deck each) |
   | Ceres | `rock` | hollowed asteroid (~300 m across, 1.35× that along the spin axis), craters with smooth raised rims (detailed grid 160 × 360), a lit window trench round the waist |
-  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, 250 m, four spokes |
+  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, four spokes; the rim is 250 m for 1,800 people and grows with the square root of the population (590 m at 5,000) |
   | Ganymede | `shielded_drum` | drum armoured in ice blocks, inside three superconducting shield coils held from the spine |
-  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms, 300 m |
+  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms; the rim is 300 m for 1,800 people and grows with the square root of the population (504 m at 7,000) |
 
   - Stanford torus: 900 m radius, 65 m tube, 10,000 people; radius grows with the square root of the people per
     ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
