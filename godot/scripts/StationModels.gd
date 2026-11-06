@@ -195,7 +195,10 @@ static func _build(data: Dictionary) -> Dictionary:
     var core_bound := _bound(hull["arrays"]["aabb"])
     if not hull["sun"].is_empty():
         core_bound = maxf(core_bound, _bound(hull["sun"]["aabb"]))
+    for panel in hull["solar"]:
+        core_bound = maxf(core_bound, (panel["at"] as Vector3).length() + _bound(panel["arrays"]["aabb"]))
     return {"hull": MeshBuilder.to_mesh(hull["arrays"]), "sun": MeshBuilder.to_mesh(hull["sun"]) if not hull["sun"].is_empty() else {},
+        "solar": _solar_meshes(hull["solar"]),
         "spinner": MeshBuilder.to_mesh(spinner["arrays"]), "spinners": hab["spinners"],
         "radius_m": maxf(float(hab["extent_m"]), core_bound), "core_radius_m": core_bound, "rim_m": hab["rim_m"],
         "berths": hull["berths"]}
@@ -295,6 +298,7 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
     # radiators in the lower part. Venus, close to the Sun, has twice the radiator.
     var mast_z := half - hub_r * 2.6
     var rad_scale := 2.0 if design == "sphere" else 1.0
+    var solar_list: Array = []
     if design in REACTOR_DESIGNS:
         _reactor(b, half - 75.0, detail)
     for side in [-1.0, 1.0]:
@@ -307,13 +311,17 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
         if detail:
             if solar:
                 _lattice(b, "truss", Vector3(0.0, 0.0, mast_z), Vector3(side * 0.55 * radius, 0.0, mast_z), 1.4, 3.0, 0.2, 3)
-                _panel_grid(b, "solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D(Basis.IDENTITY, panel_at), 12, 5)
+                var sb := MeshBuilder.new()
+                _panel_grid(sb, "solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D.IDENTITY, 12, 5)
+                solar_list.append({"arrays": sb.commit_arrays(), "at": panel_at})
             _lattice(b, "truss", Vector3(0.0, 0.0, rad_z), Vector3(0.0, side * 0.3 * radius, rad_z), 1.1, 3.0, 0.18, 3)
             _panel_grid(b, "silver", rad_size, Transform3D(rad_basis, rad_at), 2, int(8 * rad_scale))
         else:
             if solar:
                 b.beam("truss", Vector3(0.0, 0.0, mast_z), Vector3(side * 0.55 * radius, 0.0, mast_z), 1.2)
-                b.box("solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D(Basis.IDENTITY, panel_at))
+                var sb := MeshBuilder.new()
+                sb.box("solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D.IDENTITY)
+                solar_list.append({"arrays": sb.commit_arrays(), "at": panel_at})
             b.beam("truss", Vector3(0.0, 0.0, rad_z), Vector3(0.0, side * 0.3 * radius, rad_z), 1.0)
             b.box("silver", rad_size, Transform3D(rad_basis, rad_at))
     # The flavour sits between the rings (two rings) or just beyond the habitat.
@@ -331,7 +339,7 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
     var sun := {}
     if design == "shaded_drum":
         sun = _sun_shield(hab, detail)
-    return {"arrays": b.commit_arrays(), "sun": sun, "berths": berths}
+    return {"arrays": b.commit_arrays(), "sun": sun, "berths": berths, "solar": solar_list}
 
 # --- Core parts -------------------------------------------------------------------
 
@@ -1634,7 +1642,7 @@ static func _carousel_arm(b: MeshBuilder, r: float, xf: Transform3D, detail: boo
 static func _detail_arrays(data: Dictionary) -> Dictionary:
     var hab := _habitat(data)
     var hull := _hull(data, hab, true)
-    return {"hull": hull["arrays"], "sun": hull["sun"], "spinner": _spinner(hab, true)}
+    return {"hull": hull["arrays"], "sun": hull["sun"], "solar": hull["solar"], "spinner": _spinner(hab, true)}
 
 # Engine resources from _detail_arrays (main thread): meshes, and one MultiMesh per
 # instanced part with its turns round the axis (shared by all spinners of this station).
@@ -1656,7 +1664,7 @@ static func _finish_detail(arrays: Dictionary) -> Dictionary:
         multimeshes.append(mm)
     var sun: Dictionary = arrays["sun"]
     return {"hull": MeshBuilder.to_mesh(arrays["hull"]), "sun": MeshBuilder.to_mesh(sun) if not sun.is_empty() else {},
-        "extras": MeshBuilder.to_mesh(arrays["spinner"]["arrays"]), "multimeshes": multimeshes}
+        "solar": _solar_meshes(arrays["solar"]), "extras": MeshBuilder.to_mesh(arrays["spinner"]["arrays"]), "multimeshes": multimeshes}
 
 static var _detail_cache := {}
 static var _pending := {}
@@ -1727,7 +1735,7 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
         var name := String(child.name)
         if name == "sun":
             sun_angle = (child as Node3D).rotation.z
-        if name.begins_with("ring") or name == "model" or name == "sun":
+        if name.begins_with("ring") or name.begins_with("solar") or name == "model" or name == "sun":
             child.queue_free()
             container.remove_child(child)
     var hull := MeshInstance3D.new()
@@ -1741,6 +1749,14 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
         sun.rotation = Vector3(0.0, 0.0, sun_angle)
         Materials.apply_mesh(sun, sun_mesh, container)
         container.add_child(sun)
+    # Solar arrays: each on its own pivot, turned to face the Sun in spin_rings.
+    var solar_meshes: Array = detail["solar"] if lod == DETAIL else info["solar"]
+    for k in range(solar_meshes.size()):
+        var panel := MeshInstance3D.new()
+        panel.name = "solar_%d" % k
+        panel.position = solar_meshes[k]["at"]
+        Materials.apply_mesh(panel, solar_meshes[k]["mesh"], container)
+        container.add_child(panel)
     var i := 0
     for spinner in info["spinners"]:
         var ring := MeshInstance3D.new()
@@ -1770,6 +1786,12 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
     var gravity := GRAVITY_LOW_M_S2 if design_of(data) in LOW_GRAVITY_DESIGNS else GRAVITY_M_S2
     container.set_meta("spin_rad_s", ring_spin_rad_s(float(info["rim_m"]), gravity))
 
+static func _solar_meshes(panels: Array) -> Array:
+    var out: Array = []
+    for panel in panels:
+        out.append({"mesh": MeshBuilder.to_mesh(panel["arrays"]), "at": panel["at"]})
+    return out
+
 static func _spin_basis(angle: float, flip: bool) -> Basis:
     var basis := Basis(Vector3(0, 0, 1), angle)
     return Basis(Vector3(1, 0, 0), PI) * basis if flip else basis
@@ -1785,3 +1807,9 @@ static func spin_rings(container: Node3D, spin_time_s: float, sun_world: Variant
         elif sun_world != null and String(child.name) == "sun":
             var local: Vector3 = container.global_transform.affine_inverse() * (sun_world as Vector3)
             (child as Node3D).rotation = Vector3(0.0, 0.0, atan2(local.y, local.x))
+        elif sun_world != null and String(child.name).begins_with("solar"):
+            # Each array turns about its own axis (the station's, Z) so that its face points at
+            # the Sun. The Sun stays near the ecliptic, so its direction is in the XY plane.
+            var local: Vector3 = container.global_transform.affine_inverse() * (sun_world as Vector3)
+            if Vector2(local.x, local.y).length() > 1.0e-6:
+                (child as Node3D).basis = Basis(Vector3(0, 0, 1), atan2(-local.x, local.y))

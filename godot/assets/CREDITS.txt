@@ -76,6 +76,9 @@ Planet maps
 Solar System Scope (https://www.solarsystemscope.com/textures/), CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/), based on NASA elevation and imagery data.
 Changed: Venus and Mars desaturated, Mars brightened, Saturn's ring resampled, all re-encoded as JPEG.
+Europa and Ganymede: Voyager/Galileo mosaics, NASA/JPL/USGS, public domain (Wikimedia Commons:
+https://commons.wikimedia.org/wiki/File:Europa_Voyager_GalileoSSI_global_mosaic.jpg and
+https://commons.wikimedia.org/wiki/File:Ganymede_map_NASA_JPL_Voyager.jpg).
 
 Fonts
 -----

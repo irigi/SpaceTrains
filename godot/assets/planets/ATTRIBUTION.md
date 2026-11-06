@@ -15,3 +15,12 @@ under the [Creative Commons Attribution 4.0 International license](https://creat
 - all re-encoded as JPEG quality 90
 
 Based on NASA elevation and imagery data.
+
+## Moon textures (public domain)
+
+- `europa.jpg`: Voyager/Galileo SSI global mosaic, 1024 x 512 (the south polar band, unmapped in the
+  source, is filled with the nearest mapped row). Source: USGS Astrogeology, via
+  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Europa_Voyager_GalileoSSI_global_mosaic.jpg),
+  public domain.
+- `ganymede.jpg`: Voyager global map of Ganymede, 1440 x 720 (NASA/JPL/USGS), via
+  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Ganymede_map_NASA_JPL_Voyager.jpg), public domain.

@@ -73,7 +73,8 @@
   layers 11-17, each lit by a copy of the Sun light at 1/8 ... 7/8 of its energy, or none in umbra. The fill light
   and ambient light still reach shaded models, as on any night side. `--shot-stations` prints each station's
   sunlight in eighths.
-- **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), 8k for
+- **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), Europa and
+  Ganymede from the public-domain Voyager/Galileo mosaics (1024 and 1440 px wide, 2026-11-06), 8k for
   Earth, Moon, Mars and Mercury, 4k for Jupiter, Saturn, Venus and Ceres, 2k for Uranus and Neptune; imported
   VRAM-compressed (BPTC) with mipmaps and drawn with anisotropic filtering (~250 MB of video memory). The maps are
   albedo, scaled by `PLANET_EXPOSURE` (0.5) against the strong Sun light (1.9): at full strength the bright maps
@@ -145,6 +146,8 @@
     ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
     flipped so both rings' sunlight windows (and crowns) face outwards.
   - Ceres, Ganymede and Titan have a reactor on a boom (shadow shield, radiator wings) instead of solar arrays.
+  - Solar arrays (every other station) are pivoted: each array turns about its own station axis (Z) so its face points
+    at the Sun (`spin_rings`, as the shield does); the Sun stays near the ecliptic, so one axis is enough.
   - The core is the same everywhere and sized for the ships (40-140 m long; the large liner's radiators span
     ~200 m): a spine with a docking hub and four 110 m berthing arms at each end, 200 m beyond the habitat along
     the axis, so docked ships clear it; storage tanks by capacity between the habitat and the lower hub;

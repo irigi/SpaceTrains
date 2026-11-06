@@ -5,7 +5,7 @@ extends RefCounted
 
 const BINDINGS := [
     {"group": "Time", "keys": "Space", "inputs": [KEY_SPACE], "action": "Pause or resume"},
-    {"group": "Time", "keys": "1 / 2 / 3", "inputs": [KEY_1, KEY_2, KEY_3], "action": "Time warp 1 hour / 6 hours / 1 day per second"},
+    {"group": "Time", "keys": "1 / 2 / 3", "inputs": [KEY_1, KEY_2, KEY_3], "action": "Time warp real time / 6 hours / 1 day per second"},
     {"group": "Time", "keys": ", / .", "inputs": [KEY_COMMA, KEY_PERIOD], "action": "Time warp one step slower / faster"},
     {"group": "Map", "keys": "Left click", "inputs": [MOUSE_BUTTON_LEFT], "action": "Select a ship, station or body"},
     {"group": "Map", "keys": "Double click / F", "inputs": [KEY_F], "action": "Focus the camera on the selection"},

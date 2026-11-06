@@ -32,7 +32,7 @@ const DISPLAY_MAX_LEAD_REAL_S := 3.0
 # say so when no snapshot has come for this long, rather than look frozen.
 const BRIDGE_BUSY_NOTICE_S := 2.0
 const DEFAULT_TIMEWARP := 86400.0
-const TIMEWARP_STEPS := [600.0, 3600.0, 21600.0, 86400.0, 432000.0]
+const TIMEWARP_STEPS := [1.0, 600.0, 21600.0, 86400.0, 432000.0]
 
 const ICON_PICK_PADDING_PX := 6.0
 const DEBUG_SAMPLE_BODY_IDS := ["sun", "mercury", "earth", "mars", "jupiter", "saturn", "neptune"]
@@ -421,7 +421,7 @@ func _unhandled_input(event: InputEvent) -> void:
             current_paused = not current_paused
             _write_bridge_commands()
         elif event.keycode == KEY_1:
-            current_timewarp = 3600.0
+            current_timewarp = 1.0
             _write_bridge_commands()
         elif event.keycode == KEY_2:
             current_timewarp = 21600.0

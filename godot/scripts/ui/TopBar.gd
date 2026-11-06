@@ -9,8 +9,8 @@ signal load_requested
 signal help_requested
 
 const TIMEWARP_PRESETS := {
+    1.0: "real",
     600.0: "10m/s",
-    3600.0: "1h/s",
     21600.0: "6h/s",
     86400.0: "1d/s",
     432000.0: "5d/s",
