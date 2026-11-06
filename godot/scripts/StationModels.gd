@@ -109,7 +109,12 @@ static func ring_radius_m(population: float) -> float:
 # 1.9 rpm, at the edge of comfort; at 0.38 g they spin at 1.1-1.2 rpm. Visual only.
 const GRAVITY_M_S2 := 9.81
 const GRAVITY_LOW_M_S2 := 3.73
-const LOW_GRAVITY_DESIGNS := ["shaded_drum", "shielded_drum", "rock", "module_wheel", "carousel"]
+const LOW_GRAVITY_DESIGNS := ["shaded_drum", "shielded_drum", "rock", "module_wheel", "carousel", "open_yard"]
+# Floor area each base size gives (module wheel: 12 modules 40 m wide on a 250 m rim; carousel: 12
+# cans of 22 m radius, 104 m long on a 300 m rim) and the open yard's arm length beyond its cans.
+const WHEEL_BASE_AREA_M2 := 62832.0
+const CAROUSEL_BASE_AREA_M2 := 172800.0
+const YARD_ARM_CLEARANCE_M := 60.0
 
 # Spin that gives gravity_m_s2 at the rim.
 static func ring_spin_rad_s(radius_m: float, gravity_m_s2: float = 9.81) -> float:
@@ -165,18 +170,23 @@ static func _habitat(data: Dictionary) -> Dictionary:
             h.merge({"kind": "bola", "rim_m": r, "drum_r_m": dr, "spinners": spinners, "reach_m": off + dr,
                 "clear_m": off + dr + 0.25 * CORE_M, "extent_m": Vector2(r + dome + 5.0, span).length()})
         "module_wheel":
-            var r := MIN_RING_RADIUS_M
+            # Floor area grows with the people (70 m² each): the wheel's size scales as the root.
+            var sw := maxf(1.0, sqrt(70.0 * pop / WHEEL_BASE_AREA_M2))
+            var r := MIN_RING_RADIUS_M * sw
             h.merge({"kind": "wheel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
-                "clear_m": 0.25 * CORE_M, "extent_m": r + 24.0})
+                "clear_m": 0.25 * CORE_M, "extent_m": r + 24.0 * sw})
         "carousel":
-            var r := 300.0
+            var sc := maxf(1.0, sqrt(70.0 * pop / CAROUSEL_BASE_AREA_M2))
+            var r := 300.0 * sc
             h.merge({"kind": "carousel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
-                "clear_m": 0.25 * CORE_M, "extent_m": r + 30.0})
+                "clear_m": 0.25 * CORE_M, "extent_m": r + 30.0 * sc})
         "open_yard":
-            # No habitat ring: an open cargo yard on the spine (a gantry cross with containers).
-            var r := 200.0
-            h.merge({"kind": "open", "rim_m": r, "spinners": [], "reach_m": 0.0,
-                "clear_m": 0.25 * CORE_M, "extent_m": r + 40.0})
+            # Four crew cans on the gantry arms, the cans 70 m² a person in all: each can has radius
+            # R and length 2R (4 x 2πR x 2R = 16πR² = 70 people's area). Turns on its arms.
+            var can_r := sqrt(70.0 * pop / (16.0 * PI))
+            var d := can_r + YARD_ARM_CLEARANCE_M
+            h.merge({"kind": "open", "rim_m": d, "can_r_m": can_r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
+                "clear_m": 0.25 * CORE_M, "extent_m": d + can_r + 40.0})
         _:
             var r := ring_radius_m(pop) * (sqrt(2.0) if single else 1.0)
             var tube := TUBE_RATIO * r
@@ -344,8 +354,6 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
                 _dry_dock(b, side, flavour_z, detail, side > 0.0)
         "shielded_drum":
             _shield_coils(b, hab, detail)
-    if design == "open_yard":
-        _cargo_gantry(b, float(hab["rim_m"]), detail)
     var sun := {}
     if design == "shaded_drum" or design == "sunshade_torus":
         sun = _sun_shield(hab, detail)
@@ -703,27 +711,24 @@ static func _sun_shield(hab: Dictionary, detail: bool) -> Dictionary:
 # (DETAIL only; turns only, no offsets, which Godot 4.3 MultiMeshes under scaled nodes
 # would misplace).
 
-# The open yard's gantry: four truss arms from the spine (in the ecliptic) with cargo containers
-# on them, two a side.
-static func _cargo_gantry(b: MeshBuilder, arm_m: float, detail: bool) -> void:
+# The open yard's turning part: four truss arms from the spine in the ecliptic and a crew can
+# on the end of each (the can's axis along the spine), so that the cans have gravity.
+static func _yard_cans(hab: Dictionary, detail: bool) -> Dictionary:
+    var b := MeshBuilder.new()
+    var d := float(hab["rim_m"])
+    var rc := float(hab["can_r_m"])
     for k in range(4):
         var a := 0.5 * PI * float(k)
         var dir := Vector3(cos(a), sin(a), 0.0)
-        b.beam("truss", dir * 0.5 * CORE_M, dir * arm_m, 1.6)
-        for f in [0.45, 0.8]:
-            var along: Vector3 = dir * (arm_m * f)
-            var side: Vector3 = Vector3(-dir.y, dir.x, 0.0)
-            for s in [-1.0, 1.0]:
-                var c := Transform3D(Basis(Vector3(0, 0, 1), a), along + side * s * 14.0)
-                b.box("metal", Vector3(30.0, 9.0, 9.0), c)
-                if detail:
-                    b.beam("steel", along + side * s * 6.0 + Vector3(0, 0, 4.5), along + side * s * 6.0 - Vector3(0, 0, 4.5), 0.3)
+        b.beam("truss", dir * 0.5 * CORE_M, dir * (d - rc), 2.0)
+        b.cylinder("blanket", -rc, rc, rc, 32 if detail else 16, Transform3D(Basis.IDENTITY, dir * d), true)
+        b.cylinder("glass", -rc, rc, rc + 0.6, 32 if detail else 16, Transform3D(Basis.IDENTITY, dir * d))
+    return {"arrays": b.commit_arrays(), "instanced": []}
 
 static func _spinner(hab: Dictionary, detail: bool) -> Dictionary:
     match String(hab["kind"]):
         "open":
-            var none := MeshBuilder.new()
-            return {"arrays": none.commit_arrays(), "instanced": []}
+            return _yard_cans(hab, detail)
         "sphere":
             return _sphere(hab, detail)
         "drum":
@@ -1551,6 +1556,7 @@ const WHEEL_MODULES := 12
 
 static func _wheel(hab: Dictionary, detail: bool) -> Dictionary:
     var r := float(hab["rim_m"])
+    var sw := r / MIN_RING_RADIUS_M
     var b := MeshBuilder.new()
     var collar := 0.24 * CORE_M
     _collar(b, collar, 12.0, detail, 11)
@@ -1568,14 +1574,14 @@ static func _wheel(hab: Dictionary, detail: bool) -> Dictionary:
     for k in range(WHEEL_MODULES):
         var a := TAU * float(k) / float(WHEEL_MODULES)
         var node := Vector3(cos(a), sin(a), 0.0) * r
-        b.torus("band", 0.0, 20.3, 1.6, Transform3D(Basis.IDENTITY, node), 32 if detail else 16, 6)
+        b.torus("band", 0.0, 20.3 * sw, 1.6, Transform3D(Basis.IDENTITY, node), 32 if detail else 16, 6)
         if not detail:
-            _wheel_module(b, r, Transform3D(Basis(Vector3(0, 0, 1), a), Vector3.ZERO), k % 2 == 1, false)
+            _wheel_module(b, MIN_RING_RADIUS_M, Transform3D(Basis(Vector3(0, 0, 1), a).scaled(Vector3.ONE * sw), Vector3.ZERO), k % 2 == 1, false)
     var result := {"arrays": b.commit_arrays(), "instanced": []}
     if detail:
         for farm in [false, true]:
             var m := MeshBuilder.new()
-            _wheel_module(m, r, Transform3D.IDENTITY, farm, true)
+            _wheel_module(m, MIN_RING_RADIUS_M, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * sw), Vector3.ZERO), farm, true)
             result["instanced"].append({"arrays": m.commit_arrays(),
                 "turns": _turns(WHEEL_MODULES, func(k: int) -> bool: return (k % 2 == 1) == farm)})
     return result
@@ -1623,13 +1629,14 @@ const CAROUSEL_ARMS := 6
 
 static func _carousel(hab: Dictionary, detail: bool) -> Dictionary:
     var r := float(hab["rim_m"])
+    var sc := r / 300.0
     var b := MeshBuilder.new()
     _collar(b, 0.28 * CORE_M, 15.0, detail, 13)
     b.torus("steel", 0.0, r, 1.5, Transform3D.IDENTITY, 192 if detail else 96, 4)
     for k in range(CAROUSEL_ARMS):
         var xf := Transform3D(Basis(Vector3(0, 0, 1), TAU * float(k) / float(CAROUSEL_ARMS)), Vector3.ZERO)
         for y in [-58.0, 58.0]:
-            b.cylinder("band", y - 4.0, y + 4.0, 22.5, 32 if detail else 16, xf * Transform3D(_can_basis(), Vector3(r, 0, 0)), true)
+            b.cylinder("band", y - 4.0, y + 4.0, 22.5, 32 if detail else 16, xf * Transform3D(_can_basis().scaled(Vector3.ONE * sc), Vector3(r, 0, 0)), true)
         if not detail:
             _carousel_arm(b, r, xf, false)
     var result := {"arrays": b.commit_arrays(), "instanced": []}
@@ -1641,12 +1648,13 @@ static func _carousel(hab: Dictionary, detail: bool) -> Dictionary:
 
 static func _carousel_arm(b: MeshBuilder, r: float, xf: Transform3D, detail: bool) -> void:
     var root := 0.28 * CORE_M
-    var can := xf * Transform3D(_can_basis(), Vector3(r, 0, 0))
+    var sc := r / 300.0
+    var can := xf * Transform3D(_can_basis().scaled(Vector3.ONE * sc), Vector3(r, 0, 0))
     b.vessel("blanket", -70.0, -18.0, 22.0, 10.0, 32 if detail else 16, can)
     b.vessel("blanket", 18.0, 70.0, 22.0, 10.0, 32 if detail else 16, can)
     b.cylinder("glass", -20.0, 20.0, 21.0, 32 if detail else 16, can)
     if detail:
-        _lattice(b, "truss", xf * Vector3(root, 0, 0), xf * Vector3(r - 22.0, 0, 0), 5.0, 12.0, 0.8, 3)
+        _lattice(b, "truss", xf * Vector3(root, 0, 0), xf * Vector3(r - 22.0 * sc, 0, 0), 5.0, 12.0, 0.8, 3)
         b.cylinder("steel", root, r - 22.0, 3.5, 16, xf * Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), Vector3(0, 0, 9.0)), true)
         var rng := RandomNumberGenerator.new()
         rng.seed = 17
