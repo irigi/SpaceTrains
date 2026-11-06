@@ -133,7 +133,7 @@
   | Station | Design | Habitat |
   |---|---|---|
   | Earth L1 | `sunshade_torus` | Sunward terminal: one large torus (√2 the radius of a pair, the full population on one ring) with a sun shield on the Sun side and radiators behind; no mirror crowns (experimental, 2026-11-06, branch `feature/station_roles`) |
-  | Low Earth | `yard_torus` (two rings, 1 g) | Stanford torus pair (the population needs two rings at 70 m² each); two dry docks inside the rings; a static cargo gantry (four truss arms at 45° through the gap between the rings, container stacks on the arms; no crew, no spin) (2026-11-06, branch `feature/station_roles`) |
+  | Low Earth | `yard_torus` (two rings, 1 g) | Stanford torus pair (the population needs two rings at 70 m² each); two dry docks inside the rings; a static cargo gantry (four truss arms at 45° through the gap between the rings, container stacks on the arms, detailed in the high-detail build (corner posts, ribs, faction band on every third box, a crane rail on each arm); no crew, no spin) (2026-11-06, branch `feature/station_roles`) |
   | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators |
   | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
   | Mars | `bola` | two crossed, counter-rotating bolas on 450 m tethers with climber cars, their planes ~140 m apart so the pods pass; a pod is three squat drums standing on the tether (axis radial), twelve flat 5 m decks each with the lowest at the 1 g rim, sized by the people (~70 m² of deck each) |

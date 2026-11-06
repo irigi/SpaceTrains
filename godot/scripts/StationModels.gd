@@ -717,12 +717,31 @@ static func _cargo_gantry(b: MeshBuilder, reach: float, detail: bool) -> void:
         var side := Vector3(-dir.y, dir.x, 0.0)
         var xf := Basis(Vector3(0, 0, 1), a)
         b.beam("truss", dir * 0.7 * CORE_M, dir * reach, 2.0)
+        if detail:
+            # Crane rail on top of each arm, where a hoist would run.
+            b.beam("steel", dir * 0.7 * CORE_M + Vector3(0, 0, 6.0), dir * reach + Vector3(0, 0, 6.0), 0.5)
+        var n := 0
         for t in [0.55, 0.75, 0.95]:
             for s in [-1.0, 1.0]:
-                b.box("metal", Vector3(30.0, 9.0, 9.0), Transform3D(xf, dir * (reach * t) + side * s * 12.0))
+                _container(b, Transform3D(xf, dir * (reach * t) + side * s * 12.0), n, detail)
+                n += 1
         for s in [-1.0, 1.0]:
-            b.box("metal", Vector3(30.0, 9.0, 9.0), Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0))
-            b.box("metal", Vector3(30.0, 9.0, 9.0), Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0 + Vector3(0, 0, 9.0)))
+            _container(b, Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0), n, detail)
+            _container(b, Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0 + Vector3(0, 0, 9.0)), n + 1, detail)
+            n += 2
+
+# One 30 x 9 x 9 m container, local X along its arm. Every third one carries the faction band.
+static func _container(b: MeshBuilder, xf: Transform3D, index: int, detail: bool) -> void:
+    b.box("band" if index % 3 == 1 else "metal", Vector3(30.0, 9.0, 9.0), xf)
+    if not detail:
+        return
+    for x in [-15.0, 15.0]:
+        for y in [-4.5, 4.5]:
+            b.beam("steel", xf * Vector3(x, y, -4.5), xf * Vector3(x, y, 4.5), 0.5)
+    for x in [-9.0, -4.5, 0.0, 4.5, 9.0]:
+        b.beam("steel", xf * Vector3(x, -4.6, -4.5), xf * Vector3(x, -4.6, 4.5), 0.25)
+        b.beam("steel", xf * Vector3(x, 4.6, -4.5), xf * Vector3(x, 4.6, 4.5), 0.25)
+    b.beam("steel", xf * Vector3(-15.0, 0.0, 4.6), xf * Vector3(15.0, 0.0, 4.6), 0.3)
 
 static func _spinner(hab: Dictionary, detail: bool) -> Dictionary:
     match String(hab["kind"]):
