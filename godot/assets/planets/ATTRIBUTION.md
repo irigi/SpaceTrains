@@ -16,11 +16,8 @@ under the [Creative Commons Attribution 4.0 International license](https://creat
 
 Based on NASA elevation and imagery data.
 
-## Moon textures (public domain)
+## Europa and Ganymede (generated)
 
-- `europa.jpg`: Voyager/Galileo SSI global mosaic, 1024 x 512 (the south polar band, unmapped in the
-  source, is filled with the nearest mapped row). Source: USGS Astrogeology, via
-  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Europa_Voyager_GalileoSSI_global_mosaic.jpg),
-  public domain.
-- `ganymede.jpg`: Voyager global map of Ganymede, 1440 x 720 (NASA/JPL/USGS), via
-  [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Ganymede_map_NASA_JPL_Voyager.jpg), public domain.
+- `europa.jpg` and `ganymede.jpg` are stylised maps generated for this project by a script (layered noise, craters,
+  cracks and grooves). They use no photographic or NASA imagery. Public-domain Voyager/Galileo mosaics were
+  considered but are too low resolution (1024 x 512 for Europa) or have unmapped gaps (Ganymede).
