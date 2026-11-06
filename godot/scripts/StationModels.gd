@@ -8,7 +8,8 @@ extends RefCounted
 # Habitats give their design's gravity at the rim (GRAVITY_M_S2 and GRAVITY_LOW_M_S2; spin from radius) and are sized by the seeded population:
 # - torus: the Stanford torus (900 m radius, 65 m tube, 10,000 people), radius with the
 #   square root of the people per ring, at least 250 m; two counter-rotating rings a tube
-#   diameter apart from 15,000 people. garden_torus adds 45° mirror crowns that send
+#   diameter apart from 15,000 people. sunshade_torus (Earth L1): one large ring, a sun shield, no
+#   crowns. open_yard (Low Earth): no ring; a gantry cross with cargo containers and dry docks. garden_torus adds 45° mirror crowns that send
 #   sunlight into the rings' sunlight windows and more greenhouse sectors; yard_torus adds
 #   two dry docks with hulls being built.
 # - sphere: a Bernal sphere (radius from ~70 m² of shell per person), polar glazing fed by
@@ -62,8 +63,8 @@ const BOLA_DOME := 0.3
 const BOLA_GAP_M := 16.0
 
 const DESIGN_BY_STATION := {
-    "earth_l1": "garden_torus",
-    "earth_orbit": "yard_torus",
+    "earth_l1": "sunshade_torus",
+    "earth_orbit": "open_yard",
     "venus_cloud": "sphere",
     "mercury_yard": "shaded_drum",
     "mars_transfer": "bola",
@@ -82,7 +83,7 @@ const DESIGN_BY_PROFILE := {
     "lunar_port": "module_wheel",
     "extractor_hub": "shielded_drum",
 }
-const TORUS_DESIGNS := ["torus", "garden_torus", "yard_torus"]
+const TORUS_DESIGNS := ["torus", "garden_torus", "yard_torus", "sunshade_torus"]
 const REACTOR_DESIGNS := ["rock", "shielded_drum", "carousel"]
 
 static var _cache := {}
@@ -129,7 +130,9 @@ static func _tank_count(data: Dictionary) -> int:
 static func _habitat(data: Dictionary) -> Dictionary:
     var design := design_of(data)
     var pop := _population(data)
-    var two := pop >= TWO_RING_POPULATION
+    # The sunward terminal is one large ring (the full population on it, so sqrt(2) bigger).
+    var single := design == "sunshade_torus"
+    var two := pop >= TWO_RING_POPULATION and not single
     var h := {"design": design, "solid": false}
     match design:
         "sphere":
@@ -169,8 +172,13 @@ static func _habitat(data: Dictionary) -> Dictionary:
             var r := 300.0
             h.merge({"kind": "carousel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
                 "clear_m": 0.25 * CORE_M, "extent_m": r + 30.0})
+        "open_yard":
+            # No habitat ring: an open cargo yard on the spine (a gantry cross with containers).
+            var r := 200.0
+            h.merge({"kind": "open", "rim_m": r, "spinners": [], "reach_m": 0.0,
+                "clear_m": 0.25 * CORE_M, "extent_m": r + 40.0})
         _:
-            var r := ring_radius_m(pop)
+            var r := ring_radius_m(pop) * (sqrt(2.0) if single else 1.0)
             var tube := TUBE_RATIO * r
             # Two rings: the lower one is flipped so both rings' sunlight windows (and
             # mirror crowns) face outwards.
@@ -331,13 +339,15 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
         float(data.get("fuel_factory_per_day", 0.0)) > 0.0, detail)
     # The design's own fixed parts.
     match design:
-        "yard_torus":
+        "yard_torus", "open_yard":
             for side in [-1.0, 1.0]:
                 _dry_dock(b, side, flavour_z, detail, side > 0.0)
         "shielded_drum":
             _shield_coils(b, hab, detail)
+    if design == "open_yard":
+        _cargo_gantry(b, float(hab["rim_m"]), detail)
     var sun := {}
-    if design == "shaded_drum":
+    if design == "shaded_drum" or design == "sunshade_torus":
         sun = _sun_shield(hab, detail)
     return {"arrays": b.commit_arrays(), "sun": sun, "berths": berths, "solar": solar_list}
 
@@ -693,8 +703,27 @@ static func _sun_shield(hab: Dictionary, detail: bool) -> Dictionary:
 # (DETAIL only; turns only, no offsets, which Godot 4.3 MultiMeshes under scaled nodes
 # would misplace).
 
+# The open yard's gantry: four truss arms from the spine (in the ecliptic) with cargo containers
+# on them, two a side.
+static func _cargo_gantry(b: MeshBuilder, arm_m: float, detail: bool) -> void:
+    for k in range(4):
+        var a := 0.5 * PI * float(k)
+        var dir := Vector3(cos(a), sin(a), 0.0)
+        b.beam("truss", dir * 0.5 * CORE_M, dir * arm_m, 1.6)
+        for f in [0.45, 0.8]:
+            var along: Vector3 = dir * (arm_m * f)
+            var side: Vector3 = Vector3(-dir.y, dir.x, 0.0)
+            for s in [-1.0, 1.0]:
+                var c := Transform3D(Basis(Vector3(0, 0, 1), a), along + side * s * 14.0)
+                b.box("metal", Vector3(30.0, 9.0, 9.0), c)
+                if detail:
+                    b.beam("steel", along + side * s * 6.0 + Vector3(0, 0, 4.5), along + side * s * 6.0 - Vector3(0, 0, 4.5), 0.3)
+
 static func _spinner(hab: Dictionary, detail: bool) -> Dictionary:
     match String(hab["kind"]):
+        "open":
+            var none := MeshBuilder.new()
+            return {"arrays": none.commit_arrays(), "instanced": []}
         "sphere":
             return _sphere(hab, detail)
         "drum":
