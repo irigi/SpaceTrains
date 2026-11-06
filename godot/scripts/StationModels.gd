@@ -5,7 +5,7 @@ extends RefCounted
 #
 # Every station has a design (DESIGN_BY_STATION, else by economy profile, else the plain
 # torus): a spinning habitat of its own kind round a shared non-spinning docking core.
-# Habitats give 1 g at their rim (spin from radius) and are sized by the seeded population:
+# Habitats give their design's gravity at the rim (GRAVITY_M_S2 and GRAVITY_LOW_M_S2; spin from radius) and are sized by the seeded population:
 # - torus: the Stanford torus (900 m radius, 65 m tube, 10,000 people), radius with the
 #   square root of the people per ring, at least 250 m; two counter-rotating rings a tube
 #   diameter apart from 15,000 people. garden_torus adds 45° mirror crowns that send
@@ -102,9 +102,17 @@ static func ring_radius_m(population: float) -> float:
     var per_ring := maxf(population, 1000.0) / float(2 if population >= TWO_RING_POPULATION else 1)
     return maxf(MIN_RING_RADIUS_M, STANFORD_RADIUS_M * sqrt(per_ring / STANFORD_POPULATION))
 
-# Spin that gives 1 g at the rim.
-static func ring_spin_rad_s(radius_m: float) -> float:
-    return sqrt(9.81 / maxf(radius_m, 1.0))
+# The gravity each design's habitat gives at its rim: 1 g for the torus, sphere and bola (people
+# live in them for the long run); Mars surface gravity for the compact industrial habitats
+# (drums, rock, module wheel, carousel). Their rims are 240-300 m: at 1 g they would spin at
+# 1.9 rpm, at the edge of comfort; at 0.38 g they spin at 1.1-1.2 rpm. Visual only.
+const GRAVITY_M_S2 := 9.81
+const GRAVITY_LOW_M_S2 := 3.73
+const LOW_GRAVITY_DESIGNS := ["shaded_drum", "shielded_drum", "rock", "module_wheel", "carousel"]
+
+# Spin that gives gravity_m_s2 at the rim.
+static func ring_spin_rad_s(radius_m: float, gravity_m_s2: float = 9.81) -> float:
+    return sqrt(gravity_m_s2 / maxf(radius_m, 1.0))
 
 static func _key(data: Dictionary) -> String:
     return "%s|%s|%d|%d" % [design_of(data), String(data.get("economy_profile_id", "")), int(round(_population(data))),
@@ -114,7 +122,7 @@ static func _tank_count(data: Dictionary) -> int:
     return clampi(int(float(data.get("storage_capacity", 20000.0)) / 9000.0), 2, 8)
 
 # The habitat's kind and size:
-# {design, kind, rim_m (1 g radius), spinners: [[z, spin sign, phase, flipped]], reach_m
+# {design, kind, rim_m (the radius that gives the design's gravity), spinners: [[z, spin sign, phase, flipped]], reach_m
 #  (how far along the axis it reaches), clear_m (the spine is free beyond this), solid (it
 #  encloses the spine), extent_m (its radius), and per kind: tube_m, half_m (drum half
 #  length), dome_m, rock_half_m}
@@ -173,7 +181,7 @@ static func _habitat(data: Dictionary) -> Dictionary:
     return h
 
 # {hull, sun (or {}), spinner, spinners: [[z, sign, phase, flipped]], radius_m (whole
-#  station), core_radius_m (without the habitat), rim_m, spin_rad_s, berths: [{pos, dir}]}
+#  station), core_radius_m (without the habitat), rim_m, berths: [{pos, dir}]}
 static func model_info(data: Dictionary) -> Dictionary:
     var key := _key(data)
     if not _cache.has(key):
@@ -190,7 +198,7 @@ static func _build(data: Dictionary) -> Dictionary:
     return {"hull": MeshBuilder.to_mesh(hull["arrays"]), "sun": MeshBuilder.to_mesh(hull["sun"]) if not hull["sun"].is_empty() else {},
         "spinner": MeshBuilder.to_mesh(spinner["arrays"]), "spinners": hab["spinners"],
         "radius_m": maxf(float(hab["extent_m"]), core_bound), "core_radius_m": core_bound, "rim_m": hab["rim_m"],
-        "spin_rad_s": ring_spin_rad_s(float(hab["rim_m"])), "berths": hull["berths"]}
+        "berths": hull["berths"]}
 
 # The farthest corner of a box from the origin (a bound that holds under turns about Z).
 static func _bound(aabb: AABB) -> float:
@@ -1758,13 +1766,15 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
     container.set_meta("berths", info["berths"])
     container.set_meta("core_radius_m", info["core_radius_m"])
     container.set_meta("rim_m", info["rim_m"])
-    container.set_meta("spin_rad_s", info["spin_rad_s"])
+    # The spin follows the design's gravity; set here (ensure) rather than in the worker-built info.
+    var gravity := GRAVITY_LOW_M_S2 if design_of(data) in LOW_GRAVITY_DESIGNS else GRAVITY_M_S2
+    container.set_meta("spin_rad_s", ring_spin_rad_s(float(info["rim_m"]), gravity))
 
 static func _spin_basis(angle: float, flip: bool) -> Basis:
     var basis := Basis(Vector3(0, 0, 1), angle)
     return Basis(Vector3(1, 0, 0), PI) * basis if flip else basis
 
-# Turns the habitats (1 g spin, real time) and points the sun-tracking part at sun_world
+# Turns the habitats (their gravity's spin, real time) and points the sun-tracking part at sun_world
 # (a global position), when given.
 static func spin_rings(container: Node3D, spin_time_s: float, sun_world: Variant = null) -> void:
     var rate := float(container.get_meta("spin_rad_s", 0.1))

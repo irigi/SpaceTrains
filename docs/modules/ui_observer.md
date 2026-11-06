@@ -41,6 +41,15 @@
   ships in flight by interpolating their planned path at the display time, docked ships at their station. All in
   double precision relative to the focused entity (`entity_root`), then cast, so close-ups do not jitter;
   `world_root` holds the absolute-frame lines (orbit rings, planned paths, trails).
+- **Planet and station motion** (`BodySpin.gd`, 2026-11-06; display only): each planet and moon spins about an axis
+  tilted to its real obliquity (`BodySpin.BODIES`; the sim's orbits stay in the ecliptic, so the planets are tilted,
+  the orbits are not). Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
+  fixed `theta_rad` and the planner is untouched. Both run on the wall clock at the timewarp rate (stop while paused),
+  capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
+  are the true ones. Moons are tidally locked (a turn per orbit). `Main._advance_visual_phases` keeps the phases;
+  `_station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
+  stations (`_station_blend_m`: the start follows the origin station's drawn position, the end the destination's,
+  fading linearly along the flight), so ships leave and arrive where the station is drawn.
 - **Paths within one planet's system** (Earth–Luna ferries, moon hops, hops between two stations of one body:
   `keplerian_planet_system`, `variable_isp_planet_system`, `keplerian_local`) are drawn around that planet, which is
   their `frame`: the planned line, its fine version near the camera, the history trail and the destination ghost are
@@ -114,7 +123,10 @@
   - Until the designs file is read, a stand-in design is drawn.
 - **Station models** (`StationModels.gd`): in metres at real size, at the ships' scale. Each station has a design
   (`DESIGN_BY_STATION`, else by economy profile, else the plain torus): its own spinning habitat round a shared
-  docking core. Habitats turn at the rate that gives 1 g at their rim, in real time, and stop while the game is
+  docking core. Habitats turn at the rate that gives their design's gravity at their rim (`StationModels.ensure`):
+  1 g for the torus, sphere and bola; Mars surface gravity (3.73 m/s², 0.38 g) for the drums, rock, module wheel and
+  carousel, whose rims are 240-300 m (at 1 g those would spin at 1.9 rpm; at 0.38 g, 1.1-1.2 rpm). The torus at
+  944 m spins at 1.0 rpm and the bola at 450 m at 1.4 rpm at 1 g. The turn is in real time, stops while the game is
   paused (`Main.spin_clock_s`); they are sized by the seeded population.
 
   | Station | Design | Habitat |
@@ -283,7 +295,8 @@
 - **Keys:** F5 quick save, F9 quick load, M economy, S statistics, G flow overlay, F focus, T thermal view, Space pause, `,` `.`
   timewarp, F11 map debug.
 - **Dev** (a tour opens a real window; parse-check scripts first with `godot4 --headless --path godot --check-only
-  --script res://scripts/<file>.gd`): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
+  --script res://scripts/<file>.gd`; a headless run of the scene (`--headless --quit-after N`) can crash in the dummy
+  renderer while station meshes are built on worker threads, so check the scene in a window: `--quit-after 300` runs clean): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
   `--shot-smooth=SECONDS` counts stalled frames (`--shot-select=<station>` keeps a station in the inspector, `--shot-nofocus` without moving the camera); the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,
