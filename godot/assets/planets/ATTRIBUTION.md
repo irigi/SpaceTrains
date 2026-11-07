@@ -16,13 +16,12 @@ under the [Creative Commons Attribution 4.0 International license](https://creat
 
 Based on NASA elevation and imagery data.
 
-## Europa and Ganymede
+## Europa, Ganymede, Titan, Callisto
 
-- `europa.jpg`: Björn Jónsson's global colour map of Europa, 20000 x 10000 px, from 190 Galileo and 14 Voyager 2
-  images (NASA/JPL/PDS), reduced to 8192 x 4096 and cropped to remove the credit band. The south polar region
-  holds fictional data (Jónsson's choice). Source: https://www.planetary.org/articles/0218-mapping-europa
-- `ganymede.jpg`: Björn Jónsson's global map of Ganymede, 1800 x 900 px, from Voyager and Galileo images (NASA/JPL/USGS),
-  gaps near the poles cloned from adjacent data. Source: https://bjj.mmedia.is/data/ganymede/details.html
+- `europa.jpg`, `ganymede.jpg`, `titan.jpg`, `callisto.jpg`: maps generated with ChatGPT (OpenAI) for this game,
+  not from spacecraft data, 1774 x 887 px, saved as JPEG quality 90.
 
-Björn Jónsson's terms (https://bjj.mmedia.is/acknow.html): the maps may be used without special permission; credit
-"created by Björn Jónsson" (or equivalent) and the origin of the map.
+## Io
+
+- `io.jpg`: USGS Astrogeology Io Galileo SSI global colour merge mosaic (1 km), reduced to 2048 x 1024 px.
+  Public domain (USGS). Source: https://astrogeology.usgs.gov/search/map/io_galileo_ssi_global_color_merge_mosaic_1km

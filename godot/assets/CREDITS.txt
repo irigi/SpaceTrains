@@ -76,5 +76,6 @@ Planet maps
 Solar System Scope (https://www.solarsystemscope.com/textures/), CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/), based on NASA elevation and imagery data.
 Changed: Venus and Mars desaturated, Mars brightened, Saturn's ring resampled, all re-encoded as JPEG.
-Europa and Ganymede: maps by Björn Jónsson (https://bjj.mmedia.is/acknow.html), created from NASA/JPL/PDS
-Galileo and Voyager images, used with credit to the author ("created by Björn Jónsson").
+Europa, Ganymede, Titan and Callisto: maps generated with ChatGPT (OpenAI) for this game, not from
+spacecraft data.
+Io: USGS Astrogeology global colour mosaic from Galileo SSI images (NASA/USGS, public domain).

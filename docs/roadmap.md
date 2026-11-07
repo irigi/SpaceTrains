@@ -35,7 +35,7 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    pick one account (station, its residents, a ship, a faction, Earth, a colony) and see whom it paid and who paid
    it, by category, over time. Needs per-account records in the money journal (today it keeps 6 sectors).
 
-5. **Moon and outer-planet textures** (optional): Titan and Triton have no surface maps (Europa and Ganymede done 2026-11-06, public-domain mosaics);
+5. **Moon and outer-planet textures** (optional): Triton has no surface map (Europa, Ganymede, Titan and Callisto are ChatGPT-generated maps, Io a USGS mosaic; 2026-11-07);
    Uranus and Neptune use old small ones. Optionally make the package smaller (~230 MB, mostly the planet maps
    as imported textures).
 
