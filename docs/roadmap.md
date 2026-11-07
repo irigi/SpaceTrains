@@ -35,7 +35,8 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    the Sun-Earth L1 point as originally advertised (outside the well, constant sunlight for its sun shield; needs
    a Lagrange-point station kind and non-circular endpoint velocities in the planners), or a high Earth orbit above
    the belts (data change only). The gain for plasma ships is mostly time and radiation (a low-thrust spiral out of
-   LEO costs ~7 km/s and days in the belts), not propellant; for nuclear-thermal ships it is propellant.
+   LEO costs ~7 km/s and days in the belts), not propellant; for nuclear-thermal ships it is propellant. Advice:
+   `docs/studies/sunward_terminal_position.md` (L1 preferred, only together with this item).
 
 4. **Account ledger in Statistics** (instead of a full who-pays-whom matrix, which would be ~160 × 160 accounts):
    pick one account (station, its residents, a ship, a faction, Earth, a colony) and see whom it paid and who paid
