@@ -5,7 +5,7 @@ planned) → **Not doing** → standing decisions and checks → **Done**. The d
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (none open now); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
-**Status.** `main` holds everything up to PR #34 (station designs, eclipses), no open PRs.
+**Status.** `main` holds everything up to PR #35 (station designs, eclipses, moons, Earth Sunward rename), no open PRs.
 Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 131 ships profitable,
 ~4,500 boardings, drift 0, ~150 s per run.
 
@@ -30,6 +30,12 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    leaving and entering a planet's gravity well appears to cost nothing. Measure first (Δv and propellant missing
    per route), then plan proper planet escape and capture arcs for both planners, with the economy effect
    benchmarked. Also the same-planet "local direct arc" approximation.
+   **Reconsider where Earth Sunward Terminal sits** (user, 2026-11-07; part of the same recalibration). Today it
+   orbits at 1,500 km (inside the inner Van Allen belt) and does nothing Low Earth Logistics does not. Options:
+   the Sun-Earth L1 point as originally advertised (outside the well, constant sunlight for its sun shield; needs
+   a Lagrange-point station kind and non-circular endpoint velocities in the planners), or a high Earth orbit above
+   the belts (data change only). The gain for plasma ships is mostly time and radiation (a low-thrust spiral out of
+   LEO costs ~7 km/s and days in the belts), not propellant; for nuclear-thermal ships it is propellant.
 
 4. **Account ledger in Statistics** (instead of a full who-pays-whom matrix, which would be ~160 × 160 accounts):
    pick one account (station, its residents, a ship, a faction, Earth, a colony) and see whom it paid and who paid
