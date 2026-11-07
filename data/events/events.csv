@@ -1,5 +1,5 @@
 id,kind,station_id,commodity_id,rate_per_year,min_days,max_days,magnitude,headline,end_headline
-earth_l1_blight,outage,earth_l1,food,0.5,20,60,0.4,Crop blight at Earth L1 Terminal: food output down to 40%,Earth L1 Terminal's farms recover from the blight
+earth_l1_blight,outage,earth_l1,food,0.5,20,60,0.4,Crop blight at Earth Sunward Terminal: food output down to 40%,Earth Sunward Terminal's farms recover from the blight
 leo_fab_fault,outage,earth_orbit,electronics,0.5,15,45,0.3,Fab contamination at Low Earth Logistics: electronics output down to 30%,Low Earth Logistics' fabs are clean again
 mercury_storm,outage,mercury_yard,metals,0.6,10,30,0,Solar storm shuts Mercury Sunward Yard's smelters,The storm passes and Mercury's smelters restart
 venus_bioreactor,outage,venus_cloud,medicine,0.4,30,90,0.2,Contaminated bioreactor at Venus Orbital Exchange: medicine output down to 20%,Venus Orbital Exchange's bioreactors are back in service

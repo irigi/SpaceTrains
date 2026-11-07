@@ -407,7 +407,7 @@ double Simulation::forecast_stock_on_arrival(const domain::StationState& state, 
     // that arrives after this ship does not lower its price: before v36 all inbound cargo
     // counted, so a hop of hours to a starving station looked worthless whenever a slow
     // ship was months out with the same good (Low Earth Logistics waited for Venus food
-    // with 10,000 units at Earth L1).
+    // with 10,000 units at Earth Sunward).
     const auto& definition = get_station_definition(state.station_id);
     const auto stock_it = state.inventory.find(commodity_id);
     double stock = stock_it == state.inventory.end() ? 0.0 : stock_it->second;

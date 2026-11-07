@@ -1,5 +1,5 @@
 id,name,faction_id,parent_body_id,altitude_m,theta_rad,population,economy_profile_id,initial_inventory
-earth_l1,Earth L1 Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,food:120;water:90;oxygen:80;metals:25;fuel:180;electronics:15
+earth_l1,Earth Sunward Terminal,sol_fed,earth,1500000,0.2,22000,agri_hub,food:120;water:90;oxygen:80;metals:25;fuel:180;electronics:15
 earth_orbit,Low Earth Logistics,sol_fed,earth,500000,1.4,18000,industrial_hub,food:40;water:45;oxygen:45;metals:110;fuel:90;electronics:30
 venus_cloud,Venus Orbital Exchange,independent,venus,900000,2.1,12000,chem_hub,food:50;water:55;oxygen:70;metals:15;fuel:110;electronics:10
 mercury_yard,Mercury Sunward Yard,independent,mercury,600000,2.9,8000,smelter_hub,food:25;water:20;oxygen:25;metals:140;fuel:60;electronics:8

@@ -240,5 +240,5 @@ static func make_planet_ring() -> MeshInstance3D:
     material.cull_mode = BaseMaterial3D.CULL_DISABLED
     instance.material_override = material
     instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-    instance.rotation_degrees = Vector3(27.0, 0.0, 0.0)
+    # Flat in its local XZ plane; Main tilts it into the planet's equator (BodySpin.axis_basis).
     return instance

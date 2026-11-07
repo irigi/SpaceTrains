@@ -41,6 +41,16 @@
   ships in flight by interpolating their planned path at the display time, docked ships at their station. All in
   double precision relative to the focused entity (`entity_root`), then cast, so close-ups do not jitter;
   `world_root` holds the absolute-frame lines (orbit rings, planned paths, trails).
+- **Planet and station motion** (`BodySpin.gd`, 2026-11-06; display only): each planet and moon spins about an axis
+  tilted to its real obliquity (`BodySpin.BODIES`; the sim's orbits stay in the ecliptic, so the planets are tilted,
+  the orbits are not). Screen up is ecliptic north (`OrbitCamera.SCREEN_UP`, -Y in the render frame, 2026-11-07), so
+  the planets' north poles point up; the view was upside down before. Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
+  fixed `theta_rad` and the planner is untouched. Both run on the wall clock at the timewarp rate (stop while paused),
+  capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
+  are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `Main._advance_visual_phases` keeps the phases;
+  `_station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
+  stations (`_station_blend_m`: the start follows the origin station's drawn position, the end the destination's,
+  fading linearly along the flight), so ships leave and arrive where the station is drawn.
 - **Paths within one planet's system** (Earth–Luna ferries, moon hops, hops between two stations of one body:
   `keplerian_planet_system`, `variable_isp_planet_system`, `keplerian_local`) are drawn around that planet, which is
   their `frame`: the planned line, its fine version near the camera, the history trail and the destination ghost are
@@ -64,13 +74,16 @@
   layers 11-17, each lit by a copy of the Sun light at 1/8 ... 7/8 of its energy, or none in umbra. The fill light
   and ambient light still reach shaded models, as on any night side. `--shot-stations` prints each station's
   sunlight in eighths.
-- **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), 8k for
+- **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), Europa and
+  Ganymede, Titan and Callisto from ChatGPT-generated maps (1774 x 887 px, 2026-11-07); Io from the USGS
+  public-domain Galileo mosaic (2048 x 1024 px); 8k for
   Earth, Moon, Mars and Mercury, 4k for Jupiter, Saturn, Venus and Ceres, 2k for Uranus and Neptune; imported
   VRAM-compressed (BPTC) with mipmaps and drawn with anisotropic filtering (~250 MB of video memory). The maps are
   albedo, scaled by `PLANET_EXPOSURE` (0.5) against the strong Sun light (1.9): at full strength the bright maps
   washed out to white and bloomed. Mars and Venus maps are desaturated in the files (Mars 0.62, Venus 0.55).
   Earth has a cloud layer (`_ensure_clouds`, 8k cloud map as alpha on a sphere 0.4% larger); Saturn's ring uses
-  the radial ring map from 1.24 to 2.27 planet radii. `--shot-planets` shoots every textured body at 1.3, 3 and
+  the radial ring map from 1.24 to 2.27 planet radii, in Saturn's equator (`BodySpin.axis_basis`, 2026-11-07; it was
+  tilted the other way before). `--shot-planets` shoots every textured body at 1.3, 3 and
   12 radii and from the night side.
 - **Ship models** (`ShipModels.gd`, 2026-10-23): built from the design's components with the schematic's layout
   (`ShipLayout.gd`, shared with `ui/ShipSchematic.gd`), so the map shows the same parts in the same order and
@@ -114,25 +127,35 @@
   - Until the designs file is read, a stand-in design is drawn.
 - **Station models** (`StationModels.gd`): in metres at real size, at the ships' scale. Each station has a design
   (`DESIGN_BY_STATION`, else by economy profile, else the plain torus): its own spinning habitat round a shared
-  docking core. Habitats turn at the rate that gives 1 g at their rim, in real time, and stop while the game is
+  docking core. Habitats turn at the rate that gives their design's gravity at their rim (`StationModels.ensure`):
+  1 g for the torus, sphere and bola; Mars surface gravity (3.73 m/s², 0.38 g) for the drums, rock, module wheel and
+  carousel, whose rims are 240-300 m (at 1 g those would spin at 1.9 rpm; at 0.38 g, 1.1-1.2 rpm). The torus at
+  944 m spins at 1.0 rpm and the bola at 450 m at 1.4 rpm at 1 g. The turn is in real time, stops while the game is
   paused (`Main.spin_clock_s`); they are sized by the seeded population.
 
   | Station | Design | Habitat |
   |---|---|---|
-  | Earth L1 | `garden_torus` | Stanford torus pair; 45° conical mirror crowns send sunlight into the rings' sunlight windows; two in three sectors greenhouses |
-  | Low Earth | `yard_torus` | Stanford torus pair; two dry docks between the rings, one hull half built (ribs, keel), one finished |
-  | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators |
+  | Earth Sunward | `sunshade_torus` | Earth Sunward Terminal (id `earth_l1`; renamed 2026-11-07, as it orbits Earth at 1,500 km rather than sitting at L1). Sunward terminal: one large torus (√2 the radius of a pair, the full population on one ring) with a sun shield on the Sun side and radiators behind; no mirror crowns (experimental, 2026-11-06, branch `feature/station_roles`) |
+  | Low Earth | `yard_torus` (two rings, 1 g) | Stanford torus pair (the population needs two rings at 70 m² each); two dry docks inside the rings; a static cargo gantry (four truss arms at 45° through the gap between the rings, container stacks on the arms, detailed in the high-detail build (corner posts, ribs, faction band on every third box, a crane rail on each arm); no crew, no spin) (2026-11-06, branch `feature/station_roles`) |
+  | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators; a sun-tracking heat shield like Mercury's (2026-11-07) |
   | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
   | Mars | `bola` | two crossed, counter-rotating bolas on 450 m tethers with climber cars, their planes ~140 m apart so the pods pass; a pod is three squat drums standing on the tether (axis radial), twelve flat 5 m decks each with the lowest at the 1 g rim, sized by the people (~70 m² of deck each) |
   | Ceres | `rock` | hollowed asteroid (~300 m across, 1.35× that along the spin axis), craters with smooth raised rims (detailed grid 160 × 360), a lit window trench round the waist |
-  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, 250 m, four spokes |
+  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, four spokes; the rim is 250 m up to about 900 people and grows with the square root of the population (590 m at 5,000); the modules' hulls scale with it, their windows keep their size (more rows, more per row) |
   | Ganymede | `shielded_drum` | drum armoured in ice blocks, inside three superconducting shield coils held from the spine |
-  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms, 300 m |
+  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms; the rim is 300 m up to about 2,500 people and grows with the square root of the population (504 m at 7,000); the cans' hulls scale with it, their windows keep their size |
 
   - Stanford torus: 900 m radius, 65 m tube, 10,000 people; radius grows with the square root of the people per
     ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
     flipped so both rings' sunlight windows (and crowns) face outwards.
   - Ceres, Ganymede and Titan have a reactor on a boom (shadow shield, radiator wings) instead of solar arrays.
+  - Stations with a sun shield (Earth Sunward, Venus, Mercury) carry the usual pair of solar arrays as wings off the shield's two edges, a little sunward of it, turned with it (2026-11-07). Arrays behind the shield were in its shadow; arrays on the shield's face read as patches on it.
+  - Station radiators are white matte (`radiator` material), so they read as radiators in shade and are not mistaken for solar arrays (2026-11-07).
+  - The camera cannot enter a habitat (2026-11-07): `StationModels._collision_shapes` gives each habitat as a few simple shapes in its spinner's frame (a torus for the rings and the module wheel, capsules for the carousel cans and bola drums, and for the sphere, drums and the Ceres rock their surface seen from the centre), and `OrbitCamera` pushes the eye out of them as it does off planets (`push_out`, ~1-15 µs a station). Thin parts (trusses, arrays, shields, radiators) are not solid.
+  - Windows are the same size on every station: where a habitat grows with its people (torus strips, sphere rows, wheel modules, carousel cans) the window count grows, not the windows (2026-11-07).
+  - Zoom: the closest view of a station is the same at every station (1.6 × the docking core's 110 m radius), so the habitat's size does not limit it (2026-11-07).
+  - Solar arrays (every station except the reactor and sun-shielded ones) are pivoted: each array turns about its own station axis (Z) so its face points
+    at the Sun (`spin_rings`, as the shield does); the Sun stays near the ecliptic, so one axis is enough.
   - The core is the same everywhere and sized for the ships (40-140 m long; the large liner's radiators span
     ~200 m): a spine with a docking hub and four 110 m berthing arms at each end, 200 m beyond the habitat along
     the axis, so docked ships clear it; storage tanks by capacity between the habitat and the lower hub;
@@ -283,7 +306,8 @@
 - **Keys:** F5 quick save, F9 quick load, M economy, S statistics, G flow overlay, F focus, T thermal view, Space pause, `,` `.`
   timewarp, F11 map debug.
 - **Dev** (a tour opens a real window; parse-check scripts first with `godot4 --headless --path godot --check-only
-  --script res://scripts/<file>.gd`): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
+  --script res://scripts/<file>.gd`; a headless run of the scene (`--headless --quit-after N`) can crash in the dummy
+  renderer while station meshes are built on worker threads, so check the scene in a window: `--quit-after 300` runs clean): `-- --shot-tour=<dir>` scripted screenshots (`--shot-day=N`, `--shot-saveload`, `--shot-pause`,
   `--shot-smooth=SECONDS` counts stalled frames (`--shot-select=<station>` keeps a station in the inspector, `--shot-nofocus` without moving the camera); the tour shoots the ship schematic for each drive, hovered, and a thermal ship drawn as
   burning, and checks that the hover holds through refreshes and the wheel over the inspector leaves
   the map alone; it shoots each flying hull at mid zoom and close up (plasma ships also in the thermal view,

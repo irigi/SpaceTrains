@@ -32,7 +32,7 @@ const DISPLAY_MAX_LEAD_REAL_S := 3.0
 # say so when no snapshot has come for this long, rather than look frozen.
 const BRIDGE_BUSY_NOTICE_S := 2.0
 const DEFAULT_TIMEWARP := 86400.0
-const TIMEWARP_STEPS := [600.0, 3600.0, 21600.0, 86400.0, 432000.0]
+const TIMEWARP_STEPS := [1.0, 600.0, 21600.0, 86400.0, 432000.0]
 
 const ICON_PICK_PADDING_PX := 6.0
 const DEBUG_SAMPLE_BODY_IDS := ["sun", "mercury", "earth", "mars", "jupiter", "saturn", "neptune"]
@@ -108,6 +108,9 @@ var current_paused := false
 # Station ring spin runs on real time, but stops while the game is paused (as the top bar shows it).
 var spin_clock_s := 0.0
 var _spin_wall_s := -1.0
+# Visual angles (rad) of each planet's and moon's spin and of each station's orbit round its
+# planet (BodySpin.gd). Advanced on the wall clock at the timewarp rate, stopped by pause.
+var visual_phase: Dictionary = {}
 # Every station's detailed model has been built (StationModels.prefetch); when that was
 # (ms since start-up) and the longest it held up a frame (the shot tour reports them).
 var _stations_prefetched := false
@@ -146,6 +149,7 @@ const SpaceEnvironmentScript := preload("res://scripts/SpaceEnvironment.gd")
 const EntityVisualsScript := preload("res://scripts/EntityVisuals.gd")
 const ShipModelsScript := preload("res://scripts/ShipModels.gd")
 const StationModelsScript := preload("res://scripts/StationModels.gd")
+const BodySpinScript := preload("res://scripts/BodySpin.gd")
 const ModelMaterialsScript := preload("res://scripts/ModelMaterials.gd")
 const EclipsesScript := preload("res://scripts/Eclipses.gd")
 const TopBarPanel := preload("res://scripts/ui/TopBar.gd")
@@ -417,7 +421,7 @@ func _unhandled_input(event: InputEvent) -> void:
             current_paused = not current_paused
             _write_bridge_commands()
         elif event.keycode == KEY_1:
-            current_timewarp = 3600.0
+            current_timewarp = 1.0
             _write_bridge_commands()
         elif event.keycode == KEY_2:
             current_timewarp = 21600.0
@@ -853,7 +857,10 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_visual_signatures[entity_id] = ""
         map_icons.attach(entity_id, kind, data)
         if entity_id == "saturn":
-            container.add_child(SpaceEnvironmentScript.make_planet_ring())
+            # The ring lies in Saturn's equator: the same tilt as the planet's spin axis.
+            var ring := SpaceEnvironmentScript.make_planet_ring()
+            ring.basis = BodySpinScript.axis_basis(float(BodySpinScript.BODIES["saturn"]["obliquity_deg"]))
+            container.add_child(ring)
 
     if kind == "ship":
         _ensure_ship_model(entity_nodes[entity_id], data)
@@ -877,6 +884,13 @@ func _update_nodes(delta: float) -> void:
     render_origin = _abs_render(origin_m)
     # world_root holds absolute-frame geometry (orbit rings, planned paths, trails).
     world_root.position = -render_origin
+    var wall_s := _wall_time_s()
+    var wall_dt := 0.0
+    if _spin_wall_s >= 0.0 and not bool(bridge_state.get("paused", current_paused)):
+        wall_dt = minf(wall_s - _spin_wall_s, 0.5)
+        spin_clock_s += wall_s - _spin_wall_s
+    _spin_wall_s = wall_s
+    _advance_visual_phases(wall_dt)
     body_positions.clear()
     station_positions.clear()
     for body_id in body_orbits.keys():
@@ -884,10 +898,6 @@ func _update_nodes(delta: float) -> void:
     for station_id in station_orbits.keys():
         station_positions[station_id] = _abs_render(_station_m(station_id))
     var docked: Array[String] = []
-    var wall_s := _wall_time_s()
-    if _spin_wall_s >= 0.0 and not bool(bridge_state.get("paused", current_paused)):
-        spin_clock_s += wall_s - _spin_wall_s
-    _spin_wall_s = wall_s
     var spin_time := spin_clock_s
     var sun_world: Variant = (entity_nodes["sun"] as Node3D).global_position if entity_nodes.has("sun") else null
     var stations: Array = []
@@ -901,6 +911,15 @@ func _update_nodes(delta: float) -> void:
                 stations.append(station)
             _update_station_lod(node, station)
             StationModelsScript.spin_rings(node, spin_time, sun_world)
+        elif kind == "body":
+            var spin_angle := float(visual_phase.get(entity_id, 0.0))
+            var parent_id := String((body_orbits.get(entity_id, {}) as Dictionary).get("parent", ""))
+            if parent_id != "" and parent_id != "sun" and BodySpinScript.is_locked(entity_id):
+                var here := _body_m(entity_id)
+                var there := _body_m(parent_id)
+                spin_angle = BodySpinScript.locked_angle(entity_id,
+                    Vector3(there[0] - here[0], there[1] - here[1], there[2] - here[2]))
+            BodySpinScript.orient(node, entity_id, spin_angle)
         elif kind == "ship":
             var detail: Dictionary = entity_details.get(entity_id, {})
             if not String(detail.get("phase", "idle")) in ["in_transit", "derelict", "patrol"]:
@@ -983,6 +1002,24 @@ func _update_camera_obstacles() -> void:
         if node != null and node.scale.x > BODY_MIN_MODEL_SCALE:
             obstacles.append([node.global_position, node.scale.x])
     camera_rig.set("obstacles", obstacles)
+    # Station habitats near the camera keep it out too: each spinner's frame and the habitat's shapes.
+    var hulls: Array = []
+    var pivot: Vector3 = camera_rig.get("pivot")
+    var reach := float(camera_rig.get("distance"))
+    for entity_id in entity_nodes.keys():
+        if entity_kinds.get(entity_id, "") != "station":
+            continue
+        var node: Node3D = entity_nodes[entity_id]
+        var station: Dictionary = entity_details.get(entity_id, {})
+        if station.is_empty() or not node.has_meta("radius_m"):
+            continue
+        if node.global_position.distance_to(pivot) > float(node.get_meta("radius_m")) * node.scale.x * 1.5 + reach:
+            continue
+        var shapes: Array = StationModelsScript.model_info(station).get("collision", [])
+        for child in node.get_children():
+            if child.has_meta("spin"):
+                hulls.append([(child as Node3D).global_transform, shapes])
+    camera_rig.set("hulls", hulls)
 
 # --- Display clock and positions ----------------------------------------------
 
@@ -1061,6 +1098,9 @@ func _cache_ship_path(ship_id: String, ship: Dictionary) -> void:
         "destination": "" if free else String((station_orbits.get(String(ship.get("destination_station_id", "")), {}) as Dictionary).get("body", "")),
         "departure": float(ship.get("departure_time_s", 0.0)),
         "arrival": float(ship.get("arrival_time_s", 0.0)),
+        # The stations the flight leaves and enters (their drawn positions, _station_blend_m).
+        "origin_station": "" if free else String(ship.get("origin_station_id", "")),
+        "destination_station": "" if free else String(ship.get("destination_station_id", "")),
     }
     var origin_planet := _planet_of(String(cached["origin"]))
     cached["helio"] = origin_planet != "" and origin_planet != _planet_of(String(cached["destination"]))
@@ -1265,22 +1305,55 @@ func _rail_point_m(path: Dictionary, t: float) -> PackedFloat64Array:
     var i := clampi(times.bsearch(t, true) - 1, 0, times.size() - 2)
     var span := times[i + 1] - times[i]
     var f := clampf((t - times[i]) / span, 0.0, 1.0) if span > 0.0 else 1.0
-    if bool(path.get("helio", false)) and t > float(path["departure"]) and t < float(path["arrival"]):
-        return _helio_point_m(path, i, f)
-    var anchor := _rail_anchor_m(path, t)
-    var rates: PackedFloat64Array = path["doff"]
     var out := PackedFloat64Array([0.0, 0.0, 0.0])
-    # Cubic (Hermite) between the samples, so the ship's motion has no corner at each one.
-    var f2 := f * f
-    var f3 := f2 * f
-    var h00 := 2.0 * f3 - 3.0 * f2 + 1.0
-    var h10 := (f3 - 2.0 * f2 + f) * span
-    var h01 := 3.0 * f2 - 2.0 * f3
-    var h11 := (f3 - f2) * span
+    if bool(path.get("helio", false)) and t > float(path["departure"]) and t < float(path["arrival"]):
+        out = _helio_point_m(path, i, f)
+    else:
+        var anchor := _rail_anchor_m(path, t)
+        var rates: PackedFloat64Array = path["doff"]
+        # Cubic (Hermite) between the samples, so the ship's motion has no corner at each one.
+        var f2 := f * f
+        var f3 := f2 * f
+        var h00 := 2.0 * f3 - 3.0 * f2 + 1.0
+        var h10 := (f3 - 2.0 * f2 + f) * span
+        var h01 := 3.0 * f2 - 2.0 * f3
+        var h11 := (f3 - f2) * span
+        for axis in range(3):
+            var j := 3 * i + axis
+            out[axis] = anchor[axis] + h00 * offsets[j] + h10 * rates[j] + h01 * offsets[j + 3] + h11 * rates[j + 3]
+    var blend := _station_blend_m(path, t)
     for axis in range(3):
-        var j := 3 * i + axis
-        out[axis] = anchor[axis] + h00 * offsets[j] + h10 * rates[j] + h01 * offsets[j + 3] + h11 * rates[j + 3]
+        out[axis] += blend[axis]
     return out
+
+# The flight's samples are the simulation's station positions; the stations are drawn at
+# their visual orbit (BodySpin.gd). Near the origin the flight starts at the drawn station and
+# near the destination it ends at the drawn one: the offset fades linearly along the flight.
+func _station_blend_m(path: Dictionary, t: float) -> PackedFloat64Array:
+    var out := PackedFloat64Array([0.0, 0.0, 0.0])
+    var duration := float(path["arrival"]) - float(path["departure"])
+    if duration <= 0.0:
+        return out
+    var s := clampf((t - float(path["departure"])) / duration, 0.0, 1.0)
+    var origin := String(path.get("origin_station", ""))
+    var destination := String(path.get("destination_station", ""))
+    if origin != "" and station_orbits.has(origin) and s < 1.0:
+        var d := _station_visual_offset_m(origin)
+        for axis in range(3):
+            out[axis] += (1.0 - s) * d[axis]
+    if destination != "" and station_orbits.has(destination) and s > 0.0:
+        var d := _station_visual_offset_m(destination)
+        for axis in range(3):
+            out[axis] += s * d[axis]
+    return out
+
+# A station's drawn position minus its simulated one (the planet's position cancels out).
+func _station_visual_offset_m(station_id: String) -> PackedFloat64Array:
+    var orbit: Dictionary = station_orbits[station_id]
+    var r := float(orbit["r"])
+    var theta := float(orbit["theta"])
+    var drawn := theta + float(visual_phase.get(station_id, 0.0))
+    return PackedFloat64Array([r * (cos(drawn) - cos(theta)), 0.0, r * (sin(drawn) - sin(theta))])
 
 # Between two heliocentric samples: radius and angle (the short way, unless that runs
 # against the flight's sense of motion) are interpolated, so spirals and conic arcs stay
@@ -1343,10 +1416,25 @@ func _station_m(station_id: String) -> PackedFloat64Array:
     if not orbit.is_empty():
         var base := _body_m(String(orbit["body"]))
         var r := float(orbit["r"])
-        var theta := float(orbit["theta"])
+        # The sim's angle plus the visual orbit (BodySpin.gd): drawn only, the planner keeps theta.
+        var theta := float(orbit["theta"]) + float(visual_phase.get(station_id, 0.0))
         result = PackedFloat64Array([base[0] + cos(theta) * r, base[1], base[2] + sin(theta) * r])
     frame_positions_m[key] = result
     return result
+
+# Advances every planet's and moon's spin and every station's orbit by wall_dt seconds at the
+# rate BodySpin gives for the current timewarp (true at slow speeds, capped at fast ones).
+func _advance_visual_phases(wall_dt: float) -> void:
+    if wall_dt <= 0.0:
+        return
+    for body_id in body_orbits.keys():
+        var orbit: Dictionary = body_orbits[body_id]
+        var rate := BodySpinScript.spin_rate(String(body_id), float(orbit["period"]), current_timewarp)
+        visual_phase[body_id] = fmod(float(visual_phase.get(body_id, 0.0)) + rate * wall_dt, TAU)
+    for station_id in station_orbits.keys():
+        var orbit: Dictionary = station_orbits[station_id]
+        var rate := BodySpinScript.station_rate(String(orbit["body"]), float(orbit["r"]), current_timewarp)
+        visual_phase[station_id] = fmod(float(visual_phase.get(station_id, 0.0)) + rate * wall_dt, TAU)
 
 # A ship in transit (or a wreck, or a cutter under way) flies its path; otherwise it is at its station.
 func _ship_m(ship_id: String) -> PackedFloat64Array:
@@ -2521,9 +2609,9 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
         min_distance = maxf(min_distance, _body_display_scale(entity_id) * 1.6)
     elif entity_nodes.has(entity_id):
         var node: Node3D = entity_nodes[entity_id]
-        if entity_kind == "station" and node.has_meta("core_radius_m"):
-            # Inside the habitat ring, close to the docking core.
-            min_distance = maxf(min_distance, float(node.get_meta("core_radius_m")) * node.scale.x * 1.6)
+        if entity_kind == "station" and node.has_meta("dock_radius_m"):
+            # Close to the docking core: the same zoom at every station, whatever its habitat's size.
+            min_distance = maxf(min_distance, float(node.get_meta("dock_radius_m")) * node.scale.x * 1.6)
         else:
             min_distance = maxf(min_distance, MapIconsScript.model_world_size(node) * (1.6 if entity_kind == "ship" else 2.5))
     camera_rig.set("min_distance", min_distance)

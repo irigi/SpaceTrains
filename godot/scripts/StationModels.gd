@@ -5,14 +5,17 @@ extends RefCounted
 #
 # Every station has a design (DESIGN_BY_STATION, else by economy profile, else the plain
 # torus): a spinning habitat of its own kind round a shared non-spinning docking core.
-# Habitats give 1 g at their rim (spin from radius) and are sized by the seeded population:
+# Habitats give their design's gravity at the rim (GRAVITY_M_S2 and GRAVITY_LOW_M_S2; spin from radius) and are sized by the seeded population:
 # - torus: the Stanford torus (900 m radius, 65 m tube, 10,000 people), radius with the
 #   square root of the people per ring, at least 250 m; two counter-rotating rings a tube
-#   diameter apart from 15,000 people. garden_torus adds 45° mirror crowns that send
+#   diameter apart from 15,000 people. sunshade_torus (Earth Sunward): one large ring, a sun shield, no
+#   crowns. open_yard (Low Earth): the torus pair with dry docks and a static cargo gantry
+#   (truss arms and containers, no crew, no spin). garden_torus adds 45° mirror crowns that send
 #   sunlight into the rings' sunlight windows and more greenhouse sectors; yard_torus adds
 #   two dry docks with hulls being built.
 # - sphere: a Bernal sphere (radius from ~70 m² of shell per person), polar glazing fed by
-#   conical mirrors round each pole.
+#   conical mirrors round each pole, and a sun-tracking heat shield like the drum's (Venus gets
+#   about 1.9 times Earth's sunlight).
 # - shaded_drum: a drum (280 m radius, length from the people) behind a sun-tracking heat
 #   shield, its radiators edge-on behind it.
 # - shielded_drum: a drum armoured in ice blocks inside three magnetic-shield coils.
@@ -62,8 +65,8 @@ const BOLA_DOME := 0.3
 const BOLA_GAP_M := 16.0
 
 const DESIGN_BY_STATION := {
-    "earth_l1": "garden_torus",
-    "earth_orbit": "yard_torus",
+    "earth_l1": "sunshade_torus",
+    "earth_orbit": "open_yard",
     "venus_cloud": "sphere",
     "mercury_yard": "shaded_drum",
     "mars_transfer": "bola",
@@ -82,8 +85,10 @@ const DESIGN_BY_PROFILE := {
     "lunar_port": "module_wheel",
     "extractor_hub": "shielded_drum",
 }
-const TORUS_DESIGNS := ["torus", "garden_torus", "yard_torus"]
+const TORUS_DESIGNS := ["torus", "garden_torus", "yard_torus", "sunshade_torus"]
 const REACTOR_DESIGNS := ["rock", "shielded_drum", "carousel"]
+# Stations with a sun-tracking heat shield: their arrays sit on the sunward side of the shield.
+const SUN_SHIELDED_DESIGNS := ["shaded_drum", "sunshade_torus", "sphere"]
 
 static var _cache := {}
 
@@ -102,9 +107,22 @@ static func ring_radius_m(population: float) -> float:
     var per_ring := maxf(population, 1000.0) / float(2 if population >= TWO_RING_POPULATION else 1)
     return maxf(MIN_RING_RADIUS_M, STANFORD_RADIUS_M * sqrt(per_ring / STANFORD_POPULATION))
 
-# Spin that gives 1 g at the rim.
-static func ring_spin_rad_s(radius_m: float) -> float:
-    return sqrt(9.81 / maxf(radius_m, 1.0))
+# The gravity each design's habitat gives at its rim: 1 g for the torus, sphere and bola (people
+# live in them for the long run); Mars surface gravity for the compact industrial habitats
+# (drums, rock, module wheel, carousel). Their rims are 240-300 m: at 1 g they would spin at
+# 1.9 rpm, at the edge of comfort; at 0.38 g they spin at 1.1-1.2 rpm. Visual only.
+const GRAVITY_M_S2 := 9.81
+const GRAVITY_LOW_M_S2 := 3.73
+const LOW_GRAVITY_DESIGNS := ["shaded_drum", "shielded_drum", "rock", "module_wheel", "carousel"]
+# Floor area each base size gives (module wheel: 12 modules 40 m wide on a 250 m rim; carousel: 12
+# cans of 22 m radius, 104 m long on a 300 m rim) and the open yard's arm length beyond its cans.
+const WHEEL_BASE_AREA_M2 := 62832.0
+const CAROUSEL_BASE_AREA_M2 := 172800.0
+const YARD_ARM_CLEARANCE_M := 60.0
+
+# Spin that gives gravity_m_s2 at the rim.
+static func ring_spin_rad_s(radius_m: float, gravity_m_s2: float = 9.81) -> float:
+    return sqrt(gravity_m_s2 / maxf(radius_m, 1.0))
 
 static func _key(data: Dictionary) -> String:
     return "%s|%s|%d|%d" % [design_of(data), String(data.get("economy_profile_id", "")), int(round(_population(data))),
@@ -114,14 +132,16 @@ static func _tank_count(data: Dictionary) -> int:
     return clampi(int(float(data.get("storage_capacity", 20000.0)) / 9000.0), 2, 8)
 
 # The habitat's kind and size:
-# {design, kind, rim_m (1 g radius), spinners: [[z, spin sign, phase, flipped]], reach_m
+# {design, kind, rim_m (the radius that gives the design's gravity), spinners: [[z, spin sign, phase, flipped]], reach_m
 #  (how far along the axis it reaches), clear_m (the spine is free beyond this), solid (it
 #  encloses the spine), extent_m (its radius), and per kind: tube_m, half_m (drum half
 #  length), dome_m, rock_half_m}
 static func _habitat(data: Dictionary) -> Dictionary:
     var design := design_of(data)
     var pop := _population(data)
-    var two := pop >= TWO_RING_POPULATION
+    # The sunward terminal is one large ring (the full population on it, so sqrt(2) bigger).
+    var single := design == "sunshade_torus"
+    var two := pop >= TWO_RING_POPULATION and not single
     var h := {"design": design, "solid": false}
     match design:
         "sphere":
@@ -154,15 +174,18 @@ static func _habitat(data: Dictionary) -> Dictionary:
             h.merge({"kind": "bola", "rim_m": r, "drum_r_m": dr, "spinners": spinners, "reach_m": off + dr,
                 "clear_m": off + dr + 0.25 * CORE_M, "extent_m": Vector2(r + dome + 5.0, span).length()})
         "module_wheel":
-            var r := MIN_RING_RADIUS_M
+            # Floor area grows with the people (70 m² each): the wheel's size scales as the root.
+            var sw := maxf(1.0, sqrt(70.0 * pop / WHEEL_BASE_AREA_M2))
+            var r := MIN_RING_RADIUS_M * sw
             h.merge({"kind": "wheel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
-                "clear_m": 0.25 * CORE_M, "extent_m": r + 24.0})
+                "clear_m": 0.25 * CORE_M, "extent_m": r + 24.0 * sw})
         "carousel":
-            var r := 300.0
+            var sc := maxf(1.0, sqrt(70.0 * pop / CAROUSEL_BASE_AREA_M2))
+            var r := 300.0 * sc
             h.merge({"kind": "carousel", "rim_m": r, "spinners": [[0.0, 1.0, 0.0, false]], "reach_m": 0.0,
-                "clear_m": 0.25 * CORE_M, "extent_m": r + 30.0})
+                "clear_m": 0.25 * CORE_M, "extent_m": r + 30.0 * sc})
         _:
-            var r := ring_radius_m(pop)
+            var r := ring_radius_m(pop) * (sqrt(2.0) if single else 1.0)
             var tube := TUBE_RATIO * r
             # Two rings: the lower one is flipped so both rings' sunlight windows (and
             # mirror crowns) face outwards.
@@ -173,7 +196,7 @@ static func _habitat(data: Dictionary) -> Dictionary:
     return h
 
 # {hull, sun (or {}), spinner, spinners: [[z, sign, phase, flipped]], radius_m (whole
-#  station), core_radius_m (without the habitat), rim_m, spin_rad_s, berths: [{pos, dir}]}
+#  station), core_radius_m (without the habitat), rim_m, berths: [{pos, dir}]}
 static func model_info(data: Dictionary) -> Dictionary:
     var key := _key(data)
     if not _cache.has(key):
@@ -187,10 +210,100 @@ static func _build(data: Dictionary) -> Dictionary:
     var core_bound := _bound(hull["arrays"]["aabb"])
     if not hull["sun"].is_empty():
         core_bound = maxf(core_bound, _bound(hull["sun"]["aabb"]))
+    for panel in hull["solar"]:
+        core_bound = maxf(core_bound, (panel["at"] as Vector3).length() + _bound(panel["arrays"]["aabb"]))
     return {"hull": MeshBuilder.to_mesh(hull["arrays"]), "sun": MeshBuilder.to_mesh(hull["sun"]) if not hull["sun"].is_empty() else {},
+        "solar": _solar_meshes(hull["solar"]),
         "spinner": MeshBuilder.to_mesh(spinner["arrays"]), "spinners": hab["spinners"],
         "radius_m": maxf(float(hab["extent_m"]), core_bound), "core_radius_m": core_bound, "rim_m": hab["rim_m"],
-        "spin_rad_s": ring_spin_rad_s(float(hab["rim_m"])), "berths": hull["berths"]}
+        "berths": hull["berths"], "collision": _collision_shapes(hab)}
+
+# --- Camera collision ------------------------------------------------------------------
+#
+# The habitat as a few simple shapes in a spinner's own frame (the same for every spinner), so
+# the camera can be kept out of it (push_out). The thin parts (trusses, arrays, the shield) are
+# left out. Shapes: ["torus", rim, tube] about Z; ["capsule", a, b, radius]; ["solid", hab]
+# (sphere, drum, rock: a surface seen from the centre, so the camera is pushed out along its ray).
+static func _collision_shapes(hab: Dictionary) -> Array:
+    var r := float(hab["rim_m"])
+    match String(hab["kind"]):
+        "torus":
+            return [["torus", r, float(hab["tube_m"])]]
+        "wheel":
+            return [["torus", r, 20.0 * r / MIN_RING_RADIUS_M]]
+        "carousel":
+            var sc := r / 300.0
+            var cr := 22.0 * sc
+            var shapes: Array = []
+            for k in range(CAROUSEL_ARMS):
+                var a := TAU * float(k) / float(CAROUSEL_ARMS)
+                var at := Vector3(cos(a), sin(a), 0.0) * r
+                var along := Vector3(-sin(a), cos(a), 0.0) * (80.0 * sc - cr)
+                shapes.append(["capsule", at - along, at + along, cr])
+            return shapes
+        "bola":
+            var dr := float(hab["drum_r_m"])
+            var top := r - BOLA_DECKS * BOLA_DECK_M
+            var shapes: Array = []
+            for turn in [0.0, PI]:
+                var basis := Basis(Vector3(0, 0, 1), turn)
+                for y in _bola_drums(dr):
+                    shapes.append(["capsule", basis * Vector3(top, y, 0.0), basis * Vector3(r, y, 0.0), dr])
+            return shapes
+        _:
+            return [["solid", hab]]
+
+static var _rock_shape_cache: Dictionary = {}
+
+# The habitat's surface along the unit direction dir from its centre (sphere, drum, rock).
+static func _solid_surface(hab: Dictionary, dir: Vector3) -> float:
+    match String(hab["kind"]):
+        "sphere":
+            return float(hab["extent_m"])
+        "drum":
+            var across := Vector2(dir.x, dir.y).length()
+            var r := float(hab["extent_m"])
+            var half := float(hab["half_m"]) + float(hab["dome_m"])
+            return minf(r / maxf(across, 1.0e-6), half / maxf(absf(dir.z), 1.0e-6))
+        "rock":
+            if _rock_shape_cache.is_empty():
+                _rock_shape_cache = _rock_shape()
+            return _rock_point(hab, _rock_shape_cache, dir).length()
+    return 0.0
+
+# Moves point p (in a spinner's frame, metres) to at least margin outside each shape: off the
+# surface along its normal (torus, capsule), or along the ray from the centre (solids).
+static func push_out(shapes: Array, p: Vector3, margin: float) -> Vector3:
+    for shape in shapes:
+        match String(shape[0]):
+            "torus":
+                var across := Vector2(p.x, p.y)
+                var on_rim := Vector3(1.0, 0.0, 0.0) * float(shape[1])
+                if across.length() > 1.0e-6:
+                    var flat := across.normalized() * float(shape[1])
+                    on_rim = Vector3(flat.x, flat.y, 0.0)
+                p = _off_point(p, on_rim, float(shape[2]) + margin)
+            "capsule":
+                var a: Vector3 = shape[1]
+                var b: Vector3 = shape[2]
+                var ab := b - a
+                var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1.0e-9), 0.0, 1.0)
+                p = _off_point(p, a + ab * t, float(shape[3]) + margin)
+            "solid":
+                var d := p.length()
+                var dir := p / d if d > 1.0e-6 else Vector3(1.0, 0.0, 0.0)
+                var keep := _solid_surface(shape[1], dir) + margin
+                if d < keep:
+                    p = dir * keep
+    return p
+
+# p at least keep from the point c (pushed straight away from it).
+static func _off_point(p: Vector3, c: Vector3, keep: float) -> Vector3:
+    var off := p - c
+    var d := off.length()
+    if d >= keep:
+        return p
+    return c + (off / d if d > 1.0e-6 else Vector3(0.0, 0.0, 1.0)) * keep
 
 # The farthest corner of a box from the origin (a bound that holds under turns about Z).
 static func _bound(aabb: AABB) -> float:
@@ -287,6 +400,7 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
     # radiators in the lower part. Venus, close to the Sun, has twice the radiator.
     var mast_z := half - hub_r * 2.6
     var rad_scale := 2.0 if design == "sphere" else 1.0
+    var solar_list: Array = []
     if design in REACTOR_DESIGNS:
         _reactor(b, half - 75.0, detail)
     for side in [-1.0, 1.0]:
@@ -295,19 +409,25 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
         var rad_basis := Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
         var rad_size := Vector3(0.25 * radius, 0.25, 0.5 * radius * rad_scale)
         var rad_at := Vector3(0.0, side * (0.3 * radius + 0.12 * radius * rad_scale), rad_z)
-        var solar := not design in REACTOR_DESIGNS
+        # Side arrays would sit in the shadow of a heat shield or the habitat, so those stations
+        # carry their arrays on the shield's sunward side (_sun_shield).
+        var solar := not design in REACTOR_DESIGNS and not design in SUN_SHIELDED_DESIGNS
         if detail:
             if solar:
                 _lattice(b, "truss", Vector3(0.0, 0.0, mast_z), Vector3(side * 0.55 * radius, 0.0, mast_z), 1.4, 3.0, 0.2, 3)
-                _panel_grid(b, "solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D(Basis.IDENTITY, panel_at), 12, 5)
+                var sb := MeshBuilder.new()
+                _panel_grid(sb, "solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D.IDENTITY, 12, 5)
+                solar_list.append({"arrays": sb.commit_arrays(), "at": panel_at})
             _lattice(b, "truss", Vector3(0.0, 0.0, rad_z), Vector3(0.0, side * 0.3 * radius, rad_z), 1.1, 3.0, 0.18, 3)
-            _panel_grid(b, "silver", rad_size, Transform3D(rad_basis, rad_at), 2, int(8 * rad_scale))
+            _panel_grid(b, "radiator", rad_size, Transform3D(rad_basis, rad_at), 2, int(8 * rad_scale))
         else:
             if solar:
                 b.beam("truss", Vector3(0.0, 0.0, mast_z), Vector3(side * 0.55 * radius, 0.0, mast_z), 1.2)
-                b.box("solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D(Basis.IDENTITY, panel_at))
+                var sb := MeshBuilder.new()
+                sb.box("solar", Vector3(0.9 * radius, 0.3, 0.38 * radius), Transform3D.IDENTITY)
+                solar_list.append({"arrays": sb.commit_arrays(), "at": panel_at})
             b.beam("truss", Vector3(0.0, 0.0, rad_z), Vector3(0.0, side * 0.3 * radius, rad_z), 1.0)
-            b.box("silver", rad_size, Transform3D(rad_basis, rad_at))
+            b.box("radiator", rad_size, Transform3D(rad_basis, rad_at))
     # The flavour sits between the rings (two rings) or just beyond the habitat.
     var two_rings: bool = hab["kind"] == "torus" and hab["spinners"].size() == 2
     var flavour_z := 0.0 if two_rings else clear + 35.0
@@ -315,15 +435,17 @@ static func _hull(data: Dictionary, hab: Dictionary, detail: bool) -> Dictionary
         float(data.get("fuel_factory_per_day", 0.0)) > 0.0, detail)
     # The design's own fixed parts.
     match design:
-        "yard_torus":
+        "yard_torus", "open_yard":
             for side in [-1.0, 1.0]:
                 _dry_dock(b, side, flavour_z, detail, side > 0.0)
         "shielded_drum":
             _shield_coils(b, hab, detail)
+    if design == "open_yard":
+        _cargo_gantry(b, float(hab["rim_m"]) + float(hab["tube_m"]) + 120.0, detail)
     var sun := {}
-    if design == "shaded_drum":
+    if design in SUN_SHIELDED_DESIGNS:
         sun = _sun_shield(hab, detail)
-    return {"arrays": b.commit_arrays(), "sun": sun, "berths": berths}
+    return {"arrays": b.commit_arrays(), "sun": sun, "berths": berths, "solar": solar_list}
 
 # --- Core parts -------------------------------------------------------------------
 
@@ -454,9 +576,9 @@ static func _reactor(b: MeshBuilder, z: float, detail: bool) -> void:
     for s in [-1.0, 1.0]:
         var xf := Transform3D(Basis.IDENTITY, Vector3(80.0, 0.0, z + s * 26.0))
         if detail:
-            _panel_grid(b, "silver", Vector3(110.0, 0.25, 40.0), xf, 10, 3)
+            _panel_grid(b, "radiator", Vector3(110.0, 0.25, 40.0), xf, 10, 3)
         else:
-            b.box("silver", Vector3(110.0, 0.25, 40.0), xf)
+            b.box("radiator", Vector3(110.0, 0.25, 40.0), xf)
 
 static func _flavour(b: MeshBuilder, profile: String, radius: float, mid_z: float, low_z: float, fuel_factory: bool, detail: bool) -> void:
     match profile:
@@ -658,16 +780,33 @@ static func _sun_shield(hab: Dictionary, detail: bool) -> Dictionary:
         for t in [-1.0, 1.0]:
             b.beam("truss", Vector3(shield_x - 4.0, t * hy, -hz), Vector3(shield_x - 4.0, t * hy, hz), 1.5)
             b.beam("truss", Vector3(shield_x - 4.0, -hy, t * hz), Vector3(shield_x - 4.0, hy, t * hz), 1.5)
+    # Solar arrays: the usual pair (the size every station's arrays have) as wings off the shield's
+    # two edges, a little sunward of it, so they are lit and stand clear against space; they turn
+    # with the shield and face the Sun.
+    var wing_size := Vector3(0.9 * CORE_M, 0.3, 0.38 * CORE_M)
+    var array_x := shield_x + 20.0
+    for s in [-1.0, 1.0]:
+        var edge := Vector3(shield_x - 4.0, s * hy, 0.0)
+        var centre := Vector3(array_x, s * (hy + 20.0 + 0.5 * wing_size.x), 0.0)
+        # A mast behind the array (on its shaded side), from the shield frame to the far edge.
+        var root := Vector3(array_x - 2.0, s * (hy + 20.0), 0.0)
+        b.beam("truss", edge, root, 3.0 if detail else 4.0)
+        b.beam("truss", root, root + Vector3(0.0, s * wing_size.x, 0.0), 1.5)
+        var wing := Transform3D(shield_basis, centre)
+        if detail:
+            _panel_grid(b, "solar", wing_size, wing, 12, 5)
+        else:
+            b.box("solar", wing_size, wing)
     # Radiators behind: a spar joining the booms, panels reaching away from the Sun.
     b.beam("truss", Vector3(back_x, 0, -boom_z), Vector3(back_x, 0, boom_z), 3.0 if detail else 4.0)
     var wing := Transform3D(Basis.IDENTITY, Vector3(back_x - 140.0, 0.0, 0.0))
     var size := Vector3(270.0, 0.3, 1.2 * reach)
     if detail:
-        _panel_grid(b, "silver", size, wing, 9, 8)
+        _panel_grid(b, "radiator", size, wing, 9, 8)
         b.beam("copper", Vector3(back_x, 0.6, -0.6 * reach), Vector3(back_x - 275.0, 0.6, -0.6 * reach), 0.8)
         b.beam("copper", Vector3(back_x, 0.6, 0.6 * reach), Vector3(back_x - 275.0, 0.6, 0.6 * reach), 0.8)
     else:
-        b.box("silver", size, wing)
+        b.box("radiator", size, wing)
     return b.commit_arrays()
 
 # --- Habitats (spinning) -----------------------------------------------------------
@@ -676,6 +815,42 @@ static func _sun_shield(hab: Dictionary, detail: bool) -> Dictionary:
 # the instanced parts are built once and drawn as a MultiMesh of turns about the axis
 # (DETAIL only; turns only, no offsets, which Godot 4.3 MultiMeshes under scaled nodes
 # would misplace).
+
+# Low Earth's cargo gantry: four truss arms in the ecliptic, at 45° so they miss the dry docks, out
+# through the gap between the two rings (the crew rings are off the plane by a tube each), with
+# container stacks along the arms and at their ends. It does not turn: no crew, no gravity.
+static func _cargo_gantry(b: MeshBuilder, reach: float, detail: bool) -> void:
+    for k in range(4):
+        var a := 0.25 * PI + 0.5 * PI * float(k)
+        var dir := Vector3(cos(a), sin(a), 0.0)
+        var side := Vector3(-dir.y, dir.x, 0.0)
+        var xf := Basis(Vector3(0, 0, 1), a)
+        b.beam("truss", dir * 0.7 * CORE_M, dir * reach, 2.0)
+        if detail:
+            # Crane rail on top of each arm, where a hoist would run.
+            b.beam("steel", dir * 0.7 * CORE_M + Vector3(0, 0, 6.0), dir * reach + Vector3(0, 0, 6.0), 0.5)
+        var n := 0
+        for t in [0.55, 0.75, 0.95]:
+            for s in [-1.0, 1.0]:
+                _container(b, Transform3D(xf, dir * (reach * t) + side * s * 12.0), n, detail)
+                n += 1
+        for s in [-1.0, 1.0]:
+            _container(b, Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0), n, detail)
+            _container(b, Transform3D(xf, dir * (reach + 12.0) + side * s * 12.0 + Vector3(0, 0, 9.0)), n + 1, detail)
+            n += 2
+
+# One 30 x 9 x 9 m container, local X along its arm. Every third one carries the faction band.
+static func _container(b: MeshBuilder, xf: Transform3D, index: int, detail: bool) -> void:
+    b.box("band" if index % 3 == 1 else "metal", Vector3(30.0, 9.0, 9.0), xf)
+    if not detail:
+        return
+    for x in [-15.0, 15.0]:
+        for y in [-4.5, 4.5]:
+            b.beam("steel", xf * Vector3(x, y, -4.5), xf * Vector3(x, y, 4.5), 0.5)
+    for x in [-9.0, -4.5, 0.0, 4.5, 9.0]:
+        b.beam("steel", xf * Vector3(x, -4.6, -4.5), xf * Vector3(x, -4.6, 4.5), 0.25)
+        b.beam("steel", xf * Vector3(x, 4.6, -4.5), xf * Vector3(x, 4.6, 4.5), 0.25)
+    b.beam("steel", xf * Vector3(-15.0, 0.0, 4.6), xf * Vector3(15.0, 0.0, 4.6), 0.3)
 
 static func _spinner(hab: Dictionary, detail: bool) -> Dictionary:
     match String(hab["kind"]):
@@ -813,8 +988,9 @@ static func _ring_coarse(b: MeshBuilder, radius: float, collar_m: float) -> void
     b.torus("blanket", 0.0, radius, tube, Transform3D.IDENTITY, 128, 16)
     # The faction band round the ring's outer rim, between the two rows of windows.
     b.cylinder("band", -0.22 * tube, 0.22 * tube, radius + tube * 1.01, 128, Transform3D.IDENTITY, true)
-    var windows := 96
-    var window_len := 0.45 * TAU * radius / float(windows)
+    # Strips keep their length: 96 on the Stanford torus, more on a bigger ring.
+    var windows := maxi(8, roundi(96.0 * radius / STANFORD_RADIUS_M))
+    var window_len := 0.45 * TAU * STANFORD_RADIUS_M / 96.0
     for k in range(windows):
         var a := TAU * (float(k) + 0.5) / float(windows)
         var radial := Vector3(cos(a), sin(a), 0.0)
@@ -929,7 +1105,7 @@ static func _ring_sector(radius: float, delta: float, variant: String) -> Dictio
     # Radiator fins underneath.
     for i in range(3):
         var xf := _on_tube(radius, tube, delta * (float(i) + 0.5) / 3.0, -2.38, 3.0)
-        b.box("silver", Vector3(delta * radius / 3.0 - 6.0, 0.3, 6.0), xf)
+        b.box("radiator", Vector3(delta * radius / 3.0 - 6.0, 0.3, 6.0), xf)
     # Frames: heavy at the sector's ends, light in the middle.
     _tube_frame(b, "steel", radius, tube, 0.0, 0.7, 0.9)
     _tube_frame(b, "truss", radius, tube, delta * 0.5, 0.5, 0.45)
@@ -1011,10 +1187,11 @@ static func _sphere(hab: Dictionary, detail: bool) -> Dictionary:
             _surf(b, "glass", _sph(r, 0.4), 0.0, TAU, sgn * 58.0 * g, sgn * 72.0 * g, 64, 2)
             _surf(b, "tank", _sph(r, 0.3), 0.0, TAU, sgn * 30.0 * g, sgn * 56.0 * g, 64, 4)
             for lat in [10.0, 16.0, 22.0]:
-                var count := 96
+                # Windows 2 m wide whatever the radius: the count follows the circle.
+                var count := maxi(2, roundi(TAU * r * cos(sgn * lat * g) / 4.0))
                 for k in range(count):
                     var th := TAU * (float(k) + 0.5) / float(count)
-                    b.box("window", Vector3(0.5 * TAU * r * cos(sgn * lat * g) / float(count), 1.8, 0.4), _surf_frame(_sph(r, 0.1), th, sgn * lat * g, 0.0))
+                    b.box("window", Vector3(2.0, 1.8, 0.4), _surf_frame(_sph(r, 0.1), th, sgn * lat * g, 0.0))
     _surf(b, "band", _sph(r, 0.5), 0.0, TAU, -3.0 * g, 3.0 * g, 192 if detail else 64, 1)
     for sgn in [-1.0, 1.0]:
         var cap_z := sqrt(maxf(r * r - 30.0 * 30.0, 0.0))
@@ -1084,7 +1261,7 @@ static func _sphere_gore(r: float, delta: float, variant: String) -> Dictionary:
         b.beam("truss", a[0], c[0], 0.7)
     # Radiator fins on the equator's underside of half the gores.
     if variant == "b":
-        b.box("silver", Vector3(delta * r - 4.0, 5.0, 0.3), _surf_frame(s0, delta * 0.5, -40.0 * g, 3.0))
+        b.box("radiator", Vector3(delta * r - 4.0, 5.0, 0.3), _surf_frame(s0, delta * 0.5, -40.0 * g, 3.0))
     return b.commit_arrays()
 
 # --- Drum ---------------------------------------------------------------------------
@@ -1474,9 +1651,9 @@ static func _bola_pod(b: MeshBuilder, r: float, dr: float, xf: Transform3D, deta
     for s in [-1.0, 1.0]:
         var at := xf * Transform3D(Basis.IDENTITY.rotated(Vector3(1, 0, 0), PI * 0.5), Vector3(mid, s * (reach + 50.0), 0.0))
         if detail:
-            _panel_grid(b, "silver", Vector3(height, 0.3, 84.0), at, 3, 5)
+            _panel_grid(b, "radiator", Vector3(height, 0.3, 84.0), at, 3, 5)
         else:
-            b.box("silver", Vector3(height, 0.3, 84.0), at)
+            b.box("radiator", Vector3(height, 0.3, 84.0), at)
         b.beam("truss", xf * Vector3(mid, s * reach, 0.0), xf * Vector3(mid, s * (reach + 10.0), 0.0), 3.0)
     # The tether: two cables with spreaders to a bridle above the pod; climber cars on it.
     var root := 0.24 * CORE_M
@@ -1498,7 +1675,8 @@ static func _bola_pod(b: MeshBuilder, r: float, dr: float, xf: Transform3D, deta
 
 # --- Module wheel --------------------------------------------------------------------
 #
-# Twelve modules round a 250 m wheel, joined at spherical nodes; four spokes. Modules
+# Twelve modules round the wheel (250 m base, scaled with the people; windows keep their size),
+# joined at spherical nodes; four spokes. Modules
 # alternate between homes (windows) and greenhouses (glazing). DETAIL: the module (with
 # its node) drawn as MultiMeshes of turns.
 
@@ -1506,6 +1684,9 @@ const WHEEL_MODULES := 12
 
 static func _wheel(hab: Dictionary, detail: bool) -> Dictionary:
     var r := float(hab["rim_m"])
+    # The modules scale with the rim (floor area grows as its square, with the people); their
+    # windows keep their size (_wheel_module).
+    var sw := r / MIN_RING_RADIUS_M
     var b := MeshBuilder.new()
     var collar := 0.24 * CORE_M
     _collar(b, collar, 12.0, detail, 11)
@@ -1523,7 +1704,7 @@ static func _wheel(hab: Dictionary, detail: bool) -> Dictionary:
     for k in range(WHEEL_MODULES):
         var a := TAU * float(k) / float(WHEEL_MODULES)
         var node := Vector3(cos(a), sin(a), 0.0) * r
-        b.torus("band", 0.0, 20.3, 1.6, Transform3D(Basis.IDENTITY, node), 32 if detail else 16, 6)
+        b.torus("band", 0.0, 20.3 * sw, 1.6, Transform3D(Basis.IDENTITY, node), 32 if detail else 16, 6)
         if not detail:
             _wheel_module(b, r, Transform3D(Basis(Vector3(0, 0, 1), a), Vector3.ZERO), k % 2 == 1, false)
     var result := {"arrays": b.commit_arrays(), "instanced": []}
@@ -1535,56 +1716,62 @@ static func _wheel(hab: Dictionary, detail: bool) -> Dictionary:
                 "turns": _turns(WHEEL_MODULES, func(k: int) -> bool: return (k % 2 == 1) == farm)})
     return result
 
-# The node at angle 0 and the module from it to the next node.
+# The node at angle 0 and the module from it to the next node. The hull is drawn for the 250 m
+# base wheel times s; windows, hoop spacing and fittings keep their size, so a bigger wheel has
+# more rows of windows and more windows in a row.
 static func _wheel_module(b: MeshBuilder, r: float, xf: Transform3D, farm: bool, detail: bool) -> void:
+    var s := r / MIN_RING_RADIUS_M
     var p0 := Vector3(r, 0, 0)
     var a1 := TAU / float(WHEEL_MODULES)
     var p1 := Vector3(cos(a1), sin(a1), 0.0) * r
-    b.vessel("blanket", -20.0, 20.0, 20.0, 20.0, 32 if detail else 16, xf * Transform3D(Basis.IDENTITY, p0))
+    b.vessel("blanket", -20.0 * s, 20.0 * s, 20.0 * s, 20.0 * s, 32 if detail else 16, xf * Transform3D(Basis.IDENTITY, p0))
     var dir := (p1 - p0).normalized()
     var up := Vector3(0, 0, 1)
     var module := xf * Transform3D(Basis(up.cross(dir), up, dir), p0)
     var length := (p1 - p0).length()
-    b.cylinder("steel", 15.0, length - 15.0, 6.0, 16, module)
-    b.vessel("glass" if farm else "blanket", 22.0, length - 22.0, 14.0, 6.0, 32 if detail else 16, module)
+    var tube := 14.0 * s
+    b.cylinder("steel", 15.0 * s, length - 15.0 * s, 6.0 * s, 16, module)
+    b.vessel("glass" if farm else "blanket", 22.0 * s, length - 22.0 * s, tube, 6.0 * s, 32 if detail else 16, module)
     if detail:
         var rng := RandomNumberGenerator.new()
         rng.seed = 5 + int(farm)
-        var z := 30.0
-        while z < length - 28.0:
-            b.torus("steel", z, 14.15, 0.5, module, 32, 4)
+        var z := 30.0 * s
+        while z < length - 28.0 * s:
+            b.torus("steel", z, tube + 0.15, 0.5, module, 32, 4)
             if not farm:
-                _window_ring(b, z + 4.0, 14.0, 20, Vector2(1.6, 1.1), rng, module)
+                _window_ring(b, z + 4.0, tube, roundi(20.0 * s), Vector2(1.6, 1.1), rng, module)
             z += 9.0
         if farm:
-            for k in range(8):
-                var ang := TAU * float(k) / 8.0
+            var mullions := roundi(8.0 * s)
+            for k in range(mullions):
+                var ang := TAU * float(k) / float(mullions)
                 var radial := Vector3(cos(ang), sin(ang), 0.0)
-                b.beam("steel", module * (radial * 14.3 + Vector3(0, 0, 26.0)), module * (radial * 14.3 + Vector3(0, 0, length - 26.0)), 0.4)
+                b.beam("steel", module * (radial * (tube + 0.3) + Vector3(0, 0, 26.0 * s)), module * (radial * (tube + 0.3) + Vector3(0, 0, length - 26.0 * s)), 0.4)
         # A radiator on the inside of the wheel, a dish and an airlock on the node.
         var inward := -Vector3(cos(a1 * 0.5), sin(a1 * 0.5), 0.0)
         var mid := (p0 + p1) * 0.5
-        b.box("silver", Vector3(length - 60.0, 16.0, 0.3), xf * Transform3D(Basis(Vector3(0, 0, 1), atan2(dir.y, dir.x)), mid + inward * 24.0))
-        _fitting(b, xf * Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), p0 + Vector3(20.0, 0, 0)), rng)
-        _window_ring(b, 0.0, 20.0, 18, Vector2(1.4, 1.0), rng, xf * Transform3D(Basis.IDENTITY, p0))
+        b.box("radiator", Vector3(length - 60.0 * s, 16.0 * s, 0.3), xf * Transform3D(Basis(Vector3(0, 0, 1), atan2(dir.y, dir.x)), mid + inward * 24.0 * s))
+        _fitting(b, xf * Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), p0 + Vector3(20.0 * s, 0, 0)), rng)
+        _window_ring(b, 0.0, 20.0 * s, roundi(18.0 * s), Vector2(1.4, 1.0), rng, xf * Transform3D(Basis.IDENTITY, p0))
 
 # --- Carousel -----------------------------------------------------------------------
 #
-# Six habitat cans on lattice arms (300 m), each can lying along the direction of motion,
-# a greenhouse in its middle; a light tie ring through the cans. DETAIL: arm and can drawn
-# as a MultiMesh of six turns.
+# Six habitat cans on lattice arms (300 m base, scaled with the people), each can lying along
+# the direction of motion, a greenhouse in its middle; a light tie ring through the cans.
+# DETAIL: arm and can drawn as a MultiMesh of six turns.
 
 const CAROUSEL_ARMS := 6
 
 static func _carousel(hab: Dictionary, detail: bool) -> Dictionary:
     var r := float(hab["rim_m"])
+    var sc := r / 300.0
     var b := MeshBuilder.new()
     _collar(b, 0.28 * CORE_M, 15.0, detail, 13)
     b.torus("steel", 0.0, r, 1.5, Transform3D.IDENTITY, 192 if detail else 96, 4)
     for k in range(CAROUSEL_ARMS):
         var xf := Transform3D(Basis(Vector3(0, 0, 1), TAU * float(k) / float(CAROUSEL_ARMS)), Vector3.ZERO)
         for y in [-58.0, 58.0]:
-            b.cylinder("band", y - 4.0, y + 4.0, 22.5, 32 if detail else 16, xf * Transform3D(_can_basis(), Vector3(r, 0, 0)), true)
+            b.cylinder("band", y - 4.0, y + 4.0, 22.5, 32 if detail else 16, xf * Transform3D(_can_basis().scaled(Vector3.ONE * sc), Vector3(r, 0, 0)), true)
         if not detail:
             _carousel_arm(b, r, xf, false)
     var result := {"arrays": b.commit_arrays(), "instanced": []}
@@ -1594,31 +1781,40 @@ static func _carousel(hab: Dictionary, detail: bool) -> Dictionary:
         result["instanced"].append({"arrays": arm.commit_arrays(), "turns": _turns(CAROUSEL_ARMS, func(_k: int) -> bool: return true)})
     return result
 
+# An arm and its can. The can's hull is drawn for the 300 m base times sc; windows, hoops and their
+# spacing keep their size, so a bigger can has more rows of windows and more windows in a row.
 static func _carousel_arm(b: MeshBuilder, r: float, xf: Transform3D, detail: bool) -> void:
     var root := 0.28 * CORE_M
+    var sc := r / 300.0
+    var cr := 22.0 * sc
     var can := xf * Transform3D(_can_basis(), Vector3(r, 0, 0))
-    b.vessel("blanket", -70.0, -18.0, 22.0, 10.0, 32 if detail else 16, can)
-    b.vessel("blanket", 18.0, 70.0, 22.0, 10.0, 32 if detail else 16, can)
-    b.cylinder("glass", -20.0, 20.0, 21.0, 32 if detail else 16, can)
+    b.vessel("blanket", -70.0 * sc, -18.0 * sc, cr, 10.0 * sc, 32 if detail else 16, can)
+    b.vessel("blanket", 18.0 * sc, 70.0 * sc, cr, 10.0 * sc, 32 if detail else 16, can)
+    b.cylinder("glass", -20.0 * sc, 20.0 * sc, 21.0 * sc, 32 if detail else 16, can)
     if detail:
-        _lattice(b, "truss", xf * Vector3(root, 0, 0), xf * Vector3(r - 22.0, 0, 0), 5.0, 12.0, 0.8, 3)
-        b.cylinder("steel", root, r - 22.0, 3.5, 16, xf * Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), Vector3(0, 0, 9.0)), true)
+        _lattice(b, "truss", xf * Vector3(root, 0, 0), xf * Vector3(r - cr, 0, 0), 5.0, 12.0, 0.8, 3)
+        b.cylinder("steel", root, r - cr, 3.5, 16, xf * Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), Vector3(0, 0, 9.0)), true)
         var rng := RandomNumberGenerator.new()
         rng.seed = 17
         for z in [-64.0, -24.0, 24.0, 64.0]:
-            b.torus("steel", z, 22.2, 0.6, can, 32, 4)
-        for z in range(-60, -24, 8):
-            _window_ring(b, float(z), 22.0, 28, Vector2(1.8, 1.2), rng, can)
-        for z in range(28, 64, 8):
-            _window_ring(b, float(z), 22.0, 28, Vector2(1.8, 1.2), rng, can)
-        for k in range(10):
-            var ang := TAU * float(k) / 10.0
+            b.torus("steel", z * sc, cr + 0.2, 0.6, can, 32, 4)
+        var per_row := roundi(28.0 * sc)
+        for side in [-1.0, 1.0]:
+            var z := 28.0 * sc
+            while z < 64.0 * sc:
+                _window_ring(b, side * z, cr, per_row, Vector2(1.8, 1.2), rng, can)
+                z += 8.0
+        var mullions := roundi(10.0 * sc)
+        for k in range(mullions):
+            var ang := TAU * float(k) / float(mullions)
             var radial := Vector3(cos(ang), sin(ang), 0.0)
-            b.beam("steel", can * (radial * 21.3 + Vector3(0, 0, -20.0)), can * (radial * 21.3 + Vector3(0, 0, 20.0)), 0.5)
-        b.box("silver", Vector3(50.0, 0.3, 24.0), xf * Transform3D(Basis.IDENTITY, Vector3(r - 50.0, 0, 30.0)))
-        b.beam("truss", xf * Vector3(r - 50.0, 0, 9.0), xf * Vector3(r - 50.0, 0, 18.0), 1.0)
+            b.beam("steel", can * (radial * 21.3 * sc + Vector3(0, 0, -20.0 * sc)), can * (radial * 21.3 * sc + Vector3(0, 0, 20.0 * sc)), 0.5)
+        # A radiator on the arm, clear of the can.
+        var rad_x := r - cr - 30.0
+        b.box("radiator", Vector3(50.0, 0.3, 24.0), xf * Transform3D(Basis.IDENTITY, Vector3(rad_x, 0, 30.0)))
+        b.beam("truss", xf * Vector3(rad_x, 0, 9.0), xf * Vector3(rad_x, 0, 18.0), 1.0)
     else:
-        b.beam("truss", xf * Vector3(root, 0, 0), xf * Vector3(r - 22.0, 0, 0), 8.0)
+        b.beam("truss", xf * Vector3(root, 0, 0), xf * Vector3(r - cr, 0, 0), 8.0)
 
 # --- Detail builds -------------------------------------------------------------------
 
@@ -1626,7 +1822,7 @@ static func _carousel_arm(b: MeshBuilder, r: float, xf: Transform3D, detail: boo
 static func _detail_arrays(data: Dictionary) -> Dictionary:
     var hab := _habitat(data)
     var hull := _hull(data, hab, true)
-    return {"hull": hull["arrays"], "sun": hull["sun"], "spinner": _spinner(hab, true)}
+    return {"hull": hull["arrays"], "sun": hull["sun"], "solar": hull["solar"], "spinner": _spinner(hab, true)}
 
 # Engine resources from _detail_arrays (main thread): meshes, and one MultiMesh per
 # instanced part with its turns round the axis (shared by all spinners of this station).
@@ -1648,7 +1844,7 @@ static func _finish_detail(arrays: Dictionary) -> Dictionary:
         multimeshes.append(mm)
     var sun: Dictionary = arrays["sun"]
     return {"hull": MeshBuilder.to_mesh(arrays["hull"]), "sun": MeshBuilder.to_mesh(sun) if not sun.is_empty() else {},
-        "extras": MeshBuilder.to_mesh(arrays["spinner"]["arrays"]), "multimeshes": multimeshes}
+        "solar": _solar_meshes(arrays["solar"]), "extras": MeshBuilder.to_mesh(arrays["spinner"]["arrays"]), "multimeshes": multimeshes}
 
 static var _detail_cache := {}
 static var _pending := {}
@@ -1719,7 +1915,7 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
         var name := String(child.name)
         if name == "sun":
             sun_angle = (child as Node3D).rotation.z
-        if name.begins_with("ring") or name == "model" or name == "sun":
+        if name.begins_with("ring") or name.begins_with("solar") or name == "model" or name == "sun":
             child.queue_free()
             container.remove_child(child)
     var hull := MeshInstance3D.new()
@@ -1733,6 +1929,14 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
         sun.rotation = Vector3(0.0, 0.0, sun_angle)
         Materials.apply_mesh(sun, sun_mesh, container)
         container.add_child(sun)
+    # Solar arrays: each on its own pivot, turned to face the Sun in spin_rings.
+    var solar_meshes: Array = detail["solar"] if lod == DETAIL else info["solar"]
+    for k in range(solar_meshes.size()):
+        var panel := MeshInstance3D.new()
+        panel.name = "solar_%d" % k
+        panel.position = solar_meshes[k]["at"]
+        Materials.apply_mesh(panel, solar_meshes[k]["mesh"], container)
+        container.add_child(panel)
     var i := 0
     for spinner in info["spinners"]:
         var ring := MeshInstance3D.new()
@@ -1757,14 +1961,23 @@ static func ensure(container: Node3D, data: Dictionary, lod := COARSE) -> void:
     container.set_meta("radius_m", info["radius_m"])
     container.set_meta("berths", info["berths"])
     container.set_meta("core_radius_m", info["core_radius_m"])
+    container.set_meta("dock_radius_m", CORE_M)
     container.set_meta("rim_m", info["rim_m"])
-    container.set_meta("spin_rad_s", info["spin_rad_s"])
+    # The spin follows the design's gravity; set here (ensure) rather than in the worker-built info.
+    var gravity := GRAVITY_LOW_M_S2 if design_of(data) in LOW_GRAVITY_DESIGNS else GRAVITY_M_S2
+    container.set_meta("spin_rad_s", ring_spin_rad_s(float(info["rim_m"]), gravity))
+
+static func _solar_meshes(panels: Array) -> Array:
+    var out: Array = []
+    for panel in panels:
+        out.append({"mesh": MeshBuilder.to_mesh(panel["arrays"]), "at": panel["at"]})
+    return out
 
 static func _spin_basis(angle: float, flip: bool) -> Basis:
     var basis := Basis(Vector3(0, 0, 1), angle)
     return Basis(Vector3(1, 0, 0), PI) * basis if flip else basis
 
-# Turns the habitats (1 g spin, real time) and points the sun-tracking part at sun_world
+# Turns the habitats (their gravity's spin, real time) and points the sun-tracking part at sun_world
 # (a global position), when given.
 static func spin_rings(container: Node3D, spin_time_s: float, sun_world: Variant = null) -> void:
     var rate := float(container.get_meta("spin_rad_s", 0.1))
@@ -1775,3 +1988,9 @@ static func spin_rings(container: Node3D, spin_time_s: float, sun_world: Variant
         elif sun_world != null and String(child.name) == "sun":
             var local: Vector3 = container.global_transform.affine_inverse() * (sun_world as Vector3)
             (child as Node3D).rotation = Vector3(0.0, 0.0, atan2(local.y, local.x))
+        elif sun_world != null and String(child.name).begins_with("solar"):
+            # Each array turns about its own axis (the station's, Z) so that its face points at
+            # the Sun. The Sun stays near the ecliptic, so its direction is in the XY plane.
+            var local: Vector3 = container.global_transform.affine_inverse() * (sun_world as Vector3)
+            if Vector2(local.x, local.y).length() > 1.0e-6:
+                (child as Node3D).basis = Basis(Vector3(0, 0, 1), atan2(-local.x, local.y))

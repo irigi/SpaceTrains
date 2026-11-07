@@ -23,7 +23,7 @@ const BODY_TYPE := {
     "mars": "planet", "jupiter": "planet", "saturn": "planet",
     "uranus": "planet", "neptune": "planet",
     "ceres": "dwarf_planet",
-    "luna": "moon", "europa": "moon", "ganymede": "moon",
+    "luna": "moon", "io": "moon", "europa": "moon", "ganymede": "moon", "callisto": "moon",
     "titan": "moon", "triton": "moon",
 }
 const BODY_ICON_COLOR := {
@@ -35,7 +35,9 @@ const BODY_ICON_COLOR := {
     "mars":     Color(0.90, 0.35, 0.20),
     "ceres":    Color(0.60, 0.55, 0.50),
     "jupiter":  Color(0.85, 0.65, 0.45),
+    "io":       Color(0.90, 0.80, 0.45),
     "europa":   Color(0.75, 0.70, 0.65),
+    "callisto": Color(0.45, 0.40, 0.36),
     "ganymede": Color(0.65, 0.60, 0.55),
     "saturn":   Color(0.90, 0.80, 0.55),
     "titan":    Color(0.85, 0.65, 0.40),

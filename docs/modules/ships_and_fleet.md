@@ -330,7 +330,7 @@ Port, 1 at Ceres Deep Depot ("Police Cutter 1-4").
   Bulk Tanker and Plasma Bulk Tanker (2,000 units) are ordinary hulls for investment. Each station's ship fuel
   purchases (60-day average) count as demand when a fuel run is valued.
 - **Outer exports:** Ceres (platinum, from the belt miners), Ganymede and Titan (deuterium) and the science
-  stations make light, valuable goods, stockpiled up to 720 days. Low Earth Logistics and Earth L1 sell them on to
+  stations make light, valuable goods, stockpiled up to 720 days. Low Earth Logistics and Earth Sunward sell them on to
   Earth at Earth's bid (`surface_markets.csv`; the older `export_markets.csv` still works) in any amount; planners
   see them as steady consumers, never as starving ones. Anywhere else export goods price at the floor, so nobody
   hauls them elsewhere.

@@ -520,7 +520,7 @@ private:
     }
     // A follow-up leg counts only if the ship could leave its destination again: with what it has
     // left plus what that port can sell it, for a leg as long, flown empty. (Without this, ships
-    // shuttled empty between Earth L1 and Low Earth Logistics, each time for a follow-up to Mars
+    // shuttled empty between Earth Sunward and Low Earth Logistics, each time for a follow-up to Mars
     // that, once there, they could not fly: no fuel at Mars to leave again.)
     bool can_leave_again(const domain::StationDefinition& next, const LegEstimate& leg,
         double departure_kg, double days_ahead) {

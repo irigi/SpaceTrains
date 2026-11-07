@@ -144,7 +144,7 @@ as well while stations pay about a third less, and ships still earn several time
 `background_economies.csv`, `surface_markets.csv`, the `colony_*` keys in `households.csv`.
 
 - **Accounts:** Earth's surface (the old outside account), the Mars and Luna surfaces, the belt miners at Ceres.
-- **Earth** keeps its gateways (Low Earth Logistics, Earth L1) stocked with `surface_depth_units` of every good it
+- **Earth** keeps its gateways (Low Earth Logistics, Earth Sunward) stocked with `surface_depth_units` of every good it
   sells, outside the station's storage, and is there the curve's centre and its cap: Earth never sells dearer than
   its ask. It **buys only space goods** (platinum, deuterium, samples, helium-3, microgravity products) at a flat bid,
   plus propellant for its own traffic at Low Earth Logistics (0.9 × ask, 100 u/day). *Why:* stations make ordinary
@@ -197,11 +197,11 @@ as well while stations pay about a third less, and ships still earn several time
 `station_incomes.csv`, paid by Earth, sized from each station's trade deficit:
 - science budgets: Titan and Ganymede as science stations (they centre import prices 50% above landed cost,
   `science_price_premium`: "Earth is paying"), Mercury, the Venus cloud base;
-- relay services: Ganymede, Mercury, Earth L1; settlement: Mars, Ceres; tourism and survey: Luna. Visitors also
+- relay services: Ganymede, Mercury, Earth Sunward; settlement: Mars, Ceres; tourism and survey: Luna. Visitors also
   spend during their stay.
 - Science and settlement grants are **need-based**: full below half the credit ceiling, nothing at it. Services are
   paid in full.
-- Helium-3 (Luna), microgravity products (Earth orbit, Earth L1) and the science samples Titan, Ganymede, Ceres and
+- Helium-3 (Luna), microgravity products (Earth orbit, Earth Sunward) and the science samples Titan, Ganymede, Ceres and
   Mercury make from electronics sell to Earth: light, valuable goods for the outposts' return legs.
 
 ## Money

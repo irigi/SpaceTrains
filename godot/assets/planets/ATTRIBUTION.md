@@ -15,3 +15,13 @@ under the [Creative Commons Attribution 4.0 International license](https://creat
 - all re-encoded as JPEG quality 90
 
 Based on NASA elevation and imagery data.
+
+## Europa, Ganymede, Titan, Callisto
+
+- `europa.jpg`, `ganymede.jpg`, `titan.jpg`, `callisto.jpg`: maps generated with ChatGPT (OpenAI) for this game,
+  not from spacecraft data, 1774 x 887 px, saved as JPEG quality 90.
+
+## Io
+
+- `io.jpg`: USGS Astrogeology Io Galileo SSI global colour merge mosaic (1 km), reduced to 2048 x 1024 px.
+  Public domain (USGS). Source: https://astrogeology.usgs.gov/search/map/io_galileo_ssi_global_color_merge_mosaic_1km
