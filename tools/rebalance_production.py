@@ -8,7 +8,7 @@ material-input row by the mean factor of the outputs it feeds (a smaller farm us
 consumption too, so this repeats until the factors settle. Fuel (its own factories, and ships burn far more
 than stations use) and export goods (production-limited, calibrated separately) are left alone, as are
 upkeep and consume rows (what the residents need) and station-specific rows: local resources such as Lunar
-Gateway's polar ice, which Earth L1's farms depend on (scaling it with the rest left Earth L1 short of water).
+Gateway's polar ice, which Earth Sunward's farms depend on (scaling it with the rest left Earth Sunward short of water).
 
 Usage: tools/rebalance_production.py [--multiple 3] [--data data] [--dry-run]
 """

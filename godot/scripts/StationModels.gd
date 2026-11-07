@@ -8,7 +8,7 @@ extends RefCounted
 # Habitats give their design's gravity at the rim (GRAVITY_M_S2 and GRAVITY_LOW_M_S2; spin from radius) and are sized by the seeded population:
 # - torus: the Stanford torus (900 m radius, 65 m tube, 10,000 people), radius with the
 #   square root of the people per ring, at least 250 m; two counter-rotating rings a tube
-#   diameter apart from 15,000 people. sunshade_torus (Earth L1): one large ring, a sun shield, no
+#   diameter apart from 15,000 people. sunshade_torus (Earth Sunward): one large ring, a sun shield, no
 #   crowns. open_yard (Low Earth): the torus pair with dry docks and a static cargo gantry
 #   (truss arms and containers, no crew, no spin). garden_torus adds 45° mirror crowns that send
 #   sunlight into the rings' sunlight windows and more greenhouse sectors; yard_torus adds

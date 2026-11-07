@@ -292,7 +292,7 @@ ratios of 3-3.6 replace 6-20, because tanks, habitat and engine now count.
 Audit (730 days, `--econ-audit`): cargo margin 324k, fuel 3.6k, wages 38k, 7/22 profitable, 13 laid up,
 3 stranded, 43 CRITICAL (v16: 690k, 10/22, 9 laid up, 0 stranded, 34). Causes found by tracing:
 
-1. **Fuel volume.** A rebuilt Light Freighter burns ~44 t for Mars -> Earth; Earth L1 sells 17.5 t, so the
+1. **Fuel volume.** A rebuilt Light Freighter burns ~44 t for Mars -> Earth; Earth Sunward sells 17.5 t, so the
    return-fuel check rejects the trip. The whole system produces ~6 t of fuel per day, most of it at Venus.
    Ships strand at Low Earth Logistics (consumes fuel, produces none) until stock arrives. A scratch run
    with fuel production x5, starting fuel x3 and storage x2 gave 384k margin, 12 laid up, 2 stranded.

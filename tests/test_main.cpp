@@ -434,7 +434,7 @@ int main() {
     //   - Ganymede: old synodic period ≈ 7.3 days, fixed synodic period ≈ 399 days
     ship.propellant_kg = ship_class.propellant_capacity_kg;
 
-    // Earth L1 → Lunar Gateway: stations of one planetary system transfer around Earth.
+    // Earth Sunward → Lunar Gateway: stations of one planetary system transfer around Earth.
     // Before, this was planned as a heliocentric Hohmann at r ≈ 1 AU: a 183-day half orbit
     // of the Sun for a 400,000 km hop. Now: an Earth-centred Hohmann (~5 days) after a
     // phasing wait of at most one lunar month.
@@ -454,7 +454,7 @@ int main() {
             mechanics.get_station_position(luna_station, luna_plan.arrival_time_s)) < 1.0,
         "Kepler Earth->Luna path end must match destination station at arrival time");
 
-    // Earth L1 → Ganymede Deep Mine: worst-case outer moon.
+    // Earth Sunward → Ganymede Deep Mine: worst-case outer moon.
     // Old code used Ganymede's 7.2-day local period → synodic period ≈ 7.3 days.
     // Fixed code uses Jupiter's 11.9-year heliocentric period → synodic period ≈ 399 days.
     // We verify that wait_time_s is within the correct (large) synodic window, and that
@@ -841,7 +841,7 @@ int main() {
     }
 
     // --- VariableISP integration hang regression ---
-    // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth L1 -> Titan at
+    // Found by --trajectory-sweep: a low-fuel ion freighter planning Earth Sunward -> Titan at
     // day 210 got an atlas seed that dives into the Sun, and RK45 shrank its step forever.
     // The integrator now has a step budget, and the planner refines a real atlas cell instead
     // of using the diverging seed, falling through to the next window when one fails.
@@ -859,7 +859,7 @@ int main() {
             low_fuel_ship, ion_class, 210.0 * 86400.0);
         if (plan.feasible) {
             require(plan.diagnostics.endpoint_miss_m < 1.5e9,
-                "Earth L1 -> Titan low-fuel plan, if feasible, must end at Titan before the snap");
+                "Earth Sunward -> Titan low-fuel plan, if feasible, must end at Titan before the snap");
         }
     }
 
@@ -884,7 +884,7 @@ int main() {
         require(sized.propellant_load_kg >= 1.1 * sized.propellant_required_kg * (1.0 - 1e-9),
             "the load must cover the burn plus the 10% reserve");
         require(sized.propellant_load_kg < freighter.propellant_capacity_kg,
-            "a mission-sized load should not fill the tank for Earth L1 -> Mars");
+            "a mission-sized load should not fill the tank for Earth Sunward -> Mars");
         require_near(sized.sampled_propellant_kg.front(), sized.propellant_load_kg, 1e-6,
             "the path's propellant must start at the departure load");
 
@@ -1004,7 +1004,7 @@ int main() {
         };
         const double out_days = fastest("earth_l1", "ganymede_depot");
         const double home_days = fastest("ganymede_depot", "earth_l1");
-        const auto message = std::format("plasma freighter Earth L1 -> Ganymede {:.0f} d, back {:.0f} d", out_days, home_days);
+        const auto message = std::format("plasma freighter Earth Sunward -> Ganymede {:.0f} d, back {:.0f} d", out_days, home_days);
         require(std::isfinite(out_days) && std::isfinite(home_days), message.c_str());
         require(home_days < 1.5 * out_days, message.c_str());
     }
@@ -1057,7 +1057,7 @@ int main() {
                 }
             }
         }
-        require(feasible >= 20, "most Earth L1 ion freighter plans in the grid should be feasible");
+        require(feasible >= 20, "most Earth Sunward ion freighter plans in the grid should be feasible");
     }
 
     // --- Save files: doubles and strings survive a JSON round trip exactly. ---
@@ -1095,7 +1095,7 @@ int main() {
             return order.order_up_to_units / order.use_per_day;
         };
         require(cover("mars_transfer", "electronics") > 200.0, "Mars should order electronics for its long resupply");
-        require(cover("luna_base", "food") < 40.0, "the Moon, days from Earth L1, should order a few weeks of food");
+        require(cover("luna_base", "food") < 40.0, "the Moon, days from Earth Sunward, should order a few weeks of food");
     }
 
     // --- Market redesign (2026-10-19): with competitive prices and rotation contracts on (the
@@ -1715,7 +1715,7 @@ int main() {
         for (const auto& station : restored.stations) {
             require(std::abs(station.population - population(station.station_id)) < 1.0e-9, "save/load should keep populations");
         }
-        std::cout << std::format("Growth: Earth L1 {:.0f} -> {:.0f}, Mars {:.0f} -> {:.0f} in 240 days\n",
+        std::cout << std::format("Growth: Earth Sunward {:.0f} -> {:.0f}, Mars {:.0f} -> {:.0f} in 240 days\n",
             earth_seed, population("earth_l1"), mars_seed, population("mars_transfer"));
     }
 

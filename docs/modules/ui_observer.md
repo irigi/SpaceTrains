@@ -135,7 +135,7 @@
 
   | Station | Design | Habitat |
   |---|---|---|
-  | Earth L1 | `sunshade_torus` | Sunward terminal: one large torus (√2 the radius of a pair, the full population on one ring) with a sun shield on the Sun side and radiators behind; no mirror crowns (experimental, 2026-11-06, branch `feature/station_roles`) |
+  | Earth Sunward | `sunshade_torus` | Earth Sunward Terminal (id `earth_l1`; renamed 2026-11-07, as it orbits Earth at 1,500 km rather than sitting at L1). Sunward terminal: one large torus (√2 the radius of a pair, the full population on one ring) with a sun shield on the Sun side and radiators behind; no mirror crowns (experimental, 2026-11-06, branch `feature/station_roles`) |
   | Low Earth | `yard_torus` (two rings, 1 g) | Stanford torus pair (the population needs two rings at 70 m² each); two dry docks inside the rings; a static cargo gantry (four truss arms at 45° through the gap between the rings, container stacks on the arms, detailed in the high-detail build (corner posts, ribs, faction band on every third box, a crane rail on each arm); no crew, no spin) (2026-11-06, branch `feature/station_roles`) |
   | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators; a sun-tracking heat shield like Mercury's (2026-11-07) |
   | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
@@ -149,7 +149,7 @@
     ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
     flipped so both rings' sunlight windows (and crowns) face outwards.
   - Ceres, Ganymede and Titan have a reactor on a boom (shadow shield, radiator wings) instead of solar arrays.
-  - Stations with a sun shield (Earth L1, Venus, Mercury) carry the usual pair of solar arrays as wings off the shield's two edges, a little sunward of it, turned with it (2026-11-07). Arrays behind the shield were in its shadow; arrays on the shield's face read as patches on it.
+  - Stations with a sun shield (Earth Sunward, Venus, Mercury) carry the usual pair of solar arrays as wings off the shield's two edges, a little sunward of it, turned with it (2026-11-07). Arrays behind the shield were in its shadow; arrays on the shield's face read as patches on it.
   - Station radiators are white matte (`radiator` material), so they read as radiators in shade and are not mistaken for solar arrays (2026-11-07).
   - The camera cannot enter a habitat (2026-11-07): `StationModels._collision_shapes` gives each habitat as a few simple shapes in its spinner's frame (a torus for the rings and the module wheel, capsules for the carousel cans and bola drums, and for the sphere, drums and the Ceres rock their surface seen from the centre), and `OrbitCamera` pushes the eye out of them as it does off planets (`push_out`, ~1-15 µs a station). Thin parts (trusses, arrays, shields, radiators) are not solid.
   - Windows are the same size on every station: where a habitat grows with its people (torus strips, sphere rows, wheel modules, carousel cans) the window count grows, not the windows (2026-11-07).

@@ -56,15 +56,15 @@ int main() {
         const double target = economy.get_target_stock(agri, "water");
         require_near(target, std::abs(water_rate) * 21.0, 1.0e-9, "agri_hub water target must be three weeks of use");
 
-        // A consumer's curve is centred on its landed cost (step 15). Earth L1's water comes from
+        // A consumer's curve is centred on its landed cost (step 15). Earth Sunward's water comes from
         // Earth's surface since the economy overhaul (no landed cost in the data), so its curve is
-        // centred on the base price; Mercury's carries the haul from Earth L1.
+        // centred on the base price; Mercury's carries the haul from Earth Sunward.
         const double base = economy.reference_price(agri, "water");
         const auto commodity_base = [&](const char* id) {
             return std::find_if(universe.commodities.begin(), universe.commodities.end(), [&](const auto& c) { return c.id == id; })
                 ->base_price;
         };
-        require_near(base, commodity_base("water"), 1.0e-9, "Earth L1's water is centred on the base price");
+        require_near(base, commodity_base("water"), 1.0e-9, "Earth Sunward's water is centred on the base price");
         require(economy.reference_price(*std::find_if(universe.stations.begin(), universe.stations.end(),
                     [](const auto& s) { return s.id == "mercury_yard"; }), "water") > commodity_base("water"),
             "Mercury's water reference must include carrying it there");

@@ -836,7 +836,7 @@ func _add_station_money(detail: Dictionary) -> void:
 
 # --- ship ----------------------------------------------------------------------
 
-# What the ship is doing, in words: "Carrying 120 u platinum to Earth L1 Terminal".
+# What the ship is doing, in words: "Carrying 120 u platinum to Earth Sunward Terminal".
 func _mission_sentence(detail: Dictionary, context: Dictionary) -> String:
     var phase := String(detail.get("phase", "idle"))
     var game_time_s := float(context.get("game_time_s", 0.0))
