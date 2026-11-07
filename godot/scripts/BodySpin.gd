@@ -11,7 +11,7 @@ extends RefCounted
 # Obliquity is the angle between the spin axis and the orbit normal (the ecliptic's north,
 # as the sim's orbits are counter-clockwise seen from there). Above 90 degrees the body spins
 # backwards with respect to its orbit (Venus, Uranus). A period of 0 means tidally locked:
-# the body turns once per orbit, in the sense of its obliquity.
+# the body keeps its map's centre (the near side) turned to its planet (locked_angle).
 #
 # Values rounded from the standard astronomical tables; the masses are the same as in
 # data/bodies/bodies.csv (only the planets that have stations need one).
@@ -71,6 +71,19 @@ static func station_rate(parent_body_id: String, orbit_radius_m: float, timewarp
 # Local Y is turned to lie obliquity_deg from that normal.
 static func axis_basis(obliquity_deg: float) -> Basis:
     return Basis(Vector3.RIGHT, PI - deg_to_rad(obliquity_deg))
+
+static func is_locked(body_id: String) -> bool:
+    var info: Dictionary = BODIES.get(body_id, {})
+    return not info.is_empty() and float(info.get("spin_s", 0.0)) <= 0.0
+
+# A tidally locked body's spin angle (for orient) that turns its map's centre (longitude 0, the
+# near side) to its planet; to_parent is the direction to the planet in the render frame. Taken
+# from the position, so it holds at any timewarp (the spin cap would let the face drift).
+static func locked_angle(body_id: String, to_parent: Vector3) -> float:
+    var info: Dictionary = BODIES.get(body_id, {})
+    # Longitude 0 is the sphere mesh's local -Z; Basis(UP, a) turns it to (-sin a, 0, -cos a).
+    var local := axis_basis(float(info.get("obliquity_deg", 0.0))).inverse() * to_parent
+    return atan2(-local.x, -local.z)
 
 # Sets the spin of a body's visible meshes ("hull" and, for Earth, "clouds") at angle rad.
 static func orient(container: Node3D, body_id: String, angle_rad: float) -> void:

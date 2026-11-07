@@ -912,7 +912,14 @@ func _update_nodes(delta: float) -> void:
             _update_station_lod(node, station)
             StationModelsScript.spin_rings(node, spin_time, sun_world)
         elif kind == "body":
-            BodySpinScript.orient(node, entity_id, float(visual_phase.get(entity_id, 0.0)))
+            var spin_angle := float(visual_phase.get(entity_id, 0.0))
+            var parent_id := String((body_orbits.get(entity_id, {}) as Dictionary).get("parent", ""))
+            if parent_id != "" and parent_id != "sun" and BodySpinScript.is_locked(entity_id):
+                var here := _body_m(entity_id)
+                var there := _body_m(parent_id)
+                spin_angle = BodySpinScript.locked_angle(entity_id,
+                    Vector3(there[0] - here[0], there[1] - here[1], there[2] - here[2]))
+            BodySpinScript.orient(node, entity_id, spin_angle)
         elif kind == "ship":
             var detail: Dictionary = entity_details.get(entity_id, {})
             if not String(detail.get("phase", "idle")) in ["in_transit", "derelict", "patrol"]:

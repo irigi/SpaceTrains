@@ -47,7 +47,7 @@
   the planets' north poles point up; the view was upside down before. Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
   fixed `theta_rad` and the planner is untouched. Both run on the wall clock at the timewarp rate (stop while paused),
   capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
-  are the true ones. Moons are tidally locked (a turn per orbit). `Main._advance_visual_phases` keeps the phases;
+  are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `Main._advance_visual_phases` keeps the phases;
   `_station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
   stations (`_station_blend_m`: the start follows the origin station's drawn position, the end the destination's,
   fading linearly along the flight), so ships leave and arrive where the station is drawn.
