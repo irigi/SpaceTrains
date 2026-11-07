@@ -43,7 +43,8 @@
   `world_root` holds the absolute-frame lines (orbit rings, planned paths, trails).
 - **Planet and station motion** (`BodySpin.gd`, 2026-11-06; display only): each planet and moon spins about an axis
   tilted to its real obliquity (`BodySpin.BODIES`; the sim's orbits stay in the ecliptic, so the planets are tilted,
-  the orbits are not). Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
+  the orbits are not). Screen up is ecliptic north (`OrbitCamera.SCREEN_UP`, -Y in the render frame, 2026-11-07), so
+  the planets' north poles point up; the view was upside down before. Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
   fixed `theta_rad` and the planner is untouched. Both run on the wall clock at the timewarp rate (stop while paused),
   capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
   are the true ones. Moons are tidally locked (a turn per orbit). `Main._advance_visual_phases` keeps the phases;
@@ -74,13 +75,15 @@
   and ambient light still reach shaded models, as on any night side. `--shot-stations` prints each station's
   sunlight in eighths.
 - **Planet surfaces** (`EntityVisuals._planet_material`, 2026-10-30): Solar System Scope maps (CC BY 4.0), Europa and
-  Ganymede from the public-domain Voyager/Galileo mosaics (1024 and 1440 px wide, 2026-11-06), 8k for
+  Ganymede, Titan and Callisto from ChatGPT-generated maps (1774 x 887 px, 2026-11-07); Io from the USGS
+  public-domain Galileo mosaic (2048 x 1024 px); 8k for
   Earth, Moon, Mars and Mercury, 4k for Jupiter, Saturn, Venus and Ceres, 2k for Uranus and Neptune; imported
   VRAM-compressed (BPTC) with mipmaps and drawn with anisotropic filtering (~250 MB of video memory). The maps are
   albedo, scaled by `PLANET_EXPOSURE` (0.5) against the strong Sun light (1.9): at full strength the bright maps
   washed out to white and bloomed. Mars and Venus maps are desaturated in the files (Mars 0.62, Venus 0.55).
   Earth has a cloud layer (`_ensure_clouds`, 8k cloud map as alpha on a sphere 0.4% larger); Saturn's ring uses
-  the radial ring map from 1.24 to 2.27 planet radii. `--shot-planets` shoots every textured body at 1.3, 3 and
+  the radial ring map from 1.24 to 2.27 planet radii, in Saturn's equator (`BodySpin.axis_basis`, 2026-11-07; it was
+  tilted the other way before). `--shot-planets` shoots every textured body at 1.3, 3 and
   12 radii and from the night side.
 - **Ship models** (`ShipModels.gd`, 2026-10-23): built from the design's components with the schematic's layout
   (`ShipLayout.gd`, shared with `ui/ShipSchematic.gd`), so the map shows the same parts in the same order and
@@ -134,19 +137,22 @@
   |---|---|---|
   | Earth L1 | `sunshade_torus` | Sunward terminal: one large torus (√2 the radius of a pair, the full population on one ring) with a sun shield on the Sun side and radiators behind; no mirror crowns (experimental, 2026-11-06, branch `feature/station_roles`) |
   | Low Earth | `yard_torus` (two rings, 1 g) | Stanford torus pair (the population needs two rings at 70 m² each); two dry docks inside the rings; a static cargo gantry (four truss arms at 45° through the gap between the rings, container stacks on the arms, detailed in the high-detail build (corner posts, ribs, faction band on every third box, a crane rail on each arm); no crew, no spin) (2026-11-06, branch `feature/station_roles`) |
-  | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators |
+  | Venus | `sphere` | Bernal sphere (radius from ~70 m² of shell per person, ~260 m); polar glazing fed by conical mirrors; double radiators; a sun-tracking heat shield like Mercury's (2026-11-07) |
   | Mercury | `shaded_drum` | drum (280 m radius, length from the people); a heat shield and edge-on radiators on booms, turned to the Sun |
   | Mars | `bola` | two crossed, counter-rotating bolas on 450 m tethers with climber cars, their planes ~140 m apart so the pods pass; a pod is three squat drums standing on the tether (axis radial), twelve flat 5 m decks each with the lowest at the 1 g rim, sized by the people (~70 m² of deck each) |
   | Ceres | `rock` | hollowed asteroid (~300 m across, 1.35× that along the spin axis), craters with smooth raised rims (detailed grid 160 × 360), a lit window trench round the waist |
-  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, four spokes; the rim is 250 m up to about 900 people and grows with the square root of the population (590 m at 5,000) |
+  | Luna | `module_wheel` | twelve modules (homes and greenhouses alternate) joined at spherical nodes, four spokes; the rim is 250 m up to about 900 people and grows with the square root of the population (590 m at 5,000); the modules' hulls scale with it, their windows keep their size (more rows, more per row) |
   | Ganymede | `shielded_drum` | drum armoured in ice blocks, inside three superconducting shield coils held from the spine |
-  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms; the rim is 300 m up to about 2,500 people and grows with the square root of the population (504 m at 7,000) |
+  | Titan | `carousel` | six habitat cans with greenhouse midsections on lattice arms; the rim is 300 m up to about 2,500 people and grows with the square root of the population (504 m at 7,000); the cans' hulls scale with it, their windows keep their size |
 
   - Stanford torus: 900 m radius, 65 m tube, 10,000 people; radius grows with the square root of the people per
     ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
     flipped so both rings' sunlight windows (and crowns) face outwards.
   - Ceres, Ganymede and Titan have a reactor on a boom (shadow shield, radiator wings) instead of solar arrays.
-  - Solar arrays (every other station) are pivoted: each array turns about its own station axis (Z) so its face points
+  - Stations with a sun shield (Earth L1, Venus, Mercury) carry the usual pair of solar arrays on the sunward ends of the shield's booms, turned with it (2026-11-07). Arrays behind the shield were in its shadow.
+  - Windows are the same size on every station: where a habitat grows with its people (torus strips, sphere rows, wheel modules, carousel cans) the window count grows, not the windows (2026-11-07).
+  - Zoom: the closest view of a station is the same at every station (1.6 × the docking core's 110 m radius), so the habitat's size does not limit it (2026-11-07).
+  - Solar arrays (every station except the reactor and sun-shielded ones) are pivoted: each array turns about its own station axis (Z) so its face points
     at the Sun (`spin_rings`, as the shield does); the Sun stays near the ecliptic, so one axis is enough.
   - The core is the same everywhere and sized for the ships (40-140 m long; the large liner's radiators span
     ~200 m): a spine with a docking hub and four 110 m berthing arms at each end, 200 m beyond the habitat along

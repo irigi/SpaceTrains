@@ -8,6 +8,11 @@ extends Node3D
 
 @onready var camera: Camera3D = $Camera3D
 
+# Screen up is the ecliptic north pole. The sim's orbits run counter-clockwise seen from there,
+# and the sim's orbit normal is -Y in the render frame (Main._to_render keeps the axes), so
+# -Y is north. Planets' spin axes (BodySpin.axis_basis) follow the same convention.
+const SCREEN_UP := Vector3(0.0, -1.0, 0.0)
+
 var pivot: Vector3 = Vector3.ZERO
 var distance := 90.0
 var yaw := -0.6
@@ -35,8 +40,10 @@ func _unhandled_input(event: InputEvent) -> void:
             _update_transform()
     elif event is InputEventMouseMotion:
         if rotating:
-            yaw -= event.relative.x * rotation_sensitivity
-            pitch = clamp(pitch - event.relative.y * rotation_sensitivity, -PI * 0.495, PI * 0.495)
+            # Signs flipped with SCREEN_UP (a 180° roll of the view), so a drag moves the view
+            # on screen as it did before.
+            yaw += event.relative.x * rotation_sensitivity
+            pitch = clamp(pitch + event.relative.y * rotation_sensitivity, -PI * 0.495, PI * 0.495)
             _update_transform()
         elif panning:
             var basis := camera.global_transform.basis
@@ -79,7 +86,7 @@ func _update_transform() -> void:
     rotation = Vector3.ZERO
     # Build the basis from the normalized offset: look_at() rejects tiny
     # (ship-scale) offsets because its alignment check is not scale-invariant.
-    camera.transform = Transform3D(Basis.looking_at(-offset.normalized(), Vector3.UP), offset)
+    camera.transform = Transform3D(Basis.looking_at(-offset.normalized(), SCREEN_UP), offset)
     # Ship meshes are ~1e-8 world units at true scale; shrink the near plane as we zoom in so
     # they stay drawn however close the camera is (reverse-Z keeps depth precision fine),
     # and keep it short of the nearest planet's surface so the planet is never sliced open.

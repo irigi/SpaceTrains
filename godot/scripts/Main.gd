@@ -857,7 +857,10 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
         entity_visual_signatures[entity_id] = ""
         map_icons.attach(entity_id, kind, data)
         if entity_id == "saturn":
-            container.add_child(SpaceEnvironmentScript.make_planet_ring())
+            # The ring lies in Saturn's equator: the same tilt as the planet's spin axis.
+            var ring := SpaceEnvironmentScript.make_planet_ring()
+            ring.basis = BodySpinScript.axis_basis(float(BodySpinScript.BODIES["saturn"]["obliquity_deg"]))
+            container.add_child(ring)
 
     if kind == "ship":
         _ensure_ship_model(entity_nodes[entity_id], data)
@@ -2581,9 +2584,9 @@ func _focus_entity(entity_id: String, entity_kind: String) -> void:
         min_distance = maxf(min_distance, _body_display_scale(entity_id) * 1.6)
     elif entity_nodes.has(entity_id):
         var node: Node3D = entity_nodes[entity_id]
-        if entity_kind == "station" and node.has_meta("core_radius_m"):
-            # Inside the habitat ring, close to the docking core.
-            min_distance = maxf(min_distance, float(node.get_meta("core_radius_m")) * node.scale.x * 1.6)
+        if entity_kind == "station" and node.has_meta("dock_radius_m"):
+            # Close to the docking core: the same zoom at every station, whatever its habitat's size.
+            min_distance = maxf(min_distance, float(node.get_meta("dock_radius_m")) * node.scale.x * 1.6)
         else:
             min_distance = maxf(min_distance, MapIconsScript.model_world_size(node) * (1.6 if entity_kind == "ship" else 2.5))
     camera_rig.set("min_distance", min_distance)
