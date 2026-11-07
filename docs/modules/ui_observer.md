@@ -149,7 +149,9 @@
     ring, at least 250 m; two counter-rotating rings a tube diameter apart from 15,000 people. The lower ring is
     flipped so both rings' sunlight windows (and crowns) face outwards.
   - Ceres, Ganymede and Titan have a reactor on a boom (shadow shield, radiator wings) instead of solar arrays.
-  - Stations with a sun shield (Earth L1, Venus, Mercury) carry the usual pair of solar arrays on the sunward ends of the shield's booms, turned with it (2026-11-07). Arrays behind the shield were in its shadow.
+  - Stations with a sun shield (Earth L1, Venus, Mercury) carry the usual pair of solar arrays as wings off the shield's two edges, a little sunward of it, turned with it (2026-11-07). Arrays behind the shield were in its shadow; arrays on the shield's face read as patches on it.
+  - Station radiators are white matte (`radiator` material), so they read as radiators in shade and are not mistaken for solar arrays (2026-11-07).
+  - The camera cannot enter a habitat (2026-11-07): `StationModels._collision_shapes` gives each habitat as a few simple shapes in its spinner's frame (a torus for the rings and the module wheel, capsules for the carousel cans and bola drums, and for the sphere, drums and the Ceres rock their surface seen from the centre), and `OrbitCamera` pushes the eye out of them as it does off planets (`push_out`, ~1-15 µs a station). Thin parts (trusses, arrays, shields, radiators) are not solid.
   - Windows are the same size on every station: where a habitat grows with its people (torus strips, sphere rows, wheel modules, carousel cans) the window count grows, not the windows (2026-11-07).
   - Zoom: the closest view of a station is the same at every station (1.6 × the docking core's 110 m radius), so the habitat's size does not limit it (2026-11-07).
   - Solar arrays (every station except the reactor and sun-shielded ones) are pivoted: each array turns about its own station axis (Z) so its face points

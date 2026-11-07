@@ -995,6 +995,24 @@ func _update_camera_obstacles() -> void:
         if node != null and node.scale.x > BODY_MIN_MODEL_SCALE:
             obstacles.append([node.global_position, node.scale.x])
     camera_rig.set("obstacles", obstacles)
+    # Station habitats near the camera keep it out too: each spinner's frame and the habitat's shapes.
+    var hulls: Array = []
+    var pivot: Vector3 = camera_rig.get("pivot")
+    var reach := float(camera_rig.get("distance"))
+    for entity_id in entity_nodes.keys():
+        if entity_kinds.get(entity_id, "") != "station":
+            continue
+        var node: Node3D = entity_nodes[entity_id]
+        var station: Dictionary = entity_details.get(entity_id, {})
+        if station.is_empty() or not node.has_meta("radius_m"):
+            continue
+        if node.global_position.distance_to(pivot) > float(node.get_meta("radius_m")) * node.scale.x * 1.5 + reach:
+            continue
+        var shapes: Array = StationModelsScript.model_info(station).get("collision", [])
+        for child in node.get_children():
+            if child.has_meta("spin"):
+                hulls.append([(child as Node3D).global_transform, shapes])
+    camera_rig.set("hulls", hulls)
 
 # --- Display clock and positions ----------------------------------------------
 

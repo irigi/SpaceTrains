@@ -42,6 +42,8 @@ static func shared(slot: String) -> Material:
             m = _standard(Color(0.6, 0.5, 0.32), 0.55, 0.25)
         "silver":  # aluminised sunshades
             m = _standard(Color(0.52, 0.54, 0.56), 0.45, 0.3)
+        "radiator":  # white-painted station radiators (matte: they show in shade, unlike the solar arrays)
+            m = _standard(Color(0.74, 0.74, 0.72), 0.8)
         "truss":
             m = _standard(Color(0.42, 0.43, 0.45), 0.6, 0.2)
         "tank":  # foam-insulated cryogenic tanks

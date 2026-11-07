@@ -22,6 +22,11 @@ var panning := false
 # Spheres the camera may not enter (planets, moons, the Sun), as [center, radius] in this
 # rig's parent space; Main refreshes them every frame.
 var obstacles: Array = []
+# Station habitats the camera may not enter, as [spinner's global transform, shapes]
+# (StationModels.push_out); Main refreshes them every frame.
+var hulls: Array = []
+
+const StationModelsScript := preload("res://scripts/StationModels.gd")
 
 func _ready() -> void:
     _update_transform()
@@ -77,6 +82,16 @@ func _update_transform() -> void:
             if gap < keep_out:
                 var outward := from_center / gap if gap > 0.0 else direction
                 eye = center + outward * keep_out
+        # Habitats: the camera slides along a ring's tube or the outside of a drum or rock.
+        for hull in hulls:
+            var xf: Transform3D = hull[0]
+            var metres := xf.basis.get_scale().x
+            if metres <= 0.0:
+                continue
+            var local := xf.affine_inverse() * eye
+            var pushed := StationModelsScript.push_out(hull[1], local, 2.0 + 0.04 * distance / metres)
+            if pushed != local:
+                eye = xf * pushed
     for obstacle in obstacles:
         surface_gap = minf(surface_gap, eye.distance_to(obstacle[0]) - float(obstacle[1]))
     var offset := eye - pivot
