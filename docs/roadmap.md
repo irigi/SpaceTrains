@@ -30,6 +30,10 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    leaving and entering a planet's gravity well appears to cost nothing. Measure first (Δv and propellant missing
    per route), then plan proper planet escape and capture arcs for both planners, with the economy effect
    benchmarked. Also the same-planet "local direct arc" approximation.
+   **How to keep it fast** (outside review 2026-11-12): `docs/studies/soi_end_caps.md`. Wells as end caps with
+   closed-form costs (a burn formula for nuclear-thermal ships; per-station spiral constants for plasma ships),
+   the heliocentric planners unchanged for scoring, one exact solve with the true start and target states for
+   the plan a ship flies, spirals drawn by the UI from parameters. Its numbers are estimates until measured.
    **Reconsider where Earth Sunward Terminal sits** (user, 2026-11-07; part of the same recalibration). Today it
    orbits at 1,500 km (inside the inner Van Allen belt) and does nothing Low Earth Logistics does not. Options:
    the Sun-Earth L1 point as originally advertised (outside the well, constant sunlight for its sun shield; needs
