@@ -5,7 +5,8 @@ planned) → **Not doing** → standing decisions and checks → **Done**. The d
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (none open now); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
-**Status.** `main` holds everything up to PR #35 (station designs, eclipses, moons, Earth Sunward rename), no open PRs.
+**Status.** `main` holds everything up to PR #38 (station designs, eclipses, moons, Earth Sunward rename, sharper
+moon textures and a Triton map, the outside review's architecture ideas and studies), no open PRs.
 Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 131 ships profitable,
 ~4,500 boardings, drift 0, ~150 s per run.
 
@@ -46,9 +47,10 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    pick one account (station, its residents, a ship, a faction, Earth, a colony) and see whom it paid and who paid
    it, by category, over time. Needs per-account records in the money journal (today it keeps 6 sectors).
 
-5. **Moon and outer-planet textures** (optional): Triton has no surface map (Europa, Ganymede, Titan and Callisto are ChatGPT-generated maps, Io a USGS mosaic; 2026-11-07);
-   Uranus and Neptune use old small ones. Optionally make the package smaller (~230 MB, mostly the planet maps
-   as imported textures).
+5. **Outer-planet textures** (optional): Uranus and Neptune use old small maps. The moons are done (PR #37,
+   2026-11-10: 4096 px maps for Callisto, Europa, Ganymede, Io and Titan, and Triton's first map).
+   Optionally make the package smaller (~230 MB before the 4096 px moon maps, mostly the planet maps as imported
+   textures).
 
 6. **Is the depth visible?** (investigation, outside review 2026-11-12; no code). The simulation models crew
    radiation, boil-off, wear and overhauls, households and labour, colonies, order prices, contracts, failures and
@@ -250,5 +252,5 @@ byte-identical.
   Habitat gravity by design: 1 g for the torus, sphere and bola, 0.38 g for the compact industrial habitats (rock,
   drums, module wheel, carousel). Headless runs of the scene crash on worker-built meshes (dummy renderer only; the
   windowed game runs clean, see `modules/ui_observer.md`).
- and Windows zip built on the Linux PC, tested on Windows 11 (PR #30,
+- **Deployment:** Linux tar.gz and Windows zip built on the Linux PC, tested on Windows 11 (PR #30,
   `modules/deployment.md`).
