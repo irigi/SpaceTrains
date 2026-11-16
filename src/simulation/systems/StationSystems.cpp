@@ -2,6 +2,8 @@
 // people, works and their jobs by kind, needs by tier, site and depot, derived from the
 // numbers the economy already has. Nothing here feeds back into the simulation.
 
+#include "simulation/systems/StationSystems.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -10,10 +12,11 @@
 #include <vector>
 
 #include "economy/EconomySystem.hpp"
-#include "simulation/Simulation.hpp"
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Labour.hpp"
+#include "simulation/query/Lookups.hpp"
 
-namespace spacetrains::simulation {
+namespace spacetrains::simulation::systems {
 
 using namespace detail;
 
@@ -43,17 +46,18 @@ struct Works {
 
 }  // namespace
 
-std::string Simulation::station_systems_json(const domain::StationDefinition& station, const domain::StationState& state) const {
-    if (universe_.station_works.empty()) {
+std::string station_systems_json(const World& world, const domain::StationDefinition& station,
+    const domain::StationState& state) {
+    if (world.universe_.station_works.empty()) {
         return "";
     }
-    const auto& systems = universe_.station_systems;
-    const double factor = economy_.population_factor(station);
-    const double employed_share = economy_.employment(station.id);
+    const auto& systems = world.universe_.station_systems;
+    const double factor = world.economy_.population_factor(station);
+    const double employed_share = world.economy_.employment(station.id);
 
     const auto works_definition = [&](const std::string& commodity_id) -> const domain::StationWorksDefinition* {
         const domain::StationWorksDefinition* fallback = nullptr;
-        for (const auto& works : universe_.station_works) {
+        for (const auto& works : world.universe_.station_works) {
             if (works.commodity_id != commodity_id) {
                 continue;
             }
@@ -67,7 +71,7 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
         return fallback;
     };
     const auto base_price = [&](const std::string& commodity_id) {
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : world.universe_.commodities) {
             if (commodity.id == commodity_id) {
                 return commodity.base_price;
             }
@@ -75,7 +79,7 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
         return 0.0;
     };
     const auto mass_per_unit = [&](const std::string& commodity_id) {
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : world.universe_.commodities) {
             if (commodity.id == commodity_id) {
                 return commodity.mass_per_unit_kg;
             }
@@ -100,7 +104,7 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
         it->weight += capacity * base_price(commodity_id) * (definition ? definition->labour_share : 0.5);
         works_of_output[commodity_id] = static_cast<std::size_t>(it - works.begin());
     };
-    const auto& recipes = economy_.recipes_of(station);
+    const auto& recipes = world.economy_.recipes_of(station);
     for (const auto* recipe : recipes) {
         if (recipe->units_per_day <= 0.0) {
             continue;
@@ -110,12 +114,12 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
         add_output(recipe->commodity_id, capacity,
             capacity * employed_share * (run == state.output_factor.end() ? 1.0 : run->second));
     }
-    const double fuel_factory = economy_.fuel_factory_output(station);
+    const double fuel_factory = world.economy_.fuel_factory_output(station);
     if (fuel_factory > 0.0) {
         // The factory fills the depot to its buffer and idles above it.
         const auto fuel = state.inventory.find(economy::FUEL_ID);
         const double stock = fuel == state.inventory.end() ? 0.0 : fuel->second;
-        add_output(economy::FUEL_ID, fuel_factory, stock < economy_.fuel_buffer_units(station) ? fuel_factory : 0.0);
+        add_output(economy::FUEL_ID, fuel_factory, stock < world.economy_.fuel_buffer_units(station) ? fuel_factory : 0.0);
     }
     for (const auto* recipe : recipes) {
         if (recipe->role != domain::RecipeRole::Input || recipe->feeds.empty()) {
@@ -128,13 +132,13 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
 
     // People. Earth's gateways have no labour market: every worker has a job.
     const double residents = state.population;
-    const double workers = station_workers(state);
-    const double jobs = in_labour_market(state) ? state.jobs : workers;
+    const double workers = query::station_workers(world, state);
+    const double jobs = query::in_labour_market(world, state) ? state.jobs : workers;
     const double employed = std::min(workers, jobs);
     double spacers = 0.0;
-    for (const auto& ship : ships_) {
+    for (const auto& ship : world.ships_) {
         if (ship.home_station_id == station.id) {
-            spacers += ship_design(ship).crew_size;
+            spacers += query::ship_design(world, ship).crew_size;
         }
     }
     double visitors = 0.0;
@@ -171,21 +175,21 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
     }
 
     std::string out = "\"systems\":{";
-    const auto site_it = universe_.station_radiation.find(station.id);
-    const std::string site = site_it == universe_.station_radiation.end() ? "orbit" : site_it->second.site;
+    const auto site_it = world.universe_.station_radiation.find(station.id);
+    const std::string site = site_it == world.universe_.station_radiation.end() ? "orbit" : site_it->second.site;
     double gravity_g = 1.0;   // spin rings in orbit
     if (site != "orbit") {
-        for (const auto& body : universe_.bodies) {
+        for (const auto& body : world.universe_.bodies) {
             if (body.id == station.parent_body_id && body.radius_m > 0.0) {
                 gravity_g = body.mu_m3_s2 / (body.radius_m * body.radius_m) / STANDARD_GRAVITY;
             }
         }
     }
     out += std::format("\"site\":\"{}\",\"gravity_g\":{:.3f},\"shield_g_cm2\":{:.0f},", json_escape(site), gravity_g,
-        site_it == universe_.station_radiation.end() ? 0.0 : site_it->second.shield_g_cm2);
+        site_it == world.universe_.station_radiation.end() ? 0.0 : site_it->second.shield_g_cm2);
     out += std::format("\"residents\":{:.0f},\"housing\":{:.0f},\"workers\":{:.0f},\"jobs\":{:.0f},\"employed\":{:.0f},"
                        "\"dependants\":{:.0f},\"spacers\":{:.0f},\"visitors\":{:.0f},\"waiting\":{:.0f},",
-        residents, universe_.growth.max_population_factor * station.population, workers, jobs, employed,
+        residents, world.universe_.growth.max_population_factor * station.population, workers, jobs, employed,
         std::max(0.0, residents - workers), spacers, visitors, waiting);
     out += std::format("\"services_jobs\":{:.1f},\"jobs_by_kind\":{},", services_jobs, staffing_json(jobs_by_kind));
 
@@ -257,8 +261,8 @@ std::string Simulation::station_systems_json(const domain::StationDefinition& st
     }
     out += "],";
 
-    out += std::format("\"fuel_buffer\":{:.0f}}},", economy_.fuel_buffer_units(station));
+    out += std::format("\"fuel_buffer\":{:.0f}}},", world.economy_.fuel_buffer_units(station));
     return out;
 }
 
-}  // namespace spacetrains::simulation
+}  // namespace spacetrains::simulation::systems

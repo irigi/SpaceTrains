@@ -54,6 +54,7 @@ add_library(spacetrains_core
     src/simulation/query/Labour.cpp
     src/simulation/query/Lookups.cpp
     src/simulation/query/Positions.cpp
+    src/simulation/systems/StationSystems.cpp
     src/simulation/Market.cpp
     src/simulation/ShipOperations.cpp
     src/simulation/MissionPlanning.cpp
@@ -66,7 +67,6 @@ add_library(spacetrains_core
     src/simulation/CrewEnvironment.cpp
     src/simulation/Passengers.cpp
     src/simulation/Households.cpp
-    src/simulation/StationSystems.cpp
     src/simulation/MoneyJournal.cpp
     src/simulation/FlowRecord.cpp
     src/simulation/Statistics.cpp

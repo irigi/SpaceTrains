@@ -21,6 +21,7 @@
 #include "simulation/FlowRecord.hpp"
 #include "simulation/MoneyJournal.hpp"
 #include "simulation/World.hpp"
+#include "simulation/query/Accounts.hpp"
 #include "simulation/query/Labour.hpp"
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
@@ -767,7 +768,7 @@ private:
     // Every station's stock of every good, in the flow record's order.
     [[nodiscard]] std::vector<std::vector<double>> flow_stocks() const;
     void close_journal_period();
-    [[nodiscard]] static constexpr int account_earth() { return 0; }
+    [[nodiscard]] static constexpr int account_earth() { return query::account_earth(); }
     [[nodiscard]] int account_economy(const std::string& economy_id) const;   // Earth or a colony
     [[nodiscard]] int account_faction(const std::string& faction_id) const;
     [[nodiscard]] int account_fleet(const std::string& faction_id) const;
