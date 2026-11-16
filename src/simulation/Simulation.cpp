@@ -20,6 +20,10 @@
 #include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Accounts.hpp"
+#include "simulation/query/Events.hpp"
+#include "simulation/query/Lookups.hpp"
+#include "simulation/query/Positions.hpp"
 
 namespace spacetrains::simulation {
 
@@ -27,9 +31,7 @@ using namespace detail;
 
 
 Simulation::Simulation(domain::UniverseDefinition universe)
-    : universe_(std::move(universe)),
-      mechanics_(universe_),
-      economy_(universe_) {
+    : World(std::move(universe)) {
     kepler_planner_ = std::make_unique<trajectory::KeplerTrajectoryPlanner>(universe_, mechanics_);
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
@@ -223,49 +225,20 @@ const economy::EconomySystem& Simulation::economy_system() const {
 }
 
 double Simulation::radiator_bucket(const domain::ShipState& ship) const {
-    // Only a plasma drive's radiators limit its power (register_design makes damaged designs
-    // for variable-Isp hulls only), so other hulls are always in the undamaged bucket.
-    if (!universe_.ship_environment.wear || get_ship_class(ship.class_id).propulsion_type != "variable_isp") {
-        return 1.0;
-    }
-    return std::clamp(std::round(ship.radiator_condition * 10.0) / 10.0, 0.1, 1.0);
+    return query::radiator_bucket(*this, ship);
 }
 
-namespace {
-std::string damaged_design_id(const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
-    auto key = domain::design_id(class_id, fit);
-    if (radiator_bucket < 1.0) {
-        key += std::format("#r{}", static_cast<int>(std::lround(radiator_bucket * 10.0)));
-    }
-    return key;
-}
-}  // namespace
 
 const domain::ShipClassDefinition& Simulation::ship_design(const domain::ShipState& ship) const {
-    const double bucket = radiator_bucket(ship);
-    if (ship.fit.empty() && bucket >= 1.0) {
-        return get_ship_class(ship.class_id);
-    }
-    const auto key = damaged_design_id(ship.class_id, ship.fit, bucket);
-    const auto it = designs_.find(key);
-    if (it == designs_.end()) {
-        throw std::runtime_error("Unregistered ship design: " + key);
-    }
-    return it->second;
+    return query::ship_design(*this, ship);
 }
 
 const domain::ShipModuleDefinition* Simulation::find_module(const std::string& hull_id, const std::string& module_id) const {
-    const auto it = modules_by_key_.find(hull_id + "|" + module_id);
-    return it == modules_by_key_.end() ? nullptr : it->second;
+    return query::find_module(*this, hull_id, module_id);
 }
 
 bool Simulation::module_has_active_effect(const domain::ShipModuleDefinition& module) const {
-    for (const auto& [effect, value] : module.effects) {
-        if (value != 0.0 && active_effects_.contains(effect)) {
-            return true;
-        }
-    }
-    return false;
+    return query::module_has_active_effect(*this, module);
 }
 
 std::vector<Simulation::FitOption> Simulation::neighbouring_fits(
@@ -324,132 +297,35 @@ std::vector<Simulation::FitOption> Simulation::neighbouring_fits(
 
 const domain::ShipClassDefinition& Simulation::register_design(
     const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
-    const auto& base = get_ship_class(class_id);
-    const bool damaged = radiator_bucket < 1.0 && base.propulsion_type == "variable_isp";
-    if (fit.empty() && !damaged) {
-        return base;
-    }
-    const auto key = damaged_design_id(class_id, fit, damaged ? radiator_bucket : 1.0);
-    if (const auto it = designs_.find(key); it != designs_.end()) {
-        return it->second;
-    }
-    std::vector<std::string> sorted = fit;
-    std::sort(sorted.begin(), sorted.end());
-    if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
-        throw std::runtime_error("Ship design fits a module twice: " + key);
-    }
-    std::vector<domain::ShipComponentDefinition> parts;
-    std::unordered_map<std::string, int> used;
-    std::unordered_map<std::string, double> effects;
-    std::string names;
-    for (const auto& module_id : sorted) {
-        const auto* module = find_module(base.hull_id, module_id);
-        if (module == nullptr) {
-            throw std::runtime_error("Hull " + base.hull_id + " has no module " + module_id);
-        }
-        const auto slots = universe_.hull_slots.find(base.hull_id);
-        const int capacity = slots == universe_.hull_slots.end() || !slots->second.contains(module->slot)
-            ? 0 : slots->second.at(module->slot);
-        if (++used[module->slot] > capacity) {
-            throw std::runtime_error("Ship design overfills the " + module->slot + " slots: " + key);
-        }
-        parts.push_back(module->part);
-        for (const auto& [effect, value] : module->effects) {
-            effects[effect] += value;
-        }
-        names += (names.empty() ? "" : ", ") + module->part.name;
-    }
-    auto design = domain::derive_design(base, parts, key);
-    design.name = names.empty() ? base.name : base.name + " [" + names + "]";
-    design.base_class_id = base.id;
-    if (damaged) {
-        // Holed radiators reject less heat, and the drive may only make as much waste heat as
-        // they reject: jet power, and with it alpha, falls in proportion.
-        design.specific_engine_power_w_per_kg *= radiator_bucket;
-        for (auto& part : design.components) {
-            if (part.kind == "engine") {
-                part.power_w *= radiator_bucket;
-                part.heat_w *= radiator_bucket;
-            } else if (part.kind == "radiator") {
-                part.heat_w *= radiator_bucket;
-            }
-        }
-        design.name += std::format(" (radiators {:.0f}%)", 100.0 * radiator_bucket);
-    }
-    if (const auto it = effects.find("berths"); it != effects.end() && active_effects_.contains("berths")) {
-        design.berths += it->second;
-    }
-    design.fit = std::move(sorted);
-    design.effects = std::move(effects);
-    return designs_.emplace(key, std::move(design)).first->second;
+    return query::register_design(*this, class_id, fit, radiator_bucket);
 }
 
 const domain::ShipClassDefinition& Simulation::get_ship_class(const std::string& class_id) const {
-    const auto it = ship_classes_by_id_.find(class_id);
-    if (it == ship_classes_by_id_.end()) {
-        throw std::runtime_error("Unknown ship class: " + class_id);
-    }
-    return *it->second;
+    return query::get_ship_class(*this, class_id);
 }
 
 const domain::CelestialBodyDefinition& Simulation::get_body_definition(const std::string& body_id) const {
-    const auto it = std::find_if(
-        universe_.bodies.begin(),
-        universe_.bodies.end(),
-        [&](const domain::CelestialBodyDefinition& body) { return body.id == body_id; });
-    if (it == universe_.bodies.end()) {
-        throw std::runtime_error("Unknown body: " + body_id);
-    }
-    return *it;
+    return query::get_body_definition(*this, body_id);
 }
 
 const domain::StationDefinition& Simulation::get_station_definition(const std::string& station_id) const {
-    const auto it = station_defs_by_id_.find(station_id);
-    if (it == station_defs_by_id_.end()) {
-        throw std::runtime_error("Unknown station: " + station_id);
-    }
-    return *it->second;
+    return query::get_station_definition(*this, station_id);
 }
 
 domain::StationState& Simulation::get_station_state(const std::string& station_id) {
-    const auto it = std::find_if(
-        stations_.begin(),
-        stations_.end(),
-        [&](const domain::StationState& station) { return station.station_id == station_id; });
-    if (it == stations_.end()) {
-        throw std::runtime_error("Unknown station state: " + station_id);
-    }
-    return *it;
+    return query::get_station_state(static_cast<World&>(*this), station_id);
 }
 
 const domain::StationState& Simulation::get_station_state(const std::string& station_id) const {
-    const auto it = std::find_if(
-        stations_.begin(),
-        stations_.end(),
-        [&](const domain::StationState& station) { return station.station_id == station_id; });
-    if (it == stations_.end()) {
-        throw std::runtime_error("Unknown station state: " + station_id);
-    }
-    return *it;
+    return query::get_station_state(static_cast<const World&>(*this), station_id);
 }
 
 void Simulation::add_event(std::string text, std::string category) {
-    // Debug aid: SPACETRAINS_TRACE_CONTRACTS=1 logs rotation-contract events (stderr).
-    if (static const bool trace_contracts = std::getenv("SPACETRAINS_TRACE_CONTRACTS") != nullptr;
-        trace_contracts && text.find("rotation contract") != std::string::npos) {
-        std::cerr << std::format("[CONTRACT] day {:.1f} {}\n", game_time_s_ / 86400.0, text);
-    }
-    recent_events_.push_back({.time_s = game_time_s_, .text = std::move(text), .category = std::move(category)});
-    if (recent_events_.size() > MAX_EVENT_HISTORY) {
-        recent_events_.erase(recent_events_.begin(), recent_events_.begin() + static_cast<long>(recent_events_.size() - MAX_EVENT_HISTORY));
-    }
+    query::add_event(*this, std::move(text), std::move(category));
 }
 
 void Simulation::record_trade(domain::TradeEntry trade) {
-    recent_trades_.push_back(std::move(trade));
-    if (recent_trades_.size() > MAX_TRADE_HISTORY) {
-        recent_trades_.erase(recent_trades_.begin(), recent_trades_.begin() + static_cast<long>(recent_trades_.size() - MAX_TRADE_HISTORY));
-    }
+    query::record_trade(*this, std::move(trade));
 }
 
 void Simulation::record_trajectory_audit(
@@ -482,14 +358,7 @@ void Simulation::record_trajectory_audit(
 }
 
 const domain::CommodityDefinition& Simulation::get_commodity(const std::string& commodity_id) const {
-    const auto it = std::find_if(
-        universe_.commodities.begin(),
-        universe_.commodities.end(),
-        [&](const domain::CommodityDefinition& commodity) { return commodity.id == commodity_id; });
-    if (it == universe_.commodities.end()) {
-        throw std::runtime_error("Unknown commodity: " + commodity_id);
-    }
-    return *it;
+    return query::get_commodity(*this, commodity_id);
 }
 
 void Simulation::step(double real_dt_s) {

@@ -9,6 +9,7 @@
 
 #include "simulation/Simulation.hpp"
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Accounts.hpp"
 
 namespace spacetrains::simulation {
 
@@ -73,47 +74,31 @@ std::vector<std::vector<double>> Simulation::flow_stocks() const {
 }
 
 int Simulation::account_economy(const std::string& economy_id) const {
-    if (economy_id == "earth") {
-        return account_earth();
-    }
-    const auto it = colony_accounts_.find(economy_id);
-    if (it == colony_accounts_.end()) {
-        throw std::logic_error("money journal: no account for economy " + economy_id);
-    }
-    return it->second;
+    return query::account_economy(*this, economy_id);
 }
 
 int Simulation::account_faction(const std::string& faction_id) const {
-    const auto it = faction_accounts_.find(faction_id);
-    if (it == faction_accounts_.end()) {
-        throw std::logic_error("money journal: no account for faction " + faction_id);
-    }
-    return it->second;
+    return query::account_faction(*this, faction_id);
 }
 
 int Simulation::account_fleet(const std::string& faction_id) const {
-    const auto it = fleet_accounts_.find(faction_id);
-    if (it == fleet_accounts_.end()) {
-        throw std::logic_error("money journal: no fleet account for faction " + faction_id);
-    }
-    return it->second;
+    return query::account_fleet(*this, faction_id);
 }
 
 int Simulation::account_station(const domain::StationState& station) const {
-    // stations_ is in definitions order (the constructor) and never resized.
-    return first_station_account_ + static_cast<int>(&station - stations_.data());
+    return query::account_station(*this, station);
 }
 
 int Simulation::account_households(const domain::StationState& station) const {
-    return first_household_account_ + static_cast<int>(&station - stations_.data());
+    return query::account_households(*this, station);
 }
 
 int Simulation::account_station(const std::string& station_id) const {
-    return account_station(get_station_state(station_id));
+    return query::account_station(*this, station_id);
 }
 
 int Simulation::account_households(const std::string& station_id) const {
-    return account_households(get_station_state(station_id));
+    return query::account_households(*this, station_id);
 }
 
 double Simulation::account_balance(int account) const {

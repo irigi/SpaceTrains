@@ -8,7 +8,8 @@ snapshots for the bridge, the headless reports and tests. Godot never owns gamep
 
 ## Files
 
-One class, its members spread over files by topic:
+One class, its members spread over files by topic. A split into state and systems is under way
+(`docs/plans/simulation_split.md`): the state is already in `World`, and the leaf lookups in `query/`.
 
 | File | What |
 |---|---|
@@ -26,6 +27,8 @@ One class, its members spread over files by topic:
 | `MoneyJournal.cpp`, `Statistics.cpp` | the money journal, its history and the statistics JSON |
 | `Snapshot.cpp` | the snapshot, the bridge's JSON (snapshot, paths, designs) and the text report |
 | `SimulationInternal.hpp` | constants and helpers shared by these files (namespace `detail`) |
+| `World.hpp` | all of the running state, as plain data; `Simulation` inherits it (split step 1) |
+| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); the `Simulation` members of the same names forward to them |
 
 What each topic does: `economy.md` (prices, orders, money) and `ships_and_fleet.md` (ships, dispatch, passengers).
 

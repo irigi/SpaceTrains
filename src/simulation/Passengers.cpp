@@ -4,6 +4,7 @@
 #include "domain/ShipDesign.hpp"
 #include "simulation/Simulation.hpp"
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Labour.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -58,8 +59,7 @@ double Simulation::payback_years(const std::string& origin_id, const std::string
 }
 
 bool Simulation::is_earth_gateway(const std::string& station_id) const {
-    const auto& gateways = universe_.passengers.earth_gateways;
-    return std::find(gateways.begin(), gateways.end(), station_id) != gateways.end();
+    return query::is_earth_gateway(*this, station_id);
 }
 
 double Simulation::passenger_kg(double days) const {
