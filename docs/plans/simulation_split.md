@@ -188,7 +188,9 @@ call-graph script over the `Simulation::` definitions (members already forwardin
      instead of reaching into `Simulation`'s privates.
    - `with_parallel_plans` and the deferred-plan machinery move with Contracts/MissionPlanning; `deferred_plans_`,
      `deferred_keys_`, `deferred_prefix_` and `missing_plans_` stay in `World`. `DeferredPlan::compute` lambdas
-     capture `const World&` from here on (the parallel part must not write; the compiler now checks it).
+     capture `const World&` from here on (the parallel part must not write; the compiler now checks it, except
+     for `station_radius_cache_`, which is `mutable` and safe only because `station_r_au` bypasses it inside
+     `ThreadPool::parallel_for`; no other thread may call it on a shared `World`).
    - Four pricing functions outside the three files call `station_price` and are called by `MissionPass`, so they
      join the cycle: `daily_crew_cost` (into `systems/ShipOperations`) and `passenger_offer`, `live_fare_cr`,
      `port_fuel_price` (into `systems/Passengers`). The rest of those two topics follows in steps 6 and 9.

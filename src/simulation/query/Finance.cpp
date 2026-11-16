@@ -1,6 +1,7 @@
 #include "simulation/query/Finance.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <limits>
 
@@ -82,6 +83,8 @@ double station_lifetime_profit(const World& w, const domain::StationState& stati
 
 double station_profit_last_year(const World& w, const domain::StationState& station) {
     const auto& history = w.journal_.history();
+    // `station` must be an element of w.stations_ (its index is the journal's station column).
+    assert(&station >= w.stations_.data() && &station < w.stations_.data() + w.stations_.size());
     const auto index = static_cast<std::size_t>(&station - w.stations_.data());
     const double year_ago = history.size() > 12 ? history[history.size() - 13].station_profit.at(index) : 0.0;
     return query::station_lifetime_profit(w, station) - year_ago;

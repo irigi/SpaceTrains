@@ -27,7 +27,7 @@ One class, its members spread over files by topic. A split into state and system
 | `Snapshot.cpp` | the snapshot, the bridge's JSON (snapshot, paths, designs) and the text report |
 | `SimulationInternal.hpp` | constants and helpers shared by these files (namespace `detail`) |
 | `World.hpp` | all of the running state, as plain data; `Simulation` inherits it (split step 1) |
-| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); ship cost and environment rates (`ShipRates`) and money leaves (`Finance`: economy balances, colony state, station profits, faction credit limits; step 4); the `Simulation` members of the same names forward to them |
+| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); ship cost and environment rates (`ShipRates`), money leaves (`Finance`: economy balances, colony state, station profits, faction credit limits), passenger leaves (`Passengers`: the travel switches, fares, value of time) and the clock (`Clock`: `first_tick_of_day`) (step 4); the `Simulation` members of the same names forward to them |
 | `systems/` | the rules as free functions on `World`: `StationSystems` (the station systems view, display only; step 3) |
 
 What each topic does: `economy.md` (prices, orders, money) and `ships_and_fleet.md` (ships, dispatch, passengers).

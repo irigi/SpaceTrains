@@ -222,7 +222,7 @@
     instead of replacing them (building a part off the tree takes ~2 ms, adding it ~20 ms for the market). The ship
     schematic has its own part, updated in place (re-adding it would drop its hover). Measured at 5 d/s with a station
     selected: 109 frames over 50 ms a minute before (100 on main), 13 after; 8 with nothing selected.
-- **Station systems** (display only; `Simulation::station_systems_json` in `StationSystems.cpp`, the snapshot's
+- **Station systems** (display only; `systems::station_systems_json` in `systems/StationSystems.cpp`, the snapshot's
   `systems`; design in `docs/archive/station_structures.md`, "Light view", the seam for Victoria 2 style
   populations):
   - the site (orbit, surface, underground or aerostat; `station_radiation.csv`), its gravity and shielding;

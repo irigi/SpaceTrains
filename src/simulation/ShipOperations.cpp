@@ -4,22 +4,9 @@
 #include "domain/ShipDesign.hpp"
 #include "simulation/CrewEnvironment.hpp"
 
-#include "util/Profiling.hpp"
-
 #include <algorithm>
-#include <chrono>
-#include <array>
-#include <tuple>
 #include <cmath>
-#include <numbers>
-#include <cstdlib>
-#include <filesystem>
 #include <format>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
 

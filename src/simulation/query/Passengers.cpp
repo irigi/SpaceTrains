@@ -1,6 +1,7 @@
 #include "simulation/query/Passengers.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "simulation/SimulationInternal.hpp"
 #include "simulation/query/Labour.hpp"
