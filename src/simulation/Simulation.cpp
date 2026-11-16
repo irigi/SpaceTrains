@@ -27,9 +27,7 @@ using namespace detail;
 
 
 Simulation::Simulation(domain::UniverseDefinition universe)
-    : universe_(std::move(universe)),
-      mechanics_(universe_),
-      economy_(universe_) {
+    : World(std::move(universe)) {
     kepler_planner_ = std::make_unique<trajectory::KeplerTrajectoryPlanner>(universe_, mechanics_);
     for (const auto& station : universe_.stations) {
         station_defs_by_id_[station.id] = &station;
