@@ -5,9 +5,9 @@ planned) → **Not doing** → standing decisions and checks → **Done**. The d
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (the four architecture plans); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
-**Status.** `main` holds everything up to PR #39 (station designs, eclipses, moons, Earth Sunward rename, sharper
-moon textures and a Triton map, the outside review's architecture ideas and studies, roadmap fixes); PR #40 (the
-architecture plans) is open.
+**Status.** `main` holds everything up to PR #40 (station designs, eclipses, moons, Earth Sunward rename, sharper
+moon textures and a Triton map, the outside review's architecture ideas and studies, the architecture plans in
+`docs/plans/`), no open PRs.
 Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 131 ships profitable,
 ~4,500 boardings, drift 0, ~150 s per run.
 
