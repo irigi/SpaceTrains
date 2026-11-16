@@ -9,7 +9,7 @@ snapshots for the bridge, the headless reports and tests. Godot never owns gamep
 ## Files
 
 One class, its members spread over files by topic. A split into state and systems is under way
-(`docs/plans/simulation_split.md`): the state is already in `World`, and the leaf lookups in `query/`.
+(`docs/plans/simulation_split.md`): the state is already in `World`, the leaf lookups in `query/`, and the first systems in `systems/`.
 
 | File | What |
 |---|---|
@@ -23,12 +23,12 @@ One class, its members spread over files by topic. A split into state and system
 | `Households.cpp` | residents, colonies, labour, station incomes |
 | `Passengers.cpp` | travellers, boarding, fares, rotation tours |
 | `CrewEnvironment.cpp` | crew radiation and the particle-event model |
-| `StationSystems.cpp` | the station systems view (display only) |
 | `MoneyJournal.cpp`, `Statistics.cpp` | the money journal, its history and the statistics JSON |
 | `Snapshot.cpp` | the snapshot, the bridge's JSON (snapshot, paths, designs) and the text report |
 | `SimulationInternal.hpp` | constants and helpers shared by these files (namespace `detail`) |
 | `World.hpp` | all of the running state, as plain data; `Simulation` inherits it (split step 1) |
-| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); the `Simulation` members of the same names forward to them |
+| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); ship cost and environment rates (`ShipRates`) and money leaves (`Finance`: economy balances, colony state, station profits, faction credit limits; step 4); the `Simulation` members of the same names forward to them |
+| `systems/` | the rules as free functions on `World`: `StationSystems` (the station systems view, display only; step 3) |
 
 What each topic does: `economy.md` (prices, orders, money) and `ships_and_fleet.md` (ships, dispatch, passengers).
 

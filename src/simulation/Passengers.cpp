@@ -22,9 +22,6 @@ namespace {
 // A waiting group smaller than this is gone (the rest of its people gave up).
 constexpr double MIN_GROUP_COUNT = 1.0e-6;
 
-bool pays_from_employer(domain::PassengerKind kind) {
-    return kind == domain::PassengerKind::RotationOut || kind == domain::PassengerKind::RotationHome;
-}
 }  // namespace
 
 const char* Simulation::passenger_kind_name(domain::PassengerKind kind) {
@@ -40,9 +37,7 @@ const char* Simulation::passenger_kind_name(domain::PassengerKind kind) {
 }
 
 bool Simulation::employer_pays(domain::PassengerKind kind) const {
-    // With the labour market on, settlers pay their own passage out of what the job gains them.
-    return pays_from_employer(kind)
-        || (kind == domain::PassengerKind::Migrant && universe_.passengers.settlers_sponsored != 0.0 && !labour_on());
+    return query::employer_pays(*this, kind);
 }
 
 double Simulation::settler_share(double payback_years) const {
@@ -63,33 +58,20 @@ bool Simulation::is_earth_gateway(const std::string& station_id) const {
 }
 
 double Simulation::passenger_kg(double days) const {
-    const auto& pax = universe_.passengers;
-    return pax.body_luggage_kg + pax.consumables_kg_per_day * std::max(0.0, days);
+    return query::passenger_kg(*this, days);
 }
 
 double Simulation::value_of_time_cr_per_day(domain::PassengerKind kind) const {
-    const auto& pax = universe_.passengers;
-    if (pays_from_employer(kind)) {
-        return universe_.labour.wage_cr_per_day(pax.rotation_grade);
-    }
-    return universe_.labour.reference_wage_cr_per_day * pax.resident_wage_multiple;
+    return query::value_of_time_cr_per_day(*this, kind);
 }
 
 double Simulation::passenger_nonfare_cr(double value_of_time, double days, double dose_msv_per_day) const {
-    const auto& env = universe_.ship_environment;
-    const double dose_cost = env.radiation ? dose_msv_per_day * days * env.hazard_cr_per_msv : 0.0;
-    return value_of_time * days * (1.0 + universe_.passengers.recovery_days_per_flight_day) + dose_cost;
+    return query::passenger_nonfare_cr(*this, value_of_time, days, dose_msv_per_day);
 }
 
 const domain::PassengerDefinition::ReferenceFare* Simulation::reference_fare(
     const std::string& origin_id, const std::string& destination_id) const {
-    const auto& fares = universe_.passengers.reference_fares;
-    const auto from = fares.find(origin_id);
-    if (from == fares.end()) {
-        return nullptr;
-    }
-    const auto to = from->second.find(destination_id);
-    return to == from->second.end() ? nullptr : &to->second;
+    return query::reference_fare(*this, origin_id, destination_id);
 }
 
 double Simulation::port_fuel_price(const std::string& station_id) const {
@@ -655,21 +637,7 @@ void Simulation::step_passengers(double dt_s) {
 }
 
 bool Simulation::passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const {
-    // A station is worth a passenger leg once enough people wait for it (min_leg_passengers;
-    // at 1, any whole person); smaller groups still ride on legs flown for cargo.
-    const double needed = universe_.passengers.min_leg_passengers;
-    if (needed <= 1.0) {
-        return std::any_of(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& group) {
-            return group.destination_id == destination_id && group.count >= 1.0;
-        });
-    }
-    double people = 0.0;
-    for (const auto& group : origin.waiting) {
-        if (group.destination_id == destination_id) {
-            people += std::floor(group.count + 1e-9);
-        }
-    }
-    return people >= needed;
+    return query::passenger_leg_waiting(*this, origin, destination_id);
 }
 
 Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& ship,

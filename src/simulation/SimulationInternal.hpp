@@ -21,6 +21,8 @@ inline constexpr double FUEL_UNITS_TO_KG = 100.0;
 inline double consumed_propellant_kg(const domain::TrajectoryPlan& plan) {
     return plan.propellant_required_kg + plan.propellant_boiled_kg;
 }
+// The background economy id of Earth (the open economy); colonies have their own ids.
+inline constexpr const char* EARTH_ECONOMY = "earth";
 inline constexpr std::size_t MAX_EVENT_HISTORY = 24;
 inline constexpr std::size_t MAX_TRADE_HISTORY = 24;
 // A cargo run must clear this profit rate or the ship repositions toward demand

@@ -22,7 +22,11 @@
 #include "simulation/MoneyJournal.hpp"
 #include "simulation/World.hpp"
 #include "simulation/query/Accounts.hpp"
+#include "simulation/query/Clock.hpp"
+#include "simulation/query/Finance.hpp"
 #include "simulation/query/Labour.hpp"
+#include "simulation/query/Passengers.hpp"
+#include "simulation/query/ShipRates.hpp"
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -50,7 +54,7 @@ public:
     // The simulation advances in fixed ticks of TICK_S game seconds, whatever the timewarp
     // or the caller's step: step() adds real_dt_s x timewarp and runs the whole ticks due.
     // Headless runs and the UI therefore simulate the same game.
-    static constexpr double TICK_S = 0.1 * 86400.0;
+    static constexpr double TICK_S = simulation::TICK_S;
     void step(double real_dt_s);
     void set_timewarp(double timewarp_factor);
 
@@ -156,14 +160,7 @@ public:
     [[nodiscard]] const std::vector<trajectory::TrajectoryAuditRecord>& trajectory_audit_records() const {
         return trajectory_audit_records_;
     }
-    // What an overhaul replaces and costs (tier 2): the wearing parts' goods, the hours to
-    // make and fit them and their wages, and the days in the yard.
-    struct OverhaulBill {
-        std::map<std::string, double> spares_units;
-        double hours {0.0};
-        double labour_cr {0.0};
-        double days {0.0};
-    };
+    using OverhaulBill = query::OverhaulBill;
     [[nodiscard]] OverhaulBill overhaul_bill(const domain::ShipClassDefinition& design, double drive_share,
         double radiator_share) const;
     // Wear priced into planning: a drive life's overhaul (base prices) per hour of thrust, and
@@ -388,9 +385,7 @@ private:
     // Competitive pricing: each order's market price from the asks of ships near a source (daily).
     // True on the tick that crosses into a new day (on the 0.1-day grid from midnight, the
     // tick at midnight; from any other start, the first tick past it).
-    [[nodiscard]] bool first_tick_of_day() const {
-        return std::floor(game_time_s_ / 86400.0) != std::floor((game_time_s_ - TICK_S) / 86400.0);
-    }
+    [[nodiscard]] bool first_tick_of_day() const { return query::first_tick_of_day(*this); }
     void update_market_prices();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
@@ -596,11 +591,11 @@ private:
         std::vector<CargoOption> cargo_options;
     };
     // --- Passengers (src/simulation/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
-    [[nodiscard]] bool passengers_on() const { return universe_.passengers.enabled != 0.0; }
+    [[nodiscard]] bool passengers_on() const { return query::passengers_on(*this); }
     [[nodiscard]] bool passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const;
-    [[nodiscard]] bool migration_by_ship() const { return passengers_on() && universe_.passengers.migration != 0.0; }
-    [[nodiscard]] bool rotation_on() const { return passengers_on() && universe_.passengers.rotation != 0.0; }
-    [[nodiscard]] bool visits_on() const { return passengers_on() && universe_.passengers.discretionary != 0.0; }
+    [[nodiscard]] bool migration_by_ship() const { return query::migration_by_ship(*this); }
+    [[nodiscard]] bool rotation_on() const { return query::rotation_on(*this); }
+    [[nodiscard]] bool visits_on() const { return query::visits_on(*this); }
     // Discretionary trips (step 5) per day origin -> destination at reference cost: a gravity
     // model, visit_trips_per_person_year x the origin's people x the destination's share of the
     // others, deterred by the trip's cost against a year's income (elasticity). Earth weighs in
@@ -633,8 +628,7 @@ public:
     [[nodiscard]] double colony_people_factor(const std::string& economy_id) const;
     [[nodiscard]] double colony_wage_median(const domain::BackgroundEconomyDefinition& economy) const;
     [[nodiscard]] const ColonyState* colony_state(const std::string& economy_id) const {
-        const auto it = colony_state_.find(economy_id);
-        return it == colony_state_.end() ? nullptr : &it->second;
+        return query::colony_state(*this, economy_id);
     }
     // Affordability: 1 above the buffer, falling to 0 at minus the credit line (or the old hard stop).
     [[nodiscard]] static double colony_affordability(double account, double credit_line, double buffer);

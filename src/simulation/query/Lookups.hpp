@@ -28,5 +28,7 @@ namespace spacetrains::simulation::query {
 // Builds (once) and returns a class with a fit and a radiator bucket. Serial thread only.
 const domain::ShipClassDefinition& register_design(World& w, const std::string& class_id,
     const std::vector<std::string>& fit, double radiator_bucket = 1.0);
+// The bridge name of a mission phase ("in_transit", ...).
+[[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase);
 
 }  // namespace spacetrains::simulation::query

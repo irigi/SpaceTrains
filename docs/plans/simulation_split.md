@@ -150,12 +150,12 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    (`in_labour_market`, `station_workers`, `station_wage_cr_per_day`, `is_earth_gateway`). The `Simulation` members
    of the same names forward to them. Prices (`station_price`, `trade_value`) are not leaves: they call the order
    machinery (`priced_order`, `order_bid`, `order_levels`, `order_ceiling`), so they move with Market (step 5).
-3. **StationSystems** (264 lines, one member: `station_systems_json`, const, calls nothing unmoved) into
+3. **StationSystems** (done 2026-11-16; 264 lines, one member: `station_systems_json`, const, calls nothing unmoved) into
    `systems/StationSystems.{hpp,cpp}`. First real system; sets the header layout for the rest. Callers: Statistics
    and Snapshot, through the forwarder. The same PR tidies what the review of PR #41 found: the `account_earth()`
    member forwards to `query::account_earth()` instead of repeating the constant, and `Simulation.cpp` loses a
    double blank line and the includes it no longer needs.
-4. **More query leaves**, the read-only functions the Market cycle and the later systems need. Each was checked to
+4. **More query leaves** (done 2026-11-16), the read-only functions the Market cycle and the later systems need. Each was checked to
    call nothing unmoved:
    - `query/ShipRates.{hpp,cpp}` (from `ShipOperations.cpp`): `daily_capital_cost`, `hazard_cr_per_day`,
      `wear_cr_per_flight_day`, `wear_cr_per_propellant_kg`, `wear_cr_per_drive_hour`, `overhaul_bill`,
@@ -163,10 +163,20 @@ call-graph script over the `Simulation::` definitions (members already forwardin
      `leg_dose_msv_per_day`, `docked_dose_msv_per_day`, `cabin_shield_g_cm2`, `cargo_decay_per_day`,
      `purchasable_propellant_kg`, and `station_r_au` with its cache. `station_r_au` keeps its rule exactly: inside
      `ThreadPool::in_parallel_for()` it computes directly, otherwise it uses `station_radius_cache_` (the only
-     `mutable` member; it stays in `World`).
+     `mutable` member; it stays in `World`). Also `boiloff_kg_per_day` and `ship_r_au` (leaves too). The nested
+     `OverhaulBill` moves with them (`Simulation::OverhaulBill` stays as an alias).
    - `query/Finance.{hpp,cpp}`: `economy_balance`, `economy_credit_line`, `station_lifetime_profit`,
      `colony_wage_median` (from `Households.cpp`), `station_profit_last_year` (from `Statistics.cpp`) and
      `faction_credit_limit` (from `FleetInvestment.cpp`). This also breaks the Statistics ↔ Households loop.
+     `colony_state` (inline in `Simulation.hpp`) moves with them, and `EARTH_ECONOMY` from `Households.cpp` to
+     `SimulationInternal.hpp`.
+   - Found while preparing step 5: `MissionPass` calls more than the member definitions show (125 calls through
+     `sim_.`). Its read-only leaves move here too: `drive_life_allows`, `provisions_mass_kg`, `provisionable_days`,
+     `persons_aboard`, `credit_line` (`ShipRates`); `resident_wages_per_day`, `household_travel_budget`
+     (`Finance`); a new `query/Passengers` with `passengers_on` and the other travel switches, `passenger_kg`,
+     `reference_fare`, `passenger_leg_waiting`, `value_of_time_cr_per_day`, `passenger_nonfare_cr`,
+     `employer_pays`; `mission_phase_name` (`Lookups`, no `World` needed); and a new `query/Clock` with
+     `first_tick_of_day` (`TICK_S` moves to `World.hpp`, `Simulation::TICK_S` stays as an alias).
    After this step the Market cycle depends only on moved code. Steps 3 and 4 are one PR.
 5. **Market + Contracts + MissionPlanning** (the cycle; 1,085 + 382 + 1,316 lines, 44 members) into
    `systems/Market`, `systems/Contracts` and `systems/MissionPlanning`. Its own PR.
@@ -179,6 +189,9 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    - `with_parallel_plans` and the deferred-plan machinery move with Contracts/MissionPlanning; `deferred_plans_`,
      `deferred_keys_`, `deferred_prefix_` and `missing_plans_` stay in `World`. `DeferredPlan::compute` lambdas
      capture `const World&` from here on (the parallel part must not write; the compiler now checks it).
+   - Four pricing functions outside the three files call `station_price` and are called by `MissionPass`, so they
+     join the cycle: `daily_crew_cost` (into `systems/ShipOperations`) and `passenger_offer`, `live_fare_cr`,
+     `port_fuel_price` (into `systems/Passengers`). The rest of those two topics follows in steps 6 and 9.
    - Forwarders stay for every member called from outside the cycle (27, measured): `station_price` and
      `trade_value` (8 topics), `under_contract`, `liner_stops`, `scheduled_stops`, `contract_dwell_days`,
      `find_contract`, `fleet_hold_units`, `fleet_ship_count`, `faction_name`, `sale_split_on_arrival`,

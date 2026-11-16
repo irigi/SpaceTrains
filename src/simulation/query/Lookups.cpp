@@ -178,4 +178,24 @@ const domain::ShipClassDefinition& register_design(
     return w.designs_.emplace(key, std::move(design)).first->second;
 }
 
+std::string mission_phase_name(domain::ShipMissionPhase phase) {
+    switch (phase) {
+        case domain::ShipMissionPhase::Idle:
+            return "idle";
+        case domain::ShipMissionPhase::AwaitingDeparture:
+            return "awaiting_departure";
+        case domain::ShipMissionPhase::InTransit:
+            return "in_transit";
+        case domain::ShipMissionPhase::Refueling:
+            return "refueling";
+        case domain::ShipMissionPhase::Stranded:
+            return "stranded";
+        case domain::ShipMissionPhase::LaidUp:
+            return "laid_up";
+        case domain::ShipMissionPhase::Refitting:
+            return "refitting";
+    }
+    return "unknown";
+}
+
 }  // namespace spacetrains::simulation::query

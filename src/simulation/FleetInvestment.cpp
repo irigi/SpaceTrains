@@ -179,29 +179,7 @@ double Simulation::consumption_value_per_day(const domain::StationDefinition& st
 }
 
 double Simulation::faction_credit_limit(const std::string& faction_id) const {
-    const auto& open = universe_.open_economy;
-    double fleet_value = 0.0;
-    for (const auto& ship : ships_) {
-        if (ship.faction_id == faction_id) {
-            fleet_value += ship_design(ship).ship_value_cr;
-        }
-    }
-    // Its stations' stock is collateral too, at reference prices (step 26): after step 23 a
-    // remote colony stocks a year or more of its imports, which its faction paid for; Mars
-    // Corporation, with one station and few ships, went over its limit building that stock.
-    double stock_value = 0.0;
-    for (const auto& station : stations_) {
-        const auto& definition = get_station_definition(station.station_id);
-        if (definition.faction_id != faction_id) {
-            continue;
-        }
-        for (const auto& [commodity_id, units] : station.inventory) {
-            stock_value += std::max(0.0, units) * economy_.reference_price(definition, commodity_id);
-        }
-    }
-    const auto tax = faction_tax_per_day_.find(faction_id);
-    return open.faction_loan_to_value * (fleet_value + stock_value)
-        + open.faction_tax_years * 365.0 * (tax == faction_tax_per_day_.end() ? 0.0 : tax->second);
+    return query::faction_credit_limit(*this, faction_id);
 }
 
 double Simulation::station_tax_ceiling(const domain::OpenEconomyDefinition& open, double treasury) {

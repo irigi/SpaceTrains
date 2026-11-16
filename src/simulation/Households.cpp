@@ -21,7 +21,6 @@ namespace spacetrains::simulation {
 using namespace detail;
 
 namespace {
-constexpr const char* EARTH_ECONOMY = "earth";
 // A small colony's supply reaches its full rate once the station pays this multiple of its ask.
 constexpr double SURFACE_SUPPLY_FULL_PRICE = 1.25;
 // A colony buying at its gateway leaves the station this many days of its own use.
@@ -56,36 +55,15 @@ double& Simulation::economy_account(const std::string& economy_id) {
 }
 
 double Simulation::economy_balance(const std::string& economy_id) const {
-    if (economy_id == EARTH_ECONOMY) {
-        return outside_economy_credits_;
-    }
-    const auto it = background_credits_.find(economy_id);
-    return it == background_credits_.end() ? 0.0 : it->second;
+    return query::economy_balance(*this, economy_id);
 }
 
 double Simulation::economy_credit_line(const std::string& economy_id) const {
-    // Earth's economy is too large to run out; a colony spends down to minus its credit line.
-    if (economy_id == EARTH_ECONOMY) {
-        return std::numeric_limits<double>::infinity();
-    }
-    for (const auto& economy : universe_.background_economies) {
-        if (economy.id == economy_id) {
-            return economy.initial_credits;
-        }
-    }
-    return 0.0;
+    return query::economy_credit_line(*this, economy_id);
 }
 
 double Simulation::resident_wages_per_day(const domain::StationState& station) const {
-    // Employed workers earn the station's wage; with the labour market on, the unemployed draw
-    // a benefit from the station.
-    const double workers = station_workers(station);
-    const double wage = station_wage_cr_per_day(station);
-    if (!in_labour_market(station)) {
-        return workers * wage;
-    }
-    const double employed = std::min(workers, station.jobs);
-    return wage * (employed + universe_.labour_market.unemployment_benefit * std::max(0.0, workers - employed));
+    return query::resident_wages_per_day(*this, station);
 }
 
 double Simulation::per_capita_savings(const domain::StationState& station) const {
@@ -134,14 +112,7 @@ double Simulation::colony_sales_factor(const domain::StationState& station, cons
 }
 
 double Simulation::household_travel_budget(const std::string& home_id, double window_days) const {
-    // What a station's residents may spend on trips over the next window_days (households on).
-    const auto& home = get_station_state(home_id);
-    const auto& households = universe_.households;
-    if (households.travel_share > 0.0) {
-        return home.travel_budget_cr + households.travel_share * resident_wages_per_day(home) * std::max(0.0, window_days);
-    }
-    // Without a travel share: their savings beyond half their buffer.
-    return home.household_credits - 0.5 * households.savings_days * resident_wages_per_day(home);
+    return query::household_travel_budget(*this, home_id, window_days);
 }
 
 void Simulation::step_households(double dt_s) {
@@ -233,9 +204,7 @@ double Simulation::colony_people_factor(const std::string& economy_id) const {
 }
 
 double Simulation::colony_wage_median(const domain::BackgroundEconomyDefinition& economy) const {
-    const auto* state = colony_state(economy.id);
-    return state != nullptr && universe_.households.colony_wage_follows_income > 0.0 && state->wage_median > 0.0
-        ? state->wage_median : economy.wage_median_cr_per_day;
+    return query::colony_wage_median(*this, economy);
 }
 
 double Simulation::colony_affordability(double account, double credit_line, double buffer) {
@@ -600,18 +569,7 @@ void Simulation::update_market_responses() {
 }
 
 double Simulation::station_lifetime_profit(const domain::StationState& station) const {
-    const auto& definition = get_station_definition(station.station_id);
-    const auto stock_value = [&](const domain::Inventory& inventory) {
-        double value = 0.0;
-        for (const auto& commodity : universe_.commodities) {
-            const auto it = inventory.find(commodity.id);
-            const double stock = it == inventory.end() ? 0.0 : std::max(0.0, it->second);
-            value += economy_.get_trade_value(definition, commodity.id, 0.0, stock, commodity.base_price);
-        }
-        return value;
-    };
-    return station.credits - definition.initial_credits + station.ledger.taxes - station.ledger.subsidies
-        + stock_value(station.inventory) - stock_value(starting_inventories_.at(station.station_id));
+    return query::station_lifetime_profit(*this, station);
 }
 
 std::string Simulation::station_economy_json(const domain::StationState& station) const {

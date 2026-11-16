@@ -51,9 +51,12 @@ add_library(spacetrains_core
     src/simulation/Simulation.cpp
     src/simulation/query/Accounts.cpp
     src/simulation/query/Events.cpp
+    src/simulation/query/Finance.cpp
     src/simulation/query/Labour.cpp
     src/simulation/query/Lookups.cpp
+    src/simulation/query/Passengers.cpp
     src/simulation/query/Positions.cpp
+    src/simulation/query/ShipRates.cpp
     src/simulation/systems/StationSystems.cpp
     src/simulation/Market.cpp
     src/simulation/ShipOperations.cpp

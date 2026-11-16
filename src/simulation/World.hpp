@@ -164,6 +164,9 @@ struct ProbedRun {
     double return_fuel_kg {-1.0};  // see MissionChoice::CargoOption
 };
 
+// The simulation advances in fixed ticks of TICK_S game seconds (Simulation::TICK_S).
+inline constexpr double TICK_S = 0.1 * 86400.0;
+
 struct World {
     // The engines keep references into universe_ and mechanics_, so these three come first.
     explicit World(domain::UniverseDefinition universe)
