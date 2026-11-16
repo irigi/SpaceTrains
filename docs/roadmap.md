@@ -2,7 +2,7 @@
 
 Consolidated with the user 2026-11-02. Order: **To do** (top, in order) → **Architecture changes** (recommended, none started) → **Parked** (kept in mind, not
 planned) → **Not doing** → standing decisions and checks → **Done**. The design as built is in `docs/modules/`
-(start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (none open now); shelved concepts in
+(start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (the four architecture plans); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
 **Status.** `main` holds everything up to PR #38 (station designs, eclipses, moons, Earth Sunward rename, sharper
@@ -78,7 +78,7 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    game is and why (observer sandbox, physical and economic feasibility, 2D by design, technology era), pointing to
    `docs/modules/` for how it is built, so it cannot go stale again in the same way.
 
-## Architecture changes (recommended by an outside review, 2026-11-12; none started)
+## Architecture changes (recommended by an outside review, 2026-11-12; planned 2026-11-16, none started)
 
 The foundations (headless-first core, determinism, data-driven content, the benchmark discipline) are sound and
 nothing needs a rewrite; in particular **no port to Rust** (the gains, threading and memory safety, are already
@@ -103,6 +103,8 @@ the check is the standing one for refactors (test suites, byte-identical saves a
      The nested helpers (`MissionPass`, `InvestmentReview`) become the systems' own types.
    - **Gain:** each system testable with a small hand-built `World`; `const World&` shows which code only reads
      (what may run in parallel); shorter rebuilds; a clear place for anything new.
+   **Plan:** `docs/plans/simulation_split.md` (it moves Snapshot last, since Snapshot calls eight topics, and puts a
+   read-only query layer first).
 
 2. **Split `godot/scripts/Main.gd`** (2,631 lines). It mixes five jobs. Suggested files, in this order:
    - `BridgeClient.gd`: starting and stopping the bridge, the command file, reading the snapshot, paths, designs,
@@ -116,6 +118,7 @@ the check is the standing one for refactors (test suites, byte-identical saves a
    - `FineLines.gd`: fine orbit rings, fine paths and trails.
    `Main.gd` keeps the scene set-up, input, selection and focus, and the per-frame order of calls. Check: the
    shot tours give the same pictures.
+   **Plan:** `docs/plans/main_gd_split.md` (it moves DisplayClock first, since the other four read it).
 
 3. **A GDExtension instead of the file bridge, only if the player ever gets commands.** For an observer the file
    transport works; its costs are known and paid (sequence files, write-aside-and-rename, rename retries on
@@ -124,6 +127,7 @@ the check is the standing one for refactors (test suites, byte-identical saves a
    the core as a GDExtension library with the same `Simulation` interface, run it on its own thread, and hand
    Godot dictionaries instead of JSON files; keep `spacetrains_bridge` for debugging. The Long Burn already uses
    this pattern (Rust, godot-rust). Not worth doing for its own sake.
+   **Plan:** `docs/plans/gdextension.md`.
 
 4. **Saves that survive data changes, only if long-running games matter** (to the user or to other players).
    Today `load_state_json` refuses a save unless its format version is 20-22 **and** its data fingerprint matches
@@ -139,6 +143,7 @@ the check is the standing one for refactors (test suites, byte-identical saves a
      of dropping them.
    The exact-continuation guarantee ("saved, loaded and continued equals never stopped") then holds only when the
    data is unchanged, which is all it can mean anyway; its test stays as it is.
+   **Plan:** `docs/plans/save_compat.md`.
 
 Looked at and left alone: string ids and `find_if` lookups are everywhere in the core, but nothing shows they
 limit the fleet size (not profiled). Profile before touching them.
