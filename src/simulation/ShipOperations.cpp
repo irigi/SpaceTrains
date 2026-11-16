@@ -20,12 +20,7 @@ double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_cl
 
 double Simulation::daily_crew_cost(
     const domain::ShipClassDefinition& ship_class, const domain::StationState& market) const {
-    const auto& operations = universe_.ship_operations;
-    double cost = ship_class.crew_size * operations.wage_cr_per_crew_day;
-    for (const auto& [commodity_id, units_per_crew_day] : operations.life_support_units_per_crew_day) {
-        cost += ship_class.crew_size * units_per_crew_day * station_price(market, commodity_id);
-    }
-    return cost;
+    return systems::daily_crew_cost(*this, ship_class, market);
 }
 
 double Simulation::credit_line(const domain::ShipClassDefinition& ship_class) const {

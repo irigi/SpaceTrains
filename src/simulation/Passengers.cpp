@@ -75,20 +75,12 @@ const domain::PassengerDefinition::ReferenceFare* Simulation::reference_fare(
 }
 
 double Simulation::port_fuel_price(const std::string& station_id) const {
-    const double base = get_commodity(economy::FUEL_ID).base_price;
-    return std::max(base, station_price(get_station_state(station_id), economy::FUEL_ID));
+    return systems::port_fuel_price(*this, station_id);
 }
 
-// The reference fare at today's fuel prices: its propellant per seat is bought at the origin
-// (and the return share at the destination) at those ports' prices instead of the base price.
-// Earth makes no fuel, so trips from Earth cost several times the base-price fare's fuel.
 double Simulation::live_fare_cr(const std::string& origin_id, const std::string& destination_id,
     const domain::PassengerDefinition::ReferenceFare& reference) const {
-    const double base = get_commodity(economy::FUEL_ID).base_price;
-    return reference.fare_cr
-        + (reference.fuel_out_kg * (port_fuel_price(origin_id) - base)
-              + reference.fuel_back_kg * (port_fuel_price(destination_id) - base))
-        / FUEL_UNITS_TO_KG;
+    return systems::live_fare_cr(*this, origin_id, destination_id, reference);
 }
 
 double Simulation::reference_cost_cr(const std::string& origin_id, const std::string& destination_id,
@@ -643,132 +635,7 @@ bool Simulation::passenger_leg_waiting(const domain::StationState& origin, const
 Simulation::PassengerOffer Simulation::passenger_offer(const domain::ShipState& ship,
     const domain::ShipClassDefinition& design, const domain::StationState& origin,
     const domain::StationDefinition& destination, double days, double propellant_cr_per_kg, double berths) const {
-    (void)ship;
-    PassengerOffer offer;
-    if (berths < 1.0 || origin.waiting.empty()) {
-        return offer;
-    }
-    const auto* reference = reference_fare(origin.station_id, destination.id);
-    if (reference == nullptr) {
-        return offer;
-    }
-    const auto& env = universe_.ship_environment;
-    const auto& origin_def = get_station_definition(origin.station_id);
-    const double dose_rate = env.radiation ? leg_dose_msv_per_day(design, origin_def, destination, game_time_s_) : 0.0;
-    const double reference_dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
-    double provisions_per_day = 0.0;
-    for (const auto& [commodity_id, units_per_day] : universe_.ship_operations.life_support_units_per_crew_day) {
-        provisions_per_day += units_per_day * station_price(origin, commodity_id);
-    }
-    const double marginal = provisions_per_day * days + passenger_kg(days) * propellant_cr_per_kg;
-    // Each group pays what this trip is worth to it against the reference trip (hedonic), or,
-    // where more people wait than there are berths, the fare that clears the berths: what the
-    // first person left behind would have paid (a uniform-price auction). Never more than its
-    // own budget allows, never less than what carrying it costs.
-    struct Candidate {
-        std::size_t group;
-        double whole;
-        double willing;   // highest fare the group pays for this trip
-        double hedonic;
-    };
-    std::vector<Candidate> candidates;
-    for (std::size_t g = 0; g < origin.waiting.size(); ++g) {
-        const auto& group = origin.waiting[g];
-        const double whole = std::floor(group.count + 1e-9);
-        if (group.destination_id != destination.id || whole < 1.0) {
-            continue;
-        }
-        if (env.radiation && group.dose_msv + dose_rate * days > env.career_limit_msv) {
-            continue;
-        }
-        const double vot = group.value_of_time_cr_per_day;
-        const double nonfare = passenger_nonfare_cr(vot, days, dose_rate);
-        const double willing = group.max_cost_cr - nonfare;
-        if (willing <= marginal) {
-            continue;
-        }
-        candidates.push_back({g, whole, willing,
-            live_fare_cr(origin.station_id, destination.id, *reference)
-                + passenger_nonfare_cr(vot, reference->days, reference_dose_rate) - nonfare});
-    }
-    std::stable_sort(candidates.begin(), candidates.end(),
-        [](const Candidate& a, const Candidate& b) { return a.willing > b.willing; });
-    double left = std::floor(berths + 1e-9);
-    double clearing = 0.0;
-    std::size_t boarding = 0;
-    for (const auto& candidate : candidates) {
-        if (left < 1.0) {
-            clearing = candidate.willing;
-            break;
-        }
-        const double take = std::min(candidate.whole, left);
-        left -= take;
-        ++boarding;
-        if (take < candidate.whole) {
-            clearing = candidate.willing;  // the rest of this group stays behind
-            break;
-        }
-    }
-    left = std::floor(berths + 1e-9);
-    // An employer pays only what it has above its credit floor.
-    std::map<std::string, double> budgets;
-    for (std::size_t c = 0; c < boarding; ++c) {
-        const auto& candidate = candidates[c];
-        const double fare = std::min(candidate.willing, std::max({candidate.hedonic, clearing, marginal}));
-        if (fare <= marginal) {
-            continue;
-        }
-        double count = std::min(candidate.whole, left);
-        const auto& group = origin.waiting[candidate.group];
-        if (employer_pays(group.kind) && !group.work_station_id.empty()) {
-            auto budget = budgets.find(group.work_station_id);
-            if (budget == budgets.end()) {
-                budget = budgets.emplace(group.work_station_id, get_station_state(group.work_station_id).credits
-                    - universe_.open_economy.station_credit_floor).first;
-            }
-            count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
-            if (count < 1.0) {
-                continue;
-            }
-            budget->second -= count * fare;
-        } else if (colony_employer(group.work_station_id)) {
-            // A colony pays its recruits' passage while its account allows.
-            const auto& economy_id = group.work_station_id.substr(std::string("colony:").size());
-            auto budget = budgets.find(group.work_station_id);
-            if (budget == budgets.end()) {
-                budget = budgets.emplace(group.work_station_id, economy_balance(economy_id)).first;   // out of savings, not credit
-            }
-            count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
-            if (count < 1.0) {
-                continue;
-            }
-            budget->second -= count * fare;
-        } else if (households_on()) {
-            // Residents travel on their savings: a station's households pay only what they have.
-            const std::string& home = group.kind == domain::PassengerKind::VisitorHome ? group.destination_id : origin.station_id;
-            if (!is_earth_gateway(home)) {
-                const auto key = "households:" + home;
-                auto budget = budgets.find(key);
-                if (budget == budgets.end()) {
-                    // Their travel budget (or, without one, their savings beyond half their buffer).
-                    budget = budgets.emplace(key, household_travel_budget(home, 0.0)).first;
-                }
-                count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
-                if (count < 1.0) {
-                    continue;
-                }
-                budget->second -= count * fare;
-            }
-        }
-        left -= count;
-        offer.picks.push_back({.group = candidate.group, .count = count, .fare_cr = fare});
-        offer.people += count;
-        offer.revenue_cr += count * fare;
-        offer.marginal_cr += count * provisions_per_day * days;
-        offer.time_cr_per_day += count * passenger_nonfare_cr(origin.waiting[candidate.group].value_of_time_cr_per_day, 1.0, dose_rate);
-    }
-    offer.mass_kg = offer.people * passenger_kg(days);
-    return offer;
+    return systems::passenger_offer(*this, ship, design, origin, destination, days, propellant_cr_per_kg, berths);
 }
 
 void Simulation::board_passengers(domain::ShipState& ship, domain::StationState& origin,
