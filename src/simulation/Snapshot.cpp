@@ -22,6 +22,7 @@
 #include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Positions.hpp"
 
 namespace spacetrains::simulation {
 
@@ -82,35 +83,7 @@ std::string Simulation::mission_phase_name(domain::ShipMissionPhase phase) const
 }
 
 math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) const {
-    if ((ship.phase != domain::ShipMissionPhase::InTransit && ship.phase != domain::ShipMissionPhase::AwaitingDeparture)
-        || ship.active_mission.total_travel_time_s <= 0.0) {
-        const auto& station = get_station_definition(ship.current_station_id);
-        return mechanics_.get_station_position(station, game_time_s_);
-    }
-
-    if (ship.phase == domain::ShipMissionPhase::AwaitingDeparture
-        && game_time_s_ < ship.active_mission.departure_time_s) {
-        const auto& station = get_station_definition(ship.current_station_id);
-        return mechanics_.get_station_position(station, game_time_s_);
-    }
-
-    if (!ship.active_mission.sampled_path.empty() && !ship.active_mission.sampled_times_s.empty()) {
-        return interpolate_timed_sampled_path(ship.active_mission.sampled_path, ship.active_mission.sampled_times_s, game_time_s_);
-    }
-
-    const double progress = std::clamp(
-        (game_time_s_ - ship.active_mission.departure_time_s) / ship.active_mission.total_travel_time_s,
-        0.0,
-        1.0);
-    if (!ship.active_mission.sampled_path.empty()) {
-        return interpolate_sampled_path(ship.active_mission.sampled_path, progress);
-    }
-
-    const auto& origin = get_station_definition(ship.active_mission.origin_station_id);
-    const auto& destination = get_station_definition(ship.active_mission.destination_station_id);
-    const auto origin_position = mechanics_.get_station_position(origin, ship.active_mission.departure_time_s);
-    const auto destination_position = mechanics_.get_station_position(destination, ship.active_mission.arrival_time_s);
-    return origin_position * (1.0 - progress) + destination_position * progress;
+    return query::get_ship_render_position(*this, ship);
 }
 
 namespace {

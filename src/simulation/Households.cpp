@@ -14,6 +14,7 @@
 
 #include "simulation/Simulation.hpp"
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Labour.hpp"
 
 namespace spacetrains::simulation {
 
@@ -435,20 +436,15 @@ double lognormal_tail(double median, double sigma, double x) {
 }  // namespace
 
 bool Simulation::in_labour_market(const domain::StationState& station) const {
-    return labour_on() && !is_earth_gateway(station.station_id);
+    return query::in_labour_market(*this, station);
 }
 
 double Simulation::station_wage_cr_per_day(const domain::StationState& station) const {
-    if (in_labour_market(station) && station.wage_cr_per_day > 0.0) {
-        return station.wage_cr_per_day;
-    }
-    const auto& households = universe_.households;
-    const auto multiple = households.wage_multiple.find(station.station_id);
-    return universe_.labour.reference_wage_cr_per_day * (multiple == households.wage_multiple.end() ? 1.0 : multiple->second);
+    return query::station_wage_cr_per_day(*this, station);
 }
 
 double Simulation::station_workers(const domain::StationState& station) const {
-    return station.population * universe_.households.participation;
+    return query::station_workers(*this, station);
 }
 
 double Simulation::labour_migrants_per_day(const domain::StationState& station) const {

@@ -19,6 +19,7 @@
 #include <numbers>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Positions.hpp"
 
 namespace spacetrains::simulation {
 
@@ -94,11 +95,11 @@ void Simulation::init_failure_clocks() {
 }
 
 double Simulation::sun_mu() const {
-    return mechanics_.get_body(mechanics_.get_root_body_id()).mu_m3_s2;
+    return query::sun_mu(*this);
 }
 
 bool Simulation::local_leg(const domain::MissionAssignment& mission) const {
-    return primary_body_id(mission.origin_station_id) == primary_body_id(mission.destination_station_id);
+    return query::local_leg(*this, mission);
 }
 
 double Simulation::cargo_value_cr(const std::vector<domain::CargoLot>& cargo, const std::string& station_id) const {
@@ -284,12 +285,7 @@ void Simulation::step_derelicts() {
 }
 
 std::string Simulation::primary_body_id(const std::string& station_id) const {
-    const std::string root = mechanics_.get_root_body_id();
-    const auto* body = &mechanics_.get_body(get_station_definition(station_id).parent_body_id);
-    while (!body->orbit.parent_id.empty() && body->orbit.parent_id != root) {
-        body = &mechanics_.get_body(body->orbit.parent_id);
-    }
-    return body->id;
+    return query::primary_body_id(*this, station_id);
 }
 
 bool Simulation::can_race(const domain::ShipState& ship) const {

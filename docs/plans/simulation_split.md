@@ -93,12 +93,13 @@ src/simulation/
   World.hpp                 struct World: all state, grouped; not copyable, not movable
   Simulation.{hpp,cpp}      thin owner: std::unique_ptr<World>, tick(), unchanged public interface
   query/                    const World& helpers used by every system
-    Lookups.{hpp,cpp}       get_station_state/definition, ship_design (+ register_design), get_commodity
-    Accounts.{hpp,cpp}      account_* postings, economy_account
-    Prices.{hpp,cpp}        station_price, trade_value, forecast_stock_on_arrival
-    ShipCosts.{hpp,cpp}     daily_capital_cost, wear rates, provisions, propellant estimates
-    Positions.{hpp,cpp}     get_ship_render_position, sun_mu, primary_body_id, local_leg, patrol_position
-    HouseholdQueries.{hpp,cpp} in_labour_market, station_workers, wages, yard_station_for
+    Lookups.{hpp,cpp}       get_station_state/definition, get_ship_class, get_body_definition, get_commodity,
+                            find_module, radiator_bucket, ship_design (+ register_design, World&)
+    Accounts.{hpp,cpp}      account_* (journal account indices)
+    Positions.{hpp,cpp}     get_ship_render_position, sun_mu, primary_body_id, local_leg
+    Events.{hpp,cpp}        add_event, record_trade (World&)
+    Labour.{hpp,cpp}        households_on, labour_on, is_earth_gateway, in_labour_market, station_workers,
+                            station_wage_cr_per_day
   systems/                  one per topic: step_* and helpers, taking World& (or const World&)
     Market, Contracts, MissionPlanning, ShipOperations, ShipPhases, FleetInvestment, Failures,
     Patrols, Passengers, Households, Statistics, StationSystems, Snapshot
@@ -135,12 +136,21 @@ Rules for a system:
 Each step is one commit (or a few), each builds and passes every check below. While a topic is half moved, the old
 `Simulation` member stays as a one-line forwarder to the new function; forwarders are deleted in step 14.
 
-1. **`World` by inheritance.** Create `World.hpp` with the data members moved verbatim (same names, flat for now) and
+1. **`World` by inheritance** (done 2026-11-16). Create `World.hpp` with the data members moved verbatim (same names, flat for now) and
    make `class Simulation : private World`. No function body changes. The move hazard is unchanged in this step
    (`from_data_root` still ends in `return sim;`, `Simulation.cpp:188`, and relies on NRVO); it goes away in step 14.
-2. **Query layer.** Move the read-only helpers listed under `query/` to free functions on `const World&` (lookups,
-   positions, prices, ship cost rates, household queries) plus the account postings (`World&`). These are the leaves
-   of the call graph; everything else can then call them without going through `Simulation`.
+2. **Query layer** (done 2026-11-16). The true leaves of the call graph became free functions in `query/`: lookups
+   and designs, account indices, positions, the event and trade logs, and the labour leaves (`in_labour_market`,
+   `station_workers`, `station_wage_cr_per_day`, `is_earth_gateway`). The `Simulation` members of the same names
+   forward to them. Prices (`station_price`, `trade_value`) and the ship cost rates that price provisions were
+   meant to go here too, but they call the order machinery (`priced_order`, `order_bid`, `order_quote`), so they
+   are not leaves. They move with Market (step 9). The rule stands: a function moves only after everything it calls,
+   so anything that prices goods waits for step 9, and `daily_capital_cost` (a leaf) moves with ShipOperations.
+   **Open before step 4 (found in step 2):** Statistics, Patrols, Households, Passengers and Failures all price goods
+   (`station_price`, `trade_value`), so under this rule none of them can move before Market. Two ways out, to choose
+   before step 4: (a) move the Market cycle (step 9) right after StationSystems, the large step first; or (b) a
+   small transitional interface, a struct of `std::function`s for the few Market calls that `Simulation` fills
+   and the early systems take, deleted again in step 9. (a) is simpler to review; (b) keeps the small steps first.
 3. **StationSystems** (const, small: 264 lines). First real system; proves the header layout.
 4. **Statistics** (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`).
    `faction_credit_limit` moves to the query layer first.

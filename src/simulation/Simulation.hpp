@@ -21,6 +21,7 @@
 #include "simulation/FlowRecord.hpp"
 #include "simulation/MoneyJournal.hpp"
 #include "simulation/World.hpp"
+#include "simulation/query/Labour.hpp"
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -215,7 +216,7 @@ public:
     [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return rotation_tours_; }
     // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
     // with the background economies at their gateways.
-    [[nodiscard]] bool households_on() const { return universe_.households.enabled != 0.0; }
+    [[nodiscard]] bool households_on() const { return query::households_on(*this); }
     [[nodiscard]] double economy_balance(const std::string& economy_id) const;
     [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
     [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
@@ -225,7 +226,7 @@ public:
     [[nodiscard]] double household_travel_budget(const std::string& home_id, double window_days) const;
     [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
     // Labour market (phase B, Households.cpp).
-    [[nodiscard]] bool labour_on() const { return households_on() && universe_.labour_market.enabled != 0.0; }
+    [[nodiscard]] bool labour_on() const { return query::labour_on(*this); }
     [[nodiscard]] bool in_labour_market(const domain::StationState& station) const;
     [[nodiscard]] double station_wage_cr_per_day(const domain::StationState& station) const;
     [[nodiscard]] double station_workers(const domain::StationState& station) const;
