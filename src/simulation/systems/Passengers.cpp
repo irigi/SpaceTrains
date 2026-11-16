@@ -5,17 +5,12 @@
 #include <string>
 
 #include "simulation/SimulationInternal.hpp"
-#include "simulation/query/Accounts.hpp"
-#include "simulation/query/Clock.hpp"
-#include "simulation/query/Events.hpp"
 #include "simulation/query/Finance.hpp"
 #include "simulation/query/Labour.hpp"
 #include "simulation/query/Lookups.hpp"
 #include "simulation/query/Passengers.hpp"
-#include "simulation/query/Positions.hpp"
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Market.hpp"
-#include "simulation/systems/ShipOperations.hpp"
 
 namespace spacetrains::simulation::systems {
 

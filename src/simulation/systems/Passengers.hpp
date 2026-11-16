@@ -4,11 +4,7 @@
 // a port and who boards a ship. The rest of Passengers moves in step 9.
 
 #include <cstddef>
-#include <functional>
-#include <limits>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "domain/Types.hpp"

@@ -4,11 +4,7 @@
 // costs. The rest of ShipOperations moves in step 6.
 
 #include <cstddef>
-#include <functional>
-#include <limits>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "domain/Types.hpp"

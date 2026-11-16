@@ -4,11 +4,8 @@
 // estimates and their cache, deferred plans computed in parallel.
 
 #include <cstddef>
-#include <functional>
-#include <limits>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "domain/Types.hpp"
@@ -73,6 +70,10 @@ struct MissionRequest {
     bool cargo_only {false};
 };
 
+// A follow-up leg's estimate (propellant, arrival, feasibility), cached by 5-day departure,
+// 10%-of-tank fuel and 2 t payload buckets, planned from the bucket's start, with the travel
+// days and the crew's dose limit measured from this departure. Inside a choose_mission pass
+// an uncached leg is queued and an empty (infeasible) estimate returned for now.
 [[nodiscard]] LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class,
     const domain::StationDefinition& origin, const domain::StationDefinition& destination, double departure_time_s,
     double available_propellant_kg, double payload_kg);

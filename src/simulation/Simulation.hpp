@@ -295,26 +295,11 @@ private:
     // every good it consumes, within 85% of its storage.
     [[nodiscard]] domain::Inventory starting_inventory(const domain::StationDefinition& station) const;
     [[nodiscard]] double station_price(const domain::StationState& state, const std::string& commodity_id) const;
-    // Value of moving units into (+) or out of (-) a station, along its price curve.
-    // Value of selling `units` at a station `days_ahead` from now, on its forecast stock.
-    // The stock a delivery `days_ahead` from now lands on: today's run forward at the net
-    // rate, with the same good other ships deliver before then.
-    [[nodiscard]] double forecast_stock_on_arrival(const domain::StationState& state, const std::string& commodity_id,
-        double days_ahead, const std::string& seller_ship_id) const;
-    [[nodiscard]] double sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
-        double units, double days_ahead, const std::string& seller_ship_id) const;
     // A sale's value and the part of it the station's faction pays (an emergency premium).
     using SaleSplit = systems::SaleSplit;
-    // Selling `units` into a station whose stock is `stock`: along its curve, raised to an
-    // open emergency's floor price for the units that land below its emergency cover.
-    [[nodiscard]] SaleSplit sale_split(const domain::StationDefinition& station, const std::string& commodity_id,
-        double stock, double units) const;
     [[nodiscard]] SaleSplit sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
         double units, double days_ahead, const std::string& seller_ship_id) const;
-    // Station purchase orders (step 29, docs/modules/economy.md). A station posts an order
-    // for a good it is a net consumer of, and for depot fuel where it has no factory, never at
-    // an export market; it then has OrderStats for the good.
-    [[nodiscard]] bool has_order(const domain::StationDefinition& station, const std::string& commodity_id) const;
+    // Station purchase orders (step 29, docs/modules/economy.md; systems/Market.hpp).
     // Ships are paid under the station's order for the good, not along its curve: true wherever
     // the station has OrderStats for it (step 29).
     [[nodiscard]] bool priced_order(const domain::StationState& state, const std::string& commodity_id) const;
@@ -331,17 +316,11 @@ private:
     using OrderLevels = systems::OrderLevels;
     [[nodiscard]] OrderLevels order_levels(
         const domain::StationState& state, const std::string& commodity_id, const domain::OrderStats& stats) const;
-    // The good's contracted arrivals at the station (time, units that survive the trip), sorted,
-    // without one ship's.
-    [[nodiscard]] std::vector<std::pair<double, double>> contracted_arrivals(
-        const domain::StationState& state, const std::string& commodity_id, const std::string& except_ship_id) const;
     // What a delivery landing at `arrival_s` is paid, piecewise flat: the open quantity N at the
     // order price, then the extra up to S_max at a discount on the going rate, the rest at the
     // floor. An open emergency raises the order's units to its floor (the faction pays the part
     // above the order price).
     using OrderQuote = systems::OrderQuote;
-    [[nodiscard]] OrderQuote order_quote(const domain::StationState& state, const std::string& commodity_id,
-        double arrival_s, const std::string& except_ship_id) const;
     // The value of the units [from, from + units) of a delivery under a quote.
     [[nodiscard]] SaleSplit quote_split(const OrderQuote& quote, double from, double units) const;
     // The order's bid for a delivery that finds `stock_at_arrival` (every earlier contract
@@ -360,11 +339,6 @@ private:
     void update_market_prices();
     // What a consumer offers for a good now: its order price where it posts an order, else its price.
     [[nodiscard]] double consumer_bid(const domain::StationState& state, const std::string& commodity_id) const;
-    // V: what a unit is worth to the station (see the plan's section 4); `station_ceiling` is
-    // the part from its own output, before the faction tops up a life-critical good.
-    [[nodiscard]] double order_ceiling(const domain::StationState& state, const std::string& commodity_id,
-        std::string& kind, double& station_ceiling) const;
-    [[nodiscard]] const domain::Emergency* find_emergency(const std::string& station_id, const std::string& commodity_id) const;
     // Opens, raises and closes emergency deliveries of life-support goods (step 14).
     void step_emergencies();
     [[nodiscard]] double trade_value(
@@ -410,20 +384,15 @@ private:
     [[nodiscard]] std::size_t fleet_ship_count() const;
     // Scheduled liners (step 22): a liner's loop (null for other ships), and its stop after `from_id`.
     [[nodiscard]] const std::vector<std::string>* liner_stops(const domain::ShipState& ship) const;
-    [[nodiscard]] std::string next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const;
     // A liner's stops, or the loop of a ship under a rotation contract (nullptr: neither).
     [[nodiscard]] const std::vector<std::string>* scheduled_stops(const domain::ShipState& ship) const;
-    [[nodiscard]] std::string next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const;
     [[nodiscard]] bool under_contract(const domain::ShipState& ship) const;
     // Rotation contracts: units per day of a good contracted to a station, over every contract.
     // A rotation contract's wait in port at its first stop before each lap (its cycle minus its legs).
     [[nodiscard]] static double contract_dwell_days(const domain::ShipContract& contract);
-    [[nodiscard]] double contracted_flow(const std::string& station_id, const std::string& commodity_id) const;
     // The best loop for a ship from its port, with its profit per day (0: none).
     std::pair<domain::ShipContract, double> find_contract(const domain::ShipState& ship,
         const domain::ShipClassDefinition& ship_class);
-    // Runs `pass` until it queues no plans, computing the queued plans in parallel in between.
-    void with_parallel_plans(const std::string& prefix, const std::function<void()>& pass);
     // Fleet investment (docs/modules/ships_and_fleet.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
@@ -607,19 +576,10 @@ private:
     // their plans are computed together, so the pool stays busy. Same results as one by one.
     using MissionRequest = systems::MissionRequest;
     [[nodiscard]] std::vector<MissionChoice> choose_missions(const std::vector<MissionRequest>& requests);
-    // One pass of choose_mission. Plans it has no result for yet are queued in
-    // deferred_plans_ and read as infeasible; choose_mission computes the queue in parallel
-    // and repeats the pass until nothing is missing, so the last pass is exactly the
-    // sequential result.
-    [[nodiscard]] MissionChoice choose_mission_pass(const domain::ShipState& ship,
-        const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s,
-        bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans, std::string& trace_text);
     // load_state_json without the restore on failure.
     void read_state_json(const std::string& text);
     class InvestmentReview;  // FleetInvestment.cpp
     using DeferredPlan = simulation::DeferredPlan;
-    // Queues a plan once per key and pass.
-    void defer_plan(const std::string& key, DeferredPlan request);
     // Part C: at its home base a ship may refit to another tank variant of its hull when
     // the missions that opens repay the yard bill. Returns true if the ship went into the yard.
     bool consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace);

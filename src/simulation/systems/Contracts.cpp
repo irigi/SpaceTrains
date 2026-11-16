@@ -1,35 +1,13 @@
 // Liners, scheduled stops and route contracts.
 
 #include "simulation/systems/Contracts.hpp"
-#include "domain/ShipDesign.hpp"
-#include "simulation/CrewEnvironment.hpp"
-
-#include "util/Profiling.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <array>
-#include <tuple>
 #include <cmath>
-#include <numbers>
-#include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
-#include "simulation/query/Accounts.hpp"
-#include "simulation/query/Clock.hpp"
-#include "simulation/query/Events.hpp"
-#include "simulation/query/Finance.hpp"
-#include "simulation/query/Labour.hpp"
 #include "simulation/query/Lookups.hpp"
-#include "simulation/query/Passengers.hpp"
-#include "simulation/query/Positions.hpp"
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"

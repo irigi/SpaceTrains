@@ -5,10 +5,8 @@
 // prices, emergency deliveries.
 
 #include <cstddef>
-#include <functional>
 #include <limits>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -83,8 +81,10 @@ struct OrderBid {
 void set_station_stock(World& w, const std::string& station_id, const std::string& commodity_id, double units);
 [[nodiscard]] std::string faction_name(const World& w, const std::string& faction_id);
 [[nodiscard]] double station_price(const World& w, const domain::StationState& state, const std::string& commodity_id);
+// Value of moving units into (+) or out of (-) a station, along its price curve.
 [[nodiscard]] double trade_value(const World& w, const domain::StationState& state, const std::string& commodity_id,
     double units_into_station);
+// Value of selling `units` at a station `days_ahead` from now, on its forecast stock.
 [[nodiscard]] double sale_value_on_arrival(const World& w, const domain::StationState& state,
     const std::string& commodity_id, double units, double days_ahead, const std::string& seller_ship_id);
 [[nodiscard]] SaleSplit sale_split_on_arrival(const World& w, const domain::StationState& state,
@@ -97,8 +97,6 @@ void set_station_stock(World& w, const std::string& station_id, const std::strin
     const std::string& commodity_id);
 // Opens, raises and closes emergency deliveries of life-support goods (step 14).
 void step_emergencies(World& w);
-// Value of moving units into (+) or out of (-) a station, along its price curve.
-// Value of selling `units` at a station `days_ahead` from now, on its forecast stock.
 // The stock a delivery `days_ahead` from now lands on: today's run forward at the net
 // rate, with the same good other ships deliver before then.
 [[nodiscard]] double forecast_stock_on_arrival(const World& w, const domain::StationState& state,

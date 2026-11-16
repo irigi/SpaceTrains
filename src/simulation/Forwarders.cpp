@@ -18,10 +18,6 @@ const std::vector<std::string>* Simulation::liner_stops(const domain::ShipState&
     return systems::liner_stops(*this, ship);
 }
 
-std::string Simulation::next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const {
-    return systems::next_liner_stop(*this, ship, from_id);
-}
-
 bool Simulation::under_contract(const domain::ShipState& ship) const {
     return systems::under_contract(*this, ship);
 }
@@ -30,20 +26,8 @@ const std::vector<std::string>* Simulation::scheduled_stops(const domain::ShipSt
     return systems::scheduled_stops(*this, ship);
 }
 
-std::string Simulation::next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const {
-    return systems::next_scheduled_stop(*this, ship, from_id);
-}
-
 double Simulation::contract_dwell_days(const domain::ShipContract& contract) {
     return systems::contract_dwell_days(contract);
-}
-
-double Simulation::contracted_flow(const std::string& station_id, const std::string& commodity_id) const {
-    return systems::contracted_flow(*this, station_id, commodity_id);
-}
-
-void Simulation::with_parallel_plans(const std::string& prefix, const std::function<void()>& pass) {
-    systems::with_parallel_plans(*this, prefix, pass);
 }
 
 std::pair<domain::ShipContract, double> Simulation::find_contract(
@@ -76,40 +60,17 @@ double Simulation::trade_value(
     return systems::trade_value(*this, state, commodity_id, units_into_station);
 }
 
-double Simulation::sale_value_on_arrival(const domain::StationState& state, const std::string& commodity_id,
-    double units, double days_ahead, const std::string& seller_ship_id) const {
-    return systems::sale_value_on_arrival(*this, state, commodity_id, units, days_ahead, seller_ship_id);
-}
-
 Simulation::SaleSplit Simulation::sale_split_on_arrival(const domain::StationState& state, const std::string& commodity_id,
     double units, double days_ahead, const std::string& seller_ship_id) const {
     return systems::sale_split_on_arrival(*this, state, commodity_id, units, days_ahead, seller_ship_id);
-}
-
-Simulation::SaleSplit Simulation::sale_split(const domain::StationDefinition& station, const std::string& commodity_id,
-    double stock, double units) const {
-    return systems::sale_split(*this, station, commodity_id, stock, units);
-}
-
-const domain::Emergency* Simulation::find_emergency(const std::string& station_id, const std::string& commodity_id) const {
-    return systems::find_emergency(*this, station_id, commodity_id);
 }
 
 void Simulation::step_emergencies() {
     systems::step_emergencies(*this);
 }
 
-double Simulation::forecast_stock_on_arrival(const domain::StationState& state, const std::string& commodity_id,
-    double days_ahead, const std::string& seller_ship_id) const {
-    return systems::forecast_stock_on_arrival(*this, state, commodity_id, days_ahead, seller_ship_id);
-}
-
 bool Simulation::priced_order(const domain::StationState& state, const std::string& commodity_id) const {
     return systems::priced_order(state, commodity_id);
-}
-
-bool Simulation::has_order(const domain::StationDefinition& station, const std::string& commodity_id) const {
-    return systems::has_order(*this, station, commodity_id);
 }
 
 domain::OrderStats Simulation::seed_order_stats(const domain::StationDefinition& station, const std::string& commodity_id) const {
@@ -128,28 +89,13 @@ void Simulation::observe_delivery(domain::StationState& state, const std::string
     systems::observe_delivery(*this, state, commodity_id, contracted_s);
 }
 
-double Simulation::order_ceiling(const domain::StationState& state, const std::string& commodity_id,
-    std::string& kind, double& station_ceiling) const {
-    return systems::order_ceiling(*this, state, commodity_id, kind, station_ceiling);
-}
-
 Simulation::OrderLevels Simulation::order_levels(
     const domain::StationState& state, const std::string& commodity_id, const domain::OrderStats& stats) const {
     return systems::order_levels(*this, state, commodity_id, stats);
 }
 
-std::vector<std::pair<double, double>> Simulation::contracted_arrivals(
-    const domain::StationState& state, const std::string& commodity_id, const std::string& except_ship_id) const {
-    return systems::contracted_arrivals(*this, state, commodity_id, except_ship_id);
-}
-
 domain::OrderView Simulation::order_view(const domain::StationState& state, const std::string& commodity_id) const {
     return systems::order_view(*this, state, commodity_id);
-}
-
-Simulation::OrderQuote Simulation::order_quote(const domain::StationState& state, const std::string& commodity_id,
-    double arrival_s, const std::string& except_ship_id) const {
-    return systems::order_quote(*this, state, commodity_id, arrival_s, except_ship_id);
 }
 
 Simulation::SaleSplit Simulation::quote_split(const OrderQuote& quote, double from, double units) const {
@@ -183,10 +129,6 @@ Simulation::LegEstimate Simulation::estimate_leg(
     return systems::estimate_leg(*this, ship_class, origin, destination, departure_time_s, available_propellant_kg, payload_kg);
 }
 
-void Simulation::defer_plan(const std::string& key, DeferredPlan request) {
-    systems::defer_plan(*this, key, request);
-}
-
 Simulation::MissionChoice Simulation::choose_mission(
     const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, bool trace,
     double earliest_departure_s, bool cargo_only) {
@@ -195,13 +137,6 @@ Simulation::MissionChoice Simulation::choose_mission(
 
 std::vector<Simulation::MissionChoice> Simulation::choose_missions(const std::vector<MissionRequest>& requests) {
     return systems::choose_missions(*this, requests);
-}
-
-Simulation::MissionChoice Simulation::choose_mission_pass(
-    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, bool trace,
-    double earliest_departure_s, bool cargo_only, std::unordered_map<std::string, domain::TrajectoryPlan>& plans,
-    std::string& trace_text) {
-    return systems::choose_mission_pass(*this, ship, ship_class, trace, earliest_departure_s, cargo_only, plans, trace_text);
 }
 
 }  // namespace spacetrains::simulation

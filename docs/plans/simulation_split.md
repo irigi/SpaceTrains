@@ -202,7 +202,8 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    - Four pricing functions outside the three files call `station_price` and are called by `MissionPass`, so they
      join the cycle: `daily_crew_cost` (into `systems/ShipOperations`) and `passenger_offer`, `live_fare_cr`,
      `port_fuel_price` (into `systems/Passengers`). The rest of those two topics follows in steps 6 and 9.
-   - Forwarders stay for every member called from outside the cycle (27, measured): `station_price` and
+   - Forwarders stay for every member called from outside the cycle (27, measured; as built 30, with the three
+     pricing functions' callers outside the cycle, and none for the 14 used only inside it): `station_price` and
      `trade_value` (8 topics), `under_contract`, `liner_stops`, `scheduled_stops`, `contract_dwell_days`,
      `find_contract`, `fleet_hold_units`, `fleet_ship_count`, `faction_name`, `sale_split_on_arrival`,
      `observe_contract`, `observe_delivery`, `priced_order`, `order_levels`, `quote_split`, `order_bid`,

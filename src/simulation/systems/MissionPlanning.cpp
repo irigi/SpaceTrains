@@ -1,35 +1,19 @@
 // Dispatch: leg estimates and the choice of a ship's next mission.
 
 #include "simulation/systems/MissionPlanning.hpp"
-#include "domain/ShipDesign.hpp"
-#include "simulation/CrewEnvironment.hpp"
 
 #include "util/Profiling.hpp"
 
 #include <algorithm>
-#include <chrono>
-#include <array>
-#include <tuple>
 #include <cmath>
-#include <numbers>
 #include <cstdlib>
-#include <filesystem>
 #include <format>
-#include <iomanip>
 #include <iostream>
 #include <limits>
-#include <sstream>
-#include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
-#include "simulation/query/Accounts.hpp"
-#include "simulation/query/Clock.hpp"
-#include "simulation/query/Events.hpp"
-#include "simulation/query/Finance.hpp"
-#include "simulation/query/Labour.hpp"
 #include "simulation/query/Lookups.hpp"
 #include "simulation/query/Passengers.hpp"
-#include "simulation/query/Positions.hpp"
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Contracts.hpp"
 #include "simulation/systems/Market.hpp"
@@ -195,6 +179,8 @@ std::vector<MissionChoice> choose_missions(World& w, const std::vector<MissionRe
     }
     return choices;
 }
+
+namespace {
 
 // One dispatch pass for one ship (see choose_mission_pass in MissionPlanning.hpp): the pass state
 // and its tools (planning, fuel, follow-up forecasts), then the scoring steps in order. A pass
@@ -1315,6 +1301,8 @@ private:
         return choice;
     }
 };
+
+}  // namespace
 
 MissionChoice choose_mission_pass(World& w, const domain::ShipState& ship,
     const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s, bool cargo_only,
