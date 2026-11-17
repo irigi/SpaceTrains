@@ -11,8 +11,8 @@
 namespace spacetrains::simulation::query {
 
 const domain::StationDefinition& get_station_definition(const World& w, const std::string& station_id) {
-    const auto it = w.station_defs_by_id_.find(station_id);
-    if (it == w.station_defs_by_id_.end()) {
+    const auto it = w.data.station_defs_by_id_.find(station_id);
+    if (it == w.data.station_defs_by_id_.end()) {
         throw std::runtime_error("Unknown station: " + station_id);
     }
     return *it->second;
@@ -20,10 +20,10 @@ const domain::StationDefinition& get_station_definition(const World& w, const st
 
 domain::StationState& get_station_state(World& w, const std::string& station_id) {
     const auto it = std::find_if(
-        w.stations_.begin(),
-        w.stations_.end(),
+        w.state.stations_.begin(),
+        w.state.stations_.end(),
         [&](const domain::StationState& station) { return station.station_id == station_id; });
-    if (it == w.stations_.end()) {
+    if (it == w.state.stations_.end()) {
         throw std::runtime_error("Unknown station state: " + station_id);
     }
     return *it;
@@ -31,18 +31,18 @@ domain::StationState& get_station_state(World& w, const std::string& station_id)
 
 const domain::StationState& get_station_state(const World& w, const std::string& station_id) {
     const auto it = std::find_if(
-        w.stations_.begin(),
-        w.stations_.end(),
+        w.state.stations_.begin(),
+        w.state.stations_.end(),
         [&](const domain::StationState& station) { return station.station_id == station_id; });
-    if (it == w.stations_.end()) {
+    if (it == w.state.stations_.end()) {
         throw std::runtime_error("Unknown station state: " + station_id);
     }
     return *it;
 }
 
 const domain::ShipClassDefinition& get_ship_class(const World& w, const std::string& class_id) {
-    const auto it = w.ship_classes_by_id_.find(class_id);
-    if (it == w.ship_classes_by_id_.end()) {
+    const auto it = w.data.ship_classes_by_id_.find(class_id);
+    if (it == w.data.ship_classes_by_id_.end()) {
         throw std::runtime_error("Unknown ship class: " + class_id);
     }
     return *it->second;
@@ -50,10 +50,10 @@ const domain::ShipClassDefinition& get_ship_class(const World& w, const std::str
 
 const domain::CelestialBodyDefinition& get_body_definition(const World& w, const std::string& body_id) {
     const auto it = std::find_if(
-        w.universe_.bodies.begin(),
-        w.universe_.bodies.end(),
+        w.data.universe_.bodies.begin(),
+        w.data.universe_.bodies.end(),
         [&](const domain::CelestialBodyDefinition& body) { return body.id == body_id; });
-    if (it == w.universe_.bodies.end()) {
+    if (it == w.data.universe_.bodies.end()) {
         throw std::runtime_error("Unknown body: " + body_id);
     }
     return *it;
@@ -61,23 +61,23 @@ const domain::CelestialBodyDefinition& get_body_definition(const World& w, const
 
 const domain::CommodityDefinition& get_commodity(const World& w, const std::string& commodity_id) {
     const auto it = std::find_if(
-        w.universe_.commodities.begin(),
-        w.universe_.commodities.end(),
+        w.data.universe_.commodities.begin(),
+        w.data.universe_.commodities.end(),
         [&](const domain::CommodityDefinition& commodity) { return commodity.id == commodity_id; });
-    if (it == w.universe_.commodities.end()) {
+    if (it == w.data.universe_.commodities.end()) {
         throw std::runtime_error("Unknown commodity: " + commodity_id);
     }
     return *it;
 }
 
 const domain::ShipModuleDefinition* find_module(const World& w, const std::string& hull_id, const std::string& module_id) {
-    const auto it = w.modules_by_key_.find(hull_id + "|" + module_id);
-    return it == w.modules_by_key_.end() ? nullptr : it->second;
+    const auto it = w.data.modules_by_key_.find(hull_id + "|" + module_id);
+    return it == w.data.modules_by_key_.end() ? nullptr : it->second;
 }
 
 bool module_has_active_effect(const World& w, const domain::ShipModuleDefinition& module) {
     for (const auto& [effect, value] : module.effects) {
-        if (value != 0.0 && w.active_effects_.contains(effect)) {
+        if (value != 0.0 && w.data.active_effects_.contains(effect)) {
             return true;
         }
     }
@@ -87,7 +87,7 @@ bool module_has_active_effect(const World& w, const domain::ShipModuleDefinition
 double radiator_bucket(const World& w, const domain::ShipState& ship) {
     // Only a plasma drive's radiators limit its power (register_design makes damaged designs
     // for variable-Isp hulls only), so other hulls are always in the undamaged bucket.
-    if (!w.universe_.ship_environment.wear || get_ship_class(w, ship.class_id).propulsion_type != "variable_isp") {
+    if (!w.data.universe_.ship_environment.wear || get_ship_class(w, ship.class_id).propulsion_type != "variable_isp") {
         return 1.0;
     }
     return std::clamp(std::round(ship.radiator_condition * 10.0) / 10.0, 0.1, 1.0);
@@ -109,8 +109,8 @@ const domain::ShipClassDefinition& ship_design(const World& w, const domain::Shi
         return get_ship_class(w, ship.class_id);
     }
     const auto key = damaged_design_id(ship.class_id, ship.fit, bucket);
-    const auto it = w.designs_.find(key);
-    if (it == w.designs_.end()) {
+    const auto it = w.caches.designs_.find(key);
+    if (it == w.caches.designs_.end()) {
         throw std::runtime_error("Unregistered ship design: " + key);
     }
     return it->second;
@@ -124,7 +124,7 @@ const domain::ShipClassDefinition& register_design(
         return base;
     }
     const auto key = damaged_design_id(class_id, fit, damaged ? radiator_bucket : 1.0);
-    if (const auto it = w.designs_.find(key); it != w.designs_.end()) {
+    if (const auto it = w.caches.designs_.find(key); it != w.caches.designs_.end()) {
         return it->second;
     }
     std::vector<std::string> sorted = fit;
@@ -141,8 +141,8 @@ const domain::ShipClassDefinition& register_design(
         if (module == nullptr) {
             throw std::runtime_error("Hull " + base.hull_id + " has no module " + module_id);
         }
-        const auto slots = w.universe_.hull_slots.find(base.hull_id);
-        const int capacity = slots == w.universe_.hull_slots.end() || !slots->second.contains(module->slot)
+        const auto slots = w.data.universe_.hull_slots.find(base.hull_id);
+        const int capacity = slots == w.data.universe_.hull_slots.end() || !slots->second.contains(module->slot)
             ? 0 : slots->second.at(module->slot);
         if (++used[module->slot] > capacity) {
             throw std::runtime_error("Ship design overfills the " + module->slot + " slots: " + key);
@@ -170,12 +170,12 @@ const domain::ShipClassDefinition& register_design(
         }
         design.name += std::format(" (radiators {:.0f}%)", 100.0 * radiator_bucket);
     }
-    if (const auto it = effects.find("berths"); it != effects.end() && w.active_effects_.contains("berths")) {
+    if (const auto it = effects.find("berths"); it != effects.end() && w.data.active_effects_.contains("berths")) {
         design.berths += it->second;
     }
     design.fit = std::move(sorted);
     design.effects = std::move(effects);
-    return w.designs_.emplace(key, std::move(design)).first->second;
+    return w.caches.designs_.emplace(key, std::move(design)).first->second;
 }
 
 std::string mission_phase_name(domain::ShipMissionPhase phase) {

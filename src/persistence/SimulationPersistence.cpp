@@ -782,15 +782,15 @@ std::string data_fingerprint(const World& w) {
             hash *= 1099511628211ULL;
         }
     };
-    for (const auto& station : w.universe_.stations) {
+    for (const auto& station : w.data.universe_.stations) {
         mix(std::format("s{}|{}|{}|{};", station.id, station.parent_body_id, station.population, station.storage_capacity_units));
     }
-    for (const auto& ship_class : w.universe_.ship_classes) {
+    for (const auto& ship_class : w.data.universe_.ship_classes) {
         mix(std::format("c{}|{}|{}|{}|{}|{};", ship_class.id, ship_class.dry_mass_kg, ship_class.propellant_capacity_kg,
             ship_class.cargo_capacity_units, ship_class.crew_size, ship_class.berths));
     }
     {
-        const auto& pax = w.universe_.passengers;
+        const auto& pax = w.data.universe_.passengers;
         mix(std::format("P{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", pax.enabled, pax.rotation, pax.migration, pax.discretionary,
             pax.body_luggage_kg, pax.consumables_kg_per_day, pax.recovery_days_per_flight_day, pax.rotation_share,
             pax.rotation_grade, pax.hardship_per_year, pax.resident_wage_multiple));
@@ -800,26 +800,26 @@ std::string data_fingerprint(const World& w) {
             pax.settler_payback_half_years, pax.settler_payback_exponent, pax.passage_recovery_days,
             pax.passage_max_markup, 0));
         mix(std::format("Q{}|{}|{};", pax.visitor_batch_days, pax.min_leg_passengers,
-            w.universe_.fleet_investment.purchase_spacing_days));
+            w.data.universe_.fleet_investment.purchase_spacing_days));
         mix(std::format("R{}|{};", pax.rider_time_min_share, pax.rider_time_relative_step));
         for (const auto& gateway : pax.earth_gateways) {
             mix("G" + gateway + ";");
         }
     }
     {
-        const auto& env = w.universe_.ship_environment;
+        const auto& env = w.data.universe_.ship_environment;
         mix(std::format("e{}|{}|{}|{}|{}|{}|{}|{};", env.radiation, env.gcr_msv_per_day, env.gcr_cycle_amplitude,
             env.solar_minimum_day, env.spe_rate_per_year, env.spe_hull_msv, env.career_limit_msv, env.hazard_cr_per_msv));
         mix(std::format("b{}|{}|{}|{};", env.boiloff, env.mli_flux_w_m2, env.mli_flux_exponent, env.cold_storage));
         mix(std::format("w{}|{}|{}|{}|{}|{};", env.wear, env.ntr_core_life_h, env.plasma_drive_life_h, env.puncture_flux_m2_yr,
             env.overhaul_wear, env.initial_wear_max));
         mix(std::format("r{}|{}|{};", env.repair_team_size, env.repair_team_hours_per_day, env.min_repair_days));
-        std::map<std::string, double> grades(w.universe_.labour.grades.begin(), w.universe_.labour.grades.end());
-        mix(std::format("l{}|{};", w.universe_.labour.reference_wage_cr_per_day, w.universe_.labour.shift_hours));
+        std::map<std::string, double> grades(w.data.universe_.labour.grades.begin(), w.data.universe_.labour.grades.end());
+        mix(std::format("l{}|{};", w.data.universe_.labour.reference_wage_cr_per_day, w.data.universe_.labour.shift_hours));
         for (const auto& [grade, multiple] : grades) {
             mix(std::format("g{}|{};", grade, multiple));
         }
-        std::map<std::string, domain::SparePartDefinition> spares(w.universe_.spare_parts.begin(), w.universe_.spare_parts.end());
+        std::map<std::string, domain::SparePartDefinition> spares(w.data.universe_.spare_parts.begin(), w.data.universe_.spare_parts.end());
         for (const auto& [kind, part] : spares) {
             mix(std::format("p{}|{}|{}|{}|{};", kind, part.wears_with, part.grade, part.fabrication_h_per_kg, part.install_h_per_kg));
             for (const auto& [good, share] : part.materials) {
@@ -827,32 +827,32 @@ std::string data_fingerprint(const World& w) {
             }
         }
         std::map<std::string, domain::StationRadiationDefinition> sorted(
-            w.universe_.station_radiation.begin(), w.universe_.station_radiation.end());
+            w.data.universe_.station_radiation.begin(), w.data.universe_.station_radiation.end());
         for (const auto& [station_id, radiation] : sorted) {
             mix(std::format("x{}|{}|{};", station_id, radiation.location_factor, radiation.shield_g_cm2));
         }
     }
-    for (const auto& module : w.universe_.ship_modules) {
+    for (const auto& module : w.data.universe_.ship_modules) {
         mix(std::format("m{}|{}|{}|{}|{};", module.hull_id, module.id, module.slot, module.part.mass_kg, module.part.price_cr));
         std::map<std::string, double> effects(module.effects.begin(), module.effects.end());
         for (const auto& [effect, value] : effects) {
             mix(std::format("E{}|{};", effect, value));
         }
     }
-    for (const auto& ship_class : w.universe_.ship_classes) {
-        if (const auto slots = w.universe_.hull_slots.find(ship_class.id); slots != w.universe_.hull_slots.end()) {
+    for (const auto& ship_class : w.data.universe_.ship_classes) {
+        if (const auto slots = w.data.universe_.hull_slots.find(ship_class.id); slots != w.data.universe_.hull_slots.end()) {
             std::map<std::string, int> sorted(slots->second.begin(), slots->second.end());
             for (const auto& [slot, count] : sorted) {
                 mix(std::format("h{}|{}|{};", ship_class.id, slot, count));
             }
         }
     }
-    for (const auto& commodity : w.universe_.commodities) {
+    for (const auto& commodity : w.data.universe_.commodities) {
         mix(std::format("g{}|{};", commodity.id, commodity.base_price));
     }
     {
         // Economy overhaul: households, background economies and what they trade.
-        const auto& h = w.universe_.households;
+        const auto& h = w.data.universe_.households;
         mix(std::format("H{}|{}|{}|{}|{}|{}|{}|{}|{};", h.enabled, h.participation, h.savings_days, h.spend_days,
             h.migrant_savings_cr, h.visitor_spend_cr_per_day, h.credits_per_usd, h.yard_share, h.surface_depth_units));
         mix(std::format("Hc{}|{}|{}|{}|{}|{};", h.supply_price_elasticity, h.min_utilization, h.consume_income_elasticity,
@@ -862,7 +862,7 @@ std::string data_fingerprint(const World& w) {
         for (const auto& [station_id, multiple] : wages) {
             mix(std::format("Hw{}|{};", station_id, multiple));
         }
-        const auto& l = w.universe_.labour_market;
+        const auto& l = w.data.universe_.labour_market;
         mix(std::format("L{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", l.enabled, l.earth_wage_median_cr_per_day, l.earth_wage_sigma,
             l.station_wage_sigma, l.stay_years, l.hardship_share, l.wage_adjust_per_year, l.min_wage_multiple, l.vacancy_fill_days,
             l.unemployed_leave_days, l.unemployment_benefit, l.visitor_budget_years, l.visitor_income_sigma));
@@ -870,31 +870,31 @@ std::string data_fingerprint(const World& w) {
             mix("Hy" + yard + ";");
         }
         {
-            const std::map<std::string, double> factory_prices(w.universe_.fuel_supply.factory_price_cr.begin(),
-                w.universe_.fuel_supply.factory_price_cr.end());
+            const std::map<std::string, double> factory_prices(w.data.universe_.fuel_supply.factory_price_cr.begin(),
+                w.data.universe_.fuel_supply.factory_price_cr.end());
             for (const auto& [station_id, price] : factory_prices) {
                 mix(std::format("Fp{}|{};", station_id, price));
             }
         }
-        for (const auto& economy : w.universe_.background_economies) {
+        for (const auto& economy : w.data.universe_.background_economies) {
             mix(std::format("B{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", economy.id, economy.launch_cr_per_kg, economy.landing_cr_per_kg,
                 economy.initial_credits, economy.income_cr_per_day, economy.population, economy.growth_per_year,
                 economy.wage_median_cr_per_day, economy.wage_sigma, economy.search_per_year));
             mix(std::format("Bi{};", economy.immigration_share));
         }
-        for (const auto& market : w.universe_.surface_markets) {
+        for (const auto& market : w.data.universe_.surface_markets) {
             mix(std::format("S{}|{}|{}|{}|{}|{}|{}|{};", market.economy_id, market.station_id, market.commodity_id, market.ask_cr,
                 market.bid_cr, market.sell_units_per_day, market.buy_units_per_day, market.bid_share));
         }
-        for (const auto& income : w.universe_.station_incomes) {
+        for (const auto& income : w.data.universe_.station_incomes) {
             mix(std::format("I{}|{}|{}|{}|{};", income.station_id, income.kind, income.payer_id, income.cr_per_day, income.need_based));
         }
     }
-    const auto& orders = w.universe_.orders;
+    const auto& orders = w.data.universe_.orders;
     mix(std::format("o{}|{}|{}|{}|{}|{}|{}|{}|{}|{};", orders.safety_factor,
         orders.ema_deliveries, orders.extra_discount, orders.max_extra_days, orders.resale_margin, orders.keep_share, orders.life_value, orders.consume_value,
         orders.depot_fuel_value, orders.input_cap));
-    for (const auto& recipe : w.universe_.recipes) {
+    for (const auto& recipe : w.data.universe_.recipes) {
         mix(std::format("r{}|{}|{}|{}|{};", recipe.profile_id, recipe.station_id, recipe.commodity_id, recipe.units_per_day,
             static_cast<int>(recipe.role)));
         for (const auto& output : recipe.feeds) {
@@ -908,43 +908,43 @@ std::string save_state_json(const World& w) {
     auto root = Json::object();
     root.set("version", kSaveVersion);
     root.set("data_fingerprint", data_fingerprint(w));
-    root.set("game_time_s", w.game_time_s_);
-    root.set("untimed_s", w.untimed_s_);
-    root.set("timewarp_factor", w.timewarp_factor_);
-    root.set("outside_economy_credits", w.outside_economy_credits_);
+    root.set("game_time_s", w.state.game_time_s_);
+    root.set("untimed_s", w.state.untimed_s_);
+    root.set("timewarp_factor", w.state.timewarp_factor_);
+    root.set("outside_economy_credits", w.state.outside_economy_credits_);
     auto background = Json::object();
-    for (const auto& [economy_id, balance] : w.background_credits_) {
+    for (const auto& [economy_id, balance] : w.state.background_credits_) {
         background.set(economy_id, balance);
     }
     root.set("background_credits", std::move(background));
     auto colonists = Json::object();
-    for (const auto& [economy_id, people] : w.background_population_) {
+    for (const auto& [economy_id, people] : w.state.background_population_) {
         colonists.set(economy_id, people);
     }
     root.set("background_population", std::move(colonists));
     auto colony_states = Json::object();
-    for (const auto& [economy_id, state] : w.colony_state_) {
+    for (const auto& [economy_id, state] : w.state.colony_state_) {
         colony_states.set(economy_id, numbers_to_json({state.satisfaction, state.throttle, state.income_per_day,
             state.base_imports_per_day, state.wage_median}));
     }
     root.set("colony_state", std::move(colony_states));
     auto treasuries = Json::object();
-    for (const auto& [faction_id, balance] : w.faction_treasuries_) {
+    for (const auto& [faction_id, balance] : w.state.faction_treasuries_) {
         treasuries.set(faction_id, balance);
     }
     root.set("faction_treasuries", std::move(treasuries));
     auto taxes = Json::object();
-    for (const auto& [faction_id, per_day] : w.faction_tax_per_day_) {
+    for (const auto& [faction_id, per_day] : w.state.faction_tax_per_day_) {
         taxes.set(faction_id, per_day);
     }
     root.set("faction_tax_per_day", std::move(taxes));
-    root.set("faction_interest_paid", w.faction_interest_paid_);
-    root.set("seeded_money_supply", w.seeded_money_supply_);
-    root.set("next_investment_review_s", w.next_investment_review_s_);
-    root.set("investment_purchases_left", w.investment_purchases_left_);
-    root.set("next_purchase_s", w.next_purchase_s_);
+    root.set("faction_interest_paid", w.state.faction_interest_paid_);
+    root.set("seeded_money_supply", w.state.seeded_money_supply_);
+    root.set("next_investment_review_s", w.state.next_investment_review_s_);
+    root.set("investment_purchases_left", w.state.investment_purchases_left_);
+    root.set("next_purchase_s", w.state.next_purchase_s_);
     auto probes = Json::object();
-    for (const auto& [key, runs] : w.review_probes_) {
+    for (const auto& [key, runs] : w.state.review_probes_) {
         auto list = Json::array();
         for (const auto& run : runs) {
             auto entry = Json::object();
@@ -963,14 +963,14 @@ std::string save_state_json(const World& w) {
     }
     root.set("review_probes", std::move(probes));
     auto investment = Json::object();
-    investment.set("ships_commissioned", w.investment_ledger_.ships_commissioned);
-    investment.set("ships_sold", w.investment_ledger_.ships_sold);
-    investment.set("hulls_bought", w.investment_ledger_.hulls_bought);
-    investment.set("working_capital", w.investment_ledger_.working_capital);
-    investment.set("salvage", w.investment_ledger_.salvage);
+    investment.set("ships_commissioned", w.state.investment_ledger_.ships_commissioned);
+    investment.set("ships_sold", w.state.investment_ledger_.ships_sold);
+    investment.set("hulls_bought", w.state.investment_ledger_.hulls_bought);
+    investment.set("working_capital", w.state.investment_ledger_.working_capital);
+    investment.set("salvage", w.state.investment_ledger_.salvage);
     root.set("investment_ledger", std::move(investment));
     auto emergencies = Json::array();
-    for (const auto& emergency : w.emergencies_) {
+    for (const auto& emergency : w.state.emergencies_) {
         auto entry = Json::object();
         entry.set("station_id", emergency.station_id);
         entry.set("commodity_id", emergency.commodity_id);
@@ -982,38 +982,38 @@ std::string save_state_json(const World& w) {
         emergencies.push(std::move(entry));
     }
     root.set("emergencies", std::move(emergencies));
-    root.set("emergencies_opened", w.emergencies_opened_);
+    root.set("emergencies_opened", w.state.emergencies_opened_);
     {
         std::ostringstream rng;
-        rng << w.event_rng_;
+        rng << w.state.event_rng_;
         root.set("event_rng", rng.str());
         std::ostringstream environment_rng;
-        environment_rng << w.environment_rng_;
+        environment_rng << w.state.environment_rng_;
         root.set("environment_rng", environment_rng.str());
         auto started = Json::object();
-        for (const auto& [event_id, count] : w.events_started_) {
+        for (const auto& [event_id, count] : w.state.events_started_) {
             started.set(event_id, count);
         }
         root.set("events_started", std::move(started));
     }
-    root.set("emergency_paid", w.emergency_paid_);
+    root.set("emergency_paid", w.state.emergency_paid_);
     auto stations = Json::array();
-    for (const auto& station : w.stations_) {
+    for (const auto& station : w.state.stations_) {
         stations.push(station_to_json(station));
     }
     root.set("stations", std::move(stations));
     auto ships = Json::array();
-    for (const auto& ship : w.ships_) {
+    for (const auto& ship : w.state.ships_) {
         ships.push(ship_to_json(ship));
     }
     root.set("ships", std::move(ships));
     auto sold = Json::array();
-    for (const auto& ship : w.sold_ships_) {
+    for (const auto& ship : w.state.sold_ships_) {
         sold.push(ship_to_json(ship));
     }
     root.set("sold_ships", std::move(sold));
     auto derelicts = Json::array();
-    for (const auto& d : w.derelicts_) {
+    for (const auto& d : w.state.derelicts_) {
         auto out = Json::object();
         out.set("id", d.id);
         out.set("name", d.name);
@@ -1043,14 +1043,14 @@ std::string save_state_json(const World& w) {
     }
     root.set("derelicts", std::move(derelicts));
     auto claims = Json::object();
-    for (const auto& [faction_id, expiries] : w.replacement_claims_) {
+    for (const auto& [faction_id, expiries] : w.state.replacement_claims_) {
         claims.set(faction_id, numbers_to_json(expiries));
     }
     root.set("replacement_claims", std::move(claims));
-    root.set("next_salvage_review_s", w.next_salvage_review_s_);
-    root.set("replacement_tried", w.replacement_tried_);
+    root.set("next_salvage_review_s", w.state.next_salvage_review_s_);
+    root.set("replacement_tried", w.state.replacement_tried_);
     auto patrols = Json::array();
-    for (const auto& p : w.patrols_) {
+    for (const auto& p : w.state.patrols_) {
         auto out = Json::object();
         out.set("id", p.id);
         out.set("name", p.name);
@@ -1074,7 +1074,7 @@ std::string save_state_json(const World& w) {
     }
     root.set("patrols", std::move(patrols));
     auto events = Json::array();
-    for (const auto& event : w.recent_events_) {
+    for (const auto& event : w.state.recent_events_) {
         auto e = Json::object();
         e.set("time_s", event.time_s);
         e.set("text", event.text);
@@ -1083,7 +1083,7 @@ std::string save_state_json(const World& w) {
     }
     root.set("recent_events", std::move(events));
     auto trades = Json::array();
-    for (const auto& trade : w.recent_trades_) {
+    for (const auto& trade : w.state.recent_trades_) {
         auto t = Json::object();
         t.set("time_s", trade.time_s);
         t.set("ship_id", trade.ship_id);
@@ -1096,8 +1096,8 @@ std::string save_state_json(const World& w) {
         trades.push(std::move(t));
     }
     root.set("recent_trades", std::move(trades));
-    root.set("money_journal", journal_to_json(w.journal_));
-    root.set("flow_record", flow_record_to_json(w.flows_));
+    root.set("money_journal", journal_to_json(w.state.journal_));
+    root.set("flow_record", flow_record_to_json(w.state.flows_));
     return root.dump();
 }
 
@@ -1130,10 +1130,10 @@ void read_state_json(World& w, const std::string& text) {
     for (const auto& item : root.get("stations").items()) {
         stations.push_back(station_from_json(item));
     }
-    MoneyJournal journal = w.journal_;   // same accounts (same data)
+    MoneyJournal journal = w.state.journal_;   // same accounts (same data)
     journal_from_json(root.get("money_journal"), journal);
     // Version 20 has no flow record: it starts empty from the saved stocks.
-    FlowRecord flow_record = w.flows_;
+    FlowRecord flow_record = w.state.flows_;
     flow_record.lifetime_mutable().clear();
     flow_record.period_mutable().clear();
     flow_record.history_mutable().clear();
@@ -1141,12 +1141,12 @@ void read_state_json(World& w, const std::string& text) {
     if (const auto* saved = root.find("flow_record"); saved != nullptr) {
         flow_record_from_json(*saved, flow_record);
     }
-    if (stations.size() != w.universe_.stations.size()) {
+    if (stations.size() != w.data.universe_.stations.size()) {
         throw std::runtime_error("save: station count does not match the data");
     }
     for (std::size_t i = 0; i < stations.size(); ++i) {
-        if (stations[i].station_id != w.universe_.stations[i].id) {
-            throw std::runtime_error(std::format("save: station {} is not {}", stations[i].station_id, w.universe_.stations[i].id));
+        if (stations[i].station_id != w.data.universe_.stations[i].id) {
+            throw std::runtime_error(std::format("save: station {} is not {}", stations[i].station_id, w.data.universe_.stations[i].id));
         }
     }
     std::vector<domain::ShipState> ships;
@@ -1316,68 +1316,68 @@ void read_state_json(World& w, const std::string& text) {
         }
     }
 
-    w.game_time_s_ = root.get("game_time_s").number();
-    w.untimed_s_ = root.get("untimed_s").number();
-    w.timewarp_factor_ = root.get("timewarp_factor").number();
-    w.outside_economy_credits_ = root.get("outside_economy_credits").number();
-    w.background_credits_.clear();
+    w.state.game_time_s_ = root.get("game_time_s").number();
+    w.state.untimed_s_ = root.get("untimed_s").number();
+    w.state.timewarp_factor_ = root.get("timewarp_factor").number();
+    w.state.outside_economy_credits_ = root.get("outside_economy_credits").number();
+    w.state.background_credits_.clear();
     for (const auto& [economy_id, balance] : root.get("background_credits").fields()) {
-        w.background_credits_[economy_id] = balance.number();
+        w.state.background_credits_[economy_id] = balance.number();
     }
-    w.background_population_.clear();
+    w.state.background_population_.clear();
     for (const auto& [economy_id, people] : root.get("background_population").fields()) {
-        w.background_population_[economy_id] = people.number();
+        w.state.background_population_[economy_id] = people.number();
     }
-    w.colony_state_.clear();
+    w.state.colony_state_.clear();
     for (const auto& [economy_id, values] : root.get("colony_state").fields()) {
         const auto v = numbers_from_json(values);
-        w.colony_state_[economy_id] = {.satisfaction = v.at(0), .throttle = v.at(1), .income_per_day = v.at(2),
+        w.state.colony_state_[economy_id] = {.satisfaction = v.at(0), .throttle = v.at(1), .income_per_day = v.at(2),
             .base_imports_per_day = v.at(3), .wage_median = v.at(4)};
     }
-    w.faction_treasuries_ = std::move(treasuries);
-    w.faction_tax_per_day_ = std::move(tax_per_day);
-    w.faction_interest_paid_ = root.get("faction_interest_paid").number();
-    w.seeded_money_supply_ = root.get("seeded_money_supply").number();
-    w.next_investment_review_s_ = root.get("next_investment_review_s").number();
-    w.investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());
-    w.next_purchase_s_ = root.get("next_purchase_s").number();
-    w.review_probes_ = std::move(review_probes);
-    w.emergencies_ = std::move(emergencies);
-    w.emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());
-    w.event_rng_ = event_rng;
-    w.environment_rng_ = environment_rng;
-    w.events_started_ = std::move(events_started);
-    w.emergency_paid_ = root.get("emergency_paid").number();
-    w.investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());
-    w.investment_ledger_.ships_sold = static_cast<int>(investment.get("ships_sold").number());
-    w.investment_ledger_.hulls_bought = investment.get("hulls_bought").number();
-    w.investment_ledger_.working_capital = investment.get("working_capital").number();
-    w.investment_ledger_.salvage = investment.get("salvage").number();
-    w.stations_ = std::move(stations);
-    w.journal_ = std::move(journal);
-    w.flows_ = std::move(flow_record);
-    if (w.flows_.start_stocks().empty()) {
-        w.flows_.start_stocks_mutable() = systems::flow_stocks(w);
+    w.state.faction_treasuries_ = std::move(treasuries);
+    w.state.faction_tax_per_day_ = std::move(tax_per_day);
+    w.state.faction_interest_paid_ = root.get("faction_interest_paid").number();
+    w.state.seeded_money_supply_ = root.get("seeded_money_supply").number();
+    w.state.next_investment_review_s_ = root.get("next_investment_review_s").number();
+    w.state.investment_purchases_left_ = static_cast<int>(root.get("investment_purchases_left").number());
+    w.state.next_purchase_s_ = root.get("next_purchase_s").number();
+    w.state.review_probes_ = std::move(review_probes);
+    w.state.emergencies_ = std::move(emergencies);
+    w.state.emergencies_opened_ = static_cast<int>(root.get("emergencies_opened").number());
+    w.state.event_rng_ = event_rng;
+    w.state.environment_rng_ = environment_rng;
+    w.state.events_started_ = std::move(events_started);
+    w.state.emergency_paid_ = root.get("emergency_paid").number();
+    w.state.investment_ledger_.ships_commissioned = static_cast<int>(investment.get("ships_commissioned").number());
+    w.state.investment_ledger_.ships_sold = static_cast<int>(investment.get("ships_sold").number());
+    w.state.investment_ledger_.hulls_bought = investment.get("hulls_bought").number();
+    w.state.investment_ledger_.working_capital = investment.get("working_capital").number();
+    w.state.investment_ledger_.salvage = investment.get("salvage").number();
+    w.state.stations_ = std::move(stations);
+    w.state.journal_ = std::move(journal);
+    w.state.flows_ = std::move(flow_record);
+    if (w.state.flows_.start_stocks().empty()) {
+        w.state.flows_.start_stocks_mutable() = systems::flow_stocks(w);
     }
-    for (const auto& station : w.stations_) {
-        w.economy_.set_employment(station.station_id, station.employed_share);
-        w.economy_.set_population(station.station_id, station.population);
+    for (const auto& station : w.state.stations_) {
+        w.engines.economy_.set_employment(station.station_id, station.employed_share);
+        w.engines.economy_.set_population(station.station_id, station.population);
     }
-    w.ships_ = std::move(ships);
-    w.sold_ships_ = std::move(sold);
-    w.derelicts_ = std::move(derelicts);
-    w.replacement_claims_ = std::move(replacement_claims);
-    w.next_salvage_review_s_ = next_salvage_review_s;
-    w.replacement_tried_ = replacement_tried;
+    w.state.ships_ = std::move(ships);
+    w.state.sold_ships_ = std::move(sold);
+    w.state.derelicts_ = std::move(derelicts);
+    w.state.replacement_claims_ = std::move(replacement_claims);
+    w.state.next_salvage_review_s_ = next_salvage_review_s;
+    w.state.replacement_tried_ = replacement_tried;
     if (patrols_saved) {
-        w.patrols_ = std::move(patrols);
+        w.state.patrols_ = std::move(patrols);
     }  // (an older save keeps the cutters this game started with)
     systems::init_failure_clocks(w);  // saves before version 22 have none
-    w.recent_events_ = std::move(events);
-    w.recent_trades_ = std::move(trades);
+    w.state.recent_events_ = std::move(events);
+    w.state.recent_trades_ = std::move(trades);
     // Caches are pure functions of their keys; empty ones refill with the same values.
-    w.leg_estimates_.clear();
-    w.trajectory_audit_records_.clear();
+    w.caches.leg_estimates_.clear();
+    w.audits.trajectory_audit_records_.clear();
 }
 
 }  // namespace

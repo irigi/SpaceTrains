@@ -286,7 +286,7 @@ call-graph script over the `Simulation::` definitions (members already forwardin
     `persistence/SimulationPersistence.hpp`; `load_state_json` keeps the restore on failure, and `read_state_json`
     is file-local. The file's code moved from namespace `simulation` to `persistence`, so it names the simulation
     types it uses with `using` declarations. `Simulation`'s three members forward to it.
-15. **Thin `Simulation`:** drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
+15. **Thin `Simulation`** (done 2026-11-18): drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
     engines' references now point into a heap object that never moves), make `World` non-copyable and non-movable,
     group the members into the `World` sub-structs, delete the forwarders. `tick()` reads as the list in "Tick
     order" above.
@@ -308,6 +308,12 @@ call-graph script over the `Simulation::` definitions (members already forwardin
       `MissionPass::plan_to`) already captured only `const` references (planner, definitions, ship, class)
       and values, so no worker wrote state. They do not use the World they are given; the type records the
       rule, and a review of a new compute still has to look at its captures.
+    - 15d: `World` is five sub-structs, `data` (`StaticData`), `engines`, `state`, `caches` and `audits`; every
+      access is scripted from `w.ships_` to `w.state.ships_` (the compiler checks that none is missed). `State`
+      is exactly what `save_state_json` writes (34 members). Placed differently from the table above: the
+      journal's account indices go to `data` (built from the data at the start, not saved), `events_enabled_`
+      to `data` (a switch for the run, not saved), and `next_exposure_sample_s_` to `audits` (it only times
+      the failure audit's daily sample). `World` builds `data` first, then `engines` from `data.universe_`.
 16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
 
 Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.

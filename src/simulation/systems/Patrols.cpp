@@ -59,7 +59,7 @@ double interpolate_scalar(const std::vector<double>& values, const std::vector<d
 }  // namespace
 
 void init_patrols(World& w) {
-    const auto& p = w.universe_.patrols;
+    const auto& p = w.data.universe_.patrols;
     if (!p.patrols) {
         return;
     }
@@ -67,7 +67,7 @@ void init_patrols(World& w) {
     int index = 0;
     for (const auto& base : p.bases) {
         std::string initials;
-        for (const auto& faction : w.universe_.factions) {
+        for (const auto& faction : w.data.universe_.factions) {
             if (faction.id != base.faction_id) {
                 continue;
             }
@@ -89,8 +89,8 @@ void init_patrols(World& w) {
             patrol.class_id = p.class_id;
             patrol.home_station_id = base.station_id;
             patrol.propellant_kg = design.propellant_capacity_kg;
-            patrol.next_review_s = w.game_time_s_ + 0.25 * kDayS * index;
-            w.patrols_.push_back(std::move(patrol));
+            patrol.next_review_s = w.state.game_time_s_ + 0.25 * kDayS * index;
+            w.state.patrols_.push_back(std::move(patrol));
         }
     }
 }
@@ -105,13 +105,13 @@ void pay_patrol(World& w, const domain::PatrolState& patrol, double amount) {
     home.credits += amount;
     if (patrol.faction_id == kEarthPolice) {
         // Earth's police: the outside economy pays, as it pays the scrap of wrecks.
-        w.outside_economy_credits_ -= amount;
-        w.journal_.record(query::account_earth(), query::account_station(w, home), MoneyCategory::Patrols, amount);
+        w.state.outside_economy_credits_ -= amount;
+        w.state.journal_.record(query::account_earth(), query::account_station(w, home), MoneyCategory::Patrols, amount);
     } else {
-        w.faction_treasuries_[patrol.faction_id] -= amount;
-        w.journal_.record(query::account_faction(w, patrol.faction_id), query::account_station(w, home), MoneyCategory::Patrols, amount);
+        w.state.faction_treasuries_[patrol.faction_id] -= amount;
+        w.state.journal_.record(query::account_faction(w, patrol.faction_id), query::account_station(w, home), MoneyCategory::Patrols, amount);
     }
-    w.patrol_audit_.costs_cr += amount;
+    w.audits.patrol_audit_.costs_cr += amount;
 }
 
 }  // namespace
@@ -119,20 +119,20 @@ void pay_patrol(World& w, const domain::PatrolState& patrol, double amount) {
 math::Vec3d patrol_position(const World& w, const domain::PatrolState& patrol) {
     switch (patrol.phase) {
         case domain::PatrolPhase::Docked:
-            return w.mechanics_.get_station_position(query::get_station_definition(w, patrol.home_station_id), w.game_time_s_);
+            return w.engines.mechanics_.get_station_position(query::get_station_definition(w, patrol.home_station_id), w.state.game_time_s_);
         case domain::PatrolPhase::Inspecting:
-            for (const auto& ship : w.ships_) {
+            for (const auto& ship : w.state.ships_) {
                 if (ship.id == patrol.target_ship_id) {
                     return query::get_ship_render_position(w, ship);
                 }
             }
-            return trajectory::propagate_kepler(patrol.meet_position_m, patrol.meet_velocity_mps, w.game_time_s_ - patrol.meet_s,
+            return trajectory::propagate_kepler(patrol.meet_position_m, patrol.meet_velocity_mps, w.state.game_time_s_ - patrol.meet_s,
                 query::sun_mu(w)).position_m;
         case domain::PatrolPhase::Outbound:
         case domain::PatrolPhase::Returning:
             break;
     }
-    return interpolate_timed_sampled_path(patrol.path, patrol.times, w.game_time_s_);
+    return interpolate_timed_sampled_path(patrol.path, patrol.times, w.state.game_time_s_);
 }
 
 namespace {
@@ -162,7 +162,7 @@ trajectory::ChasePlan plan_patrol_home(const World& w, const domain::PatrolState
     domain::TrajectoryPlan planet;
     const auto planet_id = query::primary_body_id(w, patrol.home_station_id);
     for (double t = t_s; t <= t_s + 500.0 * kDayS; t += 2.0 * kDayS) {
-        planet.sampled_path.push_back(w.mechanics_.get_body_position(planet_id, t));
+        planet.sampled_path.push_back(w.engines.mechanics_.get_body_position(planet_id, t));
         planet.sampled_times_s.push_back(t);
     }
     trajectory::ChaseUnits units;
@@ -206,10 +206,10 @@ double patrol_kg_per_s(const World& w, const domain::PatrolState& patrol) {
 PatrolSortie plan_sortie(const World& w, const domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v,
     const domain::ShipState& target) {
     PatrolSortie sortie;
-    const auto& p = w.universe_.patrols;
+    const auto& p = w.data.universe_.patrols;
     const auto& design = query::get_ship_class(w, patrol.class_id);
     const auto& mission = target.active_mission;
-    const double now = w.game_time_s_;
+    const double now = w.state.game_time_s_;
     const double inspection_s = p.inspection_days * kDayS;
     const double earliest = 2.0 * kDayS;
     const double latest = mission.arrival_time_s - now - inspection_s - kDayS;
@@ -287,13 +287,13 @@ PatrolSortie plan_sortie(const World& w, const domain::PatrolState& patrol, cons
 }
 
 bool start_sortie(World& w, domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v) {
-    const auto& p = w.universe_.patrols;
-    const double now = w.game_time_s_;
+    const auto& p = w.data.universe_.patrols;
+    const double now = w.state.game_time_s_;
     // Ships on an interplanetary leg (bound for this faction's stations, for a faction's cutter), not inspected lately and
     // not already someone's target; the nearest few are planned.
     std::vector<std::pair<double, std::size_t>> near;
-    for (std::size_t i = 0; i < w.ships_.size(); ++i) {
-        const auto& ship = w.ships_[i];
+    for (std::size_t i = 0; i < w.state.ships_.size(); ++i) {
+        const auto& ship = w.state.ships_[i];
         const auto& mission = ship.active_mission;
         if (ship.phase != domain::ShipMissionPhase::InTransit || mission.sampled_path.size() < 2
             || mission.arrival_time_s - now < (p.inspection_days + 4.0) * kDayS
@@ -302,7 +302,7 @@ bool start_sortie(World& w, domain::PatrolState& patrol, const math::Vec3d& r, c
                 && query::get_station_definition(w, mission.destination_station_id).faction_id != patrol.faction_id)) {
             continue;
         }
-        if (std::any_of(w.patrols_.begin(), w.patrols_.end(), [&](const auto& other) {
+        if (std::any_of(w.state.patrols_.begin(), w.state.patrols_.end(), [&](const auto& other) {
                 return &other != &patrol && other.target_ship_id == ship.id
                     && (other.phase == domain::PatrolPhase::Outbound || other.phase == domain::PatrolPhase::Inspecting);
             })) {
@@ -315,8 +315,8 @@ bool start_sortie(World& w, domain::PatrolState& patrol, const math::Vec3d& r, c
         near.resize(kCandidates);
     }
     std::vector<PatrolSortie> out(near.size());
-    w.thread_pool_->parallel_for(near.size(), [&](std::size_t k) {
-        out[k] = plan_sortie(w, patrol, r, v, w.ships_[near[k].second]);
+    w.engines.thread_pool_->parallel_for(near.size(), [&](std::size_t k) {
+        out[k] = plan_sortie(w, patrol, r, v, w.state.ships_[near[k].second]);
     });
     std::size_t best = out.size();
     for (std::size_t k = 0; k < out.size(); ++k) {
@@ -325,11 +325,11 @@ bool start_sortie(World& w, domain::PatrolState& patrol, const math::Vec3d& r, c
         }
     }
     if (best == out.size()) {
-        ++w.patrol_audit_.no_target_reviews;
+        ++w.audits.patrol_audit_.no_target_reviews;
         return false;
     }
     auto& sortie = out[best];
-    const auto& target = w.ships_[near[best].second];
+    const auto& target = w.state.ships_[near[best].second];
     patrol.phase = domain::PatrolPhase::Outbound;
     patrol.target_ship_id = target.id;
     patrol.target_name = target.name;
@@ -337,20 +337,20 @@ bool start_sortie(World& w, domain::PatrolState& patrol, const math::Vec3d& r, c
     patrol.path = std::move(sortie.path);
     patrol.times = std::move(sortie.times);
     patrol.propellant = std::move(sortie.propellant);
-    ++w.patrol_audit_.sorties;
-    w.patrol_audit_.meeting_days_sum += (sortie.meet_s - now) / kDayS;
+    ++w.audits.patrol_audit_.sorties;
+    w.audits.patrol_audit_.meeting_days_sum += (sortie.meet_s - now) / kDayS;
     query::add_event(w, std::format("{} sets out to inspect {} bound for {}: meets it in {:.0f} days", patrol.name, target.name,
         query::get_station_definition(w, target.active_mission.destination_station_id).name, (sortie.meet_s - now) / kDayS), "mission");
     return true;
 }
 
 void send_patrol_home(World& w, domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v) {
-    const auto& p = w.universe_.patrols;
+    const auto& p = w.data.universe_.patrols;
     const auto& design = query::get_ship_class(w, patrol.class_id);
-    auto plan = plan_patrol_home(w, patrol, r, v, w.game_time_s_, patrol.propellant_kg, p.return_reserve * design.propellant_capacity_kg);
+    auto plan = plan_patrol_home(w, patrol, r, v, w.state.game_time_s_, patrol.propellant_kg, p.return_reserve * design.propellant_capacity_kg);
     if (!plan.feasible) {
-        ++w.patrol_audit_.returns_replanned_short;
-        plan = plan_patrol_home(w, patrol, r, v, w.game_time_s_, patrol.propellant_kg, 0.01 * design.propellant_capacity_kg);
+        ++w.audits.patrol_audit_.returns_replanned_short;
+        plan = plan_patrol_home(w, patrol, r, v, w.state.game_time_s_, patrol.propellant_kg, 0.01 * design.propellant_capacity_kg);
     }
     patrol.phase = domain::PatrolPhase::Returning;
     patrol.target_ship_id.clear();
@@ -364,13 +364,13 @@ void send_patrol_home(World& w, domain::PatrolState& patrol, const math::Vec3d& 
             const double share = patrol.times.size() > 1 ? static_cast<double>(i) / (patrol.times.size() - 1) : 1.0;
             patrol.propellant.push_back(patrol.propellant_kg - share * plan.propellant_kg);
         }
-        patrol.arrive_s = w.game_time_s_ + plan.transfer_time_s;
+        patrol.arrive_s = w.state.game_time_s_ + plan.transfer_time_s;
     } else {
         // No way home on what is left (should not happen: sorties check one): a tanker brings it
         // in, shown as a straight line over 200 days.
-        const double arrive = w.game_time_s_ + 200.0 * kDayS;
-        patrol.path = {r, w.mechanics_.get_station_position(query::get_station_definition(w, patrol.home_station_id), arrive)};
-        patrol.times = {w.game_time_s_, arrive};
+        const double arrive = w.state.game_time_s_ + 200.0 * kDayS;
+        patrol.path = {r, w.engines.mechanics_.get_station_position(query::get_station_definition(w, patrol.home_station_id), arrive)};
+        patrol.times = {w.state.game_time_s_, arrive};
         patrol.propellant = {patrol.propellant_kg, patrol.propellant_kg};
         patrol.arrive_s = arrive;
         query::add_event(w, std::format("{} is out of propellant and is brought home by a tanker", patrol.name), "alert");
@@ -380,11 +380,11 @@ void send_patrol_home(World& w, domain::PatrolState& patrol, const math::Vec3d& 
 }  // namespace
 
 void step_patrols(World& w, double dt_s) {
-    if (!w.universe_.patrols.patrols) {
+    if (!w.data.universe_.patrols.patrols) {
         return;
     }
-    const auto& p = w.universe_.patrols;
-    for (auto& patrol : w.patrols_) {
+    const auto& p = w.data.universe_.patrols;
+    for (auto& patrol : w.state.patrols_) {
         const auto& design = query::get_ship_class(w, patrol.class_id);
         auto& home = query::get_station_state(w, patrol.home_station_id);
         // Hull and crew, paid by the faction to the home port.
@@ -400,45 +400,45 @@ void step_patrols(World& w, double dt_s) {
                     home.demand_units["fuel"] += units;
                     patrol.propellant_kg += units * FUEL_UNITS_TO_KG;
                 }
-                if (w.game_time_s_ >= patrol.next_review_s) {
-                    patrol.next_review_s = w.game_time_s_ + p.review_days * kDayS;
-                    const auto r = w.mechanics_.get_station_position(query::get_station_definition(w, patrol.home_station_id), w.game_time_s_);
+                if (w.state.game_time_s_ >= patrol.next_review_s) {
+                    patrol.next_review_s = w.state.game_time_s_ + p.review_days * kDayS;
+                    const auto r = w.engines.mechanics_.get_station_position(query::get_station_definition(w, patrol.home_station_id), w.state.game_time_s_);
                     (void)start_sortie(w, patrol, r, circular_velocity_at(r, query::sun_mu(w)));
                 }
                 break;
             }
             case domain::PatrolPhase::Outbound: {
-                patrol.propellant_kg = std::max(0.0, interpolate_scalar(patrol.propellant, patrol.times, w.game_time_s_));
-                if (w.game_time_s_ < patrol.meet_s) {
+                patrol.propellant_kg = std::max(0.0, interpolate_scalar(patrol.propellant, patrol.times, w.state.game_time_s_));
+                if (w.state.game_time_s_ < patrol.meet_s) {
                     break;
                 }
-                const auto it = std::find_if(w.ships_.begin(), w.ships_.end(), [&](const auto& s) { return s.id == patrol.target_ship_id; });
-                if (it == w.ships_.end() || it->phase != domain::ShipMissionPhase::InTransit
-                    || it->active_mission.arrival_time_s <= w.game_time_s_ + 0.5 * kDayS) {
+                const auto it = std::find_if(w.state.ships_.begin(), w.state.ships_.end(), [&](const auto& s) { return s.id == patrol.target_ship_id; });
+                if (it == w.state.ships_.end() || it->phase != domain::ShipMissionPhase::InTransit
+                    || it->active_mission.arrival_time_s <= w.state.game_time_s_ + 0.5 * kDayS) {
                     // The target is gone (arrived, failed): home from here.
-                    const auto here = path_state(patrol.path, patrol.times, w.game_time_s_, query::sun_mu(w));
+                    const auto here = path_state(patrol.path, patrol.times, w.state.game_time_s_, query::sun_mu(w));
                     send_patrol_home(w, patrol, here.position_m, here.velocity_mps);
                     break;
                 }
                 patrol.phase = domain::PatrolPhase::Inspecting;
-                patrol.inspect_until_s = std::min(w.game_time_s_ + p.inspection_days * kDayS,
+                patrol.inspect_until_s = std::min(w.state.game_time_s_ + p.inspection_days * kDayS,
                     it->active_mission.arrival_time_s - 0.5 * kDayS);
-                const auto met = path_state(it->active_mission.sampled_path, it->active_mission.sampled_times_s, w.game_time_s_, query::sun_mu(w));
+                const auto met = path_state(it->active_mission.sampled_path, it->active_mission.sampled_times_s, w.state.game_time_s_, query::sun_mu(w));
                 patrol.meet_position_m = met.position_m;
                 patrol.meet_velocity_mps = met.velocity_mps;
                 query::add_event(w, std::format("{} comes alongside {} for inspection", patrol.name, it->name), "general");
                 break;
             }
             case domain::PatrolPhase::Inspecting: {
-                const auto it = std::find_if(w.ships_.begin(), w.ships_.end(), [&](const auto& s) { return s.id == patrol.target_ship_id; });
-                const bool target_flying = it != w.ships_.end() && it->phase == domain::ShipMissionPhase::InTransit;
-                if (target_flying && w.game_time_s_ < patrol.inspect_until_s) {
+                const auto it = std::find_if(w.state.ships_.begin(), w.state.ships_.end(), [&](const auto& s) { return s.id == patrol.target_ship_id; });
+                const bool target_flying = it != w.state.ships_.end() && it->phase == domain::ShipMissionPhase::InTransit;
+                if (target_flying && w.state.game_time_s_ < patrol.inspect_until_s) {
                     break;
                 }
-                const double elapsed = std::max(1.0, w.game_time_s_ - patrol.meet_s);
+                const double elapsed = std::max(1.0, w.state.game_time_s_ - patrol.meet_s);
                 const auto coast = trajectory::propagate_kepler(patrol.meet_position_m, patrol.meet_velocity_mps, elapsed, query::sun_mu(w));
                 const auto alongside = target_flying
-                    ? path_state(it->active_mission.sampled_path, it->active_mission.sampled_times_s, w.game_time_s_, query::sun_mu(w))
+                    ? path_state(it->active_mission.sampled_path, it->active_mission.sampled_times_s, w.state.game_time_s_, query::sun_mu(w))
                     : coast;
                 const math::Vec3d r = alongside.position_m;
                 const math::Vec3d v = alongside.velocity_mps;
@@ -450,12 +450,12 @@ void step_patrols(World& w, double dt_s) {
                 const double m1 = 1.0 / (1.0 / m0 + dv * dv / elapsed / (2.0 * power_w));
                 const double used = std::min(patrol.propellant_kg, m0 - m1);
                 patrol.propellant_kg -= used;
-                w.patrol_audit_.propellant_kg += used;
-                if (it != w.ships_.end()) {
-                    it->last_inspected_s = w.game_time_s_;
+                w.audits.patrol_audit_.propellant_kg += used;
+                if (it != w.state.ships_.end()) {
+                    it->last_inspected_s = w.state.game_time_s_;
                     ++patrol.inspections;
-                    ++w.patrol_audit_.inspections;
-                    ++w.patrol_audit_.by_faction[it->faction_id];   // the inspected ship's faction
+                    ++w.audits.patrol_audit_.inspections;
+                    ++w.audits.patrol_audit_.by_faction[it->faction_id];   // the inspected ship's faction
                     query::add_event(w, std::format("{} inspected {} over {:.1f} days and leaves it on its way to {}", patrol.name, it->name,
                         elapsed / kDayS, query::get_station_definition(w, it->active_mission.destination_station_id).name), "general");
                 }
@@ -467,13 +467,13 @@ void step_patrols(World& w, double dt_s) {
                 break;
             }
             case domain::PatrolPhase::Returning: {
-                patrol.propellant_kg = std::max(0.0, interpolate_scalar(patrol.propellant, patrol.times, w.game_time_s_));
-                if (w.game_time_s_ >= patrol.arrive_s) {
+                patrol.propellant_kg = std::max(0.0, interpolate_scalar(patrol.propellant, patrol.times, w.state.game_time_s_));
+                if (w.state.game_time_s_ >= patrol.arrive_s) {
                     patrol.phase = domain::PatrolPhase::Docked;
                     patrol.path.clear();
                     patrol.times.clear();
                     patrol.propellant.clear();
-                    patrol.next_review_s = w.game_time_s_ + p.review_days * kDayS;
+                    patrol.next_review_s = w.state.game_time_s_ + p.review_days * kDayS;
                     query::add_event(w, std::format("{} is back at {}", patrol.name, query::get_station_definition(w, patrol.home_station_id).name),
                         "arrival");
                 }

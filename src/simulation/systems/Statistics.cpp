@@ -24,52 +24,52 @@ void setup_money_journal(World& w) {
     // Accounts in a fixed order (definitions order), so indices are the same in every run.
     std::vector<AccountInfo> accounts;
     accounts.push_back({.kind = AccountKind::Earth, .id = "earth", .name = "Earth", .faction_id = {}});
-    for (const auto& economy : w.universe_.background_economies) {
+    for (const auto& economy : w.data.universe_.background_economies) {
         if (economy.id != "earth") {
-            w.colony_accounts_[economy.id] = static_cast<int>(accounts.size());
+            w.data.colony_accounts_[economy.id] = static_cast<int>(accounts.size());
             accounts.push_back({.kind = AccountKind::Colony, .id = economy.id, .name = economy.name, .faction_id = {}});
         }
     }
-    for (const auto& faction : w.universe_.factions) {
-        w.faction_accounts_[faction.id] = static_cast<int>(accounts.size());
+    for (const auto& faction : w.data.universe_.factions) {
+        w.data.faction_accounts_[faction.id] = static_cast<int>(accounts.size());
         accounts.push_back({.kind = AccountKind::Faction, .id = faction.id, .name = faction.name, .faction_id = faction.id});
     }
-    w.first_station_account_ = static_cast<int>(accounts.size());
-    for (const auto& station : w.universe_.stations) {
+    w.data.first_station_account_ = static_cast<int>(accounts.size());
+    for (const auto& station : w.data.universe_.stations) {
         accounts.push_back({.kind = AccountKind::Station, .id = station.id, .name = station.name, .faction_id = station.faction_id});
     }
-    w.first_household_account_ = static_cast<int>(accounts.size());
-    for (const auto& station : w.universe_.stations) {
+    w.data.first_household_account_ = static_cast<int>(accounts.size());
+    for (const auto& station : w.data.universe_.stations) {
         accounts.push_back({.kind = AccountKind::Households, .id = station.id, .name = station.name + " residents",
             .faction_id = station.faction_id});
     }
-    for (const auto& faction : w.universe_.factions) {
-        w.fleet_accounts_[faction.id] = static_cast<int>(accounts.size());
+    for (const auto& faction : w.data.universe_.factions) {
+        w.data.fleet_accounts_[faction.id] = static_cast<int>(accounts.size());
         accounts.push_back({.kind = AccountKind::Fleet, .id = faction.id, .name = faction.name + " fleet", .faction_id = faction.id});
     }
-    w.journal_.reset(std::move(accounts));
-    for (int i = 0; i < static_cast<int>(w.journal_.accounts().size()); ++i) {
-        w.journal_.set_seed(i, account_balance(w, i));
+    w.state.journal_.reset(std::move(accounts));
+    for (int i = 0; i < static_cast<int>(w.state.journal_.accounts().size()); ++i) {
+        w.state.journal_.set_seed(i, account_balance(w, i));
     }
-    w.journal_.set_next_close_day(w.game_time_s_ / 86400.0 + MoneyJournal::kPeriodDays);
+    w.state.journal_.set_next_close_day(w.state.game_time_s_ / 86400.0 + MoneyJournal::kPeriodDays);
     // The flow record closes its months with the journal's.
     std::vector<std::string> station_ids;
-    for (const auto& station : w.stations_) {
+    for (const auto& station : w.state.stations_) {
         station_ids.push_back(station.station_id);
     }
     std::vector<std::string> goods;
-    for (const auto& commodity : w.universe_.commodities) {
+    for (const auto& commodity : w.data.universe_.commodities) {
         goods.push_back(commodity.id);
     }
-    w.flows_.reset(std::move(station_ids), std::move(goods), {});
-    w.flows_.start_stocks_mutable() = flow_stocks(w);
+    w.state.flows_.reset(std::move(station_ids), std::move(goods), {});
+    w.state.flows_.start_stocks_mutable() = flow_stocks(w);
 }
 
 std::vector<std::vector<double>> flow_stocks(const World& w) {
     std::vector<std::vector<double>> stocks;
-    for (const auto& station : w.stations_) {
+    for (const auto& station : w.state.stations_) {
         std::vector<double> row;
-        for (const auto& good : w.flows_.goods()) {
+        for (const auto& good : w.state.flows_.goods()) {
             const auto it = station.inventory.find(good);
             row.push_back(it == station.inventory.end() ? 0.0 : it->second);
         }
@@ -79,22 +79,22 @@ std::vector<std::vector<double>> flow_stocks(const World& w) {
 }
 
 double account_balance(const World& w, int account) {
-    const auto& info = w.journal_.accounts().at(static_cast<std::size_t>(account));
+    const auto& info = w.state.journal_.accounts().at(static_cast<std::size_t>(account));
     switch (info.kind) {
         case AccountKind::Earth:
         case AccountKind::Colony:
             return query::economy_balance(w, info.id);
         case AccountKind::Faction: {
-            const auto it = w.faction_treasuries_.find(info.id);
-            return it == w.faction_treasuries_.end() ? 0.0 : it->second;
+            const auto it = w.state.faction_treasuries_.find(info.id);
+            return it == w.state.faction_treasuries_.end() ? 0.0 : it->second;
         }
         case AccountKind::Station:
-            return w.stations_.at(static_cast<std::size_t>(account - w.first_station_account_)).credits;
+            return w.state.stations_.at(static_cast<std::size_t>(account - w.data.first_station_account_)).credits;
         case AccountKind::Households:
-            return w.stations_.at(static_cast<std::size_t>(account - w.first_household_account_)).household_credits;
+            return w.state.stations_.at(static_cast<std::size_t>(account - w.data.first_household_account_)).household_credits;
         case AccountKind::Fleet: {
             double cash = 0.0;
-            for (const auto& ship : w.ships_) {
+            for (const auto& ship : w.state.ships_) {
                 if (ship.faction_id == info.id) {
                     cash += ship.credits;
                 }
@@ -108,13 +108,13 @@ double account_balance(const World& w, int account) {
 void close_journal_period(World& w) {
     // Only reads the state: closing a period never changes the game.
     JournalSample sample;
-    sample.day = w.journal_.next_close_day();
-    const auto count = static_cast<int>(w.journal_.accounts().size());
+    sample.day = w.state.journal_.next_close_day();
+    const auto count = static_cast<int>(w.state.journal_.accounts().size());
     sample.balances.reserve(static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) {
         sample.balances.push_back(account_balance(w, i));
     }
-    for (const auto& station : w.stations_) {
+    for (const auto& station : w.state.stations_) {
         const double workers = query::station_workers(w, station);
         sample.stations.push_back({
             .population = station.population,
@@ -124,14 +124,14 @@ void close_journal_period(World& w) {
         });
         sample.station_profit.push_back(query::station_lifetime_profit(w, station));
     }
-    for (const auto& info : w.journal_.accounts()) {
+    for (const auto& info : w.state.journal_.accounts()) {
         if (info.kind == AccountKind::Colony) {
-            const auto it = w.background_population_.find(info.id);
-            sample.colony_people.push_back(it == w.background_population_.end() ? 0.0 : it->second);
+            const auto it = w.state.background_population_.find(info.id);
+            sample.colony_people.push_back(it == w.state.background_population_.end() ? 0.0 : it->second);
         }
     }
-    w.flows_.close_period(sample.day, flow_stocks(w));
-    w.journal_.close_period(std::move(sample));
+    w.state.flows_.close_period(sample.day, flow_stocks(w));
+    w.state.journal_.close_period(std::move(sample));
 }
 
 namespace {
@@ -176,9 +176,9 @@ std::string numbers_json(const std::vector<double>& values) {
 }  // namespace
 
 std::string build_stats_json(const World& w) {
-    const auto& accounts = w.journal_.accounts();
-    const auto& history = w.journal_.history();
-    const double today = w.game_time_s_ / 86400.0;
+    const auto& accounts = w.state.journal_.accounts();
+    const auto& history = w.state.journal_.history();
+    const double today = w.state.game_time_s_ / 86400.0;
     std::string out = std::format("{{\"day\":{},\"period_days\":{},", number(today), number(MoneyJournal::kPeriodDays));
 
     out += "\"categories\":[";
@@ -199,15 +199,15 @@ std::string build_stats_json(const World& w) {
         for (std::size_t k = first; k < history.size(); ++k) {
             add_flows(year, history[k].flows[static_cast<std::size_t>(i)]);
         }
-        const CategoryFlows month = history.empty() ? w.journal_.period(i) : history.back().flows[static_cast<std::size_t>(i)];
+        const CategoryFlows month = history.empty() ? w.state.journal_.period(i) : history.back().flows[static_cast<std::size_t>(i)];
         const double balance = account_balance(w, i);
         total += balance;
-        seeds += w.journal_.seed(i);
+        seeds += w.state.journal_.seed(i);
         out += std::format("{}{{\"key\":\"{}\",\"kind\":\"{}\",\"id\":\"{}\",\"name\":\"{}\",\"faction\":\"{}\",\"balance\":{},\"seed\":{},"
             "\"lifetime\":{},\"last_year\":{},\"last_30\":{},\"running\":{}}}",
             i > 0 ? "," : "", json_escape(info.key()), account_kind_id(info.kind), json_escape(info.id), json_escape(info.name),
-            json_escape(info.faction_id), number(balance), number(w.journal_.seed(i)), flows_json(w.journal_.lifetime(i)),
-            flows_json(year), flows_json(month), flows_json(w.journal_.period(i)));
+            json_escape(info.faction_id), number(balance), number(w.state.journal_.seed(i)), flows_json(w.state.journal_.lifetime(i)),
+            flows_json(year), flows_json(month), flows_json(w.state.journal_.period(i)));
     }
     out += std::format("],\"total\":{},\"seed_total\":{},", number(total), number(seeds));
 
@@ -220,13 +220,13 @@ std::string build_stats_json(const World& w) {
                 year[c] += history[k].sectors[c];
             }
         }
-        const SectorMatrix month = history.empty() ? w.journal_.period_sectors() : history.back().sectors;
+        const SectorMatrix month = history.empty() ? w.state.journal_.period_sectors() : history.back().sectors;
         const auto matrix = [](const SectorMatrix& m) { return numbers_json({m.begin(), m.end()}); };
         out += "\"sectors\":{\"kinds\":[";
         for (std::size_t k = 0; k < kAccountKinds; ++k) {
             out += std::format("{}\"{}\"", k > 0 ? "," : "", account_kind_id(static_cast<AccountKind>(k)));
         }
-        out += std::format("],\"lifetime\":{},\"last_year\":{},\"last_30\":{}}},", matrix(w.journal_.lifetime_sectors()),
+        out += std::format("],\"lifetime\":{},\"last_year\":{},\"last_30\":{}}},", matrix(w.state.journal_.lifetime_sectors()),
             matrix(year), matrix(month));
     }
 
@@ -264,19 +264,19 @@ std::string build_stats_json(const World& w) {
         out += "}";
     }
     out += "},\"station_profit\":{";
-    for (std::size_t s = 0; s < w.stations_.size(); ++s) {
+    for (std::size_t s = 0; s < w.state.stations_.size(); ++s) {
         std::vector<double> series;
         for (const auto& sample : history) {
             series.push_back(s < sample.station_profit.size() ? sample.station_profit[s] : 0.0);
         }
-        out += std::format("{}\"{}\":{}", s > 0 ? "," : "", json_escape(w.stations_[s].station_id), numbers_json(series));
+        out += std::format("{}\"{}\":{}", s > 0 ? "," : "", json_escape(w.state.stations_[s].station_id), numbers_json(series));
     }
     out += "}},";
 
     // Stations: operating profit (before the faction's taxes and subsidies), red days.
     out += "\"stations\":[";
-    for (std::size_t s = 0; s < w.stations_.size(); ++s) {
-        const auto& station = w.stations_[s];
+    for (std::size_t s = 0; s < w.state.stations_.size(); ++s) {
+        const auto& station = w.state.stations_[s];
         const auto& definition = query::get_station_definition(w, station.station_id);
         const double profit = query::station_lifetime_profit(w, station);
         // People at each closed period, and the station systems view (display only) for the people charts.
@@ -299,7 +299,7 @@ std::string build_stats_json(const World& w) {
     // Colonies: credit line, people and their wage distribution, flows up and down.
     out += "\"colonies\":[";
     bool first_colony = true;
-    for (const auto& economy : w.universe_.background_economies) {
+    for (const auto& economy : w.data.universe_.background_economies) {
         if (economy.id == "earth") {
             continue;
         }
@@ -310,7 +310,7 @@ std::string build_stats_json(const World& w) {
             hired_up += station.ledger.hired_from_surface;
             gone_down += station.ledger.moved_to_surface;
         }
-        const auto people = w.background_population_.find(economy.id);
+        const auto people = w.state.background_population_.find(economy.id);
         std::vector<double> people_series;
         const int colony_index = query::account_economy(w, economy.id) - 1;   // colonies follow Earth in the account list
         for (const auto& sample : history) {
@@ -326,7 +326,7 @@ std::string build_stats_json(const World& w) {
             "\"imports_per_year\":{}}}",
             first_colony ? "" : ",", json_escape(economy.id), json_escape(economy.name),
             json_escape(economy.gateways.empty() ? std::string() : economy.gateways.front()), number(query::economy_balance(w, economy.id)),
-            number(query::economy_credit_line(w, economy.id)), number(people == w.background_population_.end() ? 0.0 : people->second),
+            number(query::economy_credit_line(w, economy.id)), number(people == w.state.background_population_.end() ? 0.0 : people->second),
             fine(wage * std::exp(-Z90 * economy.wage_sigma)), fine(wage), fine(wage * std::exp(Z90 * economy.wage_sigma)),
             number(hired_up), number(gone_down), number(economy.income_cr_per_day * 365.25), numbers_json(people_series),
             fine(economy.wage_median_cr_per_day), fine(state == nullptr ? 1.0 : state->satisfaction),
@@ -342,18 +342,18 @@ std::string build_stats_json(const World& w) {
     {
         out += "\"flows\":{\"nodes\":[";
         bool first_node = true;
-        for (const auto& station : w.universe_.stations) {
+        for (const auto& station : w.data.universe_.stations) {
             out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"kind\":\"station\",\"faction\":\"{}\"}}",
                 first_node ? "" : ",", json_escape(station.id), json_escape(station.name), json_escape(station.faction_id));
             first_node = false;
         }
-        for (const auto& economy : w.universe_.background_economies) {
+        for (const auto& economy : w.data.universe_.background_economies) {
             out += std::format(",{{\"id\":\"surface:{}\",\"name\":\"{}\",\"kind\":\"surface\",\"faction\":\"\"}}",
                 json_escape(economy.id), json_escape(economy.name));
         }
         out += "],\"goods\":[";
-        for (std::size_t g = 0; g < w.flows_.goods().size(); ++g) {
-            out += std::format("{}\"{}\"", g > 0 ? "," : "", json_escape(w.flows_.goods()[g]));
+        for (std::size_t g = 0; g < w.state.flows_.goods().size(); ++g) {
+            out += std::format("{}\"{}\"", g > 0 ? "," : "", json_escape(w.state.flows_.goods()[g]));
         }
         out += "],";
         const auto table_json = [](const std::vector<const FlowTable*>& tables) {
@@ -383,14 +383,14 @@ std::string build_stats_json(const World& w) {
             }
             return json + "]";
         };
-        const auto& flow_history = w.flows_.history();
+        const auto& flow_history = w.state.flows_.history();
         const auto now = flow_stocks(w);
         // Since the start: every closed month and the running one.
         std::vector<const FlowTable*> all;
         for (const auto& sample : flow_history) {
             all.push_back(&sample.flows);
         }
-        all.push_back(&w.flows_.period());
+        all.push_back(&w.state.flows_.period());
         // Last year: the last 12 closed months; last 30 days: the last closed month (as the journal).
         std::vector<const FlowTable*> year;
         for (std::size_t k = flow_history.size() > 12 ? flow_history.size() - 12 : 0; k < flow_history.size(); ++k) {
@@ -400,9 +400,9 @@ std::string build_stats_json(const World& w) {
         if (!flow_history.empty()) {
             month.push_back(&flow_history.back().flows);
         } else {
-            month.push_back(&w.flows_.period());
+            month.push_back(&w.state.flows_.period());
         }
-        const auto& start = w.flows_.start_stocks();
+        const auto& start = w.state.flows_.start_stocks();
         const auto& year_start = flow_history.size() > 12 ? flow_history[flow_history.size() - 13].stocks : start;
         const auto& closed_end = flow_history.empty() ? now : flow_history.back().stocks;
         const auto& month_start = flow_history.size() > 1 ? flow_history[flow_history.size() - 2].stocks : start;
@@ -416,12 +416,12 @@ std::string build_stats_json(const World& w) {
 
     // Factions: treasury and credit.
     out += "\"factions\":[";
-    for (std::size_t f = 0; f < w.universe_.factions.size(); ++f) {
-        const auto& faction = w.universe_.factions[f];
-        const auto treasury = w.faction_treasuries_.find(faction.id);
+    for (std::size_t f = 0; f < w.data.universe_.factions.size(); ++f) {
+        const auto& faction = w.data.universe_.factions[f];
+        const auto treasury = w.state.faction_treasuries_.find(faction.id);
         out += std::format("{}{{\"id\":\"{}\",\"name\":\"{}\",\"color\":\"{}\",\"treasury\":{},\"credit_limit\":{}}}",
             f > 0 ? "," : "", json_escape(faction.id), json_escape(faction.name), json_escape(faction.color_hex),
-            number(treasury == w.faction_treasuries_.end() ? 0.0 : treasury->second), number(query::faction_credit_limit(w, faction.id)));
+            number(treasury == w.state.faction_treasuries_.end() ? 0.0 : treasury->second), number(query::faction_credit_limit(w, faction.id)));
     }
     out += "],";
 
@@ -457,8 +457,8 @@ std::string build_stats_json(const World& w) {
         t.ledger.dividends += l.dividends;
         t.ledger.subsidies += l.subsidies;
     };
-    for (const auto* list : {&w.ships_, &w.sold_ships_}) {
-        const bool sold = list == &w.sold_ships_;
+    for (const auto* list : {&w.state.ships_, &w.state.sold_ships_}) {
+        const bool sold = list == &w.state.sold_ships_;
         for (const auto& ship : *list) {
             tally(by_faction[ship.faction_id], ship, sold);
             tally(by_class[ship.class_id], ship, sold);

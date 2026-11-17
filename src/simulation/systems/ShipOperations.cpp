@@ -26,7 +26,7 @@ void pay_home_station(World& w, domain::ShipState& ship, double amount, MoneyCat
     ship.lifetime_profit -= amount;
     auto& home = query::get_station_state(w, ship.home_station_id);
     home.credits += amount;
-    w.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), category, amount);
+    w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), category, amount);
 }
 
 void pay_crew(World& w, domain::ShipState& ship, double amount, MoneyCategory category) {
@@ -41,11 +41,11 @@ void pay_crew(World& w, domain::ShipState& ship, double amount, MoneyCategory ca
     auto& home = query::get_station_state(w, ship.home_station_id);
     home.household_credits += amount;
     home.ledger.crew_wages += amount;
-    w.journal_.record(query::account_fleet(w, ship.faction_id), query::account_households(w, home), category, amount);
+    w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_households(w, home), category, amount);
 }
 
 void accrue_radiation(World& w, domain::ShipState& ship, const domain::ShipClassDefinition& design, double days) {
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe_.ship_environment;
     if (!env.radiation || days <= 0.0) {
         return;
     }
@@ -53,16 +53,16 @@ void accrue_radiation(World& w, domain::ShipState& ship, const domain::ShipClass
     if (ship.phase == domain::ShipMissionPhase::InTransit) {
         // Cosmic rays where the ship is now (the distance from the Sun interpolated over the
         // leg); particle events strike separately (step_particle_events).
-        rate = crew_environment::gcr_msv_per_day(env, query::ship_r_au(w, ship), w.game_time_s_ / 86400.0)
+        rate = crew_environment::gcr_msv_per_day(env, query::ship_r_au(w, ship), w.state.game_time_s_ / 86400.0)
             * crew_environment::transit_gcr_factor(env, design, query::cabin_shield_g_cm2(w, design, ship.propellant_kg));
     } else {
         // In port the crew lives in the station's habitat.
-        const auto it = w.universe_.station_radiation.find(ship.current_station_id);
-        const double factor = it == w.universe_.station_radiation.end() ? 1.0 : it->second.location_factor;
-        const double shield = it == w.universe_.station_radiation.end() ? 0.0 : it->second.shield_g_cm2;
+        const auto it = w.data.universe_.station_radiation.find(ship.current_station_id);
+        const double factor = it == w.data.universe_.station_radiation.end() ? 1.0 : it->second.location_factor;
+        const double shield = it == w.data.universe_.station_radiation.end() ? 0.0 : it->second.shield_g_cm2;
         rate = factor * std::exp(-shield / env.gcr_attenuation_g_cm2)
-            * crew_environment::gcr_msv_per_day(env, query::station_r_au(w, query::get_station_definition(w, ship.current_station_id), w.game_time_s_),
-                w.game_time_s_ / 86400.0);
+            * crew_environment::gcr_msv_per_day(env, query::station_r_au(w, query::get_station_definition(w, ship.current_station_id), w.state.game_time_s_),
+                w.state.game_time_s_ / 86400.0);
     }
     const double dose = rate * days;
     ship.leg_dose_msv += dose;
@@ -71,13 +71,13 @@ void accrue_radiation(World& w, domain::ShipState& ship, const domain::ShipClass
         pay_crew(w, ship, pay, MoneyCategory::HazardPay);
         ship.ledger.wages += pay;
     }
-    w.radiation_audit_.crew_dose_msv += design.crew_size * dose;
-    w.radiation_audit_.hazard_pay_cr += pay;
-    w.radiation_audit_.highest_leg_dose_msv = std::max(w.radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
+    w.audits.radiation_audit_.crew_dose_msv += design.crew_size * dose;
+    w.audits.radiation_audit_.hazard_pay_cr += pay;
+    w.audits.radiation_audit_.highest_leg_dose_msv = std::max(w.audits.radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
 }
 
 void accrue_wear(World& w, domain::ShipState& ship, const domain::ShipClassDefinition& design, double days) {
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe_.ship_environment;
     if (!env.wear || days <= 0.0) {
         return;
     }
@@ -109,7 +109,7 @@ void accrue_wear(World& w, domain::ShipState& ship, const domain::ShipClassDefin
 
 double daily_crew_cost(const World& w, const domain::ShipClassDefinition& ship_class,
     const domain::StationState& market) {
-    const auto& operations = w.universe_.ship_operations;
+    const auto& operations = w.data.universe_.ship_operations;
     double cost = ship_class.crew_size * operations.wage_cr_per_crew_day;
     for (const auto& [commodity_id, units_per_crew_day] : operations.life_support_units_per_crew_day) {
         cost += ship_class.crew_size * units_per_crew_day * systems::station_price(w, market, commodity_id);
@@ -119,9 +119,9 @@ double daily_crew_cost(const World& w, const domain::ShipClassDefinition& ship_c
 
 void buy_provisions(World& w, domain::ShipState& ship, domain::StationState& market, double days, bool departing) {
     const auto& market_def = query::get_station_definition(w, market.station_id);
-    for (const auto& [commodity_id, units_per_crew_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
+    for (const auto& [commodity_id, units_per_crew_day] : w.data.universe_.ship_operations.life_support_units_per_crew_day) {
         const double missing = query::persons_aboard(w, ship) * units_per_crew_day * days - ship.provisions[commodity_id];
-        const double units = std::min(missing, sellable_units(w.economy_, market_def, market, commodity_id, departing));
+        const double units = std::min(missing, sellable_units(w.engines.economy_, market_def, market, commodity_id, departing));
         if (units <= 0.0) {
             continue;
         }
@@ -138,9 +138,9 @@ void buy_provisions(World& w, domain::ShipState& ship, domain::StationState& mar
         ship.credits -= bill;
         ship.lifetime_profit -= bill;
         ship.ledger.provisions += bill;
-        w.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, market), MoneyCategory::Provisions, bill);
+        w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, market), MoneyCategory::Provisions, bill);
         query::record_trade(w, {
-            .time_s = w.game_time_s_,
+            .time_s = w.state.game_time_s_,
             .ship_id = ship.id,
             .station_id = market.station_id,
             .commodity_id = commodity_id,
@@ -153,7 +153,7 @@ void buy_provisions(World& w, domain::ShipState& ship, domain::StationState& mar
 }
 
 bool consider_repair(World& w, domain::ShipState& ship) {
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe_.ship_environment;
     if (!env.wear || ship.phase != domain::ShipMissionPhase::Idle) {
         return false;
     }
@@ -170,7 +170,7 @@ bool consider_repair(World& w, domain::ShipState& ship) {
     for (const auto& [commodity_id, units] : bill.spares_units) {
         const auto stock = yard.inventory.find(commodity_id);
         if (stock == yard.inventory.end() || stock->second < units) {
-            ++w.radiation_audit_.repairs_waiting_for_spares;
+            ++w.audits.radiation_audit_.repairs_waiting_for_spares;
             return false;  // no spares here: fly on within the drive's remaining life
         }
         cost += units * systems::station_price(w, yard, commodity_id);
@@ -184,7 +184,7 @@ bool consider_repair(World& w, domain::ShipState& ship) {
         spares_cr += value;
         yard.inventory[commodity_id] -= units;
         query::record_trade(w, {
-            .time_s = w.game_time_s_,
+            .time_s = w.state.game_time_s_,
             .ship_id = ship.id,
             .station_id = yard.station_id,
             .commodity_id = commodity_id,
@@ -193,24 +193,24 @@ bool consider_repair(World& w, domain::ShipState& ship) {
             .unit_price = systems::station_price(w, yard, commodity_id),
             .total = value,
         });
-        w.radiation_audit_.spares_units[commodity_id] += units;
+        w.audits.radiation_audit_.spares_units[commodity_id] += units;
     }
     ship.credits -= cost;
     ship.lifetime_profit -= cost;
     ship.ledger.refits += cost;
     yard.credits += cost;
     yard.ledger.ship_sales += cost;
-    w.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, yard), MoneyCategory::RefitsRepairs, cost);
-    w.radiation_audit_.repair_bills_cr += cost;
-    w.radiation_audit_.repair_spares_cr += spares_cr;
-    w.radiation_audit_.repair_labour_cr += bill.labour_cr;
-    w.radiation_audit_.repair_days += bill.days;
-    ++w.radiation_audit_.overhauls;
-    ++(design.propulsion_type == "variable_isp" ? w.radiation_audit_.plasma_overhauls : w.radiation_audit_.thermal_overhauls);
+    w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, yard), MoneyCategory::RefitsRepairs, cost);
+    w.audits.radiation_audit_.repair_bills_cr += cost;
+    w.audits.radiation_audit_.repair_spares_cr += spares_cr;
+    w.audits.radiation_audit_.repair_labour_cr += bill.labour_cr;
+    w.audits.radiation_audit_.repair_days += bill.days;
+    ++w.audits.radiation_audit_.overhauls;
+    ++(design.propulsion_type == "variable_isp" ? w.audits.radiation_audit_.plasma_overhauls : w.audits.radiation_audit_.thermal_overhauls);
     ship.overhaul = true;
     ship.refit_class_id = ship.class_id;
     ship.refit_fit = ship.fit;
-    ship.refit_done_s = w.game_time_s_ + bill.days * 86400.0;
+    ship.refit_done_s = w.state.game_time_s_ + bill.days * 86400.0;
     ship.phase = domain::ShipMissionPhase::Refitting;
     query::add_event(w, std::format("{} overhauling at {}: {}{}{} ({:.0f} cr, {:.1f} days)", ship.name,
         query::get_station_definition(w, ship.current_station_id).name,
@@ -220,25 +220,25 @@ bool consider_repair(World& w, domain::ShipState& ship) {
 }
 
 void step_particle_events(World& w, double dt_s) {
-    const auto& env = w.universe_.ship_environment;
-    if (!env.radiation || !w.events_enabled_) {
+    const auto& env = w.data.universe_.ship_environment;
+    if (!env.radiation || !w.data.events_enabled_) {
         return;
     }
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
-    const double roll = uniform(w.environment_rng_);
-    const double size = uniform(w.environment_rng_);
-    const double day = w.game_time_s_ / 86400.0;
+    const double roll = uniform(w.state.environment_rng_);
+    const double size = uniform(w.state.environment_rng_);
+    const double day = w.state.game_time_s_ / 86400.0;
     const double rate_per_day = env.spe_rate_per_year / 365.25 * 2.0 * crew_environment::solar_activity(env, day);
     if (roll >= rate_per_day * dt_s / 86400.0) {
         return;
     }
     const double magnitude = crew_environment::draw_spe_magnitude(env, size);
-    ++w.radiation_audit_.particle_events;
-    w.radiation_audit_.largest_event_magnitude = std::max(w.radiation_audit_.largest_event_magnitude, magnitude);
+    ++w.audits.radiation_audit_.particle_events;
+    w.audits.radiation_audit_.largest_event_magnitude = std::max(w.audits.radiation_audit_.largest_event_magnitude, magnitude);
     int hit = 0;
     double worst = 0.0;
     std::string worst_ship;
-    for (auto& ship : w.ships_) {
+    for (auto& ship : w.state.ships_) {
         if (ship.phase == domain::ShipMissionPhase::LaidUp || ship.phase == domain::ShipMissionPhase::Refitting) {
             continue;  // no crew aboard
         }
@@ -251,9 +251,9 @@ void step_particle_events(World& w, double dt_s) {
             ++hit;
         } else {
             // Stations have shelters.
-            const auto it = w.universe_.station_radiation.find(ship.current_station_id);
-            const double factor = it == w.universe_.station_radiation.end() ? 1.0 : it->second.location_factor;
-            const double r = std::max(0.1, query::station_r_au(w, query::get_station_definition(w, ship.current_station_id), w.game_time_s_));
+            const auto it = w.data.universe_.station_radiation.find(ship.current_station_id);
+            const double factor = it == w.data.universe_.station_radiation.end() ? 1.0 : it->second.location_factor;
+            const double r = std::max(0.1, query::station_r_au(w, query::get_station_definition(w, ship.current_station_id), w.state.game_time_s_));
             dose = factor * magnitude * env.spe_shelter_msv / (r * r);
         }
         ship.leg_dose_msv += dose;
@@ -262,9 +262,9 @@ void step_particle_events(World& w, double dt_s) {
             pay_crew(w, ship, pay, MoneyCategory::HazardPay);
             ship.ledger.wages += pay;
         }
-        w.radiation_audit_.crew_dose_msv += design.crew_size * dose;
-        w.radiation_audit_.hazard_pay_cr += pay;
-        w.radiation_audit_.highest_leg_dose_msv = std::max(w.radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
+        w.audits.radiation_audit_.crew_dose_msv += design.crew_size * dose;
+        w.audits.radiation_audit_.hazard_pay_cr += pay;
+        w.audits.radiation_audit_.highest_leg_dose_msv = std::max(w.audits.radiation_audit_.highest_leg_dose_msv, ship.leg_dose_msv);
         if (dose > worst) {
             worst = dose;
             worst_ship = ship.name;
@@ -288,7 +288,7 @@ void accrue_operating_costs(World& w, domain::ShipState& ship, double dt_s) {
         boil > 0.0 && ship.propellant_kg > 0.0) {
         const double lost = std::min(ship.propellant_kg, boil);
         ship.propellant_kg -= lost;
-        w.radiation_audit_.hydrogen_boiled_kg += lost;
+        w.audits.radiation_audit_.hydrogen_boiled_kg += lost;
         // Under way the tank level follows the plan's mass samples less what has boiled.
         ship.active_mission.boiled_propellant_kg += lost;
     }
@@ -301,7 +301,7 @@ void accrue_operating_costs(World& w, domain::ShipState& ship, double dt_s) {
         return;  // crew discharged: no wages, no life support
     }
 
-    const double wages = ship_class.crew_size * w.universe_.ship_operations.wage_cr_per_crew_day * days;
+    const double wages = ship_class.crew_size * w.data.universe_.ship_operations.wage_cr_per_crew_day * days;
     pay_crew(w, ship, wages, MoneyCategory::CrewWages);
     ship.ledger.wages += wages;
     accrue_radiation(w, ship, ship_class, days);
@@ -309,7 +309,7 @@ void accrue_operating_costs(World& w, domain::ShipState& ship, double dt_s) {
     const bool docked = ship.phase == domain::ShipMissionPhase::Idle
         || ship.phase == domain::ShipMissionPhase::Stranded
         || ship.phase == domain::ShipMissionPhase::Refueling;
-    const auto& life_support = w.universe_.ship_operations.life_support_units_per_crew_day;
+    const auto& life_support = w.data.universe_.ship_operations.life_support_units_per_crew_day;
     if (docked) {
         // In port the crew lives off the station: keep the ship's stock topped up from the
         // market (respecting the station's own needs), up to the full endurance.
@@ -337,8 +337,8 @@ void accrue_operating_costs(World& w, domain::ShipState& ship, double dt_s) {
     // ship could never leave (starving consumer stations became traps). Lay it off instead.
     if (ship.phase == domain::ShipMissionPhase::Idle && reserve_breached) {
         ship.phase = domain::ShipMissionPhase::LaidUp;
-        ship.laid_up_since_s = w.game_time_s_;
-        ship.next_review_s = w.game_time_s_ + LAYUP_REVIEW_DAYS * 86400.0;
+        ship.laid_up_since_s = w.state.game_time_s_;
+        ship.next_review_s = w.state.game_time_s_ + LAYUP_REVIEW_DAYS * 86400.0;
         query::add_event(w, std::format("{} laid up at {} (port cannot provision the crew)",
             ship.name, query::get_station_definition(w, ship.current_station_id).name), "alert");
     }
@@ -363,9 +363,9 @@ void buy_propellant(World& w, domain::ShipState& ship, double kg) {
     ship.ledger.fuel += fuel_bill;
     station.credits += fuel_bill;
     station.ledger.ship_sales += fuel_bill;
-    w.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, station), MoneyCategory::Fuel, fuel_bill);
+    w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, station), MoneyCategory::Fuel, fuel_bill);
     query::record_trade(w, {
-        .time_s = w.game_time_s_,
+        .time_s = w.state.game_time_s_,
         .ship_id = ship.id,
         .station_id = station.station_id,
         .commodity_id = "fuel",

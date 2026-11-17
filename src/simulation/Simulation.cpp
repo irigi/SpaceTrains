@@ -68,19 +68,19 @@ void Simulation::step(double real_dt_s) {
 }
 
 void Simulation::set_timewarp(double timewarp_factor) {
-    world_->timewarp_factor_ = std::max(1.0, timewarp_factor);
+    world_->state.timewarp_factor_ = std::max(1.0, timewarp_factor);
 }
 
 double Simulation::timewarp_factor() const {
-    return world_->timewarp_factor_;
+    return world_->state.timewarp_factor_;
 }
 
 const domain::UniverseDefinition& Simulation::universe() const {
-    return world_->universe_;
+    return world_->data.universe_;
 }
 
 const economy::EconomySystem& Simulation::economy_system() const {
-    return world_->economy_;
+    return world_->engines.economy_;
 }
 
 std::vector<Simulation::ReferencePrice> Simulation::compute_reference_prices() const {
@@ -269,28 +269,28 @@ void Simulation::load_state_json(const std::string& text) {
 }
 
 void start_at(World& w, double time_s) {
-    w.game_time_s_ = time_s;
-    w.event_rng_.seed(w.universe_.event_seed ^ static_cast<std::uint64_t>(time_s));
-    w.environment_rng_.seed((w.universe_.event_seed + 1) ^ static_cast<std::uint64_t>(time_s));
-    w.next_investment_review_s_ = time_s;
-    w.journal_.set_next_close_day(time_s / 86400.0 + MoneyJournal::kPeriodDays);
-    for (auto& ship : w.ships_) {
+    w.state.game_time_s_ = time_s;
+    w.state.event_rng_.seed(w.data.universe_.event_seed ^ static_cast<std::uint64_t>(time_s));
+    w.state.environment_rng_.seed((w.data.universe_.event_seed + 1) ^ static_cast<std::uint64_t>(time_s));
+    w.state.next_investment_review_s_ = time_s;
+    w.state.journal_.set_next_close_day(time_s / 86400.0 + MoneyJournal::kPeriodDays);
+    for (auto& ship : w.state.ships_) {
         ship.next_review_s = time_s;
         ship.idle_since_s = time_s;
         ship.next_refit_review_s = time_s;
         ship.fails_at_s = 0.0;  // drawn again below, relative to the new start
     }
     systems::init_failure_clocks(w);
-    for (std::size_t i = 0; i < w.patrols_.size(); ++i) {
-        w.patrols_[i].next_review_s = time_s + 0.25 * 86400.0 * static_cast<double>(i + 1);
+    for (std::size_t i = 0; i < w.state.patrols_.size(); ++i) {
+        w.state.patrols_[i].next_review_s = time_s + 0.25 * 86400.0 * static_cast<double>(i + 1);
     }
 }
 
 void step(World& w, double real_dt_s) {
-    w.untimed_s_ += real_dt_s * w.timewarp_factor_;
+    w.state.untimed_s_ += real_dt_s * w.state.timewarp_factor_;
     // A millisecond of slack absorbs rounding (0.1 s x 86400 is not exactly 8640 s).
-    while (w.untimed_s_ >= TICK_S - 1e-3) {
-        w.untimed_s_ = std::max(0.0, w.untimed_s_ - TICK_S);
+    while (w.state.untimed_s_ >= TICK_S - 1e-3) {
+        w.state.untimed_s_ = std::max(0.0, w.state.untimed_s_ - TICK_S);
         tick(w);
     }
 }
@@ -298,18 +298,18 @@ void step(World& w, double real_dt_s) {
 void tick(World& w) {
     const profiling::Scope profile_scope(profiling::Phase::Step);
     const double dt_s = TICK_S;
-    w.game_time_s_ += dt_s;
+    w.state.game_time_s_ += dt_s;
     std::vector<domain::Inventory> stocks_before;
-    stocks_before.reserve(w.stations_.size());
-    for (const auto& station : w.stations_) {
+    stocks_before.reserve(w.state.stations_.size());
+    for (const auto& station : w.state.stations_) {
         stocks_before.push_back(station.inventory);
     }
     systems::update_market_responses(w);
     {
         const profiling::Scope economy_scope(profiling::Phase::EconomyStep);
-        w.economy_.step(w.stations_, dt_s);
+        w.engines.economy_.step(w.state.stations_, dt_s);
     }
-    for (auto& station : w.stations_) {
+    for (auto& station : w.state.stations_) {
         const double decay = std::exp(-dt_s / 86400.0 / TRADE_FLOW_DAYS);
         station.ship_fuel_units_per_day *= decay;
         for (auto* flows : {&station.import_units_per_day, &station.export_units_per_day}) {
@@ -340,7 +340,7 @@ void tick(World& w) {
     systems::step_failures(w);
     systems::step_patrols(w, dt_s);
 
-    for (auto& ship : w.ships_) {
+    for (auto& ship : w.state.ships_) {
         systems::accrue_operating_costs(w, ship, dt_s);
         switch (ship.phase) {
             case domain::ShipMissionPhase::Idle:
@@ -372,10 +372,10 @@ void tick(World& w) {
     // Debug aid: SPACETRAINS_TRACE_FLEET=1 logs the fleet's hold use every 5 days (stderr):
     // ships and hold units by phase, and the units aboard in flight and while waiting to leave.
     if (static const bool trace_fleet = std::getenv("SPACETRAINS_TRACE_FLEET") != nullptr;
-        trace_fleet && std::fmod(w.game_time_s_ / 86400.0 + 1e-6, 5.0) < dt_s / 86400.0) {
+        trace_fleet && std::fmod(w.state.game_time_s_ / 86400.0 + 1e-6, 5.0) < dt_s / 86400.0) {
         int loaded = 0, empty = 0, waiting = 0, docked = 0, contracted = 0;
         double hold = 0.0, hold_loaded = 0.0, hold_empty = 0.0, aboard_flying = 0.0, aboard_waiting = 0.0;
-        for (const auto& ship : w.ships_) {
+        for (const auto& ship : w.state.ships_) {
             contracted += systems::under_contract(w, ship) ? 1 : 0;
             const double capacity = query::ship_design(w, ship).cargo_capacity_units;
             const double aboard = domain::total_units(ship.active_mission.cargo);
@@ -392,11 +392,11 @@ void tick(World& w) {
             }
         }
         std::cerr << std::format("[FLEET] day {:.0f} ships {} hold {:.0f} loaded {} {:.0f} empty {} {:.0f} waiting {} docked {} "
-            "aboard_flying {:.0f} aboard_waiting {:.0f} contracts {}\n", w.game_time_s_ / 86400.0, w.ships_.size(), hold, loaded,
+            "aboard_flying {:.0f} aboard_waiting {:.0f} contracts {}\n", w.state.game_time_s_ / 86400.0, w.state.ships_.size(), hold, loaded,
             hold_loaded, empty, hold_empty, waiting, docked, aboard_flying, aboard_waiting, contracted);
     }
     // The money journal's monthly sample (statistics).
-    if (w.game_time_s_ / 86400.0 + 1e-6 >= w.journal_.next_close_day()) {
+    if (w.state.game_time_s_ / 86400.0 + 1e-6 >= w.state.journal_.next_close_day()) {
         systems::close_journal_period(w);
     }
 }
@@ -411,8 +411,8 @@ void settle_local_economy(World& w, const std::vector<domain::Inventory>& stocks
     // for it (the reference price until a delivery): before step 17 they paid the scarcity
     // curve, up to 16x for goods nobody had delivered, the main source of new money; paying
     // only the reference price left every chronically short station losing money on each import.
-    for (std::size_t i = 0; i < w.stations_.size(); ++i) {
-        auto& station = w.stations_[i];
+    for (std::size_t i = 0; i < w.state.stations_.size(); ++i) {
+        auto& station = w.state.stations_[i];
         const auto& definition = query::get_station_definition(w, station.station_id);
         double spent = 0.0;
         for (const auto& [commodity_id, after] : station.inventory) {
@@ -424,26 +424,26 @@ void settle_local_economy(World& w, const std::vector<domain::Inventory>& stocks
             }
             const auto cost = station.import_unit_cost.find(commodity_id);
             const double retail = cost == station.import_unit_cost.end()
-                ? w.economy_.reference_price(definition, commodity_id) : cost->second;
+                ? w.engines.economy_.reference_price(definition, commodity_id) : cost->second;
             const double value = retail * used;
             station.credits += value;
             station.ledger.household_sales += value;
-            (query::households_on(w) ? station.household_credits : w.outside_economy_credits_) -= value;
-            w.journal_.record(query::households_on(w) ? query::account_households(w, station) : query::account_earth(), query::account_station(w, station),
+            (query::households_on(w) ? station.household_credits : w.state.outside_economy_credits_) -= value;
+            w.state.journal_.record(query::households_on(w) ? query::account_households(w, station) : query::account_earth(), query::account_station(w, station),
                 MoneyCategory::HouseholdGoods, value);
             spent += value;
         }
         // Passages the station paid (passengers) come back through its prices: a markup on what
         // the residents spend, at most passage_max_markup of it.
-        if (station.passage_debt_cr > 0.0 && w.universe_.passengers.passage_recovery_days > 0.0) {
+        if (station.passage_debt_cr > 0.0 && w.data.universe_.passengers.passage_recovery_days > 0.0) {
             const double due = station.passage_debt_cr
-                * (1.0 - std::exp(-dt_s / 86400.0 / w.universe_.passengers.passage_recovery_days));
-            const double recovered = std::min(due, w.universe_.passengers.passage_max_markup * spent);
+                * (1.0 - std::exp(-dt_s / 86400.0 / w.data.universe_.passengers.passage_recovery_days));
+            const double recovered = std::min(due, w.data.universe_.passengers.passage_max_markup * spent);
             station.credits += recovered;
             station.ledger.passages_recovered += recovered;
             station.passage_debt_cr -= recovered;
-            (query::households_on(w) ? station.household_credits : w.outside_economy_credits_) -= recovered;
-            w.journal_.record(query::households_on(w) ? query::account_households(w, station) : query::account_earth(), query::account_station(w, station),
+            (query::households_on(w) ? station.household_credits : w.state.outside_economy_credits_) -= recovered;
+            w.state.journal_.record(query::households_on(w) ? query::account_households(w, station) : query::account_earth(), query::account_station(w, station),
                 MoneyCategory::PassageRecovery, recovered);
         }
     }
@@ -453,9 +453,9 @@ void settle_local_economy(World& w, const std::vector<domain::Inventory>& stocks
 // while it does not (see GrowthDefinition). Rates follow the population, so a grown station
 // needs more and makes more; growth stops by itself where supply cannot keep up.
 void step_population(World& w, double dt_s) {
-    const auto& growth = w.universe_.growth;
+    const auto& growth = w.data.universe_.growth;
     const double dt_days = dt_s / 86400.0;
-    for (auto& station : w.stations_) {
+    for (auto& station : w.state.stations_) {
         const auto& definition = query::get_station_definition(w, station.station_id);
         double worst = 1.0;
         for (const auto& [commodity_id, available] : station.upkeep_availability) {
@@ -463,13 +463,13 @@ void step_population(World& w, double dt_s) {
         }
         station.supply_index += (worst - station.supply_index) * std::min(1.0, dt_days / growth.window_days);
         double rate = 0.0;
-        if (station.supply_index >= growth.grow_above && station.credits >= w.universe_.open_economy.station_credit_floor) {
+        if (station.supply_index >= growth.grow_above && station.credits >= w.data.universe_.open_economy.station_credit_floor) {
             rate = growth.growth_per_year;
         } else if (station.supply_index < growth.decline_below) {
             rate = -growth.decline_per_year;
         }
         const double seeded = static_cast<double>(definition.population);
-        const double floor = std::max(w.universe_.open_economy.core_crew_fraction, 0.0) * seeded;
+        const double floor = std::max(w.data.universe_.open_economy.core_crew_fraction, 0.0) * seeded;
         const double before = station.population;
         if (query::in_labour_market(w, station) && query::migration_by_ship(w)) {
             // Labour market: settlers come for the station's vacancies, the unemployed go home;
@@ -501,7 +501,7 @@ void step_population(World& w, double dt_s) {
                 std::min(floor, seeded), growth.max_population_factor * seeded);
         }
         if (station.population != before) {
-            w.economy_.set_population(station.station_id, station.population);
+            w.engines.economy_.set_population(station.station_id, station.population);
         }
         const double announced = station.population_announced > 0.0 ? station.population_announced : seeded;
         if (std::abs(station.population / announced - 1.0) >= 0.05) {
@@ -518,27 +518,27 @@ void step_population(World& w, double dt_s) {
 // Step 28: events end when due, and each idle one strikes its station with probability
 // rate x dt (one draw per event per tick, so the sequence depends only on the seed).
 void step_events(World& w, double dt_s) {
-    for (auto& station : w.stations_) {
+    for (auto& station : w.state.stations_) {
         std::erase_if(station.events, [&](const domain::ActiveEvent& active) {
-            if (active.end_s > w.game_time_s_) {
+            if (active.end_s > w.state.game_time_s_) {
                 return false;
             }
-            const auto it = std::find_if(w.universe_.events.begin(), w.universe_.events.end(),
+            const auto it = std::find_if(w.data.universe_.events.begin(), w.data.universe_.events.end(),
                 [&](const auto& event) { return event.id == active.event_id; });
-            if (it != w.universe_.events.end() && !it->end_headline.empty()) {
+            if (it != w.data.universe_.events.end() && !it->end_headline.empty()) {
                 query::add_event(w, it->end_headline, "news");
             }
             return true;
         });
     }
-    if (!w.events_enabled_) {
+    if (!w.data.events_enabled_) {
         return;
     }
     const double dt_years = dt_s / 86400.0 / 365.25;
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
-    for (const auto& event : w.universe_.events) {
-        const double roll = uniform(w.event_rng_);
-        const double length = uniform(w.event_rng_);
+    for (const auto& event : w.data.universe_.events) {
+        const double roll = uniform(w.state.event_rng_);
+        const double length = uniform(w.state.event_rng_);
         if (roll >= event.rate_per_year * dt_years) {
             continue;
         }
@@ -547,7 +547,7 @@ void step_events(World& w, double dt_s) {
                 [&](const auto& active) { return active.event_id == event.id; })) {
             continue;
         }
-        ++w.events_started_[event.id];
+        ++w.state.events_started_[event.id];
         query::add_event(w, event.headline, "news");
         if (event.kind == domain::EventKind::Migration && query::migration_by_ship(w) && !query::is_earth_gateway(w, station.station_id)) {
             // With passengers the settlers wait at Earth for ships.
@@ -559,13 +559,13 @@ void step_events(World& w, double dt_s) {
         if (event.kind == domain::EventKind::Migration) {
             const auto& definition = query::get_station_definition(w, station.station_id);
             station.population = std::min(station.population * (1.0 + event.magnitude),
-                w.universe_.growth.max_population_factor * static_cast<double>(definition.population));
+                w.data.universe_.growth.max_population_factor * static_cast<double>(definition.population));
             station.population_announced = station.population;
-            w.economy_.set_population(station.station_id, station.population);
+            w.engines.economy_.set_population(station.station_id, station.population);
             continue;
         }
         const double days = event.min_days + (event.max_days - event.min_days) * length;
-        station.events.push_back({.event_id = event.id, .start_s = w.game_time_s_, .end_s = w.game_time_s_ + days * 86400.0});
+        station.events.push_back({.event_id = event.id, .start_s = w.state.game_time_s_, .end_s = w.state.game_time_s_ + days * 86400.0});
     }
 }
 
