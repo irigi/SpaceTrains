@@ -237,60 +237,6 @@ bool Simulation::module_has_active_effect(const domain::ShipModuleDefinition& mo
     return query::module_has_active_effect(*this, module);
 }
 
-std::vector<Simulation::FitOption> Simulation::neighbouring_fits(
-    const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
-    const auto& current = get_ship_class(class_id);
-    std::vector<FitOption> options;
-    const auto add = [&](const std::string& option_class, std::vector<std::string> option_fit) {
-        try {
-            const auto& design = register_design(option_class, option_fit, radiator_bucket);
-            options.push_back({.design = &design, .class_id = option_class, .fit = std::move(option_fit)});
-        } catch (const std::runtime_error&) {
-            // The fit does not suit this hull (slots full): not an option.
-        }
-    };
-    // Only the neighbouring tank sizes: larger steps take several refits.
-    const domain::ShipClassDefinition* next_smaller = nullptr;
-    const domain::ShipClassDefinition* next_larger = nullptr;
-    for (const auto& other : universe_.ship_classes) {
-        if (other.hull_id != current.hull_id) {
-            continue;
-        }
-        const double tank_kg = other.propellant_capacity_kg;
-        if (tank_kg < current.propellant_capacity_kg
-            && (next_smaller == nullptr || tank_kg > next_smaller->propellant_capacity_kg)) {
-            next_smaller = &other;
-        }
-        if (tank_kg > current.propellant_capacity_kg
-            && (next_larger == nullptr || tank_kg < next_larger->propellant_capacity_kg)) {
-            next_larger = &other;
-        }
-    }
-    for (const auto* tank : {next_smaller, next_larger}) {
-        if (tank != nullptr) {
-            add(tank->id, fit);
-        }
-    }
-    for (const auto& module : universe_.ship_modules) {
-        if (module.hull_id != current.hull_id) {
-            continue;
-        }
-        const bool fitted = std::find(fit.begin(), fit.end(), module.id) != fit.end();
-        if (fitted) {
-            std::vector<std::string> without;
-            std::copy_if(fit.begin(), fit.end(), std::back_inserter(without),
-                [&](const auto& id) { return id != module.id; });
-            add(class_id, std::move(without));
-        } else if (module_has_active_effect(module)) {
-            auto with = fit;
-            with.push_back(module.id);
-            std::sort(with.begin(), with.end());
-            add(class_id, std::move(with));
-        }
-    }
-    return options;
-}
-
 const domain::ShipClassDefinition& Simulation::register_design(
     const std::string& class_id, const std::vector<std::string>& fit, double radiator_bucket) {
     return query::register_design(*this, class_id, fit, radiator_bucket);
@@ -322,35 +268,6 @@ void Simulation::add_event(std::string text, std::string category) {
 
 void Simulation::record_trade(domain::TradeEntry trade) {
     query::record_trade(*this, std::move(trade));
-}
-
-void Simulation::record_trajectory_audit(
-    const domain::ShipState& ship,
-    const domain::StationDefinition& origin,
-    const domain::StationDefinition& destination,
-    const domain::TrajectoryPlan& plan,
-    double planning_propellant_kg) {
-    const double r_origin_m = mechanics_.get_heliocentric_radius(origin.parent_body_id, plan.departure_time_s);
-    const double r_dest_m = mechanics_.get_heliocentric_radius(destination.parent_body_id, plan.arrival_time_s);
-    auto metrics = trajectory::audit_trajectory(plan);
-    const bool flagged = !metrics.flags.empty();
-    trajectory_audit_records_.push_back({
-        .planned_at_s = game_time_s_,
-        .ship_name = ship.name,
-        .class_id = ship.class_id,
-        .origin_station_id = origin.id,
-        .destination_station_id = destination.id,
-        .trajectory_type = plan.trajectory_type,
-        .planning_propellant_kg = planning_propellant_kg,
-        .wait_time_s = plan.wait_time_s,
-        .coast_time_s = plan.coast_time_s,
-        .r_origin_m = r_origin_m,
-        .r_dest_m = r_dest_m,
-        .diagnostics = plan.diagnostics,
-        .metrics = std::move(metrics),
-        .sampled_path = flagged ? plan.sampled_path : std::vector<math::Vec3d>{},
-        .sampled_times_s = flagged ? plan.sampled_times_s : std::vector<double>{},
-    });
 }
 
 const domain::CommodityDefinition& Simulation::get_commodity(const std::string& commodity_id) const {

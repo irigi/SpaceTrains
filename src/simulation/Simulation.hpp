@@ -35,6 +35,7 @@
 #include "simulation/systems/MissionPlanning.hpp"
 #include "simulation/systems/Passengers.hpp"
 #include "simulation/systems/Patrols.hpp"
+#include "simulation/systems/ShipPhases.hpp"
 #include "simulation/systems/ShipOperations.hpp"
 #include "simulation/systems/Statistics.hpp"
 #include "trajectory/ChaseSolver.hpp"
@@ -246,16 +247,6 @@ private:
     // A module is offered at refits and to new ships only if one of its effects is switched on
     // (data/economy/ship_environment.csv): an inert module only adds mass.
     [[nodiscard]] bool module_has_active_effect(const domain::ShipModuleDefinition& module) const;
-    // A refit or build option: a class (tank variant) and the modules fitted with it.
-    struct FitOption {
-        const domain::ShipClassDefinition* design {nullptr};
-        std::string class_id;
-        std::vector<std::string> fit;
-    };
-    // The fits one yard visit can reach from class_id + fit: the next tank size either way, and
-    // one module added (into a free slot) or removed. Registers the designs (serial code only).
-    std::vector<FitOption> neighbouring_fits(const std::string& class_id, const std::vector<std::string>& fit,
-        double radiator_bucket = 1.0);
     [[nodiscard]] const domain::CelestialBodyDefinition& get_body_definition(const std::string& body_id) const;
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
@@ -445,11 +436,6 @@ private:
     // load_state_json without the restore on failure.
     void read_state_json(const std::string& text);
     using DeferredPlan = simulation::DeferredPlan;
-    // Part C: at its home base a ship may refit to another tank variant of its hull when
-    // the missions that opens repay the yard bill. Returns true if the ship went into the yard.
-    bool consider_refit(domain::ShipState& ship, const MissionChoice& current, bool trace);
-    [[nodiscard]] double refit_bill(
-        const domain::ShipClassDefinition& from, const domain::ShipClassDefinition& to) const;
     void step_refitting_ship(domain::ShipState& ship);
     using LegEstimate = simulation::LegEstimate;
     [[nodiscard]] LegEstimate estimate_leg(
@@ -490,12 +476,6 @@ private:
     [[nodiscard]] double leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design,
         const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const;
     void step_particle_events(double dt_s);
-    void record_trajectory_audit(
-        const domain::ShipState& ship,
-        const domain::StationDefinition& origin,
-        const domain::StationDefinition& destination,
-        const domain::TrajectoryPlan& plan,
-        double planning_propellant_kg);
 
     using ProbedRun = simulation::ProbedRun;
     void tick();

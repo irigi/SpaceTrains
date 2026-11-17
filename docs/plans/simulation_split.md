@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-12 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -268,7 +268,11 @@ call-graph script over the `Simulation::` definitions (members already forwardin
     `FitOption` stays: it belongs to `neighbouring_fits` in `Simulation.cpp` (refits, used by ShipPhases).
     Not mechanical: `register_design(sim_, hull->id, {module.id})` names its one-element vector first; as a free
     function call GCC 13 warned of a dangling reference (a false positive: the design lives in the World's cache).
-12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).
+12. **ShipPhases** (done 2026-11-17; 643 lines; it calls nearly everything, so it goes last among the rules).
+    As built: `ShipPhases.cpp` moved whole to `systems/`, taking from `Simulation.cpp` the two members only it
+    calls, `neighbouring_fits` (with `FitOption`) and `record_trajectory_audit`, at its end. Forwarders for the
+    four phase steps (`tick` calls them); `consider_refit`, `refit_bill` and the two taken over are file-local
+    (`neighbouring_fits` keeps its default `radiator_bucket = 1.0` on its declaration ahead).
 13. **Snapshot** (`const World&`; it reads every topic, so it goes after them).
 14. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through
     `Simulation`'s public members.

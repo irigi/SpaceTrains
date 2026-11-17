@@ -7,7 +7,7 @@ orders and money: `economy.md`.
 - `src/simulation/systems/ShipOperations.cpp`: capital and crew costs, provisions, radiation, wear and repair, boil-off,
   propellant purchases;
 - `src/simulation/systems/MissionPlanning.cpp`: leg estimates and dispatch (`systems::MissionPass`);
-- `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
+- `src/simulation/systems/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
   refits;
 - `src/simulation/systems/FleetInvestment.cpp`: selling and buying ships (`InvestmentReview`);
 - `src/simulation/systems/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;

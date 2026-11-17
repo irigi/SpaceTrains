@@ -66,10 +66,10 @@ add_library(spacetrains_core
     src/simulation/systems/MissionPlanning.cpp
     src/simulation/systems/Passengers.cpp
     src/simulation/systems/Patrols.cpp
+    src/simulation/systems/ShipPhases.cpp
     src/simulation/systems/ShipOperations.cpp
     src/simulation/systems/StationSystems.cpp
     src/simulation/systems/Statistics.cpp
-    src/simulation/ShipPhases.cpp
     src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/MoneyJournal.cpp

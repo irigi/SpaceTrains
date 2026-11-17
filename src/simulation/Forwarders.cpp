@@ -1,5 +1,5 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-11): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-12): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -560,6 +560,24 @@ double Simulation::station_tax_ceiling(const domain::OpenEconomyDefinition& open
 
 void Simulation::step_fleet_investment() {
     systems::step_fleet_investment(*this);
+}
+
+// ShipPhases (step 12).
+
+void Simulation::step_idle_ship(domain::ShipState& ship) {
+    systems::step_idle_ship(*this, ship);
+}
+
+void Simulation::step_refitting_ship(domain::ShipState& ship) {
+    systems::step_refitting_ship(*this, ship);
+}
+
+void Simulation::step_awaiting_departure_ship(domain::ShipState& ship) {
+    systems::step_awaiting_departure_ship(*this, ship);
+}
+
+void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
+    systems::step_in_transit_ship(*this, ship, dt_s);
 }
 
 }  // namespace spacetrains::simulation
