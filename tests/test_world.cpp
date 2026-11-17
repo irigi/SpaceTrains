@@ -105,8 +105,8 @@ void test_patrols() {
     });
     World& w = sim.world();
     require(w.patrols_.size() == 1, "one base with one cutter gives one cutter");
-    auto& cutter = w.patrols_.front();
-    require(cutter.phase == PatrolPhase::Docked && cutter.propellant_kg > 0.0, "the cutter starts docked and fuelled");
+    require(w.patrols_.front().phase == PatrolPhase::Docked && w.patrols_.front().propellant_kg > 0.0,
+        "the cutter starts docked and fuelled");
 
     // Let the game run with the cutter kept in port, until a ship is on a leg it may inspect.
     constexpr double day_s = 86400.0;
@@ -124,9 +124,10 @@ void test_patrols() {
     };
     sim.set_timewarp(day_s);
     for (int day = 0; day < 120 && !inspectable(); ++day) {
-        cutter.next_review_s = w.game_time_s_ + 1000.0 * day_s;
+        w.patrols_.front().next_review_s = w.game_time_s_ + 1000.0 * day_s;
         sim.step(1.0);
     }
+    auto& cutter = w.patrols_.front();  // taken after the run, so no reference is held across ticks
     require(inspectable(), "some ship flies an interplanetary leg within 120 days");
     require(cutter.phase == PatrolPhase::Docked && w.patrol_audit_.sorties == 0, "the cutter stayed in port");
 

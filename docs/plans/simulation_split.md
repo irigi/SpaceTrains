@@ -240,24 +240,23 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    caller). The Patrols test is in `tests/test_world.cpp`.
 9. **Households + Passengers** (done 2026-11-17) together (their cycle). Two commits if the diff is too big: Households first with
    forwarders for the four Passengers functions it calls, then Passengers.
-   As built: one commit (the conversion is scripted, `tmp/split_baseline/step9.py`, not committed).
+   As built: one commit (the conversion is scripted; the script is not committed).
    `Households.cpp` moved whole to `systems/`; `Passengers.cpp` too, taking back the step-5 bodies
    (`port_fuel_price`, `live_fare_cr`, `passenger_offer`) at their old places (`git diff -B -M` pairs the rename).
    `PassengerBand`, `PassengerRevenue` and `ReferenceFareRow` live in `systems/Passengers.hpp` with aliases in
    `Simulation`. Forwarders (in `Forwarders.cpp`) for the 33 members called from outside, for
-   `port_fuel_price` and `live_fare_cr`, and for the query forwarders still called; the eight query forwarders called only from these two files are gone, as are the
+   `port_fuel_price` and `live_fare_cr`, and for the query forwarders still called; the seven query forwarders called only from these two files are gone (and the `passenger_offer` forwarder), as are the
    `Simulation` declarations of the members used only inside them. Seven used only in their own file
    (`colony_sales_factor`, `colony_import_value_per_day`, `payback_years`, `reference_cost_cr`, `passenger_bands`,
    `visitor_trips_per_day`, `expected_travellers`) are file-local, declared ahead in an anonymous namespace so the
    code keeps its order. Not mechanical: `per_capita_savings` never read the state, so it takes no `World`.
 10. **Failures** (done 2026-11-17; 812 lines; needs `land_passengers` from step 9, Contracts and ShipOperations).
-   As built: `Failures.cpp` moved whole to `systems/` (converted by `tmp/split_baseline/topic.py`, step 9's script
-   made general). Forwarders for the four called from outside (`init_failure_clocks` from the constructor and the
+   As built: `Failures.cpp` moved whole to `systems/` (converted by step 9's script made general; not committed). Forwarders for the four called from outside (`init_failure_clocks` from the constructor and the
    loader, `step_failures` from `tick`, `consider_salvage` and `reach_derelict` from ShipPhases); eleven used only
    here are file-local, with `SalvagePlan` and `SalvageOption`; the query forwarders `sun_mu`, `local_leg` and
    `primary_body_id` are gone. Not mechanical: `failures_on` (inline in `Simulation.hpp`, used only here) is
-   file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written), so as a
-   free function it is public in `Failures.hpp` to stay a pure move (file-local it would warn as unused).
+   file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written): it is
+   file-local and `[[maybe_unused]]`, kept as it was rather than deleted inside a move.
 11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
 12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).

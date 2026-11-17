@@ -32,8 +32,8 @@
 #include "simulation/systems/Households.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"
-#include "simulation/systems/Patrols.hpp"
 #include "simulation/systems/Passengers.hpp"
+#include "simulation/systems/Patrols.hpp"
 #include "simulation/systems/ShipOperations.hpp"
 #include "simulation/systems/Statistics.hpp"
 #include "trajectory/ChaseSolver.hpp"
@@ -194,12 +194,12 @@ public:
         double demand_per_trip, double berths) const;
     using RotationTour = simulation::RotationTour;
     [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return rotation_tours_; }
-    // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
+    // Economy overhaul (systems/Households.cpp): residents' wages and spending, station incomes, trade
     // with the background economies at their gateways.
     [[nodiscard]] bool households_on() const { return query::households_on(*this); }
     [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
     [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
-    // Labour market (phase B, Households.cpp).
+    // Labour market (phase B, systems/Households.cpp).
     [[nodiscard]] bool labour_on() const { return query::labour_on(*this); }
     [[nodiscard]] bool in_labour_market(const domain::StationState& station) const;
     [[nodiscard]] double station_wage_cr_per_day(const domain::StationState& station) const;
@@ -376,7 +376,7 @@ private:
     // Dispatch hook: sets out on a salvage run if one pays more per day than `spot_per_day`.
     bool consider_salvage(domain::ShipState& ship, double spot_per_day);
     void reach_derelict(domain::ShipState& ship);
-    // Police inspections (Patrols.cpp).
+    // Police inspections (systems/Patrols.cpp).
     void init_patrols();
     void step_patrols(double dt_s);
     [[nodiscard]] math::Vec3d patrol_position(const domain::PatrolState& patrol) const;
@@ -389,7 +389,7 @@ private:
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.
     using MissionChoice = systems::MissionChoice;
-    // --- Passengers (src/simulation/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
+    // --- Passengers (src/simulation/systems/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
     [[nodiscard]] bool passengers_on() const { return query::passengers_on(*this); }
     [[nodiscard]] bool migration_by_ship() const { return query::migration_by_ship(*this); }
     [[nodiscard]] bool rotation_on() const { return query::rotation_on(*this); }

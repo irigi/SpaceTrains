@@ -14,8 +14,5 @@ void step_failures(World& w);
 // Dispatch hook: sets out on a salvage run if one pays more per day than `spot_per_day`.
 bool consider_salvage(World& w, domain::ShipState& ship, double spot_per_day);
 void reach_derelict(World& w, domain::ShipState& ship);
-// Places under the fleet cap held for factions other than `faction_id` (replacement claims after a
-// loss). Not called today; kept public so the move stays a pure move.
-[[nodiscard]] int fleet_places_held_for_others(const World& w, const std::string& faction_id);
 
 }  // namespace spacetrains::simulation::systems
