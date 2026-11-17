@@ -6,12 +6,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <filesystem>
 #include <format>
 #include <iostream>
 #include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/WorldSetup.hpp"
 #include "simulation/query/Accounts.hpp"
 #include "simulation/query/Events.hpp"
 #include "simulation/query/Lookups.hpp"
@@ -25,120 +25,7 @@ using namespace detail;
 
 Simulation::Simulation(domain::UniverseDefinition universe)
     : World(std::move(universe)) {
-    kepler_planner_ = std::make_unique<trajectory::KeplerTrajectoryPlanner>(universe_, mechanics_);
-    for (const auto& station : universe_.stations) {
-        station_defs_by_id_[station.id] = &station;
-        stations_.push_back({.station_id = station.id, .inventory = starting_inventory(station), .credits = station.initial_credits, .ledger = {}});
-        starting_inventories_[station.id] = stations_.back().inventory;
-        stations_.back().population = static_cast<double>(station.population);
-        stations_.back().population_announced = stations_.back().population;
-    }
-    for (const auto& ship_class : universe_.ship_classes) {
-        ship_classes_by_id_[ship_class.id] = &ship_class;
-    }
-    for (const auto& module : universe_.ship_modules) {
-        modules_by_key_[module.hull_id + "|" + module.id] = &module;
-    }
-    event_rng_.seed(universe_.event_seed);
-    environment_rng_.seed(universe_.event_seed + 1);
-    if (universe_.ship_environment.radiation) {
-        active_effects_.insert("spe_shield_g_cm2");
-    }
-    if (universe_.ship_environment.boiloff) {
-        active_effects_.insert("zbo_lift_w");
-        active_effects_.insert("boiloff_intercept");
-    }
-    if (universe_.ship_environment.cold_storage) {
-        active_effects_.insert("perishable_decay_factor");
-    }
-    if (universe_.passengers.enabled != 0.0) {
-        active_effects_.insert("berths");
-        if (universe_.ship_environment.radiation) {
-            active_effects_.insert("cabin_shield_g_cm2");
-            active_effects_.insert("tank_wrap_m2");
-        }
-    }
-    for (const auto& faction : universe_.factions) {
-        faction_treasuries_[faction.id] = 0.0;
-    }
-    for (const auto& seed : universe_.ship_seeds) {
-        ships_.push_back({
-            .id = seed.id,
-            .name = seed.name,
-            .faction_id = seed.faction_id,
-            .class_id = seed.class_id,
-            .fit = {},
-            .home_station_id = seed.home_station_id,
-            .current_station_id = seed.start_station_id,
-            .phase = domain::ShipMissionPhase::Idle,
-            .propellant_kg = seed.initial_propellant_kg,
-            .credits = seed.initial_credits,
-            .active_mission = {},
-            .provisions = {},  // filled below: ships leave their yard provisioned
-            .ledger = {},
-            .next_review_s = 0.0,
-            .idle_since_s = 0.0,
-            .refit_class_id = {},
-            .refit_done_s = 0.0,
-            .next_refit_review_s = 0.0,
-            .laid_up_since_s = 0.0,
-            .commissioned_s = 0.0,
-            .route_destination_id = {},
-            .route_commodity_id = {},
-            .route_units_per_day = 0.0,
-            .route_until_s = 0.0,
-        });
-    }
-    // The colonies' people (labour market).
-    for (const auto& economy : universe_.background_economies) {
-        if (economy.population > 0.0) {
-            background_population_[economy.id] = economy.population;
-        }
-        if (economy.id != "earth") {
-            colony_state_[economy.id] = {.wage_median = economy.wage_median_cr_per_day};
-        }
-    }
-    setup_money_journal();
-    // Residents start with their savings buffer, brought from Earth (economy overhaul).
-    if (households_on()) {
-        for (auto& station : stations_) {
-            if (station.population <= 0.0) {
-                station.population = static_cast<double>(get_station_definition(station.station_id).population);
-            }
-            if (in_labour_market(station)) {
-                station.jobs = station_workers(station);
-                station.wage_cr_per_day = 0.0;
-                station.wage_cr_per_day = station_wage_cr_per_day(station);
-            }
-            const double savings = universe_.households.savings_days * resident_wages_per_day(station);
-            station.household_credits += savings;
-            outside_economy_credits_ -= savings;
-            journal_.record(account_earth(), account_households(station), MoneyCategory::SavingsEndowment, savings);
-        }
-    }
-    seeded_money_supply_ = internal_money_supply();
-    compute_rotation_tours();
-    next_investment_review_s_ = universe_.fleet_investment.review_days * 86400.0;
-    // Ships start with their full life-support endurance aboard, as if fresh from the yard.
-    constexpr double INITIAL_PROVISION_DAYS = PROVISION_ENDURANCE_DAYS;
-    for (auto& ship : ships_) {
-        const auto& ship_class = ship_design(ship);
-        for (const auto& [commodity_id, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
-            ship.provisions[commodity_id] = ship_class.crew_size * units_per_crew_day * INITIAL_PROVISION_DAYS;
-        }
-        // The starting fleet is of mixed ages (tier 2 wear): spread by a hash of the ship id
-        // (FNV-1a, the same on every platform), so overhauls do not all fall due at once.
-        if (universe_.ship_environment.wear) {
-            std::uint64_t hash = 1469598103934665603ULL;
-            for (const char ch : ship.id) {
-                hash = (hash ^ static_cast<unsigned char>(ch)) * 1099511628211ULL;
-            }
-            ship.engine_wear = universe_.ship_environment.initial_wear_max * static_cast<double>(hash % 10000) / 10000.0;
-        }
-    }
-    seed_order_stats();
-    init_failure_clocks();
-    init_patrols();
+    init_world(*this);
 }
 
 
@@ -152,34 +39,13 @@ Simulation Simulation::from_data_root(const std::string& data_root,
 }
 
 std::string Simulation::default_atlas_path(const std::string& data_root) {
-    return (std::filesystem::path(data_root).parent_path() / "tests" / "data" / "variable_isp"
-        / "variable_isp_atlas.bin").string();
+    return simulation::default_atlas_path(data_root);
 }
 
 Simulation Simulation::from_data_root(const std::string& data_root, const std::string& atlas_file,
     const std::function<void(domain::UniverseDefinition&)>& adjust) {
-    data_loader::DataLoader loader;
-    auto universe = loader.load_universe(data_root);
-    adjust(universe);
-    Simulation sim(std::move(universe));
-    sim.thread_pool_ = std::make_unique<util::ThreadPool>();
-
-    // Try to load the VariableISP atlas.
-    const std::filesystem::path atlas_path = atlas_file.empty() ? default_atlas_path(data_root) : atlas_file;
-    if (std::filesystem::exists(atlas_path)) {
-        try {
-            sim.atlas_.load_binary(atlas_path.string());
-            sim.atlas_loaded_ = true;
-            sim.variable_isp_planner_ = std::make_unique<trajectory::VariableIspTrajectoryPlanner>(
-                sim.universe_, sim.mechanics_, sim.atlas_);
-        } catch (const std::exception& ex) {
-            std::cerr << "[VariableISP] Atlas load failed: " << ex.what() << " — electric ships will be stranded.\n";
-        }
-    } else {
-        std::cerr << "[VariableISP] Atlas not found at " << atlas_path.string()
-                  << " — electric ships will be stranded.\n";
-    }
-
+    Simulation sim(load_universe(data_root, adjust));
+    attach_engines(sim, data_root, atlas_file);
     return sim;
 }
 

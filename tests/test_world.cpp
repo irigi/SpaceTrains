@@ -8,6 +8,7 @@
 #include <string>
 
 #include "simulation/Simulation.hpp"
+#include "simulation/WorldSetup.hpp"
 #include "simulation/query/Accounts.hpp"
 #include "simulation/query/Lookups.hpp"
 #include "simulation/query/Positions.hpp"
@@ -18,6 +19,7 @@ namespace {
 
 using spacetrains::simulation::Simulation;
 using spacetrains::simulation::World;
+using spacetrains::simulation::make_world;
 namespace domain = spacetrains::domain;
 namespace query = spacetrains::simulation::query;
 namespace systems = spacetrains::simulation::systems;
@@ -34,8 +36,8 @@ void require_near(double actual, double expected, double tolerance, const std::s
     }
 }
 
-// A freshly started game from the data. Its World is sim.world(). Until step 15 builds a World
-// on its own, the Simulation owns it, so tests keep the Simulation alive.
+// A freshly started game from the data (make_world, the code from_data_root runs). The patrols
+// test still advances time through a Simulation (until step 15b gives World its own step).
 Simulation make_sim(const std::function<void(spacetrains::domain::UniverseDefinition&)>& adjust = {}) {
     return adjust ? Simulation::from_data_root("data", adjust) : Simulation::from_data_root("data");
 }
@@ -44,8 +46,8 @@ Simulation make_sim(const std::function<void(spacetrains::domain::UniverseDefini
 // samples the balances and takes the period's flows with it.
 void test_statistics() {
     using spacetrains::simulation::MoneyCategory;
-    auto sim = make_sim();
-    World& w = sim.world();
+    const auto world = make_world("data");
+    World& w = *world;
     auto& station = query::get_station_state(w, "earth_orbit");
     const int payer = query::account_station(w, station);
     const int payee = query::account_households(w, station);

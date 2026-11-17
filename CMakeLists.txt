@@ -49,6 +49,7 @@ add_library(spacetrains_core
     src/variable_isp/GeneralTransfer.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
+    src/simulation/WorldSetup.cpp
     src/simulation/query/Accounts.cpp
     src/simulation/query/Events.cpp
     src/simulation/query/Finance.cpp

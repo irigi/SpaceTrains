@@ -290,6 +290,12 @@ call-graph script over the `Simulation::` definitions (members already forwardin
     engines' references now point into a heap object that never moves), make `World` non-copyable and non-movable,
     group the members into the `World` sub-structs, delete the forwarders. `tick()` reads as the list in "Tick
     order" above.
+    As built, in commits checked one by one:
+    - 15a: `WorldSetup.{hpp,cpp}`: `init_world(World&)` is the constructor's body (converted as a system; the
+      set-up order is unchanged), `load_universe`, `attach_engines` (thread pool and atlas, as `from_data_root`
+      did after construction) and `make_world(data_root, atlas_file, adjust)`, which runs the three in that
+      order. The constructor and `from_data_root` call the same functions; `tests/test_world.cpp` builds its
+      World with `make_world`.
 16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
 
 Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.
