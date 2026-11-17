@@ -26,8 +26,6 @@ const STATION_COARSE_PX := 20.0
 const BRIDGE_STEP_SECONDS := 0.1
 # The simulation advances in ticks of 0.1 day (Simulation::TICK_S). Between snapshots the
 # display clock runs on at the timewarp rate, at most this far ahead of the last snapshot.
-const SIM_TICK_S := 8640.0
-const DISPLAY_MAX_LEAD_REAL_S := 3.0
 # Some simulation steps plan many trajectories at once (the opening dispatch, fleet reviews):
 # say so when no snapshot has come for this long, rather than look frozen.
 const BRIDGE_BUSY_NOTICE_S := 2.0
@@ -45,6 +43,9 @@ const UI_REFRESH_INTERVAL_S := 0.5
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
 var map_icons: MapIconsScript  # the icons and labels over the map
 var economy_history := EconomyHistoryScript.new()  # prices and unmet demand over time
+# The display clock (DisplayClock.gd): the game time drawn this frame, the measured pace, the
+# station spin clock and the visual phases of spins and station orbits.
+var clock := DisplayClockScript.new()
 @onready var scene_light: DirectionalLight3D = $DirectionalLight3D
 
 var bridge_pid := -1
@@ -57,15 +58,6 @@ var atlas_path := ""
 var bridge_log_path := ""
 # A command file whose rename failed (Windows: the bridge had it open): written again next frame.
 var command_write_pending := false
-# Display clock (game seconds): bodies, stations and ships are placed at this time each
-# frame, from orbital elements and planned paths, so the picture moves smoothly even when
-# a simulation tick is slow.
-var display_time_s := -1.0
-var snapshot_game_time_s := 0.0
-var snapshot_wall_s := 0.0
-# The simulation's measured pace (game seconds per real second), smoothed: the display clock
-# runs at it, so a slow stretch slows the picture down instead of freezing it.
-var sim_pace := 0.0
 var body_orbits: Dictionary = {}     # body_id -> {parent, a, period, phase}
 var station_orbits: Dictionary = {}  # station_id -> {body, r, theta}
 var ship_paths: Dictionary = {}      # ship_id -> {sig, origin, destination, departure, arrival, t, off (x,y,z,... from the rail anchor)}
@@ -105,12 +97,6 @@ const CHASE_COLOR := Color(1.0, 0.95, 0.15)
 const DERELICT_COLOR := Color(0.42, 0.42, 0.45)
 var destination_body_ghost: MeshInstance3D
 var current_paused := false
-# Station ring spin runs on real time, but stops while the game is paused (as the top bar shows it).
-var spin_clock_s := 0.0
-var _spin_wall_s := -1.0
-# Visual angles (rad) of each planet's and moon's spin and of each station's orbit round its
-# planet (BodySpin.gd). Advanced on the wall clock at the timewarp rate, stopped by pause.
-var visual_phase: Dictionary = {}
 # Every station's detailed model has been built (StationModels.prefetch); when that was
 # (ms since start-up) and the longest it held up a frame (the shot tour reports them).
 var _stations_prefetched := false
@@ -161,6 +147,7 @@ const HelpPanelScript := preload("res://scripts/ui/HelpPanel.gd")
 const StatisticsPanelScript := preload("res://scripts/ui/StatisticsPanel.gd")
 const MapIconsScript := preload("res://scripts/MapIcons.gd")
 const EconomyHistoryScript := preload("res://scripts/EconomyHistory.gd")
+const DisplayClockScript := preload("res://scripts/DisplayClock.gd")
 
 var ui_root: Control
 var top_bar: PanelContainer
@@ -395,7 +382,8 @@ func _process(delta: float) -> void:
     if command_write_pending:
         _write_bridge_commands()
     _update_bridge_status()
-    _advance_display_clock(delta)
+    clock.advance(delta, bool(bridge_state.get("paused", current_paused)),
+        float(bridge_state.get("timewarp_factor", current_timewarp)))
     t = Time.get_ticks_usec()
     _update_nodes(delta)
     if _profile_enabled: _profiled("update nodes", t)
@@ -542,15 +530,15 @@ func _update_bridge_status() -> void:
         return
     if current_snapshot_seq < 0:
         return
-    if bridge_status_text != "" and _wall_time_s() > bridge_status_until_s:
+    if bridge_status_text != "" and clock.wall_time_s() > bridge_status_until_s:
         bridge_status_text = ""
         _set_status("")
     # The bridge writes a snapshot per tick (0.1 day): while paused, or at a slow timewarp,
     # none is due for a while.
     if current_paused:
         return
-    var tick_interval_s: float = SIM_TICK_S / maxf(current_timewarp, 1.0)
-    var waited_s := _wall_time_s() - current_snapshot_arrival_s
+    var tick_interval_s: float = DisplayClockScript.SIM_TICK_S / maxf(current_timewarp, 1.0)
+    var waited_s := clock.wall_time_s() - current_snapshot_arrival_s
     if waited_s > maxf(BRIDGE_BUSY_NOTICE_S, 2.0 * tick_interval_s):
         _set_status("Simulation busy: planning ship missions… %d s" % int(waited_s))
 
@@ -567,7 +555,7 @@ func _request_save_or_load(save: bool) -> void:
 
 func _show_notice(text: String) -> void:
     bridge_status_text = text
-    bridge_status_until_s = _wall_time_s() + 3.0
+    bridge_status_until_s = clock.wall_time_s() + 3.0
     _set_status(text)
 
 # Written aside and renamed, so the bridge never reads a half-written command (a save or
@@ -751,7 +739,7 @@ func _read_snapshot() -> void:
         if debug_map_enabled:
             print("[MapDebugReject] seq=%d current_seq=%d new_game_day=%.3f current_game_day=%.3f" % [new_seq, current_snapshot_seq, new_game_time_s / 86400.0, current_game_time_s / 86400.0])
         return
-    var arrival_now_s := _wall_time_s()
+    var arrival_now_s := clock.wall_time_s()
     current_snapshot_seq = new_seq
     current_snapshot_arrival_s = arrival_now_s
     bridge_state = json.data
@@ -760,14 +748,7 @@ func _read_snapshot() -> void:
     if _attach_paths() > 0:
         _read_paths()
         _attach_paths()
-    if snapshot_wall_s > 0.0 and arrival_now_s > snapshot_wall_s and new_game_time_s >= snapshot_game_time_s:
-        var interval := arrival_now_s - snapshot_wall_s
-        var sample := (new_game_time_s - snapshot_game_time_s) / interval
-        sim_pace += (sample - sim_pace) * clampf(interval / 1.5, 0.0, 1.0)
-    snapshot_game_time_s = new_game_time_s
-    snapshot_wall_s = arrival_now_s
-    if display_time_s < 0.0:
-        display_time_s = new_game_time_s
+    clock.on_snapshot(new_game_time_s, arrival_now_s)
     _apply_snapshot()
 
 func _apply_snapshot() -> void:
@@ -833,7 +814,7 @@ func _apply_snapshot() -> void:
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
-    if status_label != null and status_label.visible and _wall_time_s() > bridge_status_until_s:
+    if status_label != null and status_label.visible and clock.wall_time_s() > bridge_status_until_s:
         _set_status("")
     _refresh_ui(false)
 
@@ -873,7 +854,7 @@ func _upsert_entity(data: Dictionary, kind: String) -> void:
     entity_targets[entity_id] = _scaled_position(data)
 
 func _update_nodes(delta: float) -> void:
-    if display_time_s < 0.0:
+    if clock.display_time_s < 0.0:
         return
     frame_positions_m.clear()
     if focused_id != "" and entity_kinds.has(focused_id):
@@ -884,13 +865,8 @@ func _update_nodes(delta: float) -> void:
     render_origin = _abs_render(origin_m)
     # world_root holds absolute-frame geometry (orbit rings, planned paths, trails).
     world_root.position = -render_origin
-    var wall_s := _wall_time_s()
-    var wall_dt := 0.0
-    if _spin_wall_s >= 0.0 and not bool(bridge_state.get("paused", current_paused)):
-        wall_dt = minf(wall_s - _spin_wall_s, 0.5)
-        spin_clock_s += wall_s - _spin_wall_s
-    _spin_wall_s = wall_s
-    _advance_visual_phases(wall_dt)
+    var wall_dt := clock.advance_spin(bool(bridge_state.get("paused", current_paused)))
+    clock.advance_visual_phases(wall_dt, body_orbits, station_orbits, current_timewarp)
     body_positions.clear()
     station_positions.clear()
     for body_id in body_orbits.keys():
@@ -898,7 +874,7 @@ func _update_nodes(delta: float) -> void:
     for station_id in station_orbits.keys():
         station_positions[station_id] = _abs_render(_station_m(station_id))
     var docked: Array[String] = []
-    var spin_time := spin_clock_s
+    var spin_time := clock.spin_clock_s
     var sun_world: Variant = (entity_nodes["sun"] as Node3D).global_position if entity_nodes.has("sun") else null
     var stations: Array = []
     for entity_id in entity_nodes.keys():
@@ -912,7 +888,7 @@ func _update_nodes(delta: float) -> void:
             _update_station_lod(node, station)
             StationModelsScript.spin_rings(node, spin_time, sun_world)
         elif kind == "body":
-            var spin_angle := float(visual_phase.get(entity_id, 0.0))
+            var spin_angle := float(clock.visual_phase.get(entity_id, 0.0))
             var parent_id := String((body_orbits.get(entity_id, {}) as Dictionary).get("parent", ""))
             if parent_id != "" and parent_id != "sun" and BodySpinScript.is_locked(entity_id):
                 var here := _body_m(entity_id)
@@ -944,7 +920,7 @@ func _update_nodes(delta: float) -> void:
             var node: Node3D = entity_nodes[entity_id]
             var detail: Dictionary = entity_details.get(entity_id, {})
             _update_ship_lod(node, detail)
-            EntityVisualsScript.update_engine_glow(node, detail, display_time_s, map_icons.world_size_for_pixels(node, 20.0),
+            EntityVisualsScript.update_engine_glow(node, detail, clock.display_time_s, map_icons.world_size_for_pixels(node, 20.0),
                 _jet_power_w(String(detail.get("design_id", detail.get("class_id", "")))))
     _update_camera_obstacles()
     _update_history_trails(delta)
@@ -1022,44 +998,6 @@ func _update_camera_obstacles() -> void:
     camera_rig.set("hulls", hulls)
 
 # --- Display clock and positions ----------------------------------------------
-
-func _advance_display_clock(delta: float) -> void:
-    if display_time_s < 0.0:
-        return
-    # The starting state is shown before the opening dispatch (a few seconds of planning):
-    # the clock starts with the first simulated tick.
-    var paused := bool(bridge_state.get("paused", current_paused)) or snapshot_game_time_s <= 0.0
-    if paused:
-        # No time passes while paused: resuming must not look like a long-overdue snapshot.
-        snapshot_wall_s = _wall_time_s()
-        return
-    var requested := float(bridge_state.get("timewarp_factor", current_timewarp))
-    # The clock runs at the simulation's measured pace (at most the requested timewarp): when
-    # ticks run slow the picture slows down rather than freezing, and after a timewarp change
-    # it follows within a second or two.
-    var rate := minf(requested, maxf(sim_pace, requested * 0.1)) if requested > 0.0 else 0.0
-    # Where the simulation should be by now; a slow tick lets the display run ahead a
-    # little (ships follow their planned paths meanwhile), never backwards.
-    var max_lead := maxf(SIM_TICK_S * 1.5, rate * DISPLAY_MAX_LEAD_REAL_S)
-    var limit := snapshot_game_time_s + max_lead
-    var target := minf(snapshot_game_time_s + rate * (_wall_time_s() - snapshot_wall_s), limit)
-    # Behind the target: catch up (eased). Ahead of it: slow down (to a fifth when a whole
-    # lead ahead), and brake through the last half of the lead window instead of stopping
-    # dead at its end; never step back.
-    var brake := clampf((limit - display_time_s) / (0.5 * max_lead), 0.0, 1.0)
-    var next := display_time_s
-    if target > display_time_s:
-        next += rate * delta * brake
-        next += (target - next) * clampf(delta * 3.0, 0.0, 1.0)
-        next = minf(next, limit)
-    elif display_time_s < limit:
-        var slow := clampf(1.0 - (display_time_s - target) / max_lead, 0.2, 1.0)
-        next = minf(next + rate * delta * slow * brake, limit)
-    elif _wall_time_s() - snapshot_wall_s < 0.5:
-        # Past the limit (it shrinks when the simulation slows down after running fast):
-        # crawl while snapshots keep coming rather than freeze; stop only if they stop.
-        next += rate * delta * 0.2
-    display_time_s = maxf(display_time_s, next)
 
 func _cache_orbits() -> void:
     for body in bridge_state.get("bodies", []):
@@ -1352,7 +1290,7 @@ func _station_visual_offset_m(station_id: String) -> PackedFloat64Array:
     var orbit: Dictionary = station_orbits[station_id]
     var r := float(orbit["r"])
     var theta := float(orbit["theta"])
-    var drawn := theta + float(visual_phase.get(station_id, 0.0))
+    var drawn := theta + float(clock.visual_phase.get(station_id, 0.0))
     return PackedFloat64Array([r * (cos(drawn) - cos(theta)), 0.0, r * (sin(drawn) - sin(theta))])
 
 # Between two heliocentric samples: radius and angle (the short way, unless that runs
@@ -1401,7 +1339,7 @@ func _body_m(body_id: String) -> PackedFloat64Array:
         var period := float(orbit["period"])
         result = base
         if period > 0.0:
-            var angle := float(orbit["phase"]) + (display_time_s / period) * TAU
+            var angle := float(orbit["phase"]) + (clock.display_time_s / period) * TAU
             var a := float(orbit["a"])
             result = PackedFloat64Array([base[0] + cos(angle) * a, base[1], base[2] + sin(angle) * a])
     frame_positions_m[body_id] = result
@@ -1417,30 +1355,16 @@ func _station_m(station_id: String) -> PackedFloat64Array:
         var base := _body_m(String(orbit["body"]))
         var r := float(orbit["r"])
         # The sim's angle plus the visual orbit (BodySpin.gd): drawn only, the planner keeps theta.
-        var theta := float(orbit["theta"]) + float(visual_phase.get(station_id, 0.0))
+        var theta := float(orbit["theta"]) + float(clock.visual_phase.get(station_id, 0.0))
         result = PackedFloat64Array([base[0] + cos(theta) * r, base[1], base[2] + sin(theta) * r])
     frame_positions_m[key] = result
     return result
-
-# Advances every planet's and moon's spin and every station's orbit by wall_dt seconds at the
-# rate BodySpin gives for the current timewarp (true at slow speeds, capped at fast ones).
-func _advance_visual_phases(wall_dt: float) -> void:
-    if wall_dt <= 0.0:
-        return
-    for body_id in body_orbits.keys():
-        var orbit: Dictionary = body_orbits[body_id]
-        var rate := BodySpinScript.spin_rate(String(body_id), float(orbit["period"]), current_timewarp)
-        visual_phase[body_id] = fmod(float(visual_phase.get(body_id, 0.0)) + rate * wall_dt, TAU)
-    for station_id in station_orbits.keys():
-        var orbit: Dictionary = station_orbits[station_id]
-        var rate := BodySpinScript.station_rate(String(orbit["body"]), float(orbit["r"]), current_timewarp)
-        visual_phase[station_id] = fmod(float(visual_phase.get(station_id, 0.0)) + rate * wall_dt, TAU)
 
 # A ship in transit (or a wreck, or a cutter under way) flies its path; otherwise it is at its station.
 func _ship_m(ship_id: String) -> PackedFloat64Array:
     var detail: Dictionary = entity_details.get(ship_id, {})
     if String(detail.get("phase", "idle")) in ["in_transit", "derelict", "patrol"] and ship_paths.has(ship_id):
-        var sample := _path_sample(ship_id, display_time_s)
+        var sample := _path_sample(ship_id, clock.display_time_s)
         return PackedFloat64Array([sample[0], sample[1], sample[2]])
     var station_id := String(detail.get("current_station_id", ""))
     if station_orbits.has(station_id):
@@ -1451,20 +1375,20 @@ func _ship_m(ship_id: String) -> PackedFloat64Array:
 # At the display time it is kept for the frame: position, heading and focus all ask for it.
 func _path_sample(ship_id: String, t: float) -> PackedFloat64Array:
     var key := "@" + ship_id
-    if t == display_time_s and frame_positions_m.has(key):
+    if t == clock.display_time_s and frame_positions_m.has(key):
         return frame_positions_m[key]
     var path: Dictionary = ship_paths[ship_id]
     var here := _rail_point_m(path, t)
     var ahead := _rail_point_m(path, t + 600.0)
     var sample := PackedFloat64Array([here[0], here[1], here[2], ahead[0] - here[0], ahead[1] - here[1], ahead[2] - here[2]])
-    if t == display_time_s:
+    if t == clock.display_time_s:
         frame_positions_m[key] = sample
     return sample
 
 func _ship_heading(ship_id: String) -> Vector3:
     if not ship_paths.has(ship_id):
         return Vector3.ZERO
-    var sample := _path_sample(ship_id, display_time_s)
+    var sample := _path_sample(ship_id, clock.display_time_s)
     return Vector3(sample[3], sample[4], sample[5])
 
 func _entity_m(entity_id: String) -> PackedFloat64Array:
@@ -1745,7 +1669,7 @@ func _update_path_frames() -> void:
 func _update_path_clocks() -> void:
     for ship_id in trail_points.keys():
         var style: Dictionary = trail_points[ship_id]
-        var now := float(display_time_s - float(style["epoch"]))
+        var now := float(clock.display_time_s - float(style["epoch"]))
         if trail_nodes.has(ship_id):
             var path_mesh: MeshInstance3D = (trail_nodes[ship_id] as Node3D).get_node("path")
             path_mesh.set_instance_shader_parameter("now_s", now)
@@ -2114,7 +2038,7 @@ func _visual_signature(kind: String, data: Dictionary) -> String:
 func _refresh_ui(force := false) -> void:
     if top_bar == null:
         return
-    var now_s := _wall_time_s()
+    var now_s := clock.wall_time_s()
     if not force and now_s - last_ui_refresh_s < UI_REFRESH_INTERVAL_S:
         return
     last_ui_refresh_s = now_s
@@ -2155,9 +2079,7 @@ func _entity_name_map() -> Dictionary:
     return names
 
 func _reset_timeline() -> void:
-    display_time_s = -1.0
-    sim_pace = 0.0
-    snapshot_wall_s = 0.0
+    clock.reset()
     ship_paths.clear()
     economy_history.clear()
     ship_trail_history.clear()
@@ -2297,7 +2219,7 @@ func _debug_map_state(reason: String) -> void:
         reason,
         debug_frame,
         current_snapshot_seq,
-        display_time_s / 86400.0,
+        clock.display_time_s / 86400.0,
         focused_kind,
         focused_id,
         selected_kind,
@@ -2339,9 +2261,6 @@ func _debug_map_state(reason: String) -> void:
             str(icon_visible),
             float(detail.get("radius_m", 0.0)) / 1000.0
         ])
-
-func _wall_time_s() -> float:
-    return float(Time.get_ticks_usec()) / 1000000.0
 
 func _step_timewarp(direction: int) -> void:
     var best_index := 0
