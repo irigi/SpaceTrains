@@ -32,6 +32,7 @@
 #include "simulation/systems/MissionPlanning.hpp"
 #include "simulation/systems/Passengers.hpp"
 #include "simulation/systems/ShipOperations.hpp"
+#include "simulation/systems/Statistics.hpp"
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -138,6 +139,10 @@ public:
     [[nodiscard]] double station_profit_last_year(const domain::StationState& station) const;
     // The money journal (MoneyJournal.hpp): every transfer by account and category, and its history.
     [[nodiscard]] const MoneyJournal& money_journal() const { return journal_; }
+    // The running state, for calling systems:: and query:: on it directly (tests; after step 15 of
+    // docs/plans/simulation_split.md, Simulation holds the World and this stays).
+    [[nodiscard]] World& world() { return *this; }
+    [[nodiscard]] const World& world() const { return *this; }
     // What moved where (FlowRecord.hpp): goods, passengers, lanes, with a monthly history.
     [[nodiscard]] const FlowRecord& flow_record() const { return flows_; }
     // The real balance of a journal account (Earth, a colony, a faction, a station, its residents,

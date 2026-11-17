@@ -64,6 +64,7 @@ add_library(spacetrains_core
     src/simulation/systems/Passengers.cpp
     src/simulation/systems/ShipOperations.cpp
     src/simulation/systems/StationSystems.cpp
+    src/simulation/systems/Statistics.cpp
     src/simulation/ShipPhases.cpp
     src/simulation/FleetInvestment.cpp
     src/simulation/Failures.cpp
@@ -74,7 +75,6 @@ add_library(spacetrains_core
     src/simulation/Households.cpp
     src/simulation/MoneyJournal.cpp
     src/simulation/FlowRecord.cpp
-    src/simulation/Statistics.cpp
     src/util/Profiling.cpp
     src/util/ThreadPool.cpp
     src/persistence/Json.cpp
@@ -154,6 +154,12 @@ target_compile_options(spacetrains_economy_tests PRIVATE ${SPACETRAINS_WARNINGS}
 target_link_libraries(spacetrains_economy_tests PRIVATE spacetrains_core)
 add_test(NAME spacetrains_economy_tests COMMAND spacetrains_economy_tests)
 set_tests_properties(spacetrains_economy_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(spacetrains_world_tests tests/test_world.cpp)
+target_compile_options(spacetrains_world_tests PRIVATE ${SPACETRAINS_WARNINGS})
+target_link_libraries(spacetrains_world_tests PRIVATE spacetrains_core)
+add_test(NAME spacetrains_world_tests COMMAND spacetrains_world_tests)
+set_tests_properties(spacetrains_world_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)

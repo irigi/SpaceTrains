@@ -20,12 +20,12 @@ to them, from `Forwarders.cpp` for the files that moved whole).
 | `Households.cpp` | residents, colonies, labour, station incomes |
 | `Passengers.cpp` | travellers, boarding, fares, rotation tours |
 | `CrewEnvironment.cpp` | crew radiation and the particle-event model |
-| `MoneyJournal.cpp`, `Statistics.cpp` | the money journal, its history and the statistics JSON |
+| `MoneyJournal.cpp` | the money journal and its history |
 | `Snapshot.cpp` | the snapshot, the bridge's JSON (snapshot, paths, designs) and the text report |
 | `SimulationInternal.hpp` | constants and helpers shared by these files (namespace `detail`) |
 | `World.hpp` | all of the running state, as plain data; `Simulation` inherits it (split step 1) |
 | `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); ship cost and environment rates (`ShipRates`), money leaves (`Finance`: economy balances, colony state, station profits, faction credit limits), passenger leaves (`Passengers`: the travel switches, fares, value of time) and the clock (`Clock`: `first_tick_of_day`) (step 4); the `Simulation` members of the same names forward to them |
-| `systems/` | the rules as free functions on `World`: `StationSystems` (the station systems view, display only; step 3); `Market` (reference prices, station prices and orders, emergencies, the daily market among ships), `Contracts` (liners, scheduled stops, rotation contracts), `MissionPlanning` (leg estimates and dispatch, `systems::MissionPass`), and the pricing parts of `Passengers` (port fuel price, live fares, who boards) (step 5); `ShipOperations` (crew and capital costs, provisions, radiation and particle events, wear and repair, boil-off, propellant; step 6) |
+| `systems/` | the rules as free functions on `World`: `StationSystems` (the station systems view, display only; step 3); `Market` (reference prices, station prices and orders, emergencies, the daily market among ships), `Contracts` (liners, scheduled stops, rotation contracts), `MissionPlanning` (leg estimates and dispatch, `systems::MissionPass`), and the pricing parts of `Passengers` (port fuel price, live fares, who boards) (step 5); `ShipOperations` (crew and capital costs, provisions, radiation and particle events, wear and repair, boil-off, propellant; step 6); `Statistics` (the journal's accounts and monthly close, the flow record's stocks, the statistics JSON; step 7) |
 | `Forwarders.cpp` | `Simulation` members whose code moved whole to `systems/` (and the `query/` forwarders of topic files that are gone), each a one-line forwarder (until step 15) |
 
 What each topic does: `economy.md` (prices, orders, money) and `ships_and_fleet.md` (ships, dispatch, passengers).
@@ -59,4 +59,4 @@ ship's plan changes (`bridge.md`).
 ## Tests
 
 `tests/test_main.cpp` (dispatch, planners, save/load, ship designs), `tests/economy_test.cpp` (economy and money),
-`tests/variable_isp_test.cpp` (the VariableISP solver).
+`tests/variable_isp_test.cpp` (the VariableISP solver), `tests/test_world.cpp` (systems called directly on the `World`).

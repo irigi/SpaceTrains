@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-7 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -222,8 +222,15 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    `accrue_operating_costs` and `step_particle_events` (`tick`). `pay_crew`, `pay_home_station`, `accrue_radiation`
    and `accrue_wear` were called only from inside, so they are file-local and their `Simulation` declarations are
    gone. Saves and audit identical, `--profile` unchanged (21.2 s / 365 days, as step 5).
-7. **Statistics** (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`). Needs StationSystems
+7. **Statistics** (done 2026-11-17) (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`). Needs StationSystems
    and `query/Finance`.
+   As built: `Statistics.cpp` moved whole to `systems/` (five members: `setup_money_journal`, `flow_stocks`,
+   `account_balance`, `close_journal_period`, `build_stats_json`); all five keep forwarders (the constructor, `tick`,
+   persistence, the bridge, reports and a test call them), in `Forwarders.cpp` with the file's `query/` forwarders.
+   The Statistics test is in `tests/test_world.cpp`. It reaches the state through a new public
+   `Simulation::world()`, not `make_world`: the constructor still calls members of steps 8-11 (`init_patrols`,
+   `init_failure_clocks`, `compute_rotation_tours`, ...), so a `World` cannot be built without a `Simulation`
+   until step 15.
 8. **Patrols** (453 lines; needs `station_price` and `daily_crew_cost`).
 9. **Households + Passengers** together (their cycle). Two commits if the diff is too big: Households first with
    forwarders for the four Passengers functions it calls, then Passengers.
@@ -246,6 +253,7 @@ Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after 
 
 - `tests/test_world.cpp` with a helper `make_world(data_root, adjust)` that builds a `World` the way
   `from_data_root` does (shared code, not a copy).
+  Until step 15 the test file has `make_sim` instead and works on `sim.world()` (see step 7).
 - After step 7: a Statistics test (a hand-posted transfer appears in the right account and the monthly close
   samples it).
 - After step 8: a Patrols test (one cutter, one ship to inspect; the sortie is planned and paid).

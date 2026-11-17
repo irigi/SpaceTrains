@@ -1,5 +1,5 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-6): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-7): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -266,6 +266,60 @@ void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
 
 void Simulation::buy_propellant(domain::ShipState& ship, double kg) {
     systems::buy_propellant(*this, ship, kg);
+}
+
+// Statistics (step 7), with the query forwarders that lived in its topic file.
+
+int Simulation::account_economy(const std::string& economy_id) const {
+    return query::account_economy(*this, economy_id);
+}
+
+int Simulation::account_faction(const std::string& faction_id) const {
+    return query::account_faction(*this, faction_id);
+}
+
+int Simulation::account_fleet(const std::string& faction_id) const {
+    return query::account_fleet(*this, faction_id);
+}
+
+int Simulation::account_station(const domain::StationState& station) const {
+    return query::account_station(*this, station);
+}
+
+int Simulation::account_households(const domain::StationState& station) const {
+    return query::account_households(*this, station);
+}
+
+int Simulation::account_station(const std::string& station_id) const {
+    return query::account_station(*this, station_id);
+}
+
+int Simulation::account_households(const std::string& station_id) const {
+    return query::account_households(*this, station_id);
+}
+
+double Simulation::station_profit_last_year(const domain::StationState& station) const {
+    return query::station_profit_last_year(*this, station);
+}
+
+void Simulation::setup_money_journal() {
+    systems::setup_money_journal(*this);
+}
+
+std::vector<std::vector<double>> Simulation::flow_stocks() const {
+    return systems::flow_stocks(*this);
+}
+
+double Simulation::account_balance(int account) const {
+    return systems::account_balance(*this, account);
+}
+
+void Simulation::close_journal_period() {
+    systems::close_journal_period(*this);
+}
+
+std::string Simulation::build_stats_json() const {
+    return systems::build_stats_json(*this);
 }
 
 }  // namespace spacetrains::simulation
