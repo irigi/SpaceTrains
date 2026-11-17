@@ -36,6 +36,7 @@
 #include "simulation/systems/Passengers.hpp"
 #include "simulation/systems/Patrols.hpp"
 #include "simulation/systems/ShipPhases.hpp"
+#include "simulation/systems/Snapshot.hpp"
 #include "simulation/systems/ShipOperations.hpp"
 #include "simulation/systems/Statistics.hpp"
 #include "trajectory/ChaseSolver.hpp"
@@ -251,11 +252,6 @@ private:
     [[nodiscard]] const domain::StationDefinition& get_station_definition(const std::string& station_id) const;
     [[nodiscard]] domain::StationState& get_station_state(const std::string& station_id);
     [[nodiscard]] const domain::StationState& get_station_state(const std::string& station_id) const;
-    [[nodiscard]] std::string mission_phase_name(domain::ShipMissionPhase phase) const;
-    [[nodiscard]] std::string bridge_path_id(const domain::ShipState& ship) const;
-    [[nodiscard]] std::string ship_systems_json(
-        const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) const;
-    void write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const;
     [[nodiscard]] const domain::CommodityDefinition& get_commodity(const std::string& commodity_id) const;
     [[nodiscard]] std::string faction_name(const std::string& faction_id) const;
     // What a station starts with (step 18): its data inventory, raised to its target stock for

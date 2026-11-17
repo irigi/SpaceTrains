@@ -1,6 +1,7 @@
 // The UI snapshot and the bridge JSON (snapshot, paths, designs) and the text report.
 
-#include "simulation/Simulation.hpp"
+#include "simulation/systems/Snapshot.hpp"
+
 #include "domain/ShipDesign.hpp"
 #include "simulation/CrewEnvironment.hpp"
 
@@ -22,53 +23,63 @@
 #include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Finance.hpp"
 #include "simulation/query/Lookups.hpp"
 #include "simulation/query/Positions.hpp"
+#include "simulation/query/ShipRates.hpp"
+#include "simulation/systems/Contracts.hpp"
+#include "simulation/systems/Households.hpp"
+#include "simulation/systems/Market.hpp"
+#include "simulation/systems/Passengers.hpp"
+#include "simulation/systems/Patrols.hpp"
+#include "simulation/systems/StationSystems.hpp"
 
-namespace spacetrains::simulation {
+namespace spacetrains::simulation::systems {
 
 using namespace detail;
 
-domain::SimulationSnapshot Simulation::snapshot() const {
+namespace {
+
+// Defined below, file-local.
+[[nodiscard]] std::string bridge_path_id(const domain::ShipState& ship);
+void write_ship_path_json(const World& w, std::ostream& output, const domain::ShipState& ship);
+[[nodiscard]] std::string ship_systems_json(const World& w, const domain::ShipState& ship,
+    const domain::ShipClassDefinition& ship_class, const math::Vec3d& position);
+
+}  // namespace
+
+domain::SimulationSnapshot snapshot(const World& w) {
     domain::SimulationSnapshot snapshot {
-        .game_time_s = game_time_s_,
-        .outside_economy_credits = outside_economy_credits_,
-        .background_credits = background_credits_,
-        .background_population = background_population_,
-        .faction_treasuries = faction_treasuries_,
+        .game_time_s = w.game_time_s_,
+        .outside_economy_credits = w.outside_economy_credits_,
+        .background_credits = w.background_credits_,
+        .background_population = w.background_population_,
+        .faction_treasuries = w.faction_treasuries_,
         .faction_credit_limits = [&] {
             std::map<std::string, double> limits;
-            for (const auto& faction : universe_.factions) {
-                limits[faction.id] = faction_credit_limit(faction.id);
+            for (const auto& faction : w.universe_.factions) {
+                limits[faction.id] = query::faction_credit_limit(w, faction.id);
             }
             return limits;
         }(),
-        .faction_interest_paid = faction_interest_paid_,
-        .money_supply_target = seeded_money_supply_,
-        .fleet_investment = investment_ledger_,
-        .stations = stations_,
-        .ships = ships_,
-        .sold_ships = sold_ships_,
-        .recent_events = recent_events_,
-        .emergencies = emergencies_,
-        .emergencies_opened = emergencies_opened_,
-        .events_started = events_started_,
-        .emergency_paid = emergency_paid_,
+        .faction_interest_paid = w.faction_interest_paid_,
+        .money_supply_target = w.seeded_money_supply_,
+        .fleet_investment = w.investment_ledger_,
+        .stations = w.stations_,
+        .ships = w.ships_,
+        .sold_ships = w.sold_ships_,
+        .recent_events = w.recent_events_,
+        .emergencies = w.emergencies_,
+        .emergencies_opened = w.emergencies_opened_,
+        .events_started = w.events_started_,
+        .emergency_paid = w.emergency_paid_,
     };
     for (auto& station : snapshot.stations) {
         for (const auto& [commodity_id, stats] : station.order_stats) {
-            station.orders[commodity_id] = order_view(station, commodity_id);
+            station.orders[commodity_id] = systems::order_view(w, station, commodity_id);
         }
     }
     return snapshot;
-}
-
-std::string Simulation::mission_phase_name(domain::ShipMissionPhase phase) const {
-    return query::mission_phase_name(phase);
-}
-
-math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) const {
-    return query::get_ship_render_position(*this, ship);
 }
 
 namespace {
@@ -97,15 +108,13 @@ void write_timed_path_json(std::ostream& output, const std::vector<math::Vec3d>&
     output << "]";
 }
 
-}  // namespace
-
-std::string Simulation::bridge_path_id(const domain::ShipState& ship) const {
+std::string bridge_path_id(const domain::ShipState& ship) {
     const auto& mission = ship.active_mission;
     return std::format("{}|{}|{:.3f}|{}", mission.destination_station_id, mission.trajectory_type, mission.departure_time_s,
         mission.sampled_path.size());
 }
 
-void Simulation::write_ship_path_json(std::ostream& output, const domain::ShipState& ship) const {
+void write_ship_path_json(const World& w, std::ostream& output, const domain::ShipState& ship) {
     output << "\"trajectory_path\":[";
     for (std::size_t path_index = 0; path_index < ship.active_mission.sampled_path.size(); ++path_index) {
         const auto& point = ship.active_mission.sampled_path[path_index];
@@ -121,9 +130,9 @@ void Simulation::write_ship_path_json(std::ostream& output, const domain::ShipSt
     }
     output << "]";
     if (!ship.active_mission.destination_station_id.empty()) {
-        const auto& destination_station = get_station_definition(ship.active_mission.destination_station_id);
-        const auto& destination_body = get_body_definition(destination_station.parent_body_id);
-        const auto destination_body_position = mechanics_.get_body_position(destination_body.id, ship.active_mission.arrival_time_s);
+        const auto& destination_station = query::get_station_definition(w, ship.active_mission.destination_station_id);
+        const auto& destination_body = query::get_body_definition(w, destination_station.parent_body_id);
+        const auto destination_body_position = w.mechanics_.get_body_position(destination_body.id, ship.active_mission.arrival_time_s);
         output << ",\"destination_body_at_arrival\":{"
                << "\"id\":\"" << json_escape(destination_body.id) << "\","
                << "\"name\":\"" << json_escape(destination_body.name) << "\","
@@ -135,17 +144,19 @@ void Simulation::write_ship_path_json(std::ostream& output, const domain::ShipSt
     }
 }
 
-std::string Simulation::bridge_paths_signature() const {
+}  // namespace
+
+std::string bridge_paths_signature(const World& w) {
     std::string signature;
-    for (const auto& ship : ships_) {
+    for (const auto& ship : w.ships_) {
         if (ship.phase == domain::ShipMissionPhase::InTransit || ship.phase == domain::ShipMissionPhase::AwaitingDeparture) {
             signature += ship.id + "=" + bridge_path_id(ship) + ";";
         }
     }
-    for (const auto& derelict : derelicts_) {
+    for (const auto& derelict : w.derelicts_) {
         signature += derelict.id + "=" + derelict_path_id(derelict) + ";";
     }
-    for (const auto& patrol : patrols_) {
+    for (const auto& patrol : w.patrols_) {
         if (patrol_has_path(patrol)) {
             signature += patrol.id + "=" + patrol_path_id(patrol) + ";";
         }
@@ -153,21 +164,21 @@ std::string Simulation::bridge_paths_signature() const {
     return signature;
 }
 
-std::string Simulation::build_bridge_paths_json() const {
+std::string build_bridge_paths_json(const World& w) {
     std::ostringstream output;
     output << std::fixed << std::setprecision(6);
     output << "{\"paths\":{";
     bool first = true;
-    for (const auto& ship : ships_) {
+    for (const auto& ship : w.ships_) {
         if (ship.phase != domain::ShipMissionPhase::InTransit && ship.phase != domain::ShipMissionPhase::AwaitingDeparture) {
             continue;
         }
         output << (first ? "" : ",") << "\"" << json_escape(ship.id) << "\":{\"path_id\":\"" << json_escape(bridge_path_id(ship)) << "\",";
-        write_ship_path_json(output, ship);
+        write_ship_path_json(w, output, ship);
         output << "}";
         first = false;
     }
-    for (const auto& derelict : derelicts_) {
+    for (const auto& derelict : w.derelicts_) {
         if (derelict.sampled_path.size() < 2) {
             continue;
         }
@@ -176,7 +187,7 @@ std::string Simulation::build_bridge_paths_json() const {
         output << "}";
         first = false;
     }
-    for (const auto& patrol : patrols_) {
+    for (const auto& patrol : w.patrols_) {
         if (!patrol_has_path(patrol)) {
             continue;
         }
@@ -194,8 +205,10 @@ std::string Simulation::build_bridge_paths_json() const {
 // impulsive in the planners; for display each burn lasts its share of the mission's
 // propellant (half each) at the engine's mass flow. Variable-Isp ships thrust the whole way.
 // Idle radiators sit near the sunlit equilibrium of a grey body, 278.6 K / sqrt(r in AU).
-std::string Simulation::ship_systems_json(
-    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) const {
+namespace {
+
+std::string ship_systems_json(const World& w, 
+    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class, const math::Vec3d& position) {
     std::string engine_state = "off";
     double burn_s = 0.0;
     const domain::ShipComponentDefinition* engine = nullptr;
@@ -211,7 +224,7 @@ std::string Simulation::ship_systems_json(
         } else if (engine != nullptr && engine->thrust_n > 0.0 && engine->isp_s > 0.0) {
             const double mass_flow_kg_s = engine->thrust_n / (engine->isp_s * 9.80665);
             burn_s = 0.5 * std::max(0.0, mission.propellant_cost_kg) / mass_flow_kg_s;
-            const bool burning = game_time_s_ - mission.departure_time_s < burn_s || mission.arrival_time_s - game_time_s_ < burn_s;
+            const bool burning = w.game_time_s_ - mission.departure_time_s < burn_s || mission.arrival_time_s - w.game_time_s_ < burn_s;
             engine_state = burning ? "burning" : "coasting";
         }
     }
@@ -221,37 +234,39 @@ std::string Simulation::ship_systems_json(
         radiator_temperature_k = engine_state == "thrusting" ? radiator->temperature_k : 278.6 / std::sqrt(r_au);
     }
     // Tier 2: the crew's dose this leg against the limit, today's dose rate, boil-off and wear.
-    const auto& env = universe_.ship_environment;
+    const auto& env = w.universe_.ship_environment;
     std::string tier2;
     if (env.radiation) {
         const double rate = ship.phase == domain::ShipMissionPhase::InTransit
-            ? crew_environment::gcr_msv_per_day(env, ship_r_au(ship), game_time_s_ / 86400.0)
-                * crew_environment::transit_gcr_factor(env, ship_class, cabin_shield_g_cm2(ship_class, ship.propellant_kg))
-            : docked_dose_msv_per_day(ship.current_station_id, game_time_s_);
+            ? crew_environment::gcr_msv_per_day(env, query::ship_r_au(w, ship), w.game_time_s_ / 86400.0)
+                * crew_environment::transit_gcr_factor(env, ship_class, query::cabin_shield_g_cm2(w, ship_class, ship.propellant_kg))
+            : query::docked_dose_msv_per_day(w, ship.current_station_id, w.game_time_s_);
         tier2 += std::format("\"leg_dose_msv\":{:.1f},\"dose_limit_msv\":{:.0f},\"dose_rate_msv_day\":{:.3f},",
             ship.leg_dose_msv, env.career_limit_msv, rate);
     }
-    if (const double boil = boiloff_kg_per_day(ship_class, ship_r_au(ship)); boil > 0.0) {
+    if (const double boil = query::boiloff_kg_per_day(w, ship_class, query::ship_r_au(w, ship)); boil > 0.0) {
         tier2 += std::format("\"boiloff_kg_day\":{:.1f},", ship.phase == domain::ShipMissionPhase::InTransit ? boil : 0.0);
     }
     if (env.wear) {
         tier2 += std::format("\"engine_wear\":{:.4f},\"drive_life_h\":{:.0f},\"radiator_condition\":{:.4f},",
-            ship.engine_wear, drive_life_h(ship_class), ship.radiator_condition);
+            ship.engine_wear, query::drive_life_h(w, ship_class), ship.radiator_condition);
     }
     return std::format("\"engine_state\":\"{}\",\"engine_burn_s\":{:.1f},\"radiator_temperature_k\":{:.1f},{}",
         engine_state, burn_s, radiator_temperature_k, tier2);
 }
 
-std::string Simulation::build_bridge_designs_json() const {
+}  // namespace
+
+std::string build_bridge_designs_json(const World& w) {
     std::ostringstream output;
     output << std::setprecision(10);
     output << "{\"designs\":{";
     bool first_class = true;
     std::vector<const domain::ShipClassDefinition*> all;
-    for (const auto& ship_class : universe_.ship_classes) {
+    for (const auto& ship_class : w.universe_.ship_classes) {
         all.push_back(&ship_class);
     }
-    for (const auto& [id, design] : designs_) {
+    for (const auto& [id, design] : w.designs_) {
         all.push_back(&design);
     }
     for (const auto* class_ptr : all) {
@@ -297,7 +312,7 @@ std::string Simulation::build_bridge_designs_json() const {
     return output.str();
 }
 
-std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s, bool with_paths) const {
+std::string build_bridge_snapshot_json(const World& w, bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s, bool with_paths) {
     const profiling::Scope profile_scope(profiling::Phase::Snapshot);
     auto inventory_value = [](const domain::Inventory& inventory, const std::string& commodity_id) {
         const auto it = inventory.find(commodity_id);
@@ -305,7 +320,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     };
 
     auto station_inventory = [&](const std::string& station_id) -> const domain::Inventory& {
-        return get_station_state(station_id).inventory;
+        return query::get_station_state(w, station_id).inventory;
     };
 
     std::ostringstream output;
@@ -314,7 +329,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     const auto write_goods = [&](const domain::Inventory& goods) {
         output << "{";
         bool first = true;
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : w.universe_.commodities) {
             const auto it = goods.find(commodity.id);
             if (it == goods.end() || std::abs(it->second) < 1e-9) {
                 continue;
@@ -327,14 +342,14 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "{";
     output << "\"snapshot_seq\":" << snapshot_seq << ",";
     output << "\"snapshot_real_time_s\":" << snapshot_real_time_s << ",";
-    output << "\"game_time_s\":" << game_time_s_ << ",";
-    output << "\"game_time_days\":" << (game_time_s_ / 86400.0) << ",";
-    output << "\"timewarp_factor\":" << timewarp_factor_ << ",";
+    output << "\"game_time_s\":" << w.game_time_s_ << ",";
+    output << "\"game_time_days\":" << (w.game_time_s_ / 86400.0) << ",";
+    output << "\"timewarp_factor\":" << w.timewarp_factor_ << ",";
     output << "\"paused\":" << (paused ? "true" : "false") << ",";
 
     output << "\"factions\":[";
-    for (std::size_t i = 0; i < universe_.factions.size(); ++i) {
-        const auto& faction = universe_.factions[i];
+    for (std::size_t i = 0; i < w.universe_.factions.size(); ++i) {
+        const auto& faction = w.universe_.factions[i];
         if (i > 0) {
             output << ",";
         }
@@ -347,8 +362,8 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "],";
 
     output << "\"commodities\":[";
-    for (std::size_t i = 0; i < universe_.commodities.size(); ++i) {
-        const auto& commodity = universe_.commodities[i];
+    for (std::size_t i = 0; i < w.universe_.commodities.size(); ++i) {
+        const auto& commodity = w.universe_.commodities[i];
         if (i > 0) {
             output << ",";
         }
@@ -361,31 +376,31 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "],";
 
     double total_credits = 0.0;
-    for (const auto& station : stations_) {
+    for (const auto& station : w.stations_) {
         total_credits += station.credits;
     }
-    for (const auto& ship : ships_) {
+    for (const auto& ship : w.ships_) {
         total_credits += ship.credits;
     }
     output << "\"total_credits\":" << total_credits << ",";
-    output << "\"outside_economy_credits\":" << outside_economy_credits_ << ",";
+    output << "\"outside_economy_credits\":" << w.outside_economy_credits_ << ",";
     output << "\"faction_treasuries\":{";
-    for (std::size_t i = 0; i < universe_.factions.size(); ++i) {
-        const auto& faction_id = universe_.factions[i].id;
-        const auto it = faction_treasuries_.find(faction_id);
+    for (std::size_t i = 0; i < w.universe_.factions.size(); ++i) {
+        const auto& faction_id = w.universe_.factions[i].id;
+        const auto it = w.faction_treasuries_.find(faction_id);
         output << (i > 0 ? "," : "") << "\"" << json_escape(faction_id) << "\":"
-               << (it == faction_treasuries_.end() ? 0.0 : it->second);
+               << (it == w.faction_treasuries_.end() ? 0.0 : it->second);
     }
     output << "},\"faction_credit_limits\":{";
-    for (std::size_t i = 0; i < universe_.factions.size(); ++i) {
-        const auto& faction_id = universe_.factions[i].id;
-        output << (i > 0 ? "," : "") << "\"" << json_escape(faction_id) << "\":" << faction_credit_limit(faction_id);
+    for (std::size_t i = 0; i < w.universe_.factions.size(); ++i) {
+        const auto& faction_id = w.universe_.factions[i].id;
+        output << (i > 0 ? "," : "") << "\"" << json_escape(faction_id) << "\":" << query::faction_credit_limit(w, faction_id);
     }
     output << "},";
 
     output << "\"recent_trades\":[";
-    for (std::size_t i = 0; i < recent_trades_.size(); ++i) {
-        const auto& trade = recent_trades_[i];
+    for (std::size_t i = 0; i < w.recent_trades_.size(); ++i) {
+        const auto& trade = w.recent_trades_[i];
         if (i > 0) {
             output << ",";
         }
@@ -403,9 +418,9 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "],";
 
     output << "\"bodies\":[";
-    for (std::size_t i = 0; i < universe_.bodies.size(); ++i) {
-        const auto& body = universe_.bodies[i];
-        const auto position = mechanics_.get_body_position(body.id, game_time_s_);
+    for (std::size_t i = 0; i < w.universe_.bodies.size(); ++i) {
+        const auto& body = w.universe_.bodies[i];
+        const auto position = w.mechanics_.get_body_position(body.id, w.game_time_s_);
         if (i > 0) {
             output << ",";
         }
@@ -426,9 +441,9 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "],";
 
     output << "\"stations\":[";
-    for (std::size_t i = 0; i < universe_.stations.size(); ++i) {
-        const auto& station = universe_.stations[i];
-        const auto position = mechanics_.get_station_position(station, game_time_s_);
+    for (std::size_t i = 0; i < w.universe_.stations.size(); ++i) {
+        const auto& station = w.universe_.stations[i];
+        const auto position = w.mechanics_.get_station_position(station, w.game_time_s_);
         if (i > 0) {
             output << ",";
         }
@@ -441,22 +456,22 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"economy_profile_id\":\"" << json_escape(station.economy_profile_id) << "\","
                << "\"altitude_m\":" << station.altitude_m << ","
                << "\"theta_rad\":" << station.theta_rad << ","
-               << "\"population\":" << std::llround(get_station_state(station.id).population) << ","
+               << "\"population\":" << std::llround(query::get_station_state(w, station.id).population) << ","
                << "\"seeded_population\":" << station.population << ","
-               << "\"supply_index\":" << get_station_state(station.id).supply_index << ","
-               << station_economy_json(get_station_state(station.id))
-               << station_passengers_json(get_station_state(station.id))
-               << station_systems_json(station, get_station_state(station.id))
+               << "\"supply_index\":" << query::get_station_state(w, station.id).supply_index << ","
+               << systems::station_economy_json(w, query::get_station_state(w, station.id))
+               << systems::station_passengers_json(w, query::get_station_state(w, station.id))
+               << systems::station_systems_json(w, station, query::get_station_state(w, station.id))
                << "\"events\":" << [&] {
                       std::string list = "[";
-                      for (const auto& active : get_station_state(station.id).events) {
-                          const auto it = std::find_if(universe_.events.begin(), universe_.events.end(),
+                      for (const auto& active : query::get_station_state(w, station.id).events) {
+                          const auto it = std::find_if(w.universe_.events.begin(), w.universe_.events.end(),
                               [&](const auto& event) { return event.id == active.event_id; });
-                          if (it == universe_.events.end()) {
+                          if (it == w.universe_.events.end()) {
                               continue;
                           }
                           list += std::format("{}{{\"headline\":\"{}\",\"days_left\":{:.1f}}}", list.size() > 1 ? "," : "",
-                              json_escape(it->headline), (active.end_s - game_time_s_) / 86400.0);
+                              json_escape(it->headline), (active.end_s - w.game_time_s_) / 86400.0);
                       }
                       return list + "]";
                   }() << ","
@@ -469,14 +484,14 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"metals\":" << inventory_value(inventory, "metals") << ","
                // Full inventory dict for all commodities
                << "\"inventory\":{";
-        for (std::size_t ci = 0; ci < universe_.commodities.size(); ++ci) {
+        for (std::size_t ci = 0; ci < w.universe_.commodities.size(); ++ci) {
             if (ci > 0) output << ",";
-            output << "\"" << json_escape(universe_.commodities[ci].id) << "\":"
-                   << inventory_value(inventory, universe_.commodities[ci].id);
+            output << "\"" << json_escape(w.universe_.commodities[ci].id) << "\":"
+                   << inventory_value(inventory, w.universe_.commodities[ci].id);
         }
         output << "},";
 
-        const auto& station_state = get_station_state(station.id);
+        const auto& station_state = query::get_station_state(w, station.id);
         double storage_used = 0.0;
         for (const auto& [_, units] : inventory) {
             storage_used += std::max(0.0, units);
@@ -485,16 +500,16 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"storage_capacity\":" << station.storage_capacity_units << ","
                << "\"storage_used\":" << storage_used << ","
                << "\"prices\":{";
-        for (std::size_t ci = 0; ci < universe_.commodities.size(); ++ci) {
+        for (std::size_t ci = 0; ci < w.universe_.commodities.size(); ++ci) {
             if (ci > 0) output << ",";
-            output << "\"" << json_escape(universe_.commodities[ci].id) << "\":"
-                   << station_price(station_state, universe_.commodities[ci].id);
+            output << "\"" << json_escape(w.universe_.commodities[ci].id) << "\":"
+                   << systems::station_price(w, station_state, w.universe_.commodities[ci].id);
         }
         output << "},"
                << "\"net_rates\":{";
-        const auto& net_rates = economy_.get_station_net_rates(station);
+        const auto& net_rates = w.economy_.get_station_net_rates(station);
         bool first_rate = true;
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : w.universe_.commodities) {
             const auto rate_it = net_rates.find(commodity.id);
             if (rate_it == net_rates.end()) {
                 continue;
@@ -505,15 +520,15 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         }
         output << "},\"target_stock\":{";
         bool first_target = true;
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : w.universe_.commodities) {
             if (!net_rates.contains(commodity.id) && !(commodity.id == economy::FUEL_ID)) {
                 continue;
             }
             // Ordered goods: the order-up-to level S (step 29).
             const auto order = station_state.order_stats.find(commodity.id);
             output << (first_target ? "" : ",") << "\"" << json_escape(commodity.id) << "\":"
-                   << (order == station_state.order_stats.end() ? economy_.get_target_stock(station, commodity.id)
-                       : order_levels(station_state, commodity.id, order->second).order_up_to_units);
+                   << (order == station_state.order_stats.end() ? w.economy_.get_target_stock(station, commodity.id)
+                       : systems::order_levels(w, station_state, commodity.id, order->second).order_up_to_units);
             first_target = false;
         }
         output << "},\"demand_units\":";
@@ -525,11 +540,11 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         output << ",\"exports_per_day\":";
         write_goods(station_state.export_units_per_day);
         output << ",\"ship_fuel_per_day\":" << station_state.ship_fuel_units_per_day
-               << ",\"fuel_factory_per_day\":" << economy_.fuel_factory_output(station)
+               << ",\"fuel_factory_per_day\":" << w.economy_.fuel_factory_output(station)
                << ",\"export_market\":[";
         bool first_export = true;
-        for (const auto& commodity : universe_.commodities) {
-            if (economy_.is_export_market(station, commodity.id)) {
+        for (const auto& commodity : w.universe_.commodities) {
+            if (w.economy_.is_export_market(station, commodity.id)) {
                 output << (first_export ? "" : ",") << "\"" << json_escape(commodity.id) << "\"";
                 first_export = false;
             }
@@ -538,13 +553,13 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         // upkeep, its import costs, what it can pay and its open emergencies.
         output << "],\"reference_prices\":{";
         bool first_reference = true;
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : w.universe_.commodities) {
             const auto rate_it = net_rates.find(commodity.id);
             if (rate_it == net_rates.end() || rate_it->second >= 0.0) {
                 continue;
             }
             output << (first_reference ? "" : ",") << "\"" << json_escape(commodity.id) << "\":"
-                   << economy_.reference_price(station, commodity.id);
+                   << w.economy_.reference_price(station, commodity.id);
             first_reference = false;
         }
         output << "},\"output_factor\":";
@@ -558,7 +573,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         output << "},\"upkeep_multiplier\":" << station_state.upkeep_multiplier
                << ",\"upkeep_availability\":{";
         bool first_upkeep = true;  // zeros included: those are the shortages
-        for (const auto& commodity : universe_.commodities) {
+        for (const auto& commodity : w.universe_.commodities) {
             if (const auto it = station_state.upkeep_availability.find(commodity.id); it != station_state.upkeep_availability.end()) {
                 output << (first_upkeep ? "" : ",") << "\"" << json_escape(commodity.id) << "\":" << it->second;
                 first_upkeep = false;
@@ -570,7 +585,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         output << ",\"orders\":{";
         bool first_order = true;
         for (const auto& [commodity_id, stats] : station_state.order_stats) {
-            const auto view = order_view(station_state, commodity_id);
+            const auto view = systems::order_view(w, station_state, commodity_id);
             output << (first_order ? "" : ",") << "\"" << json_escape(commodity_id) << "\":{"
                    << "\"kind\":\"" << view.ceiling_kind << "\""
                    << ",\"use_per_day\":" << view.use_per_day
@@ -597,13 +612,13 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         output << "}";
         output << ",\"emergencies\":[";
         bool first_emergency = true;
-        for (const auto& emergency : emergencies_) {
+        for (const auto& emergency : w.emergencies_) {
             if (emergency.station_id != station.id) {
                 continue;
             }
             output << (first_emergency ? "" : ",") << "{\"commodity_id\":\"" << json_escape(emergency.commodity_id)
                    << "\",\"premium\":" << emergency.premium << ",\"units_open\":" << emergency.units_open
-                   << ",\"days\":" << (game_time_s_ - emergency.opened_s) / 86400.0
+                   << ",\"days\":" << (w.game_time_s_ - emergency.opened_s) / 86400.0
                    << ",\"faction_paid\":" << emergency.faction_paid << "}";
             first_emergency = false;
         }
@@ -619,10 +634,10 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     output << "],";
 
     output << "\"ships\":[";
-    for (std::size_t i = 0; i < ships_.size(); ++i) {
-        const auto& ship = ships_[i];
-        const auto& ship_class = ship_design(ship);
-        const auto position = get_ship_render_position(ship);
+    for (std::size_t i = 0; i < w.ships_.size(); ++i) {
+        const auto& ship = w.ships_[i];
+        const auto& ship_class = query::ship_design(w, ship);
+        const auto position = query::get_ship_render_position(w, ship);
         if (i > 0) {
             output << ",";
         }
@@ -639,7 +654,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                    - ship.active_mission.fuel_cost - ship.active_mission.operating_cost) << ","
                << "\"propulsion_type\":\"" << json_escape(ship_class.propulsion_type) << "\","
                << "\"trajectory_type\":\"" << json_escape(ship.active_mission.trajectory_type) << "\","
-               << "\"phase\":\"" << json_escape(mission_phase_name(ship.phase)) << "\","
+               << "\"phase\":\"" << json_escape(query::mission_phase_name(ship.phase)) << "\","
                << "\"current_station_id\":\"" << json_escape(ship.current_station_id) << "\","
                << "\"propellant_kg\":" << ship.propellant_kg << ","
                << "\"dry_mass_kg\":" << ship_class.dry_mass_kg << ","
@@ -666,16 +681,16 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"cargo_mass_kg\":" << [&] {
                       double kg = 0.0;
                       for (const auto& lot : ship.active_mission.cargo) {
-                          kg += lot.units * get_commodity(lot.commodity_id).mass_per_unit_kg;
+                          kg += lot.units * query::get_commodity(w, lot.commodity_id).mass_per_unit_kg;
                       }
                       return kg;
                   }() << ","
-               << "\"provisions_mass_kg\":" << provisions_mass_kg(ship) << ","
-               << ship_passengers_json(ship, ship_class)
-               << ship_systems_json(ship, ship_class, position)
+               << "\"provisions_mass_kg\":" << query::provisions_mass_kg(w, ship) << ","
+               << systems::ship_passengers_json(w, ship, ship_class)
+               << ship_systems_json(w, ship, ship_class, position)
                << "\"provision_days\":" << [&] {
                       double days = std::numeric_limits<double>::infinity();
-                      for (const auto& [commodity_id, per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
+                      for (const auto& [commodity_id, per_crew_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
                           const double need = ship_class.crew_size * per_crew_day;
                           if (need > 0.0) {
                               const auto it = ship.provisions.find(commodity_id);
@@ -691,7 +706,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"purchase_cost\":" << ship.active_mission.purchase_cost << ","
                << "\"liner_stops\":[" << [&] {
                       std::string text;
-                      if (const auto* stops = liner_stops(ship)) {
+                      if (const auto* stops = systems::liner_stops(w, ship)) {
                           for (const auto& stop : *stops) {
                               text += (text.empty() ? "\"" : ",\"") + json_escape(stop) + "\"";
                           }
@@ -700,17 +715,17 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                   }() << "],"
                << "\"contract_stops\":[" << [&] {
                       std::string text;
-                      if (under_contract(ship)) {
+                      if (systems::under_contract(w, ship)) {
                           for (const auto& stop : ship.contract.stops) {
                               text += (text.empty() ? "\"" : ",\"") + json_escape(stop) + "\"";
                           }
                       }
                       return text;
                   }() << "],"
-               << "\"contract_until_s\":" << (under_contract(ship) ? ship.contract.until_s : 0.0) << ","
+               << "\"contract_until_s\":" << (systems::under_contract(w, ship) ? ship.contract.until_s : 0.0) << ","
                << "\"contract_deliveries\":[" << [&] {
                       std::string text;
-                      if (under_contract(ship)) {
+                      if (systems::under_contract(w, ship)) {
                           for (const auto& delivery : ship.contract.deliveries) {
                               text += std::format("{}{{\"to\":\"{}\",\"commodity_id\":\"{}\",\"units\":{:.1f},\"unit_price\":{:.2f}}}",
                                   text.empty() ? "" : ",", json_escape(delivery.to_station_id), json_escape(delivery.commodity_id),
@@ -731,7 +746,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                       if (ship.active_mission.salvage_derelict_id.empty() || ship.active_mission.salvage_done) {
                           return std::string();
                       }
-                      for (const auto& derelict : derelicts_) {
+                      for (const auto& derelict : w.derelicts_) {
                           if (derelict.id == ship.active_mission.salvage_derelict_id) {
                               return json_escape(derelict.name);
                           }
@@ -753,17 +768,17 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
             output << ",\"path_id\":\"" << json_escape(bridge_path_id(ship)) << "\"";
             if (with_paths) {
                 output << ",";
-                write_ship_path_json(output, ship);
+                write_ship_path_json(w, output, ship);
             }
         }
         output << "}";
     }
     // Derelicts (failures and salvage) ride with the ships, phase "derelict", at their coast's
     // position now; the racers name them in salvage_target_name.
-    for (const auto& derelict : derelicts_) {
-        const auto position = interpolate_timed_sampled_path(derelict.sampled_path, derelict.sampled_times_s, game_time_s_);
-        const auto& design = get_ship_class(derelict.class_id);
-        output << (ships_.empty() && &derelict == &derelicts_.front() ? "" : ",") << "{"
+    for (const auto& derelict : w.derelicts_) {
+        const auto position = interpolate_timed_sampled_path(derelict.sampled_path, derelict.sampled_times_s, w.game_time_s_);
+        const auto& design = query::get_ship_class(w, derelict.class_id);
+        output << (w.ships_.empty() && &derelict == &w.derelicts_.front() ? "" : ",") << "{"
                << "\"id\":\"" << json_escape(derelict.id) << "\","
                << "\"name\":\"" << json_escape("Wreck of " + derelict.name) << "\","
                << "\"faction_id\":\"" << json_escape(derelict.faction_id) << "\","
@@ -788,7 +803,7 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "\"claimant_ship_id\":\"" << json_escape(derelict.claimant_ship_id) << "\","
                << "\"claim_eta_s\":" << derelict.claim_eta_s << ","
                << "\"racers\":" << derelict.racers << ","
-               << "\"scrap_value_cr\":" << universe_.failures.scrap_fraction * derelict.ship_value_cr << ","
+               << "\"scrap_value_cr\":" << w.universe_.failures.scrap_fraction * derelict.ship_value_cr << ","
                << "\"trajectory_type\":\"derelict\",";
         if (derelict.sampled_path.size() >= 2) {
             output << "\"path_id\":\"" << derelict_path_id(derelict) << "\","
@@ -806,10 +821,10 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
                << "}";
     }
     // Police cutters: phase "patrol" when out, "patrol_docked" at their home port.
-    bool any_ship = !ships_.empty() || !derelicts_.empty();
-    for (const auto& patrol : patrols_) {
-        const auto position = patrol_position(patrol);
-        const auto& design = get_ship_class(patrol.class_id);
+    bool any_ship = !w.ships_.empty() || !w.derelicts_.empty();
+    for (const auto& patrol : w.patrols_) {
+        const auto position = systems::patrol_position(w, patrol);
+        const auto& design = query::get_ship_class(w, patrol.class_id);
         const bool docked = patrol.phase == domain::PatrolPhase::Docked;
         std::string status;
         switch (patrol.phase) {
@@ -870,33 +885,33 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
         double demand_value = 0.0;
         double unmet_value = 0.0;
         double exports_value = 0.0;
-        for (const auto& station : stations_) {
+        for (const auto& station : w.stations_) {
             for (const auto& [commodity_id, units] : station.demand_units) {
-                demand_value += units * get_commodity(commodity_id).base_price;
+                demand_value += units * query::get_commodity(w, commodity_id).base_price;
             }
             for (const auto& [commodity_id, units] : station.unmet_units) {
-                unmet_value += units * get_commodity(commodity_id).base_price;
+                unmet_value += units * query::get_commodity(w, commodity_id).base_price;
             }
             for (const auto& [commodity_id, units] : station.market_sold_units) {
-                exports_value += units * get_commodity(commodity_id).base_price;
+                exports_value += units * query::get_commodity(w, commodity_id).base_price;
             }
         }
         output << "\"economy\":{"
                << "\"demand_value\":" << demand_value << ","
                << "\"unmet_value\":" << unmet_value << ","
                << "\"exports_value\":" << exports_value << ","
-               << "\"money_supply_target\":" << seeded_money_supply_ << ","
-               << "\"ships_commissioned\":" << investment_ledger_.ships_commissioned << ","
-               << "\"ships_sold\":" << investment_ledger_.ships_sold << ","
-               << "\"emergencies_opened\":" << emergencies_opened_ << ","
-               << "\"emergency_paid\":" << emergency_paid_ << ","
-               << "\"faction_interest_paid\":" << faction_interest_paid_ << ","
-               << background_economies_json()
+               << "\"money_supply_target\":" << w.seeded_money_supply_ << ","
+               << "\"ships_commissioned\":" << w.investment_ledger_.ships_commissioned << ","
+               << "\"ships_sold\":" << w.investment_ledger_.ships_sold << ","
+               << "\"emergencies_opened\":" << w.emergencies_opened_ << ","
+               << "\"emergency_paid\":" << w.emergency_paid_ << ","
+               << "\"faction_interest_paid\":" << w.faction_interest_paid_ << ","
+               << systems::background_economies_json(w)
                << "},";
     }
     output << "\"recent_events\":[";
-    for (std::size_t i = 0; i < recent_events_.size(); ++i) {
-        const auto& event = recent_events_[i];
+    for (std::size_t i = 0; i < w.recent_events_.size(); ++i) {
+        const auto& event = w.recent_events_[i];
         if (i > 0) {
             output << ",";
         }
@@ -911,18 +926,18 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
     return output.str();
 }
 
-std::string Simulation::build_report() const {
+std::string build_report(const World& w) {
     auto inventory_value = [](const domain::Inventory& inventory, const std::string& commodity_id) {
         const auto it = inventory.find(commodity_id);
         return it == inventory.end() ? 0.0 : it->second;
     };
 
     std::ostringstream output;
-    output << "SpaceTrains snapshot at day " << (game_time_s_ / 86400.0) << "\n";
+    output << "SpaceTrains snapshot at day " << (w.game_time_s_ / 86400.0) << "\n";
     output << "Stations:\n";
-    for (const auto& station : stations_) {
-        output << "  - " << get_station_definition(station.station_id).name;
-        for (const auto& commodity : universe_.commodities) {
+    for (const auto& station : w.stations_) {
+        output << "  - " << query::get_station_definition(w, station.station_id).name;
+        for (const auto& commodity : w.universe_.commodities) {
             const double val = inventory_value(station.inventory, commodity.id);
             if (val > 0.1) {
                 output << " " << commodity.id << "=" << static_cast<int>(val);
@@ -931,16 +946,16 @@ std::string Simulation::build_report() const {
         output << "\n";
     }
     output << "Ships:\n";
-    for (const auto& ship : ships_) {
-        output << "  - " << ship.name << " at " << get_station_definition(ship.current_station_id).name
+    for (const auto& ship : w.ships_) {
+        output << "  - " << ship.name << " at " << query::get_station_definition(w, ship.current_station_id).name
                << " propellant=" << ship.propellant_kg
                << " phase=" << static_cast<int>(ship.phase) << "\n";
     }
     output << "Recent events:\n";
-    for (const auto& event : recent_events_) {
+    for (const auto& event : w.recent_events_) {
         output << "  - [day " << (event.time_s / 86400.0) << "] " << event.text << "\n";
     }
     return output.str();
 }
 
-}  // namespace spacetrains::simulation
+}  // namespace spacetrains::simulation::systems

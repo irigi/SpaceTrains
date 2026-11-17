@@ -1,8 +1,9 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-12): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-13): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
+#include "simulation/query/Positions.hpp"
 
 namespace spacetrains::simulation {
 
@@ -578,6 +579,37 @@ void Simulation::step_awaiting_departure_ship(domain::ShipState& ship) {
 
 void Simulation::step_in_transit_ship(domain::ShipState& ship, double dt_s) {
     systems::step_in_transit_ship(*this, ship, dt_s);
+}
+
+// Snapshot (step 13), with the query forwarder that lived in its topic file.
+
+domain::SimulationSnapshot Simulation::snapshot() const {
+    return systems::snapshot(*this);
+}
+
+math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) const {
+    return query::get_ship_render_position(*this, ship);
+}
+
+std::string Simulation::bridge_paths_signature() const {
+    return systems::bridge_paths_signature(*this);
+}
+
+std::string Simulation::build_bridge_paths_json() const {
+    return systems::build_bridge_paths_json(*this);
+}
+
+std::string Simulation::build_bridge_designs_json() const {
+    return systems::build_bridge_designs_json(*this);
+}
+
+std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t snapshot_seq, double snapshot_real_time_s,
+    bool with_paths) const {
+    return systems::build_bridge_snapshot_json(*this, paused, snapshot_seq, snapshot_real_time_s, with_paths);
+}
+
+std::string Simulation::build_report() const {
+    return systems::build_report(*this);
 }
 
 }  // namespace spacetrains::simulation

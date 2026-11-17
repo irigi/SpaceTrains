@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-12 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-13 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -273,7 +273,13 @@ call-graph script over the `Simulation::` definitions (members already forwardin
     calls, `neighbouring_fits` (with `FitOption`) and `record_trajectory_audit`, at its end. Forwarders for the
     four phase steps (`tick` calls them); `consider_refit`, `refit_bill` and the two taken over are file-local
     (`neighbouring_fits` keeps its default `radiator_bucket = 1.0` on its declaration ahead).
-13. **Snapshot** (`const World&`; it reads every topic, so it goes after them).
+13. **Snapshot** (done 2026-11-17; 946 lines; `const World&`; it reads every topic, so it goes after them).
+    As built: `Snapshot.cpp` moved whole to `systems/`; every function takes `const World&`. Forwarders for the
+    seven called from the bridge, the headless app and the tests (`snapshot`, `build_report`,
+    `build_bridge_snapshot_json`, `build_bridge_paths_json`, `build_bridge_designs_json`, `bridge_paths_signature`,
+    and the query forwarder `get_ship_render_position`); `bridge_path_id`, `write_ship_path_json` and
+    `ship_systems_json` are file-local, and the query forwarder `mission_phase_name` is gone. Not mechanical:
+    `bridge_path_id` never read the state, so it takes no `World` (as `per_capita_savings` in step 9).
 14. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through
     `Simulation`'s public members.
 15. **Thin `Simulation`:** drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
