@@ -10,9 +10,9 @@
 
 namespace spacetrains::simulation::query {
 
-[[nodiscard]] inline bool households_on(const World& w) { return w.data.universe_.households.enabled != 0.0; }
+[[nodiscard]] inline bool households_on(const World& w) { return w.data.universe.households.enabled != 0.0; }
 [[nodiscard]] inline bool labour_on(const World& w) {
-    return households_on(w) && w.data.universe_.labour_market.enabled != 0.0;
+    return households_on(w) && w.data.universe.labour_market.enabled != 0.0;
 }
 // Whether a worker's employer is a colony ("colony:<economy>") rather than a station.
 [[nodiscard]] inline bool colony_employer(const std::string& work_station_id) {

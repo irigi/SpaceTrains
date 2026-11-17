@@ -44,7 +44,7 @@ using namespace detail;
 namespace {
 
 // One step of a fleet review: probes a batch of candidates (their cargo runs from the
-// yard, kept in review_probes_ for the rest of the review), or, once every candidate that
+// yard, kept in state.review_probes for the rest of the review), or, once every candidate that
 // could still win has been probed, buys the best one.
 enum class CommissionStep { Probed, Bought, NothingToBuy };
 
@@ -62,10 +62,10 @@ CommissionStep commission_step(World& w);
 double internal_money_supply(const World& w) {
     // Station and ship money (what the controller holds); residents' savings are their own.
     double total = 0.0;
-    for (const auto& station : w.state.stations_) {
+    for (const auto& station : w.state.stations) {
         total += station.credits;
     }
-    for (const auto& ship : w.state.ships_) {
+    for (const auto& ship : w.state.ships) {
         total += ship.credits;
     }
     return total;
@@ -73,13 +73,13 @@ double internal_money_supply(const World& w) {
 
 void step_treasuries(World& w, double dt_s) {
     const profiling::Scope profile_scope(profiling::Phase::Treasuries);
-    const auto& open = w.data.universe_.open_economy;
+    const auto& open = w.data.universe.open_economy;
     const double dt_days = dt_s / 86400.0;
 
     // Ships keep a working reserve; the rest goes to the owner, the home station.
     if (open.ship_cash_reserve > 0.0) {
         const double share = std::min(1.0, dt_days / open.dividend_days);
-        for (auto& ship : w.state.ships_) {
+        for (auto& ship : w.state.ships) {
             if (ship.credits <= open.ship_cash_reserve) {
                 continue;
             }
@@ -89,19 +89,19 @@ void step_treasuries(World& w, double dt_s) {
             ship.ledger.dividends += dividend;
             home.credits += dividend;
             home.ledger.dividends += dividend;
-            w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), MoneyCategory::Dividends, dividend);
+            w.state.journal.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), MoneyCategory::Dividends, dividend);
         }
     }
 
     // A liner keeps its schedule whatever it earns: its faction tops its cash up to the working
     // reserve when it runs out (step 22).
-    for (auto& ship : w.state.ships_) {
+    for (auto& ship : w.state.ships) {
         if (ship.credits < 0.0 && systems::liner_stops(w, ship) != nullptr) {
             const double top_up = open.ship_cash_reserve - ship.credits;
             ship.credits += top_up;
             ship.ledger.subsidies += top_up;
-            w.state.faction_treasuries_[ship.faction_id] -= top_up;
-            w.state.journal_.record(query::account_faction(w, ship.faction_id), query::account_fleet(w, ship.faction_id), MoneyCategory::LinerTopup, top_up);
+            w.state.faction_treasuries[ship.faction_id] -= top_up;
+            w.state.journal.record(query::account_faction(w, ship.faction_id), query::account_fleet(w, ship.faction_id), MoneyCategory::LinerTopup, top_up);
         }
     }
 
@@ -110,11 +110,11 @@ void step_treasuries(World& w, double dt_s) {
     double per_capita = 0.0;
     if (open.money_supply_days > 0.0) {
         double population = 0.0;
-        for (const auto& station : w.state.stations_) {
+        for (const auto& station : w.state.stations) {
             population += station.population;
         }
         if (population > 0.0) {
-            per_capita = (w.state.seeded_money_supply_ - internal_money_supply(w)) * std::min(1.0, dt_days / open.money_supply_days)
+            per_capita = (w.state.seeded_money_supply - internal_money_supply(w)) * std::min(1.0, dt_days / open.money_supply_days)
                 / population;
         }
     }
@@ -125,10 +125,10 @@ void step_treasuries(World& w, double dt_s) {
     // than it spends; out of its savings, by the whole gap (step 26).
     const double band_share = std::min(1.0, dt_days / open.station_balance_days);
     const double tax_decay = std::exp(-dt_days / 365.0);
-    for (auto& [faction_id, per_day] : w.state.faction_tax_per_day_) {
+    for (auto& [faction_id, per_day] : w.state.faction_tax_per_day) {
         per_day *= tax_decay;
     }
-    for (auto& station : w.state.stations_) {
+    for (auto& station : w.state.stations) {
         const auto& definition = query::get_station_definition(w, station.station_id);
         double transfer = 0.0;
         MoneyCategory band_category = MoneyCategory::FactionTopup;
@@ -138,7 +138,7 @@ void step_treasuries(World& w, double dt_s) {
                 // A faction in surplus covers the whole gap out of its savings (step 26): the
                 // core-crew cap left outposts deep in debt for the stock step 23 has them hold,
                 // while their faction's taxes piled up unused.
-                const double savings = std::max(0.0, w.state.faction_treasuries_[definition.faction_id]);
+                const double savings = std::max(0.0, w.state.faction_treasuries[definition.faction_id]);
                 // Rotation fares (passengers) are upkeep too: the faction keeps its staff relieved.
                 const auto* tour = systems::rotation_tour(w, definition.id);
                 const double rotation = tour == nullptr ? 0.0 : tour->fares_per_day * systems::rotation_positions(w, station);
@@ -157,7 +157,7 @@ void step_treasuries(World& w, double dt_s) {
                             savings));
                 }
             }
-        } else if (const double ceiling = station_tax_ceiling(open, w.state.faction_treasuries_[definition.faction_id]);
+        } else if (const double ceiling = station_tax_ceiling(open, w.state.faction_treasuries[definition.faction_id]);
                    ceiling > 0.0 && station.credits > ceiling) {
             transfer = -(station.credits - ceiling) * band_share;
             band_category = MoneyCategory::FactionTax;
@@ -168,33 +168,33 @@ void step_treasuries(World& w, double dt_s) {
         const double controller = per_capita * station.population;
         if (controller < 0.0) {
             transfer -= std::min(-controller, std::max(0.0, after_band - open.station_credit_floor));
-        } else if (const double ceiling = station_tax_ceiling(open, w.state.faction_treasuries_[definition.faction_id]); ceiling > 0.0) {
+        } else if (const double ceiling = station_tax_ceiling(open, w.state.faction_treasuries[definition.faction_id]); ceiling > 0.0) {
             transfer += std::min(controller, std::max(0.0, ceiling - after_band));
         } else {
             transfer += controller;
         }
         station.credits += transfer;
-        w.state.faction_treasuries_[definition.faction_id] -= transfer;
-        w.state.journal_.record(query::account_faction(w, definition.faction_id), query::account_station(w, station), band_category, band_transfer);
-        w.state.journal_.record(query::account_faction(w, definition.faction_id), query::account_station(w, station), MoneyCategory::MoneyController,
+        w.state.faction_treasuries[definition.faction_id] -= transfer;
+        w.state.journal.record(query::account_faction(w, definition.faction_id), query::account_station(w, station), band_category, band_transfer);
+        w.state.journal.record(query::account_faction(w, definition.faction_id), query::account_station(w, station), MoneyCategory::MoneyController,
             transfer - band_transfer);
         if (transfer > 0.0) {
             station.ledger.subsidies += transfer;
         } else {
             station.ledger.taxes -= transfer;
-            w.state.faction_tax_per_day_[definition.faction_id] += -transfer / 365.0;
+            w.state.faction_tax_per_day[definition.faction_id] += -transfer / 365.0;
         }
     }
 
     // A faction in debt pays interest to the outside economy (Earth's lenders).
-    const double rate = w.data.universe_.ship_operations.interest_rate_per_year;
-    for (auto& [faction_id, balance] : w.state.faction_treasuries_) {
+    const double rate = w.data.universe.ship_operations.interest_rate_per_year;
+    for (auto& [faction_id, balance] : w.state.faction_treasuries) {
         if (balance < 0.0 && rate > 0.0) {
             const double interest = -balance * rate * dt_days / 365.0;
             balance -= interest;
-            w.state.outside_economy_credits_ += interest;
-            w.state.journal_.record(query::account_faction(w, faction_id), query::account_earth(), MoneyCategory::Interest, interest);
-            w.state.faction_interest_paid_ += interest;
+            w.state.outside_economy_credits += interest;
+            w.state.journal.record(query::account_faction(w, faction_id), query::account_earth(), MoneyCategory::Interest, interest);
+            w.state.faction_interest_paid += interest;
         }
     }
 }
@@ -203,10 +203,10 @@ namespace {
 
 double consumption_value_per_day(const World& w, const domain::StationDefinition& station, bool upkeep_only) {
     double value = 0.0;
-    for (const auto& [commodity_id, rate] : w.engines.economy_.get_station_net_rates(station)) {
-        if (rate < 0.0 && !w.engines.economy_.is_export_market(station, commodity_id)
-            && (!upkeep_only || w.engines.economy_.is_upkeep(station, commodity_id))) {
-            value += -rate * w.engines.economy_.reference_price(station, commodity_id);
+    for (const auto& [commodity_id, rate] : w.engines.economy.get_station_net_rates(station)) {
+        if (rate < 0.0 && !w.engines.economy.is_export_market(station, commodity_id)
+            && (!upkeep_only || w.engines.economy.is_upkeep(station, commodity_id))) {
+            value += -rate * w.engines.economy.reference_price(station, commodity_id);
         }
     }
     return value;
@@ -224,29 +224,29 @@ double station_tax_ceiling(const domain::OpenEconomyDefinition& open, double tre
 namespace {
 
 double faction_spendable(const World& w, const std::string& faction_id) {
-    const auto it = w.state.faction_treasuries_.find(faction_id);
-    return (it == w.state.faction_treasuries_.end() ? 0.0 : it->second) + query::faction_credit_limit(w, faction_id);
+    const auto it = w.state.faction_treasuries.find(faction_id);
+    return (it == w.state.faction_treasuries.end() ? 0.0 : it->second) + query::faction_credit_limit(w, faction_id);
 }
 
 }  // namespace
 
 void step_fleet_investment(World& w) {
     const profiling::Scope profile_scope(profiling::Phase::FleetInvestment);
-    const auto& investment = w.data.universe_.fleet_investment;
+    const auto& investment = w.data.universe.fleet_investment;
     if (investment.layup_sale_days > 0.0) {
-        for (std::size_t i = w.state.ships_.size(); i-- > 0;) {
-            const auto& ship = w.state.ships_[i];
+        for (std::size_t i = w.state.ships.size(); i-- > 0;) {
+            const auto& ship = w.state.ships[i];
             if (ship.phase == domain::ShipMissionPhase::LaidUp && systems::liner_stops(w, ship) == nullptr
-                && w.state.game_time_s_ - ship.laid_up_since_s >= investment.layup_sale_days * 86400.0) {
+                && w.state.game_time_s - ship.laid_up_since_s >= investment.layup_sale_days * 86400.0) {
                 sell_ship(w, i);
             }
         }
     }
-    if (investment.review_days > 0.0 && w.state.game_time_s_ >= w.state.next_investment_review_s_) {
-        w.state.next_investment_review_s_ += investment.review_days * 86400.0;
-        w.state.investment_purchases_left_ = static_cast<int>(investment.max_ships_per_review);
-        w.state.review_probes_.clear();
-        w.state.replacement_tried_ = false;
+    if (investment.review_days > 0.0 && w.state.game_time_s >= w.state.next_investment_review_s) {
+        w.state.next_investment_review_s += investment.review_days * 86400.0;
+        w.state.investment_purchases_left = static_cast<int>(investment.max_ships_per_review);
+        w.state.review_probes.clear();
+        w.state.replacement_tried = false;
     }
     // One purchase per tick (each takes a second or two of probing), so a review never
     // stalls the simulation for long. Each purchase is a committed flow and keeps its yard
@@ -256,57 +256,57 @@ void step_fleet_investment(World& w) {
     // count as a backstop for run time. Laid-up ships sold for salvage free their places.
     if ((investment.max_fleet_size > 0.0 && static_cast<double>(systems::fleet_ship_count(w)) >= investment.max_fleet_size)
         || (investment.max_fleet_hold_units > 0.0 && systems::fleet_hold_units(w) >= investment.max_fleet_hold_units)) {
-        w.state.investment_purchases_left_ = 0;
+        w.state.investment_purchases_left = 0;
     }
     // One batch of probes or one purchase per tick: a review never stalls the simulation for
     // long (probing every candidate at once took up to six seconds with ninety ships).
     // Purchases at least purchase_spacing_days apart: each plans every variant of the winning
     // hull, and a review's purchases falling within a few days made the slowest days (0.6-1 s).
-    if (w.state.investment_purchases_left_ > 0 && w.state.game_time_s_ >= w.state.next_purchase_s_) {
+    if (w.state.investment_purchases_left > 0 && w.state.game_time_s >= w.state.next_purchase_s) {
         switch (commission_step(w)) {
             case CommissionStep::Probed:
                 break;
             case CommissionStep::Bought:
-                --w.state.investment_purchases_left_;
+                --w.state.investment_purchases_left;
                 if (investment.purchase_spacing_days > 0.0) {
-                    w.state.next_purchase_s_ = w.state.game_time_s_ + investment.purchase_spacing_days * 86400.0;
+                    w.state.next_purchase_s = w.state.game_time_s + investment.purchase_spacing_days * 86400.0;
                 }
                 break;
             case CommissionStep::NothingToBuy:
-                w.state.investment_purchases_left_ = 0;
+                w.state.investment_purchases_left = 0;
                 break;
         }
     }
-    if (w.state.investment_purchases_left_ <= 0) {
-        w.state.review_probes_.clear();
+    if (w.state.investment_purchases_left <= 0) {
+        w.state.review_probes.clear();
     }
 }
 
 namespace {
 
 void sell_ship(World& w, std::size_t index) {
-    auto& ship = w.state.ships_[index];
+    auto& ship = w.state.ships[index];
     const auto& ship_class = query::ship_design(w, ship);
     // The outside economy buys the hull (with what is left in its tanks and stores) for its
     // salvage value, paid to the owner's treasury. The ship's cash, or its debt, goes to the
     // home station, like its dividends.
-    const double salvage = w.data.universe_.fleet_investment.salvage_fraction * ship_class.ship_value_cr;
-    w.state.outside_economy_credits_ -= salvage;
-    w.state.faction_treasuries_[ship.faction_id] += salvage;
-    w.state.journal_.record(query::account_earth(), query::account_faction(w, ship.faction_id), MoneyCategory::Salvage, salvage);
-    w.state.investment_ledger_.salvage += salvage;
-    ++w.state.investment_ledger_.ships_sold;
+    const double salvage = w.data.universe.fleet_investment.salvage_fraction * ship_class.ship_value_cr;
+    w.state.outside_economy_credits -= salvage;
+    w.state.faction_treasuries[ship.faction_id] += salvage;
+    w.state.journal.record(query::account_earth(), query::account_faction(w, ship.faction_id), MoneyCategory::Salvage, salvage);
+    w.state.investment_ledger.salvage += salvage;
+    ++w.state.investment_ledger.ships_sold;
     auto& home = query::get_station_state(w, ship.home_station_id);
     home.credits += ship.credits;
     home.ledger.dividends += ship.credits;
-    w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), MoneyCategory::ShipSaleCash, ship.credits);
+    w.state.journal.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), MoneyCategory::ShipSaleCash, ship.credits);
     ship.ledger.dividends += ship.credits;
     ship.credits = 0.0;
     query::add_event(w, std::format("{} sold for salvage at {} ({:.0f} cr) after {:.0f} days laid up",
         ship.name, query::get_station_definition(w, ship.current_station_id).name, salvage,
-        (w.state.game_time_s_ - ship.laid_up_since_s) / 86400.0), "alert");
-    w.state.sold_ships_.push_back(std::move(ship));
-    w.state.ships_.erase(w.state.ships_.begin() + static_cast<std::ptrdiff_t>(index));
+        (w.state.game_time_s - ship.laid_up_since_s) / 86400.0), "alert");
+    w.state.sold_ships.push_back(std::move(ship));
+    w.state.ships.erase(w.state.ships.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
 
@@ -327,7 +327,7 @@ public:
         choose_tanks();
         if (trace) {
             std::cerr << std::format("[invest day {:.0f}] review: {} candidates, {} probed in {:.1f} s\n",
-                sim_.state.game_time_s_ / 86400.0, candidates.size(), probes,
+                sim_.state.game_time_s / 86400.0, candidates.size(), probes,
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count());
         }
         if (best_class == nullptr) {
@@ -360,7 +360,7 @@ private:
 
     World& sim_;
     const std::string reserved_for_;
-    const domain::FleetInvestmentDefinition& investment = sim_.data.universe_.fleet_investment;
+    const domain::FleetInvestmentDefinition& investment = sim_.data.universe.fleet_investment;
     // Debug aid: SPACETRAINS_TRACE_INVESTMENT=1 logs every candidate and the review's time (stderr).
     const bool trace = trace_on();
     const std::chrono::steady_clock::time_point review_start = std::chrono::steady_clock::now();
@@ -402,7 +402,7 @@ private:
             return std::max(0.0, faction_spendable(sim_, reserved_for_));
         }
         double richest_treasury = 0.0;
-        for (const auto& [faction_id, balance] : sim_.state.faction_treasuries_) {
+        for (const auto& [faction_id, balance] : sim_.state.faction_treasuries) {
             richest_treasury = std::max(richest_treasury, faction_spendable(sim_, faction_id));
         }
         return richest_treasury;
@@ -423,27 +423,27 @@ private:
             .active_mission = {},
             .provisions = {},
             .ledger = {},
-            .next_review_s = sim_.state.game_time_s_,
-            .idle_since_s = sim_.state.game_time_s_,
+            .next_review_s = sim_.state.game_time_s,
+            .idle_since_s = sim_.state.game_time_s,
             .refit_class_id = {},
             .refit_done_s = 0.0,
             .next_refit_review_s = 0.0,
             .laid_up_since_s = 0.0,
-            .commissioned_s = sim_.state.game_time_s_,
+            .commissioned_s = sim_.state.game_time_s,
             .route_destination_id = {},
             .route_commodity_id = {},
             .route_units_per_day = 0.0,
             .route_until_s = 0.0,
         };
         // New ships leave the yard with their full life-support endurance, like the starting fleet.
-        for (const auto& [commodity_id, units_per_crew_day] : sim_.data.universe_.ship_operations.life_support_units_per_crew_day) {
+        for (const auto& [commodity_id, units_per_crew_day] : sim_.data.universe.ship_operations.life_support_units_per_crew_day) {
             ship.provisions[commodity_id] = ship_class.crew_size * units_per_crew_day * PROVISION_ENDURANCE_DAYS;
         }
         return ship;
     }
     // A depot's fuel is also bought by ships.
     double consumption_rate(const domain::StationDefinition& station, const std::string& commodity_id) const {
-        const auto& rates = sim_.engines.economy_.get_station_net_rates(station);
+        const auto& rates = sim_.engines.economy.get_station_net_rates(station);
         const auto it = rates.find(commodity_id);
         const double ship_demand = commodity_id == economy::FUEL_ID
             ? query::get_station_state(sim_, station.id).ship_fuel_units_per_day : 0.0;
@@ -473,10 +473,10 @@ private:
     // Ships still in the yard have delivered nothing yet, so the observed imports miss them.
     double committed_flow(const std::string& destination_id, const std::string& commodity_id, bool in_yard) const {
         double flow = 0.0;
-        for (const auto& ship : sim_.state.ships_) {
+        for (const auto& ship : sim_.state.ships) {
             if (ship.route_destination_id == destination_id && ship.route_commodity_id == commodity_id
-                && sim_.state.game_time_s_ < ship.route_until_s
-                && in_yard == (sim_.state.game_time_s_ < ship.commissioned_s + investment.build_days * 86400.0)) {
+                && sim_.state.game_time_s < ship.route_until_s
+                && in_yard == (sim_.state.game_time_s < ship.commissioned_s + investment.build_days * 86400.0)) {
                 flow += ship.route_units_per_day;
             }
         }
@@ -499,8 +499,8 @@ private:
         const auto& destination = *option.destination;
         const auto& yard_state = query::get_station_state(sim_, yard.id);
         const auto& destination_state = query::get_station_state(sim_, destination.id);
-        const auto& yard_rates = sim_.engines.economy_.get_station_net_rates(yard);
-        const auto& destination_rates = sim_.engines.economy_.get_station_net_rates(destination);
+        const auto& yard_rates = sim_.engines.economy.get_station_net_rates(yard);
+        const auto& destination_rates = sim_.engines.economy.get_station_net_rates(destination);
         const bool fuel = commodity_id == economy::FUEL_ID;
 
         const double yard_rate = yard_rates.contains(commodity_id) ? yard_rates.at(commodity_id) : 0.0;
@@ -508,7 +508,7 @@ private:
             - (fuel ? yard_state.ship_fuel_units_per_day : 0.0);
         const double yard_reserve = 8.0 + std::max(0.0, yard_rate) * 7.0;
         double yard_stock = flow_of(yard_state.inventory, commodity_id);
-        const double yard_cap = std::max(yard_stock, sim_.engines.economy_.production_cap_units(yard, commodity_id, yard_rate));
+        const double yard_cap = std::max(yard_stock, sim_.engines.economy.production_cap_units(yard, commodity_id, yard_rate));
         const double destination_drift
             = (destination_rates.contains(commodity_id) ? destination_rates.at(commodity_id) : 0.0)
             - (fuel ? destination_state.ship_fuel_units_per_day : 0.0)
@@ -524,7 +524,7 @@ private:
         // prices ran 15x the earned returns).
         // A station that keeps paying more than that (a science station far out, short for years)
         // is valued at what it has been paying: its going rate.
-        double sustained_cap = sim_.engines.economy_.reference_price(destination, commodity_id);
+        double sustained_cap = sim_.engines.economy.reference_price(destination, commodity_id);
         if (const auto stats = destination_state.order_stats.find(commodity_id); stats != destination_state.order_stats.end()) {
             sustained_cap = std::max(sustained_cap, stats->second.going_rate);
         }
@@ -532,7 +532,7 @@ private:
             return std::min(units * sustained_cap, [&] {
             const auto order = destination_state.order_stats.find(commodity_id);
             if (!systems::priced_order(destination_state, commodity_id)) {
-                return sim_.engines.economy_.get_trade_value(destination, commodity_id, destination_stock, units, commodity.base_price);
+                return sim_.engines.economy.get_trade_value(destination, commodity_id, destination_stock, units, commodity.base_price);
             }
             const auto levels = systems::order_levels(sim_, destination_state, commodity_id, order->second);
             OrderQuote quote;
@@ -540,9 +540,9 @@ private:
             quote.extra_units = std::max(0.0, levels.max_units - std::max(destination_stock, levels.order_up_to_units));
             // The bid on the projected stock, as a quote would make it.
             quote.price = systems::order_bid(sim_, destination_state, commodity_id, levels, destination_stock).price;
-            quote.extra_price = std::min(quote.price, order->second.going_rate) * (1.0 - sim_.data.universe_.orders.extra_discount);
+            quote.extra_price = std::min(quote.price, order->second.going_rate) * (1.0 - sim_.data.universe.orders.extra_discount);
             quote.floor_price = std::min(quote.extra_price,
-                economy::PRICE_FLOOR_MULTIPLIER * sim_.engines.economy_.reference_price(destination, commodity_id));
+                economy::PRICE_FLOOR_MULTIPLIER * sim_.engines.economy.reference_price(destination, commodity_id));
             return systems::quote_split(quote, 0.0, units).total;
             }());
         };
@@ -571,7 +571,7 @@ private:
             }
             // The empty way back is lighter but is often fuelled at the dearer port: count it
             // as a second loaded leg.
-            const double cost = sim_.engines.economy_.get_trade_value(yard, commodity_id, yard_stock, -units, commodity.base_price)
+            const double cost = sim_.engines.economy.get_trade_value(yard, commodity_id, yard_stock, -units, commodity.base_price)
                 + 2.0 * option.fuel_cost;
             yard_stock -= units;
             advance(leg_days);
@@ -594,7 +594,7 @@ private:
         const double transfer_days = std::max(0.0, option.travel_days - option.wait_days);
         const double cycle_days = std::max(1.0, 2.0 * transfer_days + option.wait_days);
         double provisions_per_day = 0.0;
-        for (const auto& [commodity_id, units] : sim_.data.universe_.ship_operations.life_support_units_per_crew_day) {
+        for (const auto& [commodity_id, units] : sim_.data.universe.ship_operations.life_support_units_per_crew_day) {
             provisions_per_day += units * systems::station_price(sim_, query::get_station_state(sim_, yard.id), commodity_id);
         }
         // Taken: what ships flying the route carry now (cabin hulls and liners alike, committed or
@@ -626,7 +626,7 @@ private:
     Valuation value_candidate(const domain::ShipClassDefinition& ship_class, const domain::StationDefinition& yard,
         double return_bound, const MissionChoice& choice) {
         const double running_cost = query::daily_capital_cost(sim_, ship_class) + systems::daily_crew_cost(sim_, ship_class, query::get_station_state(sim_, yard.id))
-            + query::hazard_cr_per_day(sim_, ship_class, yard, yard, sim_.state.game_time_s_) + query::wear_cr_per_flight_day(sim_, ship_class);
+            + query::hazard_cr_per_day(sim_, ship_class, yard, yard, sim_.state.game_time_s) + query::wear_cr_per_flight_day(sim_, ship_class);
         Valuation valuation;
         valuation.label = "no cargo run";
         // A single-good run is valued alone; the lots of a mixed hold together (each along its
@@ -684,7 +684,7 @@ private:
         }
         if (trace) {
             std::cerr << std::format("[invest day {:.0f}] {} at {}: {} of {} runs: {:.0f}%/yr (bound {:.0f}%)\n",
-                sim_.state.game_time_s_ / 86400.0, ship_class.id, yard.id, valuation.label, choice.cargo_options.size(),
+                sim_.state.game_time_s / 86400.0, ship_class.id, yard.id, valuation.label, choice.cargo_options.size(),
                 100.0 * valuation.annual_return, 100.0 * return_bound);
         }
         return valuation;
@@ -709,13 +709,13 @@ private:
         // Hulls in their standard tanks; with passengers also each hull with its cabin module (the
         // liners carry their berths built in).
         std::vector<const domain::ShipClassDefinition*> candidate_classes;
-        for (const auto& ship_class : sim_.data.universe_.ship_classes) {
+        for (const auto& ship_class : sim_.data.universe.ship_classes) {
             if (!ship_class.hull_id.empty() && ship_class.hull_id != ship_class.id) {
                 continue;
             }
             candidate_classes.push_back(&ship_class);
             if (query::passengers_on(sim_) && ship_class.berths <= 0.0) {
-                for (const auto& module : sim_.data.universe_.ship_modules) {
+                for (const auto& module : sim_.data.universe.ship_modules) {
                     if (module.hull_id == ship_class.id && module.slot == "cabin" && query::module_has_active_effect(sim_, module)) {
                         candidate_classes.push_back(&query::register_design(sim_, ship_class.id, {module.id}));
                     }
@@ -723,7 +723,7 @@ private:
             }
         }
         std::vector<IdleHull> idle_hulls;
-        for (const auto& ship : sim_.state.ships_) {
+        for (const auto& ship : sim_.state.ships) {
             if (ship.phase == domain::ShipMissionPhase::Idle || ship.phase == domain::ShipMissionPhase::LaidUp) {
                 const auto& design = query::ship_design(sim_, ship);
                 idle_hulls.push_back({.station_id = &ship.current_station_id,
@@ -732,11 +732,11 @@ private:
         }
         // A yard builds one ship at a time. (Routes already served are discounted by the
         // committed flow, so a yard may build again as soon as it is free.)
-        for (const auto& yard : sim_.data.universe_.stations) {
+        for (const auto& yard : sim_.data.universe.stations) {
             bool yard_busy = false;
-            for (const auto& ship : sim_.state.ships_) {
+            for (const auto& ship : sim_.state.ships) {
                 yard_busy = yard_busy
-                    || (ship.home_station_id == yard.id && ship.commissioned_s > 0.0 && sim_.state.game_time_s_ < ship.refit_done_s
+                    || (ship.home_station_id == yard.id && ship.commissioned_s > 0.0 && sim_.state.game_time_s < ship.refit_done_s
                         && ship.phase == domain::ShipMissionPhase::Refitting);
             }
             if (yard_busy) {
@@ -745,7 +745,7 @@ private:
             // Margin per day each surplus good of the yard could make at its consumers' current
             // prices and consumption rates, a cheap upper bound on any ship's earnings.
             const auto& yard_state = query::get_station_state(sim_, yard.id);
-            const auto& yard_rates = sim_.engines.economy_.get_station_net_rates(yard);
+            const auto& yard_rates = sim_.engines.economy.get_station_net_rates(yard);
             struct Outlet {
                 double unit_margin;
                 double rate;
@@ -757,7 +757,7 @@ private:
                     continue;
                 }
                 const double buy_price = systems::station_price(sim_, yard_state, commodity_id);
-                for (const auto& destination : sim_.data.universe_.stations) {
+                for (const auto& destination : sim_.data.universe.stations) {
                     const double unit_margin = systems::consumer_bid(sim_, query::get_station_state(sim_, destination.id), commodity_id) - buy_price;
                     const double rate = consumption_rate(destination, commodity_id);
                     if (unit_margin > 0.0 && rate > 0.0) {
@@ -792,7 +792,7 @@ private:
                 // valued on its own, so the bound is the larger of the cargo and passenger bounds.
                 if (query::passengers_on(sim_) && ship_class.berths >= 1.0) {
                     double passenger_bound = 0.0;
-                    for (const auto& destination : sim_.data.universe_.stations) {
+                    for (const auto& destination : sim_.data.universe.stations) {
                         const auto* out = query::reference_fare(sim_, yard.id, destination.id);
                         if (destination.id == yard.id || out == nullptr) {
                             continue;
@@ -810,7 +810,7 @@ private:
                     margin_bound = cabin_fit(ship_class) ? passenger_bound : std::max(margin_bound, passenger_bound);
                 }
                 const double running_cost = query::daily_capital_cost(sim_, ship_class) + systems::daily_crew_cost(sim_, ship_class, yard_state)
-                    + query::hazard_cr_per_day(sim_, ship_class, yard, yard, sim_.state.game_time_s_) + query::wear_cr_per_flight_day(sim_, ship_class);
+                    + query::hazard_cr_per_day(sim_, ship_class, yard, yard, sim_.state.game_time_s) + query::wear_cr_per_flight_day(sim_, ship_class);
                 const double return_bound = (margin_bound - running_cost) * 365.0 / ship_class.ship_value_cr;
                 if (return_bound >= investment.hurdle_return_per_year) {
                     candidates.push_back({.ship_class = &ship_class, .yard = &yard, .return_bound = return_bound,
@@ -836,12 +836,12 @@ private:
             if (candidate.rank_bound <= best_rank) {
                 break;
             }
-            const auto probed = sim_.state.review_probes_.find(probe_key(candidate));
-            if (probed == sim_.state.review_probes_.end()) {
+            const auto probed = sim_.state.review_probes.find(probe_key(candidate));
+            if (probed == sim_.state.review_probes.end()) {
                 std::vector<std::string> batch_keys;
                 for (std::size_t j = i; j < candidates.size() && to_probe.size() < kProbeBatch; ++j) {
                     const auto key = probe_key(candidates[j]);
-                    if (!sim_.state.review_probes_.contains(key) && std::find(batch_keys.begin(), batch_keys.end(), key) == batch_keys.end()) {
+                    if (!sim_.state.review_probes.contains(key) && std::find(batch_keys.begin(), batch_keys.end(), key) == batch_keys.end()) {
                         to_probe.push_back(j);
                         batch_keys.push_back(key);
                     }
@@ -881,11 +881,11 @@ private:
                 const auto& probed_class = probe_class(candidates[index]);
                 probe_ships.push_back(new_ship(probed_class, *candidates[index].yard));
                 requests.push_back({.ship = &probe_ships.back(), .ship_class = &probed_class,
-                    .earliest_departure_s = sim_.state.game_time_s_ + investment.build_days * 86400.0, .cargo_only = true});
+                    .earliest_departure_s = sim_.state.game_time_s + investment.build_days * 86400.0, .cargo_only = true});
             }
             const auto choices = systems::choose_missions(sim_, requests);
             for (std::size_t k = 0; k < to_probe.size(); ++k) {
-                auto& runs = sim_.state.review_probes_[probe_key(candidates[to_probe[k]])];
+                auto& runs = sim_.state.review_probes[probe_key(candidates[to_probe[k]])];
                 for (const auto& option : choices[k].cargo_options) {
                     runs.push_back({.destination_id = option.destination->id, .commodity_id = option.commodity_id,
                         .cargo_units = option.cargo_units, .travel_days = option.travel_days,
@@ -898,7 +898,7 @@ private:
                 for (const auto index : to_probe) {
                     names += std::format(" {}@{}", probe_class(candidates[index]).id, candidates[index].yard->id);
                 }
-                std::cerr << std::format("[invest day {:.1f}] probed {} candidates in {:.2f} s:{}\n", sim_.state.game_time_s_ / 86400.0,
+                std::cerr << std::format("[invest day {:.1f}] probed {} candidates in {:.2f} s:{}\n", sim_.state.game_time_s / 86400.0,
                     to_probe.size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count(), names);
             }
             return true;
@@ -915,14 +915,14 @@ private:
             const auto* hull = best_class;
             std::vector<const domain::ShipClassDefinition*> variants;
             std::vector<domain::ShipState> variant_ships;
-            for (const auto& variant : sim_.data.universe_.ship_classes) {
+            for (const auto& variant : sim_.data.universe.ship_classes) {
                 if ((variant.hull_id.empty() ? variant.id : variant.hull_id) == hull->id
                     && variant.ship_value_cr + investment.working_capital <= richest_treasury) {
                     variants.push_back(&variant);
                 }
             }
             // And the standard tanks with each module that does something (tier 2).
-            for (const auto& module : sim_.data.universe_.ship_modules) {
+            for (const auto& module : sim_.data.universe.ship_modules) {
                 if (module.hull_id == hull->id && query::module_has_active_effect(sim_, module)) {
                     const std::vector<std::string> module_fit {module.id};  // named: GCC 13 warns on a temporary here
                     const auto& fitted = query::register_design(sim_, hull->id, module_fit);
@@ -936,7 +936,7 @@ private:
             for (const auto* variant : variants) {
                 variant_ships.push_back(new_ship(*variant, *best_yard));
                 requests.push_back({.ship = &variant_ships.back(), .ship_class = variant,
-                    .earliest_departure_s = sim_.state.game_time_s_ + investment.build_days * 86400.0, .cargo_only = false});
+                    .earliest_departure_s = sim_.state.game_time_s + investment.build_days * 86400.0, .cargo_only = false});
             }
             const auto choices = systems::choose_missions(sim_, requests);
             double best_score = -std::numeric_limits<double>::infinity();
@@ -957,7 +957,7 @@ private:
         const double price = best_class->ship_value_cr + investment.working_capital;
         std::string investor = reserved_for_.empty() ? best_yard->faction_id : reserved_for_;
         if (reserved_for_.empty() && faction_spendable(sim_, investor) < price) {
-            for (const auto& [faction_id, balance] : sim_.state.faction_treasuries_) {
+            for (const auto& [faction_id, balance] : sim_.state.faction_treasuries) {
                 if (faction_spendable(sim_, faction_id) >= faction_spendable(sim_, investor)) {
                     investor = faction_id;
                 }
@@ -965,20 +965,20 @@ private:
         }
         // The treasury buys the hull from the outside economy and gives the ship its working
         // capital, which raises the money supply the controller holds.
-        sim_.state.faction_treasuries_[investor] -= price;
+        sim_.state.faction_treasuries[investor] -= price;
         // A yard in space builds it (economy overhaul): its share of the price goes there, the
         // parts made on Earth to Earth's economy.
         double earth_part = best_class->ship_value_cr;
         if (const auto* yard = query::households_on(sim_) ? systems::yard_station_for(sim_, *best_yard) : nullptr; yard != nullptr) {
-            double yard_part = sim_.data.universe_.households.yard_share * best_class->ship_value_cr;
+            double yard_part = sim_.data.universe.households.yard_share * best_class->ship_value_cr;
             auto& yard_state = query::get_station_state(sim_, yard->id);
             // The yard builds the hull from goods worth yard_materials_share of the price (metals half,
             // machinery 30%, electronics 20%, at its reference prices), out of its stock; what it lacks
             // comes from Earth, and that part of the price goes there.
-            const double materials = sim_.data.universe_.households.yard_materials_share * best_class->ship_value_cr;
+            const double materials = sim_.data.universe.households.yard_materials_share * best_class->ship_value_cr;
             for (const auto& [good, share] : std::initializer_list<std::pair<const char*, double>> {
                      {"metals", 0.5}, {"machinery", 0.3}, {"electronics", 0.2}}) {
-                const double price = sim_.engines.economy_.reference_price(*yard, good);
+                const double price = sim_.engines.economy.reference_price(*yard, good);
                 if (price <= 0.0) {
                     continue;
                 }
@@ -992,19 +992,19 @@ private:
             yard_part = std::max(0.0, yard_part);
             yard_state.credits += yard_part;
             yard_state.ledger.yard_sales += yard_part;
-            sim_.state.journal_.record(query::account_faction(sim_, investor), query::account_station(sim_, yard_state), MoneyCategory::HullYard, yard_part);
+            sim_.state.journal.record(query::account_faction(sim_, investor), query::account_station(sim_, yard_state), MoneyCategory::HullYard, yard_part);
             earth_part -= yard_part;
         }
-        sim_.state.outside_economy_credits_ += earth_part;
-        sim_.state.journal_.record(query::account_faction(sim_, investor), query::account_earth(), MoneyCategory::HullEarth, earth_part);
-        sim_.state.journal_.record(query::account_faction(sim_, investor), query::account_fleet(sim_, investor), MoneyCategory::WorkingCapital, investment.working_capital);
-        sim_.state.seeded_money_supply_ += investment.working_capital;
-        sim_.state.investment_ledger_.hulls_bought += best_class->ship_value_cr;
-        sim_.state.investment_ledger_.working_capital += investment.working_capital;
-        const int number = ++sim_.state.investment_ledger_.ships_commissioned;
+        sim_.state.outside_economy_credits += earth_part;
+        sim_.state.journal.record(query::account_faction(sim_, investor), query::account_earth(), MoneyCategory::HullEarth, earth_part);
+        sim_.state.journal.record(query::account_faction(sim_, investor), query::account_fleet(sim_, investor), MoneyCategory::WorkingCapital, investment.working_capital);
+        sim_.state.seeded_money_supply += investment.working_capital;
+        sim_.state.investment_ledger.hulls_bought += best_class->ship_value_cr;
+        sim_.state.investment_ledger.working_capital += investment.working_capital;
+        const int number = ++sim_.state.investment_ledger.ships_commissioned;
 
         std::string initials;
-        for (const auto& faction : sim_.data.universe_.factions) {
+        for (const auto& faction : sim_.data.universe.factions) {
             if (faction.id != investor) {
                 continue;
             }
@@ -1024,7 +1024,7 @@ private:
         ship.phase = domain::ShipMissionPhase::Refitting;
         ship.refit_class_id = ship.class_id;
         ship.refit_fit = ship.fit;
-        ship.refit_done_s = sim_.state.game_time_s_ + investment.build_days * 86400.0;
+        ship.refit_done_s = sim_.state.game_time_s + investment.build_days * 86400.0;
         // Like a refit, the tank choice holds for the payback period before it is reconsidered.
         ship.next_refit_review_s = ship.refit_done_s + REFIT_PAYBACK_DAYS * 86400.0;
         // It works the route it was bought for until the commitment ends.
@@ -1034,7 +1034,7 @@ private:
         ship.route_until_s = ship.refit_done_s + investment.route_commitment_days * 86400.0;
         query::add_event(sim_, std::format("{} ordered at {} for {:.0f} cr: {:.0f}%/yr expected ({})",
             ship.name, best_yard->name, best_class->ship_value_cr, 100.0 * best_return, best_valuation.label), "mission");
-        sim_.state.ships_.push_back(std::move(ship));
+        sim_.state.ships.push_back(std::move(ship));
     }
 };
 
@@ -1045,7 +1045,7 @@ CommissionStep commission_step(World& w) {
     std::string reserved_for;
     double oldest = std::numeric_limits<double>::infinity();
     int claims = 0;
-    for (const auto& [faction_id, expiries] : w.state.replacement_claims_) {
+    for (const auto& [faction_id, expiries] : w.state.replacement_claims) {
         claims += static_cast<int>(expiries.size());
         for (const double until_s : expiries) {
             if (until_s < oldest) {
@@ -1054,22 +1054,22 @@ CommissionStep commission_step(World& w) {
             }
         }
     }
-    if (!reserved_for.empty() && !w.state.replacement_tried_) {
+    if (!reserved_for.empty() && !w.state.replacement_tried) {
         const auto step = InvestmentReview(w, reserved_for).run();
         if (step == CommissionStep::Bought) {
-            auto& expiries = w.state.replacement_claims_[reserved_for];
+            auto& expiries = w.state.replacement_claims[reserved_for];
             expiries.erase(std::min_element(expiries.begin(), expiries.end()));
-            ++w.audits.failure_audit_.replacements_bought;
+            ++w.audits.failure_audit.replacements_bought;
         } else if (step == CommissionStep::NothingToBuy) {
             // Nothing worth its money now: the claim waits for the next review, others may
             // buy into the places nobody holds.
-            w.state.replacement_tried_ = true;
-            w.state.review_probes_.clear();
+            w.state.replacement_tried = true;
+            w.state.review_probes.clear();
             return CommissionStep::Probed;
         }
         return step;
     }
-    if (const auto& investment = w.data.universe_.fleet_investment;
+    if (const auto& investment = w.data.universe.fleet_investment;
         investment.max_fleet_size > 0.0 && static_cast<double>(systems::fleet_ship_count(w) + claims) >= investment.max_fleet_size) {
         return CommissionStep::NothingToBuy;
     }

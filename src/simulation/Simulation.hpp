@@ -84,13 +84,13 @@ public:
     [[nodiscard]] const domain::UniverseDefinition& universe() const;
     [[nodiscard]] const economy::EconomySystem& economy_system() const;
     [[nodiscard]] domain::SimulationSnapshot snapshot() const;
-    [[nodiscard]] double game_time_s() const { return world_->state.game_time_s_; }
+    [[nodiscard]] double game_time_s() const { return world_->state.game_time_s; }
     // Starts a fresh game at another date (planets elsewhere along their orbits): the same
     // economy in a different geometry, for benchmarks over several starts. Call before the
     // first step.
     void start_at(double time_s);
     // Random events (step 28) are on unless switched off, e.g. to compare economies.
-    void set_events_enabled(bool enabled) { world_->data.events_enabled_ = enabled; }
+    void set_events_enabled(bool enabled) { world_->data.events_enabled = enabled; }
 
     // Save games (persistence/SimulationPersistence.{hpp,cpp}): the mutable state as JSON.
     // load_state_json() expects a Simulation built from the same data files (checked by
@@ -125,21 +125,21 @@ public:
     // modules (tier 2) it changes when a ship's fit does, keyed by bridge_designs_signature().
     [[nodiscard]] std::string build_bridge_designs_json() const;
     // Designs are only ever added, so their count tells the bridge when to rewrite the file.
-    [[nodiscard]] std::string bridge_designs_signature() const { return "classes+" + std::to_string(world_->caches.designs_.size()); }
+    [[nodiscard]] std::string bridge_designs_signature() const { return "classes+" + std::to_string(world_->caches.designs.size()); }
     [[nodiscard]] std::string bridge_paths_signature() const;
     [[nodiscard]] double timewarp_factor() const;
     [[nodiscard]] math::Vec3d get_ship_render_position(const domain::ShipState& ship) const;
-    [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return world_->state.recent_trades_; }
+    [[nodiscard]] const std::vector<domain::TradeEntry>& recent_trades() const { return world_->state.recent_trades; }
     using RadiationAudit = simulation::RadiationAudit;
-    [[nodiscard]] const RadiationAudit& radiation_audit() const { return world_->audits.radiation_audit_; }
+    [[nodiscard]] const RadiationAudit& radiation_audit() const { return world_->audits.radiation_audit; }
     using FailureAudit = simulation::FailureAudit;
-    [[nodiscard]] const FailureAudit& failure_audit() const { return world_->audits.failure_audit_; }
+    [[nodiscard]] const FailureAudit& failure_audit() const { return world_->audits.failure_audit; }
     using PatrolAudit = simulation::PatrolAudit;
-    [[nodiscard]] const PatrolAudit& patrol_audit() const { return world_->audits.patrol_audit_; }
-    [[nodiscard]] const std::vector<domain::PatrolState>& patrols() const { return world_->state.patrols_; }
-    [[nodiscard]] const std::vector<domain::DerelictState>& derelicts() const { return world_->state.derelicts_; }
+    [[nodiscard]] const PatrolAudit& patrol_audit() const { return world_->audits.patrol_audit; }
+    [[nodiscard]] const std::vector<domain::PatrolState>& patrols() const { return world_->state.patrols; }
+    [[nodiscard]] const std::vector<domain::DerelictState>& derelicts() const { return world_->state.derelicts; }
     using PassengerAudit = simulation::PassengerAudit;
-    [[nodiscard]] const PassengerAudit& passenger_audit() const { return world_->audits.passenger_audit_; }
+    [[nodiscard]] const PassengerAudit& passenger_audit() const { return world_->audits.passenger_audit; }
     [[nodiscard]] static const char* passenger_kind_name(domain::PassengerKind kind);
     // A station's profit since the start, before the faction's taxes and subsidies: its cash gained
     // + taxes paid - subsidies received + the value its stock gained (at its price curves).
@@ -147,12 +147,12 @@ public:
     // The same over the last 12 monthly samples of the money journal (since the start until there are 12).
     [[nodiscard]] double station_profit_last_year(const domain::StationState& station) const;
     // The money journal (MoneyJournal.hpp): every transfer by account and category, and its history.
-    [[nodiscard]] const MoneyJournal& money_journal() const { return world_->state.journal_; }
+    [[nodiscard]] const MoneyJournal& money_journal() const { return world_->state.journal; }
     // The running state, for calling systems:: and query:: on it directly (tests, tools).
     [[nodiscard]] World& world() { return *world_; }
     [[nodiscard]] const World& world() const { return *world_; }
     // What moved where (FlowRecord.hpp): goods, passengers, lanes, with a monthly history.
-    [[nodiscard]] const FlowRecord& flow_record() const { return world_->state.flows_; }
+    [[nodiscard]] const FlowRecord& flow_record() const { return world_->state.flows; }
     // The real balance of a journal account (Earth, a colony, a faction, a station, its residents,
     // or a faction's fleet: the sum of its ships' cash).
     [[nodiscard]] double account_balance(int account) const;
@@ -160,14 +160,14 @@ public:
     [[nodiscard]] std::string build_stats_json() const;
     // Audit: deliveries with a reference price since start (or load), paid vs reference.
     [[nodiscard]] double delivered_price_ratio() const {
-        return world_->audits.delivered_reference_cr_ > 0.0 ? world_->audits.delivered_paid_cr_ / world_->audits.delivered_reference_cr_ : 0.0;
+        return world_->audits.delivered_reference_cr > 0.0 ? world_->audits.delivered_paid_cr / world_->audits.delivered_reference_cr : 0.0;
     }
 
     // When enabled, every accepted mission plan is checked by audit_trajectory()
     // and recorded (headless --trajectory-audit).
-    void set_trajectory_audit_enabled(bool enabled) { world_->audits.trajectory_audit_enabled_ = enabled; }
+    void set_trajectory_audit_enabled(bool enabled) { world_->audits.trajectory_audit_enabled = enabled; }
     [[nodiscard]] const std::vector<trajectory::TrajectoryAuditRecord>& trajectory_audit_records() const {
-        return world_->audits.trajectory_audit_records_;
+        return world_->audits.trajectory_audit_records;
     }
     using OverhaulBill = query::OverhaulBill;
     [[nodiscard]] OverhaulBill overhaul_bill(const domain::ShipClassDefinition& design, double drive_share,
@@ -206,7 +206,7 @@ public:
     [[nodiscard]] double expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
         double demand_per_trip, double berths) const;
     using RotationTour = simulation::RotationTour;
-    [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return world_->data.rotation_tours_; }
+    [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return world_->data.rotation_tours; }
     // Economy overhaul (systems/Households.cpp): residents' wages and spending, station incomes, trade
     // with the background economies at their gateways.
     [[nodiscard]] bool households_on() const { return query::households_on(*world_); }

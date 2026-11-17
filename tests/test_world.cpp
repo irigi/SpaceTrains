@@ -47,44 +47,44 @@ void test_statistics() {
     const auto wages = static_cast<std::size_t>(MoneyCategory::Wages);
     const double payer_before = systems::account_balance(w, payer);
     const double payee_before = systems::account_balance(w, payee);
-    require(w.state.journal_.period(payer)[wages].out == 0.0 && w.state.journal_.period(payee)[wages].in == 0.0,
+    require(w.state.journal.period(payer)[wages].out == 0.0 && w.state.journal.period(payee)[wages].in == 0.0,
         "a new game has paid no wages yet");
 
     // The station pays its residents 1,234 cr, as Households does: move the money, then book it.
     constexpr double amount = 1234.0;
     station.credits -= amount;
     station.household_credits += amount;
-    w.state.journal_.record(payer, payee, MoneyCategory::Wages, amount);
+    w.state.journal.record(payer, payee, MoneyCategory::Wages, amount);
     require_near(systems::account_balance(w, payer), payer_before - amount, 1e-9, "the station's balance falls");
     require_near(systems::account_balance(w, payee), payee_before + amount, 1e-9, "the residents' balance rises");
-    require_near(w.state.journal_.period(payer)[wages].out, amount, 1e-9, "the period shows the station paying wages");
-    require_near(w.state.journal_.period(payee)[wages].in, amount, 1e-9, "the period shows the residents receiving wages");
+    require_near(w.state.journal.period(payer)[wages].out, amount, 1e-9, "the period shows the station paying wages");
+    require_near(w.state.journal.period(payee)[wages].in, amount, 1e-9, "the period shows the residents receiving wages");
     for (const int account : {payer, payee}) {
-        require_near(w.state.journal_.journal_balance(account), systems::account_balance(w, account), 1e-6,
+        require_near(w.state.journal.journal_balance(account), systems::account_balance(w, account), 1e-6,
             "the journal accounts for the whole balance");
     }
 
     // The monthly close: one sample, at the scheduled day, with today's balances and the flows.
-    const double close_day = w.state.journal_.next_close_day();
+    const double close_day = w.state.journal.next_close_day();
     systems::close_journal_period(w);
-    const auto& history = w.state.journal_.history();
+    const auto& history = w.state.journal.history();
     require(history.size() == 1, "the close appends one sample");
     const auto& sample = history.back();
     require_near(sample.day, close_day, 0.0, "the sample is dated at the scheduled close");
-    require(sample.balances.size() == w.state.journal_.accounts().size(), "the sample has a balance per account");
+    require(sample.balances.size() == w.state.journal.accounts().size(), "the sample has a balance per account");
     require_near(sample.balances[static_cast<std::size_t>(payer)], payer_before - amount, 1e-9, "the sample has the station's balance");
     require_near(sample.balances[static_cast<std::size_t>(payee)], payee_before + amount, 1e-9, "the sample has the residents' balance");
     require_near(sample.flows[static_cast<std::size_t>(payer)][wages].out, amount, 1e-9, "the sample keeps the period's wages");
-    require(sample.stations.size() == w.state.stations_.size(), "the sample has a row per station");
-    require(w.state.journal_.period(payer)[wages].out == 0.0, "the next period starts empty");
-    require_near(w.state.journal_.next_close_day(), close_day + spacetrains::simulation::MoneyJournal::kPeriodDays, 0.0,
+    require(sample.stations.size() == w.state.stations.size(), "the sample has a row per station");
+    require(w.state.journal.period(payer)[wages].out == 0.0, "the next period starts empty");
+    require_near(w.state.journal.next_close_day(), close_day + spacetrains::simulation::MoneyJournal::kPeriodDays, 0.0,
         "the next close is a period later");
-    require(w.state.flows_.history().size() == 1, "the flow record closes its month with the journal's");
+    require(w.state.flows.history().size() == 1, "the flow record closes its month with the journal's");
 
     // The statistics JSON shows the sample.
     const std::string json = systems::build_stats_json(w);
     require(json.starts_with("{\"day\":") && json.ends_with("}"), "the statistics JSON is one object");
-    require(json.find("\"" + w.state.journal_.accounts()[static_cast<std::size_t>(payer)].key() + "\"") != std::string::npos,
+    require(json.find("\"" + w.state.journal.accounts()[static_cast<std::size_t>(payer)].key() + "\"") != std::string::npos,
         "the statistics JSON lists the station's account");
 }
 
@@ -99,66 +99,66 @@ void test_patrols() {
         universe.patrols.bases = {{.faction_id = "earth", .station_id = "earth_orbit", .ships = 1}};
     });
     World& w = *world;
-    require(w.state.patrols_.size() == 1, "one base with one cutter gives one cutter");
-    require(w.state.patrols_.front().phase == PatrolPhase::Docked && w.state.patrols_.front().propellant_kg > 0.0,
+    require(w.state.patrols.size() == 1, "one base with one cutter gives one cutter");
+    require(w.state.patrols.front().phase == PatrolPhase::Docked && w.state.patrols.front().propellant_kg > 0.0,
         "the cutter starts docked and fuelled");
 
     // Let the game run with the cutter kept in port, until a ship is on a leg it may inspect.
     constexpr double day_s = 86400.0;
-    const auto& p = w.data.universe_.patrols;
+    const auto& p = w.data.universe.patrols;
     const auto inspectable = [&] {
-        for (const auto& ship : w.state.ships_) {
+        for (const auto& ship : w.state.ships) {
             const auto& mission = ship.active_mission;
             if (ship.phase == ShipMissionPhase::InTransit && mission.sampled_path.size() >= 2
-                && mission.arrival_time_s - w.state.game_time_s_ > (p.inspection_days + 10.0) * day_s
+                && mission.arrival_time_s - w.state.game_time_s > (p.inspection_days + 10.0) * day_s
                 && !query::local_leg(w, mission)) {
                 return true;
             }
         }
         return false;
     };
-    w.state.timewarp_factor_ = day_s;  // as Simulation::set_timewarp(day_s)
+    w.state.timewarp_factor = day_s;  // as Simulation::set_timewarp(day_s)
     for (int day = 0; day < 120 && !inspectable(); ++day) {
-        w.state.patrols_.front().next_review_s = w.state.game_time_s_ + 1000.0 * day_s;
+        w.state.patrols.front().next_review_s = w.state.game_time_s + 1000.0 * day_s;
         spacetrains::simulation::step(w, 1.0);
     }
-    auto& cutter = w.state.patrols_.front();  // taken after the run, so no reference is held across ticks
+    auto& cutter = w.state.patrols.front();  // taken after the run, so no reference is held across ticks
     require(inspectable(), "some ship flies an interplanetary leg within 120 days");
-    require(cutter.phase == PatrolPhase::Docked && w.audits.patrol_audit_.sorties == 0, "the cutter stayed in port");
+    require(cutter.phase == PatrolPhase::Docked && w.audits.patrol_audit.sorties == 0, "the cutter stayed in port");
 
     // The review falls due: one step of the system plans and starts a sortie.
     const auto& home = query::get_station_state(w, cutter.home_station_id);
     const int earth = query::account_earth();
     const int port = query::account_station(w, home);
     const auto patrols = static_cast<std::size_t>(MoneyCategory::Patrols);
-    const double paid_before = w.state.journal_.period(earth)[patrols].out;
-    const double port_before = w.state.journal_.period(port)[patrols].in;
-    const double costs_before = w.audits.patrol_audit_.costs_cr;
+    const double paid_before = w.state.journal.period(earth)[patrols].out;
+    const double port_before = w.state.journal.period(port)[patrols].in;
+    const double costs_before = w.audits.patrol_audit.costs_cr;
     const double port_credits_before = home.credits;
-    cutter.next_review_s = w.state.game_time_s_;
+    cutter.next_review_s = w.state.game_time_s;
     systems::step_patrols(w, 0.25 * day_s);
 
-    require(w.audits.patrol_audit_.sorties == 1, "the review starts one sortie");
+    require(w.audits.patrol_audit.sorties == 1, "the review starts one sortie");
     require(cutter.phase == PatrolPhase::Outbound, "the cutter sets out");
     require(!cutter.target_ship_id.empty() && !cutter.target_name.empty(), "the cutter has a target");
     const domain::ShipState* target = nullptr;
-    for (const auto& ship : w.state.ships_) {
+    for (const auto& ship : w.state.ships) {
         if (ship.id == cutter.target_ship_id) {
             target = &ship;
         }
     }
     require(target != nullptr && target->phase == ShipMissionPhase::InTransit, "the target is a ship in flight");
-    require(cutter.meet_s > w.state.game_time_s_ && cutter.meet_s < target->active_mission.arrival_time_s,
+    require(cutter.meet_s > w.state.game_time_s && cutter.meet_s < target->active_mission.arrival_time_s,
         "the meeting is before the target arrives");
     require(cutter.path.size() >= 2 && cutter.path.size() == cutter.times.size()
             && cutter.times.size() == cutter.propellant.size(),
         "the sortie has a path with times and propellant");
     require(cutter.propellant.back() < cutter.propellant.front(), "the way out burns propellant");
 
-    const double paid = w.audits.patrol_audit_.costs_cr - costs_before;
+    const double paid = w.audits.patrol_audit.costs_cr - costs_before;
     require(paid > 0.0, "the cutter's hull and crew are paid for the step");
-    require_near(w.state.journal_.period(earth)[patrols].out - paid_before, paid, 1e-6, "Earth pays its police");
-    require_near(w.state.journal_.period(port)[patrols].in - port_before, paid, 1e-6, "the home port is paid");
+    require_near(w.state.journal.period(earth)[patrols].out - paid_before, paid, 1e-6, "Earth pays its police");
+    require_near(w.state.journal.period(port)[patrols].in - port_before, paid, 1e-6, "the home port is paid");
     require_near(home.credits - port_credits_before, paid, 1e-6, "the home port's credits rise by the payment");
 
     // Where the cutter is shown: at its departure point now, on its path later.

@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-13 (2026-11-17), 14 (2026-11-18);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-13 (2026-11-17), 14-16 (2026-11-18);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -315,6 +315,11 @@ call-graph script over the `Simulation::` definitions (members already forwardin
       to `data` (a switch for the run, not saved), and `next_exposure_sample_s_` to `audits` (it only times
       the failure audit's daily sample). `World` builds `data` first, then `engines` from `data.universe_`.
 16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
+    Done 2026-11-18: scripted on the grouped accesses (`w.state.ships_` to `w.state.ships`) and the declarations
+    in the five groups. Every access goes through a group, so a new name cannot meet a local of the same name
+    (a local `ships` beside `w.state.ships`); no two members differed only by the underscore. Other classes'
+    own members (`EconomySystem::universe_`, the planners' `mechanics_`) keep theirs. The tables above name the
+    members as they were before steps 15d and 16.
 
 Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.
 

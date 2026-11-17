@@ -69,10 +69,10 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     // Planning is expensive, so docked ships look for work every few hours, and laid-up
     // ships (no crew) every few days, not on every tick.
     const bool laid_up = ship.phase == domain::ShipMissionPhase::LaidUp;
-    if (w.state.game_time_s_ < ship.next_review_s) {
+    if (w.state.game_time_s < ship.next_review_s) {
         return;
     }
-    ship.next_review_s = w.state.game_time_s_ + (laid_up ? LAYUP_REVIEW_DAYS * 86400.0 : IDLE_REVIEW_S);
+    ship.next_review_s = w.state.game_time_s + (laid_up ? LAYUP_REVIEW_DAYS * 86400.0 : IDLE_REVIEW_S);
 
     // Debug aid: SPACETRAINS_TRACE_SHIP="<ship name>" logs every candidate mission of
     // that ship and why it was rejected (stderr).
@@ -85,7 +85,7 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     const auto& ship_class = query::ship_design(w, ship);
     const auto review_start = std::chrono::steady_clock::now();
     // A rotation contract that ran out ends here.
-    if (!ship.contract.stops.empty() && w.state.game_time_s_ >= ship.contract.until_s) {
+    if (!ship.contract.stops.empty() && w.state.game_time_s >= ship.contract.until_s) {
         query::add_event(w, std::format("{}'s rotation contract ended at {}", ship.name,
             query::get_station_definition(w, ship.current_station_id).name), "mission");
         ship.contract = {};
@@ -93,28 +93,28 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     // A loop's wait in port at its first stop, counted from arrival (cycle minus the legs).
     if (systems::under_contract(w, ship) && ship.current_station_id == ship.contract.stops.front()) {
         const double ready_s = ship.idle_since_s + systems::contract_dwell_days(ship.contract) * 86400.0;
-        if (w.state.game_time_s_ < ready_s) {
+        if (w.state.game_time_s < ready_s) {
             ship.next_review_s = std::min(ship.next_review_s, ready_s);
             return;
         }
     }
-    auto choice = systems::choose_mission(w, ship, ship_class, trace, w.state.game_time_s_);
+    auto choice = systems::choose_mission(w, ship, ship_class, trace, w.state.game_time_s);
     // Rotation contracts: a free ship looks for a loop now and then, and signs one that earns
     // about as much as the best spot mission (a repositioning earns nothing).
-    const auto& market = w.data.universe_.market;
+    const auto& market = w.data.universe.market;
     if (market.contracts > 0.0 && ship.contract.stops.empty() && systems::liner_stops(w, ship) == nullptr
-        && !(!ship.route_destination_id.empty() && w.state.game_time_s_ < ship.route_until_s)
-        && w.state.game_time_s_ >= ship.next_contract_review_s) {
+        && !(!ship.route_destination_id.empty() && w.state.game_time_s < ship.route_until_s)
+        && w.state.game_time_s >= ship.next_contract_review_s) {
         // Reviews are spread over the review period by ship (never the whole fleet at once).
         if (ship.next_contract_review_s <= 0.0) {
             const auto spread = static_cast<double>(std::hash<std::string> {}(ship.id) % 1000) / 1000.0;
-            ship.next_contract_review_s = w.state.game_time_s_ + spread * market.contract_review_days * 86400.0;
+            ship.next_contract_review_s = w.state.game_time_s + spread * market.contract_review_days * 86400.0;
         }
     }
     if (market.contracts > 0.0 && ship.contract.stops.empty() && systems::liner_stops(w, ship) == nullptr
-        && !(!ship.route_destination_id.empty() && w.state.game_time_s_ < ship.route_until_s)
-        && w.state.game_time_s_ >= ship.next_contract_review_s) {
-        ship.next_contract_review_s = w.state.game_time_s_ + market.contract_review_days * 86400.0;
+        && !(!ship.route_destination_id.empty() && w.state.game_time_s < ship.route_until_s)
+        && w.state.game_time_s >= ship.next_contract_review_s) {
+        ship.next_contract_review_s = w.state.game_time_s + market.contract_review_days * 86400.0;
         auto [contract, score] = systems::find_contract(w, ship, ship_class);
         const double spot = choice.kind == MissionChoice::Kind::Mission ? choice.score : 0.0;
         if (!contract.stops.empty() && score > MIN_MISSION_SCORE_PER_DAY && score >= market.contract_accept * spot) {
@@ -130,14 +130,14 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
             query::add_event(w, std::format("{} signs a rotation contract: {}({:.0f}-day loop, {:.0f} cr/day against {:.0f} spot): {}",
                 ship.name, route, contract.cycle_days, score, spot, goods), "mission");
             ship.contract = std::move(contract);
-            choice = systems::choose_mission(w, ship, ship_class, trace, w.state.game_time_s_);
+            choice = systems::choose_mission(w, ship, ship_class, trace, w.state.game_time_s);
         }
     }
     // Debug aid: with SPACETRAINS_PROFILE, reviews over half a second are reported (stderr).
     if (profiling::enabled()) {
         const double review_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - review_start).count();
         if (review_s > 0.5) {
-            std::cerr << std::format("[slow review day {:.1f}] {} ({}) at {}: {:.2f} s\n", w.state.game_time_s_ / 86400.0, ship.name,
+            std::cerr << std::format("[slow review day {:.1f}] {} ({}) at {}: {:.2f} s\n", w.state.game_time_s / 86400.0, ship.name,
                 ship_class.id, ship.current_station_id, review_s);
         }
     }
@@ -145,7 +145,7 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
         return;
     }
     // Failures: a derelict within reach may pay more than the best mission.
-    if (w.data.universe_.failures.salvage && !w.state.derelicts_.empty()
+    if (w.data.universe.failures.salvage && !w.state.derelicts.empty()
         && systems::consider_salvage(w, ship, choice.kind == MissionChoice::Kind::Mission ? choice.score : 0.0)) {
         return;
     }
@@ -163,11 +163,11 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
             ship.phase = domain::ShipMissionPhase::Stranded;
             query::add_event(w, std::format("{} is stranded at {} due to fuel shortage", ship.name, origin_def.name), "alert");
         } else if (!laid_up && systems::liner_stops(w, ship) == nullptr
-            && (ship.credits < 0.0 || w.state.game_time_s_ - ship.idle_since_s > IDLE_LAYUP_DAYS * 86400.0)) {
+            && (ship.credits < 0.0 || w.state.game_time_s - ship.idle_since_s > IDLE_LAYUP_DAYS * 86400.0)) {
             // Nothing worth flying and either in debt or idle for a month: stop paying the crew.
             ship.phase = domain::ShipMissionPhase::LaidUp;
-            ship.laid_up_since_s = w.state.game_time_s_;
-            ship.next_review_s = w.state.game_time_s_ + LAYUP_REVIEW_DAYS * 86400.0;
+            ship.laid_up_since_s = w.state.game_time_s;
+            ship.next_review_s = w.state.game_time_s + LAYUP_REVIEW_DAYS * 86400.0;
             query::add_event(w, ship.credits < 0.0
                 ? std::format("{} laid up at {} ({:.0f} cr in debt)", ship.name, origin_def.name, -ship.credits)
                 : std::format("{} laid up at {} (no profitable work for {:.0f} days)",
@@ -187,17 +187,17 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     if (!plan.has_render_path) {
         auto options = choice.plan_options;
         options.include_path = true;
-        const auto& planner = (ship_class.propulsion_type == "variable_isp" && w.engines.variable_isp_planner_)
-            ? static_cast<trajectory::ITrajectoryPlanner&>(*w.engines.variable_isp_planner_)
-            : static_cast<trajectory::ITrajectoryPlanner&>(*w.engines.kepler_planner_);
+        const auto& planner = (ship_class.propulsion_type == "variable_isp" && w.engines.variable_isp_planner)
+            ? static_cast<trajectory::ITrajectoryPlanner&>(*w.engines.variable_isp_planner)
+            : static_cast<trajectory::ITrajectoryPlanner&>(*w.engines.kepler_planner);
         plan = planner.plan_transfer(origin_def, *best_destination, ship, ship_class, choice.plan_departure_s, options);
     }
     if (!plan.feasible) {
         return;
     }
     const double time_cost_per_day = query::daily_capital_cost(w, ship_class) + systems::daily_crew_cost(w, ship_class, origin_state)
-        + query::hazard_cr_per_day(w, ship_class, origin_def, origin_def, w.state.game_time_s_) + query::wear_cr_per_flight_day(w, ship_class);
-    if (w.audits.trajectory_audit_enabled_) {
+        + query::hazard_cr_per_day(w, ship_class, origin_def, origin_def, w.state.game_time_s) + query::wear_cr_per_flight_day(w, ship_class);
+    if (w.audits.trajectory_audit_enabled) {
         record_trajectory_audit(w, ship, origin_def, *best_destination, plan, plan.propellant_load_kg);
     }
     // Load the mission's propellant (the plan's burn plus the reserve, and any return fuel).
@@ -209,7 +209,7 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     ship.leg_dose_msv = 0.0;  // a crew is signed on for each leg
     const double mission_days = plan.travel_time_s / 86400.0;
     {
-        auto& route = w.audits.passenger_audit_.routes[{origin_state.station_id, best_destination->id}];
+        auto& route = w.audits.passenger_audit.routes[{origin_state.station_id, best_destination->id}];
         ++route.departures;
         if (ship_class.berths >= 1.0) {
             ++route.berth_departures;
@@ -238,7 +238,7 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     // arrival (other ships' earlier deliveries included), for the units that will survive the
     // trip. The ship knows what it will earn; the station bears the forecast's error.
     auto contracted_cargo = cargo;
-    const double arrival_days = std::max(0.0, plan.arrival_time_s - w.state.game_time_s_) / 86400.0;
+    const double arrival_days = std::max(0.0, plan.arrival_time_s - w.state.game_time_s) / 86400.0;
     for (auto& lot : contracted_cargo) {
         const double surviving = lot.units
             * std::pow(1.0 - query::cargo_decay_per_day(w, ship_class, lot.commodity_id), plan.travel_time_s / 86400.0);
@@ -256,9 +256,9 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
                 split.order_value / split.order_units);
         }
         if (split.faction > 0.0) {
-            for (auto& emergency : w.state.emergencies_) {
+            for (auto& emergency : w.state.emergencies) {
                 if (emergency.station_id == best_destination->id && emergency.commodity_id == lot.commodity_id) {
-                    emergency.last_raise_s = w.state.game_time_s_;
+                    emergency.last_raise_s = w.state.game_time_s;
                     emergency.units_open = std::max(0.0, emergency.units_open - split.emergency_units);
                 }
             }
@@ -277,11 +277,11 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
         ship.ledger.cargo_purchases += cost;
         origin_state.credits += cost;
         origin_state.ledger.ship_sales += cost;
-        w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, origin_state), MoneyCategory::Cargo, cost);
-        w.state.flows_.record(FlowKind::Loaded, origin_state.station_id, best_destination->id, lot.commodity_id, lot.units, cost);
+        w.state.journal.record(query::account_fleet(w, ship.faction_id), query::account_station(w, origin_state), MoneyCategory::Cargo, cost);
+        w.state.flows.record(FlowKind::Loaded, origin_state.station_id, best_destination->id, lot.commodity_id, lot.units, cost);
         purchase_cost += cost;
         query::record_trade(w, {
-            .time_s = w.state.game_time_s_,
+            .time_s = w.state.game_time_s,
             .ship_id = ship.id,
             .station_id = origin_state.station_id,
             .commodity_id = lot.commodity_id,
@@ -305,7 +305,7 @@ void step_idle_ship(World& w, domain::ShipState& ship) {
     // in step_in_transit_ship from sampled_propellant_kg.
     if (ship_class.propulsion_type != "variable_isp") {
         ship.propellant_kg -= plan.propellant_required_kg;
-        if (w.data.universe_.ship_environment.wear) {
+        if (w.data.universe.ship_environment.wear) {
             ship.engine_wear = std::min(1.0, ship.engine_wear + query::drive_hours(ship_class, plan) / query::drive_life_h(w, ship_class));
         }
     }
@@ -379,17 +379,17 @@ namespace {
 
 double refit_bill(const World& w, 
     const domain::ShipClassDefinition& from, const domain::ShipClassDefinition& to) {
-    return w.data.universe_.ship_operations.refit_cost_fraction * std::abs(to.ship_value_cr - from.ship_value_cr);
+    return w.data.universe.ship_operations.refit_cost_fraction * std::abs(to.ship_value_cr - from.ship_value_cr);
 }
 
 bool consider_refit(World& w, domain::ShipState& ship, const MissionChoice& current, bool trace) {
     const profiling::Scope profile_scope(profiling::Phase::ConsiderRefit);
-    if (ship.current_station_id != ship.home_station_id || w.state.game_time_s_ < ship.next_refit_review_s) {
+    if (ship.current_station_id != ship.home_station_id || w.state.game_time_s < ship.next_refit_review_s) {
         return false;
     }
-    ship.next_refit_review_s = w.state.game_time_s_ + REFIT_REVIEW_DAYS * 86400.0;
+    ship.next_refit_review_s = w.state.game_time_s + REFIT_REVIEW_DAYS * 86400.0;
     const auto& ship_class = query::ship_design(w, ship);
-    const double refit_days = w.data.universe_.ship_operations.refit_days;
+    const double refit_days = w.data.universe.ship_operations.refit_days;
     // What the ship earns as it is: dispatch's profit rate, or nothing (a repositioning
     // score is not a profit, and such a ship has no paying work here either).
     const double current_score = current.kind == MissionChoice::Kind::Mission ? std::max(0.0, current.score) : 0.0;
@@ -410,7 +410,7 @@ bool consider_refit(World& w, domain::ShipState& ship, const MissionChoice& curr
         probe.fit = fit_option.fit;
         probe.propellant_kg = std::min(ship.propellant_kg, candidate.propellant_capacity_kg);
         // Scored on departures after the yard is done: launch windows close meanwhile.
-        const auto option = systems::choose_mission(w, probe, candidate, trace, w.state.game_time_s_ + refit_days * 86400.0);
+        const auto option = systems::choose_mission(w, probe, candidate, trace, w.state.game_time_s + refit_days * 86400.0);
         if (option.kind != MissionChoice::Kind::Mission) {
             continue;
         }
@@ -419,7 +419,7 @@ bool consider_refit(World& w, domain::ShipState& ship, const MissionChoice& curr
         const double gain = (option.score - current_score) * REFIT_PAYBACK_DAYS - bill - current_score * refit_days;
         if (trace) {
             std::cerr << std::format("[trace day {:.1f}] {}: refit to {}: score {:.1f} vs {:.1f}, bill {:.0f}, gain {:.0f}\n",
-                w.state.game_time_s_ / 86400.0, ship.name, candidate.id, option.score, current_score, bill, gain);
+                w.state.game_time_s / 86400.0, ship.name, candidate.id, option.score, current_score, bill, gain);
         }
         if (gain > best_gain) {
             best_gain = gain;
@@ -444,9 +444,9 @@ bool consider_refit(World& w, domain::ShipState& ship, const MissionChoice& curr
         ship.credits += value;
         ship.lifetime_profit += value;
         ship.ledger.fuel -= value;
-        w.state.journal_.record(query::account_station(w, yard), query::account_fleet(w, ship.faction_id), MoneyCategory::FuelBuyback, value);
+        w.state.journal.record(query::account_station(w, yard), query::account_fleet(w, ship.faction_id), MoneyCategory::FuelBuyback, value);
         query::record_trade(w, {
-            .time_s = w.state.game_time_s_,
+            .time_s = w.state.game_time_s,
             .ship_id = ship.id,
             .station_id = yard.station_id,
             .commodity_id = "fuel",
@@ -462,10 +462,10 @@ bool consider_refit(World& w, domain::ShipState& ship, const MissionChoice& curr
     ship.ledger.refits += bill;
     yard.credits += bill;
     yard.ledger.ship_sales += bill;
-    w.state.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, yard), MoneyCategory::RefitsRepairs, bill);
+    w.state.journal.record(query::account_fleet(w, ship.faction_id), query::account_station(w, yard), MoneyCategory::RefitsRepairs, bill);
     ship.refit_class_id = best_option->class_id;
     ship.refit_fit = best_option->fit;
-    ship.refit_done_s = w.state.game_time_s_ + refit_days * 86400.0;
+    ship.refit_done_s = w.state.game_time_s + refit_days * 86400.0;
     // The refit was justified by a payback period of better missions: give it that long
     // before reconsidering, or ships swap tanks back and forth on each new forecast.
     ship.next_refit_review_s = ship.refit_done_s + REFIT_PAYBACK_DAYS * 86400.0;
@@ -479,7 +479,7 @@ bool consider_refit(World& w, domain::ShipState& ship, const MissionChoice& curr
 }  // namespace
 
 void step_refitting_ship(World& w, domain::ShipState& ship) {
-    if (w.state.game_time_s_ < ship.refit_done_s) {
+    if (w.state.game_time_s < ship.refit_done_s) {
         return;
     }
     if (ship.overhaul) {
@@ -493,15 +493,15 @@ void step_refitting_ship(World& w, domain::ShipState& ship) {
     ship.refit_class_id.clear();
     ship.refit_fit.clear();
     ship.phase = domain::ShipMissionPhase::Idle;
-    ship.idle_since_s = w.state.game_time_s_;
-    ship.next_review_s = w.state.game_time_s_;
+    ship.idle_since_s = w.state.game_time_s;
+    ship.next_review_s = w.state.game_time_s;
     query::add_event(w, std::format("{} left the yard at {} as {}",
         ship.name, query::get_station_definition(w, ship.current_station_id).name, query::ship_design(w, ship).name), "mission");
 }
 
 void step_awaiting_departure_ship(World& w, domain::ShipState& ship) {
-    ship.active_mission.remaining_travel_time_s = std::max(0.0, ship.active_mission.arrival_time_s - w.state.game_time_s_);
-    if (w.state.game_time_s_ < ship.active_mission.departure_time_s) {
+    ship.active_mission.remaining_travel_time_s = std::max(0.0, ship.active_mission.arrival_time_s - w.state.game_time_s);
+    if (w.state.game_time_s < ship.active_mission.departure_time_s) {
         return;
     }
     ship.phase = domain::ShipMissionPhase::InTransit;
@@ -517,7 +517,7 @@ void step_awaiting_departure_ship(World& w, domain::ShipState& ship) {
 
 void step_in_transit_ship(World& w, domain::ShipState& ship, double dt_s) {
     (void)dt_s;
-    ship.active_mission.remaining_travel_time_s = std::max(0.0, ship.active_mission.arrival_time_s - w.state.game_time_s_);
+    ship.active_mission.remaining_travel_time_s = std::max(0.0, ship.active_mission.arrival_time_s - w.state.game_time_s);
 
     // Update propellant continuously from the pre-computed mass samples (variable-Isp drives only).
     // The samples run from initial propellant at departure to final propellant at arrival,
@@ -527,12 +527,12 @@ void step_in_transit_ship(World& w, domain::ShipState& ship, double dt_s) {
         ship.propellant_kg = interpolate_timed_scalar(
             ship.active_mission.sampled_propellant_kg,
             ship.active_mission.sampled_times_s,
-            w.state.game_time_s_) + ship.active_mission.carried_propellant_kg - ship.active_mission.boiled_propellant_kg;
+            w.state.game_time_s) + ship.active_mission.carried_propellant_kg - ship.active_mission.boiled_propellant_kg;
         ship.propellant_kg = std::max(0.0, ship.propellant_kg);
     }
 
     if (!ship.active_mission.salvage_derelict_id.empty() && !ship.active_mission.salvage_done
-        && w.state.game_time_s_ >= ship.active_mission.rendezvous_time_s) {
+        && w.state.game_time_s >= ship.active_mission.rendezvous_time_s) {
         systems::reach_derelict(w, ship);
     }
     if (ship.active_mission.remaining_travel_time_s > 0.0) {
@@ -544,27 +544,27 @@ void step_in_transit_ship(World& w, domain::ShipState& ship, double dt_s) {
         const double left_kg = samples.back() + ship.active_mission.carried_propellant_kg
             - ship.active_mission.boiled_propellant_kg;
         const double reserve_kg = PROPELLANT_RESERVE_FRACTION * std::max(0.0, samples.front() - samples.back());
-        ++w.audits.radiation_audit_.thermal_arrivals;
+        ++w.audits.radiation_audit.thermal_arrivals;
         if (left_kg < -1.0) {
-            ++w.audits.radiation_audit_.arrivals_short_of_burn;
+            ++w.audits.radiation_audit.arrivals_short_of_burn;
         } else if (left_kg < 0.5 * reserve_kg) {
-            ++w.audits.radiation_audit_.arrivals_below_half_reserve;
+            ++w.audits.radiation_audit.arrivals_below_half_reserve;
         }
         if (reserve_kg > 1.0) {
-            w.audits.radiation_audit_.lowest_reserve_share = std::min(w.audits.radiation_audit_.lowest_reserve_share, left_kg / reserve_kg);
+            w.audits.radiation_audit.lowest_reserve_share = std::min(w.audits.radiation_audit.lowest_reserve_share, left_kg / reserve_kg);
         }
     }
 
     ship.current_station_id = ship.active_mission.destination_station_id;
     ship.phase = domain::ShipMissionPhase::Idle;
-    ship.idle_since_s = w.state.game_time_s_;
+    ship.idle_since_s = w.state.game_time_s;
     auto& destination = query::get_station_state(w, ship.current_station_id);
     if (!ship.active_mission.cargo.empty()) {
         const auto& destination_def = query::get_station_definition(w, ship.current_station_id);
         const double transit_days = ship.active_mission.total_travel_time_s / 86400.0;
         // Deliveries beyond the destination's free storage are jettisoned.
         double free_capacity = destination_def.storage_capacity_units > 0.0
-            ? std::max(0.0, destination_def.storage_capacity_units - w.engines.economy_.storage_used_units(destination_def, destination.inventory))
+            ? std::max(0.0, destination_def.storage_capacity_units - w.engines.economy.storage_used_units(destination_def, destination.inventory))
             : std::numeric_limits<double>::infinity();
         double total_revenue = 0.0;
         double total_spoiled = 0.0;
@@ -591,22 +591,22 @@ void step_in_transit_ship(World& w, domain::ShipState& ship, double dt_s) {
             // An emergency premium comes from the station's faction, the rest from the station.
             const double faction_share = lot.emergency_premium * delivered_share;
             if (faction_share > 0.0) {
-                w.state.faction_treasuries_[destination_def.faction_id] -= faction_share;
-                w.state.emergency_paid_ += faction_share;
-                for (auto& emergency : w.state.emergencies_) {
+                w.state.faction_treasuries[destination_def.faction_id] -= faction_share;
+                w.state.emergency_paid += faction_share;
+                for (auto& emergency : w.state.emergencies) {
                     if (emergency.station_id == destination.station_id && emergency.commodity_id == lot.commodity_id) {
                         emergency.faction_paid += faction_share;
                     }
                 }
             }
             // The station's import cost: what it paid per unit, averaged over about 30 days of its use.
-            if (arrived > 0.0 && !w.engines.economy_.is_export_market(destination_def, lot.commodity_id)) {
-                const auto& rates = w.engines.economy_.get_station_net_rates(destination_def);
+            if (arrived > 0.0 && !w.engines.economy.is_export_market(destination_def, lot.commodity_id)) {
+                const auto& rates = w.engines.economy.get_station_net_rates(destination_def);
                 const auto rate = rates.find(lot.commodity_id);
                 const double history = rate == rates.end() ? 0.0 : std::max(0.0, -rate->second) * IMPORT_COST_DAYS;
                 const auto known = destination.import_unit_cost.find(lot.commodity_id);
                 const double previous = known == destination.import_unit_cost.end()
-                    ? w.engines.economy_.reference_price(destination_def, lot.commodity_id) : known->second;
+                    ? w.engines.economy.reference_price(destination_def, lot.commodity_id) : known->second;
                 destination.import_unit_cost[lot.commodity_id] =
                     (previous * history + (revenue - faction_share)) / (history + arrived);
             }
@@ -616,37 +616,37 @@ void step_in_transit_ship(World& w, domain::ShipState& ship, double dt_s) {
             if (static const bool trace_deliveries = std::getenv("SPACETRAINS_TRACE_DELIVERIES") != nullptr;
                 trace_deliveries && arrived > 0.0) {
                 std::cerr << std::format("[DELIVERY] day {:.0f} {} {} {:.0f}u at {:.1f}/u by {} ({}) lead {:.0f}d\n",
-                    w.state.game_time_s_ / 86400.0, destination.station_id, lot.commodity_id, arrived, revenue / arrived, ship.name,
-                    ship.class_id, (w.state.game_time_s_ - ship.active_mission.departure_time_s + ship.active_mission.wait_time_s) / 86400.0);
+                    w.state.game_time_s / 86400.0, destination.station_id, lot.commodity_id, arrived, revenue / arrived, ship.name,
+                    ship.class_id, (w.state.game_time_s - ship.active_mission.departure_time_s + ship.active_mission.wait_time_s) / 86400.0);
             }
             if (arrived > 0.0) {
                 systems::observe_delivery(w, destination, lot.commodity_id,
                     ship.active_mission.departure_time_s - ship.active_mission.wait_time_s);
                 // Audit only: what stations pay against the landed reference price.
-                const auto& refs = w.data.universe_.pricing.reference_prices;
+                const auto& refs = w.data.universe.pricing.reference_prices;
                 if (const auto at = refs.find(destination.station_id); at != refs.end()) {
                     if (const auto ref = at->second.find(lot.commodity_id); ref != at->second.end()) {
-                        w.audits.delivered_paid_cr_ += revenue;
-                        w.audits.delivered_reference_cr_ += arrived * ref->second;
+                        w.audits.delivered_paid_cr += revenue;
+                        w.audits.delivered_reference_cr += arrived * ref->second;
                     }
                 }
             }
             destination.credits -= revenue - faction_share;
             destination.ledger.ship_purchases += revenue - faction_share;
             ship.credits += revenue;
-            w.state.journal_.record(query::account_station(w, destination), query::account_fleet(w, ship.faction_id), MoneyCategory::Cargo, revenue - faction_share);
+            w.state.journal.record(query::account_station(w, destination), query::account_fleet(w, ship.faction_id), MoneyCategory::Cargo, revenue - faction_share);
             if (faction_share > 0.0) {
-                w.state.journal_.record(query::account_faction(w, destination_def.faction_id), query::account_fleet(w, ship.faction_id),
+                w.state.journal.record(query::account_faction(w, destination_def.faction_id), query::account_fleet(w, ship.faction_id),
                     MoneyCategory::EmergencyPremium, faction_share);
             }
             ship.lifetime_profit += revenue;
             ship.ledger.cargo_revenue += revenue;
             total_revenue += revenue;
             if (arrived > 0.0) {
-                w.state.flows_.record(FlowKind::Delivered, ship.active_mission.origin_station_id, destination.station_id,
+                w.state.flows.record(FlowKind::Delivered, ship.active_mission.origin_station_id, destination.station_id,
                     lot.commodity_id, arrived, revenue);
                 query::record_trade(w, {
-                    .time_s = w.state.game_time_s_,
+                    .time_s = w.state.game_time_s,
                     .ship_id = ship.id,
                     .station_id = destination.station_id,
                     .commodity_id = lot.commodity_id,
@@ -674,7 +674,7 @@ void step_in_transit_ship(World& w, domain::ShipState& ship, double dt_s) {
         for (const auto& lot : ship.active_mission.cargo) {
             unit_days += lot.units * std::max(0.0, ship.active_mission.total_travel_time_s) / 86400.0;
         }
-        w.state.flows_.record(FlowKind::Lane, ship.active_mission.origin_station_id, destination.station_id, ship.class_id, unit_days,
+        w.state.flows.record(FlowKind::Lane, ship.active_mission.origin_station_id, destination.station_id, ship.class_id, unit_days,
             ship.active_mission.propellant_cost_kg);
     }
     systems::land_passengers(w, ship, destination);
@@ -700,7 +700,7 @@ std::vector<FitOption> neighbouring_fits(World& w,
     // Only the neighbouring tank sizes: larger steps take several refits.
     const domain::ShipClassDefinition* next_smaller = nullptr;
     const domain::ShipClassDefinition* next_larger = nullptr;
-    for (const auto& other : w.data.universe_.ship_classes) {
+    for (const auto& other : w.data.universe.ship_classes) {
         if (other.hull_id != current.hull_id) {
             continue;
         }
@@ -719,7 +719,7 @@ std::vector<FitOption> neighbouring_fits(World& w,
             add(tank->id, fit);
         }
     }
-    for (const auto& module : w.data.universe_.ship_modules) {
+    for (const auto& module : w.data.universe.ship_modules) {
         if (module.hull_id != current.hull_id) {
             continue;
         }
@@ -746,12 +746,12 @@ void record_trajectory_audit(
     const domain::StationDefinition& destination,
     const domain::TrajectoryPlan& plan,
     double planning_propellant_kg) {
-    const double r_origin_m = w.engines.mechanics_.get_heliocentric_radius(origin.parent_body_id, plan.departure_time_s);
-    const double r_dest_m = w.engines.mechanics_.get_heliocentric_radius(destination.parent_body_id, plan.arrival_time_s);
+    const double r_origin_m = w.engines.mechanics.get_heliocentric_radius(origin.parent_body_id, plan.departure_time_s);
+    const double r_dest_m = w.engines.mechanics.get_heliocentric_radius(destination.parent_body_id, plan.arrival_time_s);
     auto metrics = trajectory::audit_trajectory(plan);
     const bool flagged = !metrics.flags.empty();
-    w.audits.trajectory_audit_records_.push_back({
-        .planned_at_s = w.state.game_time_s_,
+    w.audits.trajectory_audit_records.push_back({
+        .planned_at_s = w.state.game_time_s,
         .ship_name = ship.name,
         .class_id = ship.class_id,
         .origin_station_id = origin.id,

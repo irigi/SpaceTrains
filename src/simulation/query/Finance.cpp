@@ -14,9 +14,9 @@ namespace spacetrains::simulation::query {
 using namespace detail;
 
 double faction_credit_limit(const World& w, const std::string& faction_id) {
-    const auto& open = w.data.universe_.open_economy;
+    const auto& open = w.data.universe.open_economy;
     double fleet_value = 0.0;
-    for (const auto& ship : w.state.ships_) {
+    for (const auto& ship : w.state.ships) {
         if (ship.faction_id == faction_id) {
             fleet_value += query::ship_design(w, ship).ship_value_cr;
         }
@@ -25,26 +25,26 @@ double faction_credit_limit(const World& w, const std::string& faction_id) {
     // remote colony stocks a year or more of its imports, which its faction paid for; Mars
     // Corporation, with one station and few ships, went over its limit building that stock.
     double stock_value = 0.0;
-    for (const auto& station : w.state.stations_) {
+    for (const auto& station : w.state.stations) {
         const auto& definition = query::get_station_definition(w, station.station_id);
         if (definition.faction_id != faction_id) {
             continue;
         }
         for (const auto& [commodity_id, units] : station.inventory) {
-            stock_value += std::max(0.0, units) * w.engines.economy_.reference_price(definition, commodity_id);
+            stock_value += std::max(0.0, units) * w.engines.economy.reference_price(definition, commodity_id);
         }
     }
-    const auto tax = w.state.faction_tax_per_day_.find(faction_id);
+    const auto tax = w.state.faction_tax_per_day.find(faction_id);
     return open.faction_loan_to_value * (fleet_value + stock_value)
-        + open.faction_tax_years * 365.0 * (tax == w.state.faction_tax_per_day_.end() ? 0.0 : tax->second);
+        + open.faction_tax_years * 365.0 * (tax == w.state.faction_tax_per_day.end() ? 0.0 : tax->second);
 }
 
 double economy_balance(const World& w, const std::string& economy_id) {
     if (economy_id == EARTH_ECONOMY) {
-        return w.state.outside_economy_credits_;
+        return w.state.outside_economy_credits;
     }
-    const auto it = w.state.background_credits_.find(economy_id);
-    return it == w.state.background_credits_.end() ? 0.0 : it->second;
+    const auto it = w.state.background_credits.find(economy_id);
+    return it == w.state.background_credits.end() ? 0.0 : it->second;
 }
 
 double economy_credit_line(const World& w, const std::string& economy_id) {
@@ -52,7 +52,7 @@ double economy_credit_line(const World& w, const std::string& economy_id) {
     if (economy_id == EARTH_ECONOMY) {
         return std::numeric_limits<double>::infinity();
     }
-    for (const auto& economy : w.data.universe_.background_economies) {
+    for (const auto& economy : w.data.universe.background_economies) {
         if (economy.id == economy_id) {
             return economy.initial_credits;
         }
@@ -62,7 +62,7 @@ double economy_credit_line(const World& w, const std::string& economy_id) {
 
 double colony_wage_median(const World& w, const domain::BackgroundEconomyDefinition& economy) {
     const auto* state = query::colony_state(w, economy.id);
-    return state != nullptr && w.data.universe_.households.colony_wage_follows_income > 0.0 && state->wage_median > 0.0
+    return state != nullptr && w.data.universe.households.colony_wage_follows_income > 0.0 && state->wage_median > 0.0
         ? state->wage_median : economy.wage_median_cr_per_day;
 }
 
@@ -70,22 +70,22 @@ double station_lifetime_profit(const World& w, const domain::StationState& stati
     const auto& definition = query::get_station_definition(w, station.station_id);
     const auto stock_value = [&](const domain::Inventory& inventory) {
         double value = 0.0;
-        for (const auto& commodity : w.data.universe_.commodities) {
+        for (const auto& commodity : w.data.universe.commodities) {
             const auto it = inventory.find(commodity.id);
             const double stock = it == inventory.end() ? 0.0 : std::max(0.0, it->second);
-            value += w.engines.economy_.get_trade_value(definition, commodity.id, 0.0, stock, commodity.base_price);
+            value += w.engines.economy.get_trade_value(definition, commodity.id, 0.0, stock, commodity.base_price);
         }
         return value;
     };
     return station.credits - definition.initial_credits + station.ledger.taxes - station.ledger.subsidies
-        + stock_value(station.inventory) - stock_value(w.data.starting_inventories_.at(station.station_id));
+        + stock_value(station.inventory) - stock_value(w.data.starting_inventories.at(station.station_id));
 }
 
 double station_profit_last_year(const World& w, const domain::StationState& station) {
-    const auto& history = w.state.journal_.history();
-    // `station` must be an element of w.state.stations_ (its index is the journal's station column).
-    assert(&station >= w.state.stations_.data() && &station < w.state.stations_.data() + w.state.stations_.size());
-    const auto index = static_cast<std::size_t>(&station - w.state.stations_.data());
+    const auto& history = w.state.journal.history();
+    // `station` must be an element of w.state.stations (its index is the journal's station column).
+    assert(&station >= w.state.stations.data() && &station < w.state.stations.data() + w.state.stations.size());
+    const auto index = static_cast<std::size_t>(&station - w.state.stations.data());
     const double year_ago = history.size() > 12 ? history[history.size() - 13].station_profit.at(index) : 0.0;
     return query::station_lifetime_profit(w, station) - year_ago;
 }
@@ -99,13 +99,13 @@ double resident_wages_per_day(const World& w, const domain::StationState& statio
         return workers * wage;
     }
     const double employed = std::min(workers, station.jobs);
-    return wage * (employed + w.data.universe_.labour_market.unemployment_benefit * std::max(0.0, workers - employed));
+    return wage * (employed + w.data.universe.labour_market.unemployment_benefit * std::max(0.0, workers - employed));
 }
 
 double household_travel_budget(const World& w, const std::string& home_id, double window_days) {
     // What a station's residents may spend on trips over the next window_days (households on).
     const auto& home = query::get_station_state(w, home_id);
-    const auto& households = w.data.universe_.households;
+    const auto& households = w.data.universe.households;
     if (households.travel_share > 0.0) {
         return home.travel_budget_cr + households.travel_share * query::resident_wages_per_day(w, home) * std::max(0.0, window_days);
     }

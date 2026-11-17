@@ -16,7 +16,7 @@ namespace spacetrains::simulation::query {
 using namespace detail;
 
 double daily_capital_cost(const World& w, const domain::ShipClassDefinition& ship_class) {
-    const auto& operations = w.data.universe_.ship_operations;
+    const auto& operations = w.data.universe.ship_operations;
     return ship_class.ship_value_cr
         * (operations.interest_rate_per_year + 1.0 / operations.lifetime_years) / 365.0;
 }
@@ -26,25 +26,25 @@ double station_r_au(const World& w, const domain::StationDefinition& station, do
     // last answer per station. A pure cache for the simulation thread; parallel work (the
     // reference prices and fares) computes it directly.
     if (util::ThreadPool::in_parallel_for()) {
-        return w.engines.mechanics_.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11;
+        return w.engines.mechanics.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11;
     }
-    auto& slot = w.caches.station_radius_cache_[station.id];
+    auto& slot = w.caches.station_radius_cache[station.id];
     if (slot.first != time_s || slot.second <= 0.0) {
-        slot = {time_s, w.engines.mechanics_.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11};
+        slot = {time_s, w.engines.mechanics.get_heliocentric_radius(station.parent_body_id, time_s) / 1.495978707e11};
     }
     return slot.second;
 }
 
 double docked_dose_msv_per_day(const World& w, const std::string& station_id, double time_s) {
-    const auto& env = w.data.universe_.ship_environment;
-    const auto it = w.data.universe_.station_radiation.find(station_id);
+    const auto& env = w.data.universe.ship_environment;
+    const auto it = w.data.universe.station_radiation.find(station_id);
     const domain::StationRadiationDefinition open_space;
-    return crew_environment::expected_docked_msv_per_day(env, it == w.data.universe_.station_radiation.end() ? open_space : it->second,
+    return crew_environment::expected_docked_msv_per_day(env, it == w.data.universe.station_radiation.end() ? open_space : it->second,
         query::station_r_au(w, query::get_station_definition(w, station_id), time_s), time_s / 86400.0);
 }
 
 double cabin_shield_g_cm2(const World& w, const domain::ShipClassDefinition& design, double propellant_kg) {
-    if (!w.data.active_effects_.contains("cabin_shield_g_cm2")) {
+    if (!w.data.active_effects.contains("cabin_shield_g_cm2")) {
         return 0.0;
     }
     return crew_environment::cabin_shield_g_cm2(design, propellant_kg);
@@ -53,14 +53,14 @@ double cabin_shield_g_cm2(const World& w, const domain::ShipClassDefinition& des
 double leg_dose_msv_per_day(const World& w, const domain::ShipClassDefinition& design,
     const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) {
     // Before the leg is flown: cabins inside the tanks count their mean fill over a leg.
-    const double cabin = query::cabin_shield_g_cm2(w, design, w.data.universe_.passengers.tank_wrap_mean_fill * design.propellant_capacity_kg);
-    return crew_environment::expected_transit_msv_per_day(w.data.universe_.ship_environment, design,
+    const double cabin = query::cabin_shield_g_cm2(w, design, w.data.universe.passengers.tank_wrap_mean_fill * design.propellant_capacity_kg);
+    return crew_environment::expected_transit_msv_per_day(w.data.universe.ship_environment, design,
         query::station_r_au(w, from, time_s), query::station_r_au(w, to, time_s), time_s / 86400.0, cabin);
 }
 
 double hazard_cr_per_day(const World& w, const domain::ShipClassDefinition& design,
     const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) {
-    const auto& env = w.data.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     if (!env.radiation || env.hazard_cr_per_msv <= 0.0) {
         return 0.0;
     }
@@ -69,13 +69,13 @@ double hazard_cr_per_day(const World& w, const domain::ShipClassDefinition& desi
 
 bool leg_dose_allowed(const World& w, const domain::ShipClassDefinition& design,
     const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) {
-    const auto& env = w.data.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     return !env.radiation || query::leg_dose_msv_per_day(w, design, from, to, time_s) * days <= env.career_limit_msv;
 }
 
 double cargo_decay_per_day(const World& w, const domain::ShipClassDefinition& design, const std::string& commodity_id) {
     const double ambient = query::get_commodity(w, commodity_id).decay_fraction_per_day;
-    if (ambient <= 0.0 || commodity_id == economy::FUEL_ID || !w.data.universe_.ship_environment.cold_storage) {
+    if (ambient <= 0.0 || commodity_id == economy::FUEL_ID || !w.data.universe.ship_environment.cold_storage) {
         return ambient;
     }
     const auto it = design.effects.find("perishable_decay_factor");
@@ -83,7 +83,7 @@ double cargo_decay_per_day(const World& w, const domain::ShipClassDefinition& de
 }
 
 double drive_life_h(const World& w, const domain::ShipClassDefinition& design) {
-    const auto& env = w.data.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     return design.propulsion_type == "variable_isp" ? env.plasma_drive_life_h : env.ntr_core_life_h;
 }
 
@@ -109,8 +109,8 @@ OverhaulBill overhaul_bill(const World& w, const domain::ShipClassDefinition& de
         if (part.parent_id.empty()) {
             continue;
         }
-        const auto spec = w.data.universe_.spare_parts.find(part.kind);
-        if (spec == w.data.universe_.spare_parts.end()) {
+        const auto spec = w.data.universe.spare_parts.find(part.kind);
+        if (spec == w.data.universe.spare_parts.end()) {
             continue;
         }
         const double share = spec->second.wears_with == "drive" ? drive_share : radiator_share;
@@ -123,15 +123,15 @@ OverhaulBill overhaul_bill(const World& w, const domain::ShipClassDefinition& de
         }
         const double hours = kg * (spec->second.fabrication_h_per_kg + spec->second.install_h_per_kg);
         bill.hours += hours;
-        bill.labour_cr += hours * w.data.universe_.labour.wage_cr_per_hour(spec->second.grade);
+        bill.labour_cr += hours * w.data.universe.labour.wage_cr_per_hour(spec->second.grade);
     }
-    const auto& env = w.data.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     bill.days = std::max(env.min_repair_days, bill.hours / (env.repair_team_size * env.repair_team_hours_per_day));
     return bill;
 }
 
 double wear_cr_per_drive_hour(const World& w, const domain::ShipClassDefinition& design) {
-    if (!w.data.universe_.ship_environment.wear) {
+    if (!w.data.universe.ship_environment.wear) {
         return 0.0;
     }
     // A whole drive life's overhaul (goods at base price), spread over its hours.
@@ -150,7 +150,7 @@ double wear_cr_per_flight_day(const World& w, const domain::ShipClassDefinition&
 
 double wear_cr_per_propellant_kg(const World& w, const domain::ShipClassDefinition& design) {
     // Nuclear-thermal cores wear by the hour of burn, that is by the kilogram burned.
-    if (design.propulsion_type == "variable_isp" || !w.data.universe_.ship_environment.wear) {
+    if (design.propulsion_type == "variable_isp" || !w.data.universe.ship_environment.wear) {
         return 0.0;
     }
     for (const auto& part : design.components) {
@@ -164,13 +164,13 @@ double wear_cr_per_propellant_kg(const World& w, const domain::ShipClassDefiniti
 
 double ship_r_au(const World& w, const domain::ShipState& ship) {
     if (ship.phase != domain::ShipMissionPhase::InTransit) {
-        return query::station_r_au(w, query::get_station_definition(w, ship.current_station_id), w.state.game_time_s_);
+        return query::station_r_au(w, query::get_station_definition(w, ship.current_station_id), w.state.game_time_s);
     }
     const auto& mission = ship.active_mission;
     const double r1 = query::station_r_au(w, query::get_station_definition(w, mission.origin_station_id), mission.departure_time_s);
     const double r2 = query::station_r_au(w, query::get_station_definition(w, mission.destination_station_id), mission.arrival_time_s);
     const double span = std::max(1.0, mission.arrival_time_s - mission.departure_time_s);
-    const double f = std::clamp((w.state.game_time_s_ - mission.departure_time_s) / span, 0.0, 1.0);
+    const double f = std::clamp((w.state.game_time_s - mission.departure_time_s) / span, 0.0, 1.0);
     return r1 + f * (r2 - r1);
 }
 
@@ -179,7 +179,7 @@ double boiloff_kg_per_day(const World& w, const domain::ShipClassDefinition& des
 }
 
 double leg_boiloff_kg_per_day(const World& w, const domain::ShipClassDefinition& design, double r1_au, double r2_au) {
-    const auto& env = w.data.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     if (!env.boiloff || design.propulsion_type == "variable_isp") {
         return 0.0;
     }
@@ -216,7 +216,7 @@ double leg_boiloff_kg_per_day(const World& w, const domain::ShipClassDefinition&
 
 double leg_boiloff_kg_per_day(const World& w, const domain::ShipClassDefinition& design,
     const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) {
-    if (!w.data.universe_.ship_environment.boiloff || design.propulsion_type == "variable_isp") {
+    if (!w.data.universe.ship_environment.boiloff || design.propulsion_type == "variable_isp") {
         return 0.0;
     }
     return query::leg_boiloff_kg_per_day(w, design, query::station_r_au(w, from, time_s), query::station_r_au(w, to, time_s));
@@ -228,7 +228,7 @@ double purchasable_propellant_kg(const World& w, const domain::ShipState& ship) 
     // Leave the station its own working reserve (it may consume fuel too) — except for a
     // nearly-dry ship, which may tap the reserve to get unstuck.
     const bool emergency = ship.propellant_kg <= ship_class.propellant_capacity_kg * 0.05;
-    const auto& station_rates = w.engines.economy_.get_station_net_rates(query::get_station_definition(w, ship.current_station_id));
+    const auto& station_rates = w.engines.economy.get_station_net_rates(query::get_station_definition(w, ship.current_station_id));
     const double station_fuel_rate = station_rates.contains("fuel") ? station_rates.at("fuel") : 0.0;
     const double station_reserve = (station_fuel_rate < 0.0 && !emergency)
         ? std::abs(station_fuel_rate) * 14.0 : 0.0;
@@ -254,21 +254,21 @@ double persons_aboard(const World& w, const domain::ShipState& ship) {
 double provisionable_days(const World& w, const domain::ShipState& ship, const domain::StationState& market) {
     const auto& market_def = query::get_station_definition(w, market.station_id);
     double days = std::numeric_limits<double>::infinity();
-    for (const auto& [commodity_id, units_per_crew_day] : w.data.universe_.ship_operations.life_support_units_per_crew_day) {
+    for (const auto& [commodity_id, units_per_crew_day] : w.data.universe.ship_operations.life_support_units_per_crew_day) {
         const double need_per_day = query::persons_aboard(w, ship) * units_per_crew_day;
         if (need_per_day <= 0.0) {
             continue;
         }
         const auto carried_it = ship.provisions.find(commodity_id);
         const double carried = carried_it == ship.provisions.end() ? 0.0 : carried_it->second;
-        days = std::min(days, (carried + sellable_units(w.engines.economy_, market_def, market, commodity_id, true)) / need_per_day);
+        days = std::min(days, (carried + sellable_units(w.engines.economy, market_def, market, commodity_id, true)) / need_per_day);
     }
     return days;
 }
 
 bool drive_life_allows(const World& w, const domain::ShipState& ship, const domain::ShipClassDefinition& design,
     const domain::TrajectoryPlan& plan) {
-    if (!w.data.universe_.ship_environment.wear) {
+    if (!w.data.universe.ship_environment.wear) {
         return true;
     }
     return query::drive_hours(design, plan) <= (1.0 - ship.engine_wear) * query::drive_life_h(w, design);
