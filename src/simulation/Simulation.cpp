@@ -1,22 +1,14 @@
 #include "simulation/Simulation.hpp"
 #include "domain/ShipDesign.hpp"
-#include "simulation/CrewEnvironment.hpp"
 
 #include "util/Profiling.hpp"
 
 #include <algorithm>
-#include <chrono>
-#include <array>
-#include <tuple>
 #include <cmath>
-#include <numbers>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
-#include <iomanip>
 #include <iostream>
-#include <limits>
-#include <sstream>
 #include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
@@ -24,6 +16,7 @@
 #include "simulation/query/Events.hpp"
 #include "simulation/query/Lookups.hpp"
 #include "simulation/query/Positions.hpp"
+#include "simulation/systems/StationSystems.hpp"
 
 namespace spacetrains::simulation {
 
@@ -228,6 +221,9 @@ double Simulation::radiator_bucket(const domain::ShipState& ship) const {
     return query::radiator_bucket(*this, ship);
 }
 
+std::string Simulation::station_systems_json(const domain::StationDefinition& station, const domain::StationState& state) const {
+    return systems::station_systems_json(*this, station, state);
+}
 
 const domain::ShipClassDefinition& Simulation::ship_design(const domain::ShipState& ship) const {
     return query::ship_design(*this, ship);

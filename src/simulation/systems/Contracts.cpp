@@ -1,54 +1,43 @@
 // Liners, scheduled stops and route contracts.
 
-#include "simulation/Simulation.hpp"
-#include "domain/ShipDesign.hpp"
-#include "simulation/CrewEnvironment.hpp"
-
-#include "util/Profiling.hpp"
+#include "simulation/systems/Contracts.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <array>
-#include <tuple>
 #include <cmath>
-#include <numbers>
-#include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Lookups.hpp"
+#include "simulation/query/ShipRates.hpp"
+#include "simulation/systems/Market.hpp"
+#include "simulation/systems/MissionPlanning.hpp"
 
-namespace spacetrains::simulation {
+namespace spacetrains::simulation::systems {
 
 using namespace detail;
 
-double Simulation::fleet_hold_units() const {
+double fleet_hold_units(const World& w) {
     double units = 0.0;
-    for (const auto& ship : ships_) {
-        if (liner_stops(ship) == nullptr) {  // liners are a public service, outside the cap
-            units += ship_design(ship).cargo_capacity_units;
+    for (const auto& ship : w.ships_) {
+        if (systems::liner_stops(w, ship) == nullptr) {  // liners are a public service, outside the cap
+            units += query::ship_design(w, ship).cargo_capacity_units;
         }
     }
     return units;
 }
 
-std::size_t Simulation::fleet_ship_count() const {
-    return static_cast<std::size_t>(std::count_if(ships_.begin(), ships_.end(),
-        [&](const domain::ShipState& ship) { return liner_stops(ship) == nullptr; }));
+std::size_t fleet_ship_count(const World& w) {
+    return static_cast<std::size_t>(std::count_if(w.ships_.begin(), w.ships_.end(),
+        [&](const domain::ShipState& ship) { return systems::liner_stops(w, ship) == nullptr; }));
 }
 
-const std::vector<std::string>* Simulation::liner_stops(const domain::ShipState& ship) const {
-    const auto it = universe_.liners.find(ship.id);
-    return it == universe_.liners.end() ? nullptr : &it->second;
+const std::vector<std::string>* liner_stops(const World& w, const domain::ShipState& ship) {
+    const auto it = w.universe_.liners.find(ship.id);
+    return it == w.universe_.liners.end() ? nullptr : &it->second;
 }
 
-std::string Simulation::next_liner_stop(const domain::ShipState& ship, const std::string& from_id) const {
-    const auto* stops = liner_stops(ship);
+std::string next_liner_stop(const World& w, const domain::ShipState& ship, const std::string& from_id) {
+    const auto* stops = systems::liner_stops(w, ship);
     if (stops == nullptr) {
         return {};
     }
@@ -56,20 +45,20 @@ std::string Simulation::next_liner_stop(const domain::ShipState& ship, const std
     return at == stops->end() ? stops->front() : stops->at(static_cast<std::size_t>(at - stops->begin() + 1) % stops->size());
 }
 
-bool Simulation::under_contract(const domain::ShipState& ship) const {
-    return !ship.contract.stops.empty() && game_time_s_ < ship.contract.until_s;
+bool under_contract(const World& w, const domain::ShipState& ship) {
+    return !ship.contract.stops.empty() && w.game_time_s_ < ship.contract.until_s;
 }
 
-const std::vector<std::string>* Simulation::scheduled_stops(const domain::ShipState& ship) const {
-    if (const auto* stops = liner_stops(ship); stops != nullptr) {
+const std::vector<std::string>* scheduled_stops(const World& w, const domain::ShipState& ship) {
+    if (const auto* stops = systems::liner_stops(w, ship); stops != nullptr) {
         return stops;
     }
-    return under_contract(ship) ? &ship.contract.stops : nullptr;
+    return systems::under_contract(w, ship) ? &ship.contract.stops : nullptr;
 }
 
-std::string Simulation::next_scheduled_stop(const domain::ShipState& ship, const std::string& from_id) const {
-    if (liner_stops(ship) != nullptr) {
-        return next_liner_stop(ship, from_id);
+std::string next_scheduled_stop(const World& w, const domain::ShipState& ship, const std::string& from_id) {
+    if (systems::liner_stops(w, ship) != nullptr) {
+        return systems::next_liner_stop(w, ship, from_id);
     }
     const auto& stops = ship.contract.stops;
     if (stops.empty()) {
@@ -79,7 +68,7 @@ std::string Simulation::next_scheduled_stop(const domain::ShipState& ship, const
     return at == stops.end() ? stops.front() : stops.at(static_cast<std::size_t>(at - stops.begin() + 1) % stops.size());
 }
 
-double Simulation::contract_dwell_days(const domain::ShipContract& contract) {
+double contract_dwell_days(const domain::ShipContract& contract) {
     double legs = 0.0;
     for (const double days : contract.leg_days) {
         legs += days;
@@ -87,10 +76,10 @@ double Simulation::contract_dwell_days(const domain::ShipContract& contract) {
     return std::max(0.0, contract.cycle_days - legs);
 }
 
-double Simulation::contracted_flow(const std::string& station_id, const std::string& commodity_id) const {
+double contracted_flow(const World& w, const std::string& station_id, const std::string& commodity_id) {
     double flow = 0.0;
-    for (const auto& ship : ships_) {
-        if (!under_contract(ship) || ship.contract.cycle_days <= 0.0) {
+    for (const auto& ship : w.ships_) {
+        if (!systems::under_contract(w, ship) || ship.contract.cycle_days <= 0.0) {
             continue;
         }
         for (const auto& delivery : ship.contract.deliveries) {
@@ -102,51 +91,51 @@ double Simulation::contracted_flow(const std::string& station_id, const std::str
     return flow;
 }
 
-void Simulation::with_parallel_plans(const std::string& prefix, const std::function<void()>& pass) {
+void with_parallel_plans(World& w, const std::string& prefix, const std::function<void()>& pass) {
     for (;;) {
         std::vector<DeferredPlan> deferred;
-        auto* const outer = deferred_plans_;
-        deferred_plans_ = &deferred;
-        deferred_keys_.clear();
-        deferred_prefix_ = prefix;
+        auto* const outer = w.deferred_plans_;
+        w.deferred_plans_ = &deferred;
+        w.deferred_keys_.clear();
+        w.deferred_prefix_ = prefix;
         pass();
-        deferred_plans_ = outer;
-        deferred_prefix_.clear();
+        w.deferred_plans_ = outer;
+        w.deferred_prefix_.clear();
         if (deferred.empty()) {
             return;
         }
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
     }
 }
 
-std::pair<domain::ShipContract, double> Simulation::find_contract(
-    const domain::ShipState& ship, const domain::ShipClassDefinition& ship_class) {
-    const auto& market = universe_.market;
+std::pair<domain::ShipContract, double> find_contract(World& w, const domain::ShipState& ship,
+    const domain::ShipClassDefinition& ship_class) {
+    const auto& market = w.universe_.market;
     constexpr double day_s = 86400.0;
-    const auto& origin = get_station_definition(ship.current_station_id);
+    const auto& origin = query::get_station_definition(w, ship.current_station_id);
     const double hold = ship_class.cargo_capacity_units;
     if (hold <= 0.0) {
         return {{}, 0.0};
     }
-    double crew = ship_class.crew_size * universe_.ship_operations.wage_cr_per_crew_day;
-    for (const auto& [good, units_per_crew_day] : universe_.ship_operations.life_support_units_per_crew_day) {
-        crew += ship_class.crew_size * units_per_crew_day * get_commodity(good).base_price;
+    double crew = ship_class.crew_size * w.universe_.ship_operations.wage_cr_per_crew_day;
+    for (const auto& [good, units_per_crew_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
+        crew += ship_class.crew_size * units_per_crew_day * query::get_commodity(w, good).base_price;
     }
-    const double time_cost = daily_capital_cost(ship_class) + crew + hazard_cr_per_day(ship_class, origin, origin, game_time_s_)
-        + wear_cr_per_flight_day(ship_class);
-    const double fuel_base = get_commodity(economy::FUEL_ID).base_price;
-    const auto n = universe_.stations.size();
+    const double time_cost = query::daily_capital_cost(w, ship_class) + crew + query::hazard_cr_per_day(w, ship_class, origin, origin, w.game_time_s_)
+        + query::wear_cr_per_flight_day(w, ship_class);
+    const double fuel_base = query::get_commodity(w, economy::FUEL_ID).base_price;
+    const auto n = w.universe_.stations.size();
     // Every leg once, from today's bucket (later legs' windows are not dated: an estimate).
     std::vector<LegEstimate> legs(n * n);
-    with_parallel_plans("contract#", [&] {
+    systems::with_parallel_plans(w, "contract#", [&] {
         for (std::size_t a = 0; a < n; ++a) {
             for (std::size_t b = 0; b < n; ++b) {
                 if (a != b) {
-                    legs[a * n + b] = estimate_leg(ship_class, universe_.stations[a], universe_.stations[b], game_time_s_,
+                    legs[a * n + b] = systems::estimate_leg(w, ship_class, w.universe_.stations[a], w.universe_.stations[b], w.game_time_s_,
                         ship_class.propellant_capacity_kg, market.fill_ref * hold * 100.0);
                 }
             }
@@ -162,37 +151,37 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     std::vector<std::vector<Need>> needs(n);
     std::vector<std::unordered_map<std::string, std::pair<double, double>>> spares(n);  // good -> (units now, per day)
     for (std::size_t i = 0; i < n; ++i) {
-        const auto& station = universe_.stations[i];
-        const auto& state = get_station_state(station.id);
-        const auto& rates = economy_.get_station_net_rates(station);
+        const auto& station = w.universe_.stations[i];
+        const auto& state = query::get_station_state(w, station.id);
+        const auto& rates = w.economy_.get_station_net_rates(station);
         for (const auto& [commodity_id, rate] : rates) {
-            const bool makes = commodity_id == economy::FUEL_ID ? economy_.fuel_factory_output(station) > 0.0 : rate > 0.0;
+            const bool makes = commodity_id == economy::FUEL_ID ? w.economy_.fuel_factory_output(station) > 0.0 : rate > 0.0;
             if (makes) {
                 const auto stock = state.inventory.find(commodity_id);
                 const double spare = std::max(0.0, (stock == state.inventory.end() ? 0.0 : stock->second) - (8.0 + std::max(0.0, rate) * 7.0));
-                const double per_day = commodity_id == economy::FUEL_ID ? economy_.fuel_factory_output(station) : rate;
+                const double per_day = commodity_id == economy::FUEL_ID ? w.economy_.fuel_factory_output(station) : rate;
                 spares[i][commodity_id] = {spare, std::max(0.0, per_day)};
             }
         }
         for (const auto& [commodity_id, stats] : state.order_stats) {
-            if (!priced_order(state, commodity_id)) {
+            if (!systems::priced_order(state, commodity_id)) {
                 continue;
             }
-            const double use = order_levels(state, commodity_id, stats).use_per_day;
-            const double free_use = use - contracted_flow(station.id, commodity_id);
+            const double use = systems::order_levels(w, state, commodity_id, stats).use_per_day;
+            const double free_use = use - systems::contracted_flow(w, station.id, commodity_id);
             if (free_use <= 0.0) {
                 continue;
             }
             // The price a loop is signed at: the order's market price where ships compete,
             // else the going rate, never above today's bid.
             double price = market.competitive > 0.0 && stats.market_price > 0.0 ? stats.market_price : stats.going_rate;
-            price = std::min(price, std::max(stats.order_price, economy_.reference_price(station, commodity_id)));
+            price = std::min(price, std::max(stats.order_price, w.economy_.reference_price(station, commodity_id)));
             needs[i].push_back({commodity_id, free_use, price, std::max(stats.going_rate, price)});
         }
     }
     std::size_t origin_index = n;
     for (std::size_t i = 0; i < n; ++i) {
-        if (universe_.stations[i].id == origin.id) {
+        if (w.universe_.stations[i].id == origin.id) {
             origin_index = i;
         }
     }
@@ -225,10 +214,10 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
         for (std::size_t k = 0; k < loop.size(); ++k) {
             const auto from = loop[k];
             const auto to = loop[(k + 1) % loop.size()];
-            const auto& from_state = get_station_state(universe_.stations[from].id);
-            const double fuel_price = std::max(fuel_base, station_price(from_state, economy::FUEL_ID));
+            const auto& from_state = query::get_station_state(w, w.universe_.stations[from].id);
+            const double fuel_price = std::max(fuel_base, systems::station_price(w, from_state, economy::FUEL_ID));
             profit -= loop_legs[k].propellant_kg / FUEL_UNITS_TO_KG * fuel_price
-                + loop_legs[k].propellant_kg * wear_cr_per_propellant_kg(ship_class);
+                + loop_legs[k].propellant_kg * query::wear_cr_per_propellant_kg(w, ship_class);
             struct Pick {
                 const Need* need;
                 double units;
@@ -242,7 +231,7 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
                 }
                 const double available = std::max(spare->second.first, spare->second.second * cycle_days);
                 const double units = std::min(market.contract_cover * need.free_use * cycle_days, available);
-                const double buy = station_price(from_state, need.commodity_id);
+                const double buy = systems::station_price(w, from_state, need.commodity_id);
                 if (units >= market.contract_min_units && need.price > buy) {
                     picks.push_back({&need, units, need.price - buy});
                 }
@@ -256,7 +245,7 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
                 }
                 room -= units;
                 profit += units * pick.margin;
-                deliveries.push_back({.to_station_id = universe_.stations[to].id,
+                deliveries.push_back({.to_station_id = w.universe_.stations[to].id,
                     .commodity_id = pick.need->commodity_id, .units = units, .unit_price = pick.need->price});
                 buys.push_back(pick.need->price - pick.margin);
                 caps.push_back(pick.need->cap);
@@ -293,7 +282,7 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
         if (contract != nullptr) {
             *contract = {};
             for (std::size_t k = 0; k < loop.size(); ++k) {
-                contract->stops.push_back(universe_.stations[loop[k]].id);
+                contract->stops.push_back(w.universe_.stations[loop[k]].id);
                 contract->leg_days.push_back(loop_legs[k].travel_days);
             }
             contract->deliveries = std::move(deliveries);
@@ -343,14 +332,14 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
     ranked.resize(std::min(ranked.size(), static_cast<std::size_t>(std::max(1.0, market.contract_refine))));
     std::vector<std::vector<LegEstimate>> dated(ranked.size());
-    with_parallel_plans("contract#", [&] {
+    systems::with_parallel_plans(w, "contract#", [&] {
         for (std::size_t r = 0; r < ranked.size(); ++r) {
             const auto& candidate = ranked[r].second;
             dated[r].clear();
-            double t = game_time_s_;
+            double t = w.game_time_s_;
             for (std::size_t k = 0; k < candidate.size(); ++k) {
-                const auto leg = estimate_leg(ship_class, universe_.stations[candidate[k]],
-                    universe_.stations[candidate[(k + 1) % candidate.size()]], t, ship_class.propellant_capacity_kg,
+                const auto leg = systems::estimate_leg(w, ship_class, w.universe_.stations[candidate[k]],
+                    w.universe_.stations[candidate[(k + 1) % candidate.size()]], t, ship_class.propellant_capacity_kg,
                     market.fill_ref * hold * 100.0);
                 dated[r].push_back(leg);
                 t += leg.travel_days * day_s;
@@ -373,10 +362,10 @@ std::pair<domain::ShipContract, double> Simulation::find_contract(
     // What the ship earns on it (cost-plus: its markup on the loop's cost).
     best_score = best_profit;
     if (!best.stops.empty()) {
-        best.signed_s = game_time_s_;
-        best.until_s = game_time_s_ + market.contract_term_days * day_s;
+        best.signed_s = w.game_time_s_;
+        best.until_s = w.game_time_s_ + market.contract_term_days * day_s;
     }
     return {best, best_score};
 }
 
-}  // namespace spacetrains::simulation
+}  // namespace spacetrains::simulation::systems

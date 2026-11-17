@@ -14,6 +14,10 @@ namespace spacetrains::simulation::query {
 [[nodiscard]] inline bool labour_on(const World& w) {
     return households_on(w) && w.universe_.labour_market.enabled != 0.0;
 }
+// Whether a worker's employer is a colony ("colony:<economy>") rather than a station.
+[[nodiscard]] inline bool colony_employer(const std::string& work_station_id) {
+    return work_station_id.starts_with("colony:");
+}
 [[nodiscard]] bool is_earth_gateway(const World& w, const std::string& station_id);
 [[nodiscard]] bool in_labour_market(const World& w, const domain::StationState& station);
 [[nodiscard]] double station_wage_cr_per_day(const World& w, const domain::StationState& station);

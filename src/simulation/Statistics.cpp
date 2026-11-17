@@ -129,10 +129,7 @@ double Simulation::account_balance(int account) const {
 }
 
 double Simulation::station_profit_last_year(const domain::StationState& station) const {
-    const auto& history = journal_.history();
-    const auto index = static_cast<std::size_t>(&station - stations_.data());
-    const double year_ago = history.size() > 12 ? history[history.size() - 13].station_profit.at(index) : 0.0;
-    return station_lifetime_profit(station) - year_ago;
+    return query::station_profit_last_year(*this, station);
 }
 
 void Simulation::close_journal_period() {

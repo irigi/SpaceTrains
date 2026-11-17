@@ -22,6 +22,7 @@
 #include <stdexcept>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Lookups.hpp"
 #include "simulation/query/Positions.hpp"
 
 namespace spacetrains::simulation {
@@ -63,23 +64,7 @@ domain::SimulationSnapshot Simulation::snapshot() const {
 }
 
 std::string Simulation::mission_phase_name(domain::ShipMissionPhase phase) const {
-    switch (phase) {
-        case domain::ShipMissionPhase::Idle:
-            return "idle";
-        case domain::ShipMissionPhase::AwaitingDeparture:
-            return "awaiting_departure";
-        case domain::ShipMissionPhase::InTransit:
-            return "in_transit";
-        case domain::ShipMissionPhase::Refueling:
-            return "refueling";
-        case domain::ShipMissionPhase::Stranded:
-            return "stranded";
-        case domain::ShipMissionPhase::LaidUp:
-            return "laid_up";
-        case domain::ShipMissionPhase::Refitting:
-            return "refitting";
-    }
-    return "unknown";
+    return query::mission_phase_name(phase);
 }
 
 math::Vec3d Simulation::get_ship_render_position(const domain::ShipState& ship) const {
