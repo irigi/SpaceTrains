@@ -93,7 +93,7 @@ func _measure_smoothness(seconds: float, timewarp: float) -> void:
                 print("[ShotTour] stall >1 s at display day %.2f: last snapshot day %.2f (%.2f s ago), pace %.0f, seq %d" % [
                     now / 86400.0, float(main.clock.snapshot_game_time_s) / 86400.0,
                     main.clock.wall_time_s() - float(main.clock.snapshot_wall_s), float(main.clock.sim_pace),
-                    int(main.current_snapshot_seq)])
+                    int(main.bridge.snapshot_seq)])
         else:
             stall = 0.0
         last_time = now
@@ -105,12 +105,12 @@ func _run() -> void:
     # late game with modules fitted and worn drives.
     for arg in OS.get_cmdline_user_args():
         if arg.begins_with("--shot-load="):
-            main.command_request += 1
-            main.command_save_path = ""
-            main.command_load_path = arg.trim_prefix("--shot-load=")
-            main._write_bridge_commands()
+            main.bridge.command_request += 1
+            main.bridge.command_save_path = ""
+            main.bridge.command_load_path = arg.trim_prefix("--shot-load=")
+            main.bridge.write_commands()
             await get_tree().create_timer(8.0).timeout
-            print("[ShotTour] loaded %s: display day %.1f" % [main.command_load_path, float(main.clock.display_time_s) / 86400.0])
+            print("[ShotTour] loaded %s: display day %.1f" % [main.bridge.command_load_path, float(main.clock.display_time_s) / 86400.0])
     # Run the simulation a while (fast) so the panels have history, then back to 1 day/s.
     var start_day := 3.0
     for arg in OS.get_cmdline_user_args():
@@ -257,7 +257,7 @@ func _run() -> void:
         main._request_save_or_load(false)
         await get_tree().create_timer(2.0).timeout
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
-            saved_day, float(main.clock.display_time_s) / 86400.0, String(main.bridge_status_text)])
+            saved_day, float(main.clock.display_time_s) / 86400.0, String(main.bridge.status_text)])
         await _shoot("after_load")
     # The ship systems section of the inspector (schematic), for one ship of each drive: a
     # burning thermal ship if there is one, then the same with the mouse over the schematic.

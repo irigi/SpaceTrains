@@ -23,12 +23,8 @@ const SHIP_COARSE_PX := 4.0
 # by the time it is wanted; the switch is early, while the details are still small.
 const STATION_DETAIL_PX := 30.0
 const STATION_COARSE_PX := 20.0
-const BRIDGE_STEP_SECONDS := 0.1
 # The simulation advances in ticks of 0.1 day (Simulation::TICK_S). Between snapshots the
 # display clock runs on at the timewarp rate, at most this far ahead of the last snapshot.
-# Some simulation steps plan many trajectories at once (the opening dispatch, fleet reviews):
-# say so when no snapshot has come for this long, rather than look frozen.
-const BRIDGE_BUSY_NOTICE_S := 2.0
 const DEFAULT_TIMEWARP := 86400.0
 const TIMEWARP_STEPS := [1.0, 600.0, 21600.0, 86400.0, 432000.0]
 
@@ -48,24 +44,14 @@ var economy_history := EconomyHistoryScript.new()  # prices and unmet demand ove
 var clock := DisplayClockScript.new()
 @onready var scene_light: DirectionalLight3D = $DirectionalLight3D
 
-var bridge_pid := -1
-var snapshot_path := ""
-var command_path := ""
-var repo_root := ""
-var executable_path := ""
-var data_root := ""
-var atlas_path := ""
-var bridge_log_path := ""
-# A command file whose rename failed (Windows: the bridge had it open): written again next frame.
-var command_write_pending := false
+# The simulation bridge's client (BridgeClient.gd): the process, the command file, the files it writes.
+var bridge: BridgeClientScript
 var body_orbits: Dictionary = {}     # body_id -> {parent, a, period, phase}
 var station_orbits: Dictionary = {}  # station_id -> {body, r, theta}
 var ship_paths: Dictionary = {}      # ship_id -> {sig, origin, destination, departure, arrival, t, off (x,y,z,... from the rail anchor)}
 var frame_positions_m: Dictionary = {}  # per-frame cache: entity_id -> PackedFloat64Array [x, y, z] in metres
 var origin_m := PackedFloat64Array([0.0, 0.0, 0.0])  # the focus; entities are drawn relative to it
 var entity_root: Node3D
-var current_snapshot_seq := -1
-var current_snapshot_arrival_s := 0.0
 var selected_id := ""
 var selected_kind := ""
 var focused_id := ""
@@ -102,16 +88,8 @@ var current_paused := false
 var _stations_prefetched := false
 var stations_prefetched_ms := -1
 var prefetch_worst_ms := 0.0
-# Save/load requests to the bridge (F5 quick save, F9 quick load).
-var command_request := 0
-var command_save_path := ""
-var command_load_path := ""
-var bridge_epoch := 0
-var bridge_status_text := ""
-var bridge_status_until_s := 0.0
 var current_timewarp := DEFAULT_TIMEWARP
 var has_auto_focused := false
-var bridge_started := false
 var debug_guides: Array[Node3D] = []
 var station_positions: Dictionary = {}
 var body_positions: Dictionary = {}
@@ -148,6 +126,7 @@ const StatisticsPanelScript := preload("res://scripts/ui/StatisticsPanel.gd")
 const MapIconsScript := preload("res://scripts/MapIcons.gd")
 const EconomyHistoryScript := preload("res://scripts/EconomyHistory.gd")
 const DisplayClockScript := preload("res://scripts/DisplayClock.gd")
+const BridgeClientScript := preload("res://scripts/BridgeClient.gd")
 
 var ui_root: Control
 var top_bar: PanelContainer
@@ -162,24 +141,33 @@ var thermal_label: Label
 # Flow overlay (G): goods between stations as lines on the map, from the statistics file (the
 # Flows tab's period, good and measure). The bridge writes that file while the overlay is on.
 var flow_overlay := false
-# Porkchop plots: the planet pairs asked of the bridge ("a>b;c>d"), and its latest file.
-var porkchop_request := ""
-var porkchop_seq := -1
+# Porkchop plots: the bridge's latest file for the pairs asked (_update_porkchop_request).
 var porkchop_data: Dictionary = {}
 var flow_label: Label
 # Price history samples: {day: float, prices: {station_id: {commodity_id: price}}}
 
 func _ready() -> void:
-    _resolve_install_paths()
-    _remove_stale_session_files()
-    var session_id := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
-    snapshot_path = ProjectSettings.globalize_path("user://spacetrains_snapshot_%s.json" % session_id)
-    command_path = ProjectSettings.globalize_path("user://spacetrains_commands_%s.json" % session_id)
+    bridge = BridgeClientScript.new()
+    bridge.name = "BridgeClient"
+    bridge.clock = clock
+    bridge.stats_wanted = func() -> bool: return (stats_panel != null and stats_panel.visible) or flow_overlay
+    bridge.stats_readable = func() -> bool: return stats_panel != null and (stats_panel.visible or flow_overlay)
+    if _profile_enabled:
+        bridge.profiled = _profiled
+    bridge.snapshot_received.connect(_on_snapshot_received)
+    bridge.snapshot_rejected.connect(_on_snapshot_rejected)
+    bridge.designs_received.connect(_on_designs_received)
+    bridge.stats_received.connect(_on_stats_received)
+    bridge.porkchops_received.connect(_on_porkchops_received)
+    bridge.status_changed.connect(_set_status)
+    bridge.epoch_changed.connect(_reset_timeline)
+    add_child(bridge)
     # Debug aid: SPACETRAINS_TIMEWARP=432000 starts at that speed (profiling without a keyboard).
     if OS.has_environment("SPACETRAINS_TIMEWARP"):
         current_timewarp = float(OS.get_environment("SPACETRAINS_TIMEWARP"))
-    _write_bridge_commands()
-    _start_bridge()
+    bridge.paused = current_paused
+    bridge.timewarp = current_timewarp
+    bridge.start()
     # Entities are placed relative to the focus (in double precision, then cast), so a
     # planet seen up close does not jitter; world_root holds the absolute-frame lines.
     entity_root = Node3D.new()
@@ -202,8 +190,8 @@ func _ready() -> void:
         if arg.begins_with("--shot-tour="):
             add_child(load("res://scripts/ShotTour.gd").new())
     _start_music()
-    if bridge_started:
-        _set_status("Starting bridge…\n%s" % executable_path)
+    if bridge.bridge_started:
+        _set_status("Starting bridge…\n%s" % bridge.executable_path)
 
 # Background music (Music.gd), except in shot tours, headless runs and with --no-music.
 func _start_music() -> void:
@@ -294,7 +282,7 @@ func _setup_ui() -> void:
     stats_panel.name = "StatisticsPanel"
     stats_panel.ship_selected.connect(func(ship_id: String) -> void: select_entity(ship_id, "ship", true))
     # The bridge writes its statistics file only while the screen is open.
-    stats_panel.visibility_toggled.connect(func(_open: bool) -> void: _write_bridge_commands())
+    stats_panel.visibility_toggled.connect(func(_open: bool) -> void: bridge.write_commands())
     stats_panel.route_changed.connect(_update_porkchop_request)
     stats_center.add_child(stats_panel)
 
@@ -333,11 +321,11 @@ func _set_status(text: String) -> void:
 
 func _on_pause_toggled() -> void:
     current_paused = not current_paused
-    _write_bridge_commands()
+    bridge.set_paused(current_paused)
 
 func _on_timewarp_changed(factor: float) -> void:
     current_timewarp = factor
-    _write_bridge_commands()
+    bridge.set_timewarp(current_timewarp)
 
 func _on_browser_entity_selected(entity_id: String, kind: String) -> void:
     select_entity(entity_id, kind, true)
@@ -350,18 +338,6 @@ func select_entity(entity_id: String, kind: String, focus := false) -> void:
     if focus and entity_targets.has(entity_id):
         _focus_entity(entity_id, kind)
     _refresh_ui(true)
-
-func _exit_tree() -> void:
-    if bridge_pid > 0:
-        OS.kill(bridge_pid)
-    for path in [snapshot_path, snapshot_path + ".tmp", snapshot_path + ".seq", snapshot_path + ".seq.tmp",
-            snapshot_path + ".paths", snapshot_path + ".paths.tmp", snapshot_path + ".paths.seq", snapshot_path + ".paths.seq.tmp",
-            snapshot_path + ".designs", snapshot_path + ".designs.tmp", snapshot_path + ".designs.seq", snapshot_path + ".designs.seq.tmp",
-            snapshot_path + ".stats", snapshot_path + ".stats.tmp", snapshot_path + ".stats.seq", snapshot_path + ".stats.seq.tmp",
-            snapshot_path + ".porkchop", snapshot_path + ".porkchop.tmp", snapshot_path + ".porkchop.seq", snapshot_path + ".porkchop.seq.tmp",
-            command_path, command_path + ".tmp"]:
-        if FileAccess.file_exists(path):
-            DirAccess.remove_absolute(path)
 
 # Debug aid: SPACETRAINS_GODOT_PROFILE=1 prints where frame time goes, every 10 s.
 var _profile_enabled := OS.has_environment("SPACETRAINS_GODOT_PROFILE")
@@ -377,11 +353,10 @@ func _profiled(name: String, started_usec: int) -> void:
 func _process(delta: float) -> void:
     debug_frame += 1
     var t := Time.get_ticks_usec()
-    _read_snapshot()
+    bridge.poll()
     if _profile_enabled: _profiled("read+apply snapshot", t)
-    if command_write_pending:
-        _write_bridge_commands()
-    _update_bridge_status()
+    bridge.retry_pending_write()
+    bridge.update_status()
     clock.advance(delta, bool(bridge_state.get("paused", current_paused)),
         float(bridge_state.get("timewarp_factor", current_timewarp)))
     t = Time.get_ticks_usec()
@@ -407,16 +382,16 @@ func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo:
         if event.keycode == KEY_SPACE:
             current_paused = not current_paused
-            _write_bridge_commands()
+            bridge.set_paused(current_paused)
         elif event.keycode == KEY_1:
             current_timewarp = 1.0
-            _write_bridge_commands()
+            bridge.set_timewarp(current_timewarp)
         elif event.keycode == KEY_2:
             current_timewarp = 21600.0
-            _write_bridge_commands()
+            bridge.set_timewarp(current_timewarp)
         elif event.keycode == KEY_3:
             current_timewarp = 86400.0
-            _write_bridge_commands()
+            bridge.set_timewarp(current_timewarp)
         elif event.keycode == KEY_COMMA:
             _step_timewarp(-1)
         elif event.keycode == KEY_PERIOD:
@@ -430,7 +405,7 @@ func _unhandled_input(event: InputEvent) -> void:
         elif event.keycode == KEY_G:
             flow_overlay = not flow_overlay
             flow_label.visible = flow_overlay
-            _write_bridge_commands()
+            bridge.write_commands()
             _update_flow_overlay()
         elif event.keycode == KEY_T:
             ModelMaterialsScript.set_thermal_view(not ModelMaterialsScript.thermal_view)
@@ -462,154 +437,20 @@ func _unhandled_input(event: InputEvent) -> void:
         if event.double_click and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
 
-# Where the bridge, the data and the atlas are. From the editor (the source checkout): the repo
-# layout, build/bin and tests/data. An exported game: next to its executable, in bin/, data/
-# and atlas/ (docs/modules/deployment.md).
-func _resolve_install_paths() -> void:
-    var exe_suffix := ".exe" if OS.get_name() == "Windows" else ""
-    if OS.has_feature("template"):
-        repo_root = OS.get_executable_path().get_base_dir()
-        executable_path = repo_root.path_join("bin/spacetrains_bridge" + exe_suffix)
-        data_root = repo_root.path_join("data")
-        atlas_path = repo_root.path_join("atlas/variable_isp_atlas.bin")
-    else:
-        repo_root = ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
-        executable_path = repo_root.path_join("build/bin/spacetrains_bridge" + exe_suffix)
-        data_root = repo_root.path_join("data")
-        atlas_path = repo_root.path_join("tests/data/variable_isp/variable_isp_atlas.bin")
-    bridge_log_path = ProjectSettings.globalize_path("user://logs/bridge.log")
-
-# Session files left behind by a crash (normally _exit_tree removes them): drop those over a day old.
-func _remove_stale_session_files() -> void:
-    var dir := DirAccess.open("user://")
-    if dir == null:
-        return
-    var now := Time.get_unix_time_from_system()
-    for file_name in dir.get_files():
-        if not (file_name.begins_with("spacetrains_snapshot_") or file_name.begins_with("spacetrains_commands_")):
-            continue
-        var path := "user://" + file_name
-        if now - FileAccess.get_modified_time(path) > 86400.0:
-            DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
-
-func _start_bridge() -> void:
-    if not FileAccess.file_exists(executable_path):
-        var hint := "The installation is incomplete." if OS.has_feature("template") else "Build the project first."
-        _set_status("Simulation bridge not found:\n%s\n%s" % [executable_path, hint])
-        return
-    if not DirAccess.dir_exists_absolute(data_root):
-        _set_status("Game data not found:\n%s" % data_root)
-        return
-
-    var args := [
-        "--data-root", data_root,
-        "--atlas", atlas_path,
-        "--log-file", bridge_log_path,
-        "--snapshot-file", snapshot_path,
-        "--command-file", command_path,
-        "--step-seconds", str(BRIDGE_STEP_SECONDS),
-        "--opening-cache", ProjectSettings.globalize_path("user://opening_cache"),
-        # Porkchop columns computed in earlier sessions (every game starts on the same date).
-        "--porkchop-cache", ProjectSettings.globalize_path("user://porkchop_cache"),
-        # The bridge exits when this process is gone (no orphan if the UI crashes).
-        "--parent-pid", str(OS.get_process_id())
-    ]
-    bridge_pid = OS.create_process(executable_path, args, false)
-    if bridge_pid <= 0:
-        _set_status("Failed to start bridge process.")
-        bridge_started = false
-    else:
-        bridge_started = true
-
-func _update_bridge_status() -> void:
-    if not bridge_started:
-        return
-    if not OS.is_process_running(bridge_pid):
-        bridge_started = false
-        _set_status("The simulation bridge stopped.\nSee its log: %s" % bridge_log_path)
-        return
-    if current_snapshot_seq < 0:
-        return
-    if bridge_status_text != "" and clock.wall_time_s() > bridge_status_until_s:
-        bridge_status_text = ""
-        _set_status("")
-    # The bridge writes a snapshot per tick (0.1 day): while paused, or at a slow timewarp,
-    # none is due for a while.
-    if current_paused:
-        return
-    var tick_interval_s: float = DisplayClockScript.SIM_TICK_S / maxf(current_timewarp, 1.0)
-    var waited_s := clock.wall_time_s() - current_snapshot_arrival_s
-    if waited_s > maxf(BRIDGE_BUSY_NOTICE_S, 2.0 * tick_interval_s):
-        _set_status("Simulation busy: planning ship missions… %d s" % int(waited_s))
-
 func _quicksave_path() -> String:
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://saves"))
     return ProjectSettings.globalize_path("user://saves/quicksave.json")
 
 func _request_save_or_load(save: bool) -> void:
-    command_request += 1
-    command_save_path = _quicksave_path() if save else ""
-    command_load_path = "" if save else _quicksave_path()
-    _write_bridge_commands()
-    _show_notice("Saving…" if save else "Loading…")
-
-func _show_notice(text: String) -> void:
-    bridge_status_text = text
-    bridge_status_until_s = clock.wall_time_s() + 3.0
-    _set_status(text)
-
-# Written aside and renamed, so the bridge never reads a half-written command (a save or
-# load request read half-written was lost).
-func _write_bridge_commands() -> void:
-    var temp_path := command_path + ".tmp"
-    var file := FileAccess.open(temp_path, FileAccess.WRITE)
-    if file == null:
-        command_write_pending = true
-        return
-    var payload := {
-        "paused": current_paused,
-        "timewarp_factor": current_timewarp,
-        "request": command_request,
-        "save_path": command_save_path,
-        "load_path": command_load_path,
-        "stats_open": (stats_panel != null and stats_panel.visible) or flow_overlay,
-        "porkchop": porkchop_request,
-    }
-    file.store_string(JSON.stringify(payload))
-    file.close()
-    command_write_pending = DirAccess.rename_absolute(temp_path, command_path) != OK
-
-# Planned paths by ship id ({path_id, trajectory_path, destination_body_at_arrival}), from
-# the bridge's paths file, which changes only when a ship gets a new plan.
-var bridge_paths: Dictionary = {}
-var paths_seq := -1
-
-func _read_paths() -> void:
-    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".paths.seq")
-    if seq_text == "" or int(seq_text) == paths_seq:
-        return
-    var json := JSON.new()
-    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".paths")) != OK or typeof(json.data) != TYPE_DICTIONARY:
-        return
-    paths_seq = int(seq_text)
-    bridge_paths = json.data.get("paths", {})
+    if save:
+        bridge.request_save(_quicksave_path())
+    else:
+        bridge.request_load(_quicksave_path())
 
 # Ship designs by class id ({name, ..., components: [...]}): the parts of every class for the
 # inspector's ship systems section. Written once by the bridge (per-ship fits later).
 var bridge_designs: Dictionary = {}
 var jet_power_by_class: Dictionary = {}
-var designs_seq := -1
-
-func _read_designs() -> void:
-    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".designs.seq")
-    if seq_text == "" or int(seq_text) == designs_seq:
-        return
-    var json := JSON.new()
-    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".designs")) != OK or typeof(json.data) != TYPE_DICTIONARY:
-        return
-    designs_seq = int(seq_text)
-    bridge_designs = json.data.get("designs", {})
-    jet_power_by_class.clear()
 
 # The pairs to ask for: the Routes tab's, and the selected station's planet to every other planet
 # with a station (the inspector's launch windows).
@@ -620,39 +461,7 @@ func _update_porkchop_request() -> void:
     if selected_kind == "station" and entity_details.has(selected_id):
         # The routes flown from here (the bridge expands "*", nearest the Sun first).
         pairs.append("%s>*" % _planet_of(String(entity_details[selected_id].get("parent_body_id", ""))))
-    var text := ";".join(pairs)
-    if text != porkchop_request:
-        porkchop_request = text
-        _write_bridge_commands()
-
-func _read_porkchops() -> void:
-    if porkchop_request == "":
-        return
-    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".porkchop.seq")
-    if seq_text == "" or int(seq_text) == porkchop_seq:
-        return
-    var json := JSON.new()
-    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".porkchop")) != OK or typeof(json.data) != TYPE_DICTIONARY:
-        return
-    porkchop_seq = int(seq_text)
-    porkchop_data = json.data
-    stats_panel.update_porkchops(porkchop_data, bridge_state.get("ships", []))
-
-# The statistics side file (money journal), written by the bridge while the Statistics screen is open.
-var stats_seq := -1
-
-func _read_stats() -> void:
-    if stats_panel == null or not (stats_panel.visible or flow_overlay):
-        return
-    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".stats.seq")
-    if seq_text == "" or int(seq_text) == stats_seq:
-        return
-    var json := JSON.new()
-    if json.parse(FileAccess.get_file_as_string(snapshot_path + ".stats")) != OK or typeof(json.data) != TYPE_DICTIONARY:
-        return
-    stats_seq = int(seq_text)
-    stats_panel.update_stats(json.data)
-    _update_flow_overlay()
+    bridge.request_porkchops(";".join(pairs))
 
 # The overlay's lines: goods delivered from station to station (surface trade left out), for the
 # Flows tab's period, good and measure.
@@ -683,72 +492,27 @@ func _update_flow_overlay() -> void:
     flow_label.text = "Flows (G): %s, %s, %s · set in Statistics → Flows" % [good.replace("_", " ") if good != "" else "all goods",
         "credits" if by_value else "units", String(names.get(period, period))]
 
-# Ships in flight carry only a path id; attach the planned path from the paths file.
-# Returns how many ships name a path the paths file does not have.
-func _attach_paths() -> int:
-    var missing := 0
-    for ship in bridge_state.get("ships", []):
-        var path_id := String(ship.get("path_id", ""))
-        if path_id == "":
-            continue
-        var cached: Dictionary = bridge_paths.get(String(ship.get("id", "")), {})
-        if String(cached.get("path_id", "")) == path_id:
-            ship["trajectory_path"] = cached.get("trajectory_path", [])
-            if cached.has("destination_body_at_arrival"):
-                ship["destination_body_at_arrival"] = cached["destination_body_at_arrival"]
-        else:
-            missing += 1
-    return missing
+# The bridge's signals (BridgeClient.gd), emitted from bridge.poll() in the order its files are
+# read: designs, stats, porkchops, then the snapshot.
+func _on_designs_received(designs: Dictionary) -> void:
+    bridge_designs = designs
+    jet_power_by_class.clear()
 
-func _read_snapshot() -> void:
-    _read_paths()
-    _read_designs()
-    _read_stats()
-    _read_porkchops()
-    # The bridge bumps a small sequence file with every snapshot: parse only new ones.
-    var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
-    if seq_text != "" and int(seq_text) == current_snapshot_seq:
-        return
-    if not FileAccess.file_exists(snapshot_path):
-        return
-    var file := FileAccess.open(snapshot_path, FileAccess.READ)
-    if file == null:
-        return
-    var json := JSON.new()
-    var parse_started := Time.get_ticks_usec()
-    var parse_status := json.parse(file.get_as_text())
-    if _profile_enabled: _profiled("  snapshot parse", parse_started)
-    if parse_status != OK or typeof(json.data) != TYPE_DICTIONARY:
-        return
-    var new_seq := int(json.data.get("snapshot_seq", -1))
-    if new_seq <= current_snapshot_seq:
-        return
-    var new_game_time_s := float(json.data.get("game_time_s", 0.0))
-    var current_game_time_s := float(bridge_state.get("game_time_s", -1.0))
-    var bridge_info: Dictionary = json.data.get("bridge", {})
-    var status := String(bridge_info.get("status", ""))
-    if status != "" and status != String(bridge_state.get("bridge", {}).get("status", "")):
-        _show_notice(status)
-    var epoch := int(bridge_info.get("epoch", 0))
-    if epoch != bridge_epoch:
-        # A loaded game: a new timeline, possibly earlier. Forget the old one.
-        bridge_epoch = epoch
-        _reset_timeline()
-        current_game_time_s = -1.0
-    if current_game_time_s >= 0.0 and new_game_time_s + 0.001 < current_game_time_s:
-        if debug_map_enabled:
-            print("[MapDebugReject] seq=%d current_seq=%d new_game_day=%.3f current_game_day=%.3f" % [new_seq, current_snapshot_seq, new_game_time_s / 86400.0, current_game_time_s / 86400.0])
-        return
-    var arrival_now_s := clock.wall_time_s()
-    current_snapshot_seq = new_seq
-    current_snapshot_arrival_s = arrival_now_s
-    bridge_state = json.data
-    # The bridge writes the paths a snapshot names before the snapshot: one read in between
-    # (the paths file read first, the new snapshot after) has an older paths file, read again.
-    if _attach_paths() > 0:
-        _read_paths()
-        _attach_paths()
-    clock.on_snapshot(new_game_time_s, arrival_now_s)
+func _on_stats_received(stats: Dictionary) -> void:
+    stats_panel.update_stats(stats)
+    _update_flow_overlay()
+
+func _on_porkchops_received(data: Dictionary) -> void:
+    porkchop_data = data
+    stats_panel.update_porkchops(porkchop_data, bridge_state.get("ships", []))
+
+func _on_snapshot_rejected(seq: int, game_time_s: float, shown_game_time_s: float) -> void:
+    if debug_map_enabled:
+        print("[MapDebugReject] seq=%d current_seq=%d new_game_day=%.3f current_game_day=%.3f" % [seq, bridge.snapshot_seq, game_time_s / 86400.0, shown_game_time_s / 86400.0])
+
+func _on_snapshot_received(state: Dictionary, _seq: int) -> void:
+    bridge_state = state
+    clock.on_snapshot(float(state.get("game_time_s", 0.0)), bridge.snapshot_arrival_s)
     _apply_snapshot()
 
 func _apply_snapshot() -> void:
@@ -814,7 +578,7 @@ func _apply_snapshot() -> void:
     if not has_auto_focused:
         _hide_debug_guides()
         _auto_focus_initial_entity()
-    if status_label != null and status_label.visible and clock.wall_time_s() > bridge_status_until_s:
+    if status_label != null and status_label.visible and clock.wall_time_s() > bridge.status_until_s:
         _set_status("")
     _refresh_ui(false)
 
@@ -2218,7 +1982,7 @@ func _debug_map_state(reason: String) -> void:
     print("[MapDebug] reason=%s frame=%d seq=%d display_day=%.3f focused=%s/%s selected=%s/%s camera_distance=%.6f render_origin=%s origin_delta=%.6f world_root=%s pivot=%s" % [
         reason,
         debug_frame,
-        current_snapshot_seq,
+        bridge.snapshot_seq,
         clock.display_time_s / 86400.0,
         focused_kind,
         focused_id,
@@ -2272,7 +2036,7 @@ func _step_timewarp(direction: int) -> void:
             best_index = i
     best_index = clamp(best_index + direction, 0, TIMEWARP_STEPS.size() - 1)
     current_timewarp = TIMEWARP_STEPS[best_index]
-    _write_bridge_commands()
+    bridge.set_timewarp(current_timewarp)
 
 func _auto_focus_initial_entity() -> void:
     if entity_targets.has("sun"):
