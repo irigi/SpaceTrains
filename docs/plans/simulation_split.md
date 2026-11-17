@@ -303,6 +303,11 @@ call-graph script over the `Simulation::` definitions (members already forwardin
       the 98 private members and their forwarders went (nothing outside called them), and the public members'
       45 forwarders moved to `Simulation.cpp` on `*world_`. The public interface is unchanged; the patrols test
       steps its `World` with `simulation::step`.
+    - 15c: `DeferredPlan::compute` takes `const World&`; the three places that run them pass
+      `std::as_const(w)`. Found: the two compute lambdas (`MissionPlanning.cpp`, leg estimates and
+      `MissionPass::plan_to`) already captured only `const` references (planner, definitions, ship, class)
+      and values, so no worker wrote state. They do not use the World they are given; the type records the
+      rule, and a review of a new compute still has to look at its captures.
 16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
 
 Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.

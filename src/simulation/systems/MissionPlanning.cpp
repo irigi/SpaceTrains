@@ -10,6 +10,7 @@
 #include <format>
 #include <iostream>
 #include <limits>
+#include <utility>
 
 #include "simulation/SimulationInternal.hpp"
 #include "simulation/query/Lookups.hpp"
@@ -99,7 +100,7 @@ LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class
     if (w.deferred_plans_ != nullptr) {
         // Inside a choose_mission pass: plan later, in parallel with the others.
         systems::defer_plan(w, std::format("leg|{}|{}", bucket, key), {
-            .compute = [&planner, &origin, &destination, probe, &ship_class, plan_departure_s, options] {
+            .compute = [&planner, &origin, &destination, probe, &ship_class, plan_departure_s, options](const World&) {
                 return planner.plan_transfer(origin, destination, probe, ship_class, plan_departure_s, options);
             },
             .commit = [&w, bucket, key, to_estimate](domain::TrajectoryPlan&& plan) {
@@ -137,7 +138,7 @@ MissionChoice choose_mission(World& w, const domain::ShipState& ship, const doma
             return choice;
         }
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(std::as_const(w)); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
@@ -172,7 +173,7 @@ std::vector<MissionChoice> choose_missions(World& w, const std::vector<MissionRe
         w.deferred_plans_ = nullptr;
         w.deferred_prefix_.clear();
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(std::as_const(w)); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
@@ -421,7 +422,7 @@ private:
         systems::defer_plan(sim_, sim_.deferred_prefix_ + "plan|" + key, {
             .compute = [&planner = planner, &origin_def = origin_def, &destination, &ship = ship, &ship_class = ship_class,
                            departure_s = std::max(sim_.game_time_s_, earliest_departure_s),
-                           options = planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank)] {
+                           options = planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank)](const World&) {
                 return planner.plan_transfer(origin_def, destination, ship, ship_class, departure_s, options);
             },
             .commit = [&plans = plans, key](domain::TrajectoryPlan&& plan) { plans.emplace(key, std::move(plan)); },

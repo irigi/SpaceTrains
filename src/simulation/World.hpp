@@ -137,9 +137,13 @@ struct ColonyState {
     double wage_median {0.0};          // its wage median now (cr per day)
 };
 
+struct World;
+
 // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
+// A worker sees the World only as const (and captures nothing it could change); commit runs
+// on the simulation thread.
 struct DeferredPlan {
-    std::function<domain::TrajectoryPlan()> compute;
+    std::function<domain::TrajectoryPlan(const World&)> compute;
     std::function<void(domain::TrajectoryPlan&&)> commit;
 };
 

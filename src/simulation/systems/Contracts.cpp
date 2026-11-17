@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 
 #include "simulation/SimulationInternal.hpp"
 #include "simulation/query/Lookups.hpp"
@@ -105,7 +106,7 @@ void with_parallel_plans(World& w, const std::string& prefix, const std::functio
             return;
         }
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(std::as_const(w)); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
