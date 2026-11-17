@@ -3,15 +3,15 @@
 How ships pay their way, choose missions, refit and are bought and sold, and how passengers travel. Prices,
 orders and money: `economy.md`.
 
-**Code** (all members of `Simulation`):
-- `src/simulation/ShipOperations.cpp`: capital and crew costs, provisions, radiation, wear and repair, boil-off,
+**Code** (members of `Simulation`, or free functions on `World` for the files in `systems/`):
+- `src/simulation/systems/ShipOperations.cpp`: capital and crew costs, provisions, radiation, wear and repair, boil-off,
   propellant purchases;
-- `src/simulation/MissionPlanning.cpp`: leg estimates and dispatch (`Simulation::MissionPass`);
+- `src/simulation/systems/MissionPlanning.cpp`: leg estimates and dispatch (`systems::MissionPass`);
 - `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
   refits;
 - `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
 - `src/simulation/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
-- `src/simulation/Patrols.cpp`: police cutters and inspections;
+- `src/simulation/systems/Patrols.cpp`: police cutters and inspections;
 - `src/simulation/Passengers.cpp`, `CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
 
 **Data:** `data/economy/` (`ship_operations.csv`, `fleet_investment.csv`, `open_economy.csv`, `fuel_supply.csv`,
@@ -276,7 +276,7 @@ before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's 
   their paths and icons are bright yellow, the chase colour, strong even when not selected; the top bar counts wrecks
   adrift.
 
-## Police inspections (`Patrols.cpp`, `data/economy/patrols.csv`, `patrol_bases.csv`)
+## Police inspections (`systems/Patrols.cpp`, `data/economy/patrols.csv`, `patrol_bases.csv`)
 
 Switch: `patrols`. Bases (`patrol_bases.csv`): Earth's police, 2 cutters at Low Earth Logistics, 1 at Mars Transfer
 Port, 1 at Ceres Deep Depot ("Police Cutter 1-4").

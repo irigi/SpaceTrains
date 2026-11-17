@@ -1,5 +1,5 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-7): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-8): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -320,6 +320,20 @@ void Simulation::close_journal_period() {
 
 std::string Simulation::build_stats_json() const {
     return systems::build_stats_json(*this);
+}
+
+// Patrols (step 8).
+
+void Simulation::init_patrols() {
+    systems::init_patrols(*this);
+}
+
+void Simulation::step_patrols(double dt_s) {
+    systems::step_patrols(*this, dt_s);
+}
+
+math::Vec3d Simulation::patrol_position(const domain::PatrolState& patrol) const {
+    return systems::patrol_position(*this, patrol);
 }
 
 }  // namespace spacetrains::simulation

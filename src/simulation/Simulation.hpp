@@ -30,6 +30,7 @@
 #include "simulation/systems/Contracts.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"
+#include "simulation/systems/Patrols.hpp"
 #include "simulation/systems/Passengers.hpp"
 #include "simulation/systems/ShipOperations.hpp"
 #include "simulation/systems/Statistics.hpp"
@@ -457,29 +458,7 @@ private:
     // Police inspections (Patrols.cpp).
     void init_patrols();
     void step_patrols(double dt_s);
-    struct PatrolSortie {
-        bool feasible {false};
-        std::string target_ship_id;
-        double meet_s {0.0};
-        double propellant_kg {0.0};
-        std::vector<math::Vec3d> path;
-        std::vector<double> times;
-        std::vector<double> propellant;
-        double objective {0.0};
-    };
-    // Pure (runs in parallel): the cheapest meeting with `target` from the cutter's state now,
-    // with a way home after the inspection.
-    [[nodiscard]] PatrolSortie plan_sortie(const domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v,
-        const domain::ShipState& target) const;
-    // The cheapest way home from (r, v) at t_s with the load aboard, keeping `reserve_kg` (to the
-    // home planet); `estimate_only`: time and propellant from the grid, no refinement or path.
-    [[nodiscard]] trajectory::ChasePlan plan_patrol_home(const domain::PatrolState& patrol, const math::Vec3d& r,
-        const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg, bool estimate_only = false) const;
-    [[nodiscard]] double patrol_kg_per_s(const domain::PatrolState& patrol) const;
-    bool start_sortie(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
-    void send_patrol_home(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
     [[nodiscard]] math::Vec3d patrol_position(const domain::PatrolState& patrol) const;
-    void pay_patrol(const domain::PatrolState& patrol, double amount);
     // One step of a fleet review: probes a batch of candidates (their cargo runs from the
     // yard, kept in review_probes_ for the rest of the review), or, once every candidate that
     // could still win has been probed, buys the best one.

@@ -10,12 +10,15 @@
 #include "simulation/Simulation.hpp"
 #include "simulation/query/Accounts.hpp"
 #include "simulation/query/Lookups.hpp"
+#include "simulation/query/Positions.hpp"
+#include "simulation/systems/Patrols.hpp"
 #include "simulation/systems/Statistics.hpp"
 
 namespace {
 
 using spacetrains::simulation::Simulation;
 using spacetrains::simulation::World;
+namespace domain = spacetrains::domain;
 namespace query = spacetrains::simulation::query;
 namespace systems = spacetrains::simulation::systems;
 
@@ -90,11 +93,89 @@ void test_statistics() {
         "the statistics JSON lists the station's account");
 }
 
+// Patrols (step 8): one cutter and a ship in flight to inspect; the sortie is planned (a path
+// to a meeting before the ship arrives) and its day's costs are paid by Earth to the home port.
+void test_patrols() {
+    using spacetrains::simulation::MoneyCategory;
+    using spacetrains::domain::PatrolPhase;
+    using spacetrains::domain::ShipMissionPhase;
+    auto sim = make_sim([](spacetrains::domain::UniverseDefinition& universe) {
+        universe.patrols.patrols = true;
+        universe.patrols.bases = {{.faction_id = "earth", .station_id = "earth_orbit", .ships = 1}};
+    });
+    World& w = sim.world();
+    require(w.patrols_.size() == 1, "one base with one cutter gives one cutter");
+    auto& cutter = w.patrols_.front();
+    require(cutter.phase == PatrolPhase::Docked && cutter.propellant_kg > 0.0, "the cutter starts docked and fuelled");
+
+    // Let the game run with the cutter kept in port, until a ship is on a leg it may inspect.
+    constexpr double day_s = 86400.0;
+    const auto& p = w.universe_.patrols;
+    const auto inspectable = [&] {
+        for (const auto& ship : w.ships_) {
+            const auto& mission = ship.active_mission;
+            if (ship.phase == ShipMissionPhase::InTransit && mission.sampled_path.size() >= 2
+                && mission.arrival_time_s - w.game_time_s_ > (p.inspection_days + 10.0) * day_s
+                && !query::local_leg(w, mission)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    sim.set_timewarp(day_s);
+    for (int day = 0; day < 120 && !inspectable(); ++day) {
+        cutter.next_review_s = w.game_time_s_ + 1000.0 * day_s;
+        sim.step(1.0);
+    }
+    require(inspectable(), "some ship flies an interplanetary leg within 120 days");
+    require(cutter.phase == PatrolPhase::Docked && w.patrol_audit_.sorties == 0, "the cutter stayed in port");
+
+    // The review falls due: one step of the system plans and starts a sortie.
+    const auto& home = query::get_station_state(w, cutter.home_station_id);
+    const int earth = query::account_earth();
+    const int port = query::account_station(w, home);
+    const auto patrols = static_cast<std::size_t>(MoneyCategory::Patrols);
+    const double paid_before = w.journal_.period(earth)[patrols].out;
+    const double port_before = w.journal_.period(port)[patrols].in;
+    const double costs_before = w.patrol_audit_.costs_cr;
+    const double port_credits_before = home.credits;
+    cutter.next_review_s = w.game_time_s_;
+    systems::step_patrols(w, 0.25 * day_s);
+
+    require(w.patrol_audit_.sorties == 1, "the review starts one sortie");
+    require(cutter.phase == PatrolPhase::Outbound, "the cutter sets out");
+    require(!cutter.target_ship_id.empty() && !cutter.target_name.empty(), "the cutter has a target");
+    const domain::ShipState* target = nullptr;
+    for (const auto& ship : w.ships_) {
+        if (ship.id == cutter.target_ship_id) {
+            target = &ship;
+        }
+    }
+    require(target != nullptr && target->phase == ShipMissionPhase::InTransit, "the target is a ship in flight");
+    require(cutter.meet_s > w.game_time_s_ && cutter.meet_s < target->active_mission.arrival_time_s,
+        "the meeting is before the target arrives");
+    require(cutter.path.size() >= 2 && cutter.path.size() == cutter.times.size()
+            && cutter.times.size() == cutter.propellant.size(),
+        "the sortie has a path with times and propellant");
+    require(cutter.propellant.back() < cutter.propellant.front(), "the way out burns propellant");
+
+    const double paid = w.patrol_audit_.costs_cr - costs_before;
+    require(paid > 0.0, "the cutter's hull and crew are paid for the step");
+    require_near(w.journal_.period(earth)[patrols].out - paid_before, paid, 1e-6, "Earth pays its police");
+    require_near(w.journal_.period(port)[patrols].in - port_before, paid, 1e-6, "the home port is paid");
+    require_near(home.credits - port_credits_before, paid, 1e-6, "the home port's credits rise by the payment");
+
+    // Where the cutter is shown: at its departure point now, on its path later.
+    const auto here = systems::patrol_position(w, cutter);
+    require((here - cutter.path.front()).length() < 1.0e3, "the cutter is shown where its path starts");
+}
+
 }  // namespace
 
 int main() {
     try {
         test_statistics();
+        test_patrols();
     } catch (const std::exception& ex) {
         std::cerr << "FAILED: " << ex.what() << '\n';
         return 1;

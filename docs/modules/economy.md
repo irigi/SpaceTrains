@@ -5,11 +5,11 @@ fleet investment are in `ships_and_fleet.md`.
 
 **Code:**
 - `src/economy/EconomySystem.{hpp,cpp}`: production, price curves, surface markets, reference prices;
-- `src/simulation/Market.cpp`: station orders, emergencies, the daily market among ships, reference prices;
+- `src/simulation/systems/Market.cpp`: station orders, emergencies, the daily market among ships, reference prices;
 - `src/simulation/Households.cpp`: residents, colonies, labour, station incomes, settling the local economy;
-- `src/simulation/Contracts.cpp`: liners and rotation contracts;
+- `src/simulation/systems/Contracts.cpp`: liners and rotation contracts;
 - `src/simulation/FleetInvestment.cpp`: treasuries, credit, taxes (and fleet investment);
-- `src/simulation/MoneyJournal.{hpp,cpp}`, `Statistics.cpp`: the money journal and statistics.
+- `src/simulation/MoneyJournal.{hpp,cpp}`, `systems/Statistics.cpp`: the money journal and statistics.
 
 **Data:** `data/commodities/`, `data/recipes/`, `data/economy/` (one CSV per topic, `key,value` where it is a list
 of settings). Optional keys default to the values in `domain::*Definition` (`src/domain/Definitions.hpp`).
