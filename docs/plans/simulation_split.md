@@ -1,6 +1,7 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Not started.
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41);
+the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
 and the economy audit byte for byte, and keep `--profile` at least as fast as before (see "Checks").
@@ -134,53 +135,90 @@ Rules for a system:
 ## Steps
 
 Each step is one commit (or a few), each builds and passes every check below. While a topic is half moved, the old
-`Simulation` member stays as a one-line forwarder to the new function; forwarders are deleted in step 14.
+`Simulation` member stays as a one-line forwarder to the new function; forwarders are deleted in step 15.
 
-1. **`World` by inheritance** (done 2026-11-16). Create `World.hpp` with the data members moved verbatim (same names, flat for now) and
-   make `class Simulation : private World`. No function body changes. The move hazard is unchanged in this step
-   (`from_data_root` still ends in `return sim;`, `Simulation.cpp:188`, and relies on NRVO); it goes away in step 14.
-2. **Query layer** (done 2026-11-16). The true leaves of the call graph became free functions in `query/`: lookups
-   and designs, account indices, positions, the event and trade logs, and the labour leaves (`in_labour_market`,
-   `station_workers`, `station_wage_cr_per_day`, `is_earth_gateway`). The `Simulation` members of the same names
-   forward to them. Prices (`station_price`, `trade_value`) and the ship cost rates that price provisions were
-   meant to go here too, but they call the order machinery (`priced_order`, `order_bid`, `order_quote`), so they
-   are not leaves. They move with Market (step 9). The rule stands: a function moves only after everything it calls,
-   so anything that prices goods waits for step 9, and `daily_capital_cost` (a leaf) moves with ShipOperations.
-   **Open before step 4 (found in step 2):** Statistics, Patrols, Households, Passengers and Failures all price goods
-   (`station_price`, `trade_value`), so under this rule none of them can move before Market. Two ways out, to choose
-   before step 4: (a) move the Market cycle (step 9) right after StationSystems, the large step first; or (b) a
-   small transitional interface, a struct of `std::function`s for the few Market calls that `Simulation` fills
-   and the early systems take, deleted again in step 9. (a) is simpler to review; (b) keeps the small steps first.
-3. **StationSystems** (const, small: 264 lines). First real system; proves the header layout.
-4. **Statistics** (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`).
-   `faction_credit_limit` moves to the query layer first.
-5. **Patrols** (453 lines; depends only on queries after step 2).
-6. **Households + Passengers** together (the cycle). Two commits if the diff is too big: Households first with
+The order below is option (a), chosen 2026-11-16 after step 2: the Market cycle moves right after the small steps,
+because almost every other topic prices goods through it. The dependencies were measured on `main` at PR #41 with a
+call-graph script over the `Simulation::` definitions (members already forwarding to `query::` count as moved).
+
+1. **`World` by inheritance** (done 2026-11-16, PR #41). Create `World.hpp` with the data members moved verbatim
+   (same names, flat for now) and make `class Simulation : private World`. No function body changes. The move hazard
+   is unchanged in this step (`from_data_root` still ends in `return sim;`, `Simulation.cpp:188`, and relies on
+   NRVO); it goes away in step 15.
+2. **Query layer** (done 2026-11-16, PR #41). The true leaves of the call graph became free functions in `query/`:
+   lookups and designs, account indices, positions, the event and trade logs, and the labour leaves
+   (`in_labour_market`, `station_workers`, `station_wage_cr_per_day`, `is_earth_gateway`). The `Simulation` members
+   of the same names forward to them. Prices (`station_price`, `trade_value`) are not leaves: they call the order
+   machinery (`priced_order`, `order_bid`, `order_levels`, `order_ceiling`), so they move with Market (step 5).
+3. **StationSystems** (264 lines, one member: `station_systems_json`, const, calls nothing unmoved) into
+   `systems/StationSystems.{hpp,cpp}`. First real system; sets the header layout for the rest. Callers: Statistics
+   and Snapshot, through the forwarder. The same PR tidies what the review of PR #41 found: the `account_earth()`
+   member forwards to `query::account_earth()` instead of repeating the constant, and `Simulation.cpp` loses a
+   double blank line and the includes it no longer needs.
+4. **More query leaves**, the read-only functions the Market cycle and the later systems need. Each was checked to
+   call nothing unmoved:
+   - `query/ShipRates.{hpp,cpp}` (from `ShipOperations.cpp`): `daily_capital_cost`, `hazard_cr_per_day`,
+     `wear_cr_per_flight_day`, `wear_cr_per_propellant_kg`, `wear_cr_per_drive_hour`, `overhaul_bill`,
+     `drive_life_h`, `drive_hours`, `leg_boiloff_kg_per_day` (both overloads), `leg_dose_allowed`,
+     `leg_dose_msv_per_day`, `docked_dose_msv_per_day`, `cabin_shield_g_cm2`, `cargo_decay_per_day`,
+     `purchasable_propellant_kg`, and `station_r_au` with its cache. `station_r_au` keeps its rule exactly: inside
+     `ThreadPool::in_parallel_for()` it computes directly, otherwise it uses `station_radius_cache_` (the only
+     `mutable` member; it stays in `World`).
+   - `query/Finance.{hpp,cpp}`: `economy_balance`, `economy_credit_line`, `station_lifetime_profit`,
+     `colony_wage_median` (from `Households.cpp`), `station_profit_last_year` (from `Statistics.cpp`) and
+     `faction_credit_limit` (from `FleetInvestment.cpp`). This also breaks the Statistics ↔ Households loop.
+   After this step the Market cycle depends only on moved code. Steps 3 and 4 are one PR.
+5. **Market + Contracts + MissionPlanning** (the cycle; 1,085 + 382 + 1,316 lines, 44 members) into
+   `systems/Market`, `systems/Contracts` and `systems/MissionPlanning`. Its own PR.
+   - **One commit**, because the three files call each other and a free function cannot call a `Simulation`
+     forwarder. The commit is mechanical only: member access becomes `w.`, member calls become calls with `w`
+     first, nothing else. Review with `git diff --color-moved=zebra`; the PR lists every non-mechanical line (if
+     any) separately.
+   - `Simulation::MissionPass` (`MissionPlanning.cpp:194`) becomes `systems::MissionPass`, holding a `World&`
+     instead of reaching into `Simulation`'s privates.
+   - `with_parallel_plans` and the deferred-plan machinery move with Contracts/MissionPlanning; `deferred_plans_`,
+     `deferred_keys_`, `deferred_prefix_` and `missing_plans_` stay in `World`. `DeferredPlan::compute` lambdas
+     capture `const World&` from here on (the parallel part must not write; the compiler now checks it).
+   - Forwarders stay for every member called from outside the cycle (27, measured): `station_price` and
+     `trade_value` (8 topics), `under_contract`, `liner_stops`, `scheduled_stops`, `contract_dwell_days`,
+     `find_contract`, `fleet_hold_units`, `fleet_ship_count`, `faction_name`, `sale_split_on_arrival`,
+     `observe_contract`, `observe_delivery`, `priced_order`, `order_levels`, `quote_split`, `order_bid`,
+     `consumer_bid`, `choose_mission`, `choose_missions`, the five called from `tick()` and the constructor
+     (`starting_inventory`, `seed_order_stats`, `update_market_prices`, `step_orders`, `step_emergencies`), and the
+     public `order_view` and `set_station_stock` (used by the tests).
+   - Risk specific to this step: the parallel planning (`parallel_for` in `compute_reference_prices`, the
+     deferred plans in `choose_missions` and the contract passes). The default-thread and one-thread saves must both
+     match; run the one-thread check twice.
+6. **ShipOperations**, the parts that change state and price goods (`daily_crew_cost`, `buy_provisions`,
+   `buy_propellant`, `consider_repair`, crew pay, wear and repair, boil-off, particle events). Needs only Market and
+   the rates from step 4.
+7. **Statistics** (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`). Needs StationSystems
+   and `query/Finance`.
+8. **Patrols** (453 lines; needs `station_price` and `daily_crew_cost`).
+9. **Households + Passengers** together (their cycle). Two commits if the diff is too big: Households first with
    forwarders for the four Passengers functions it calls, then Passengers.
-7. **Failures** (needs `land_passengers` from step 6).
-8. **ShipOperations**, the parts that change state (crew pay, provisions, wear and repair, boil-off, particle
-   events).
-9. **Market + Contracts + MissionPlanning** (the second cycle; `MissionPass` becomes `systems::MissionPass`).
-   `DeferredPlan::compute` takes `const World&` from here on. Largest step; may need three commits with forwarders.
-10. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`).
-11. **ShipPhases** (it calls nearly everything, so it goes last among the rules).
-12. **Snapshot** (`const World&`; it reads every topic, so it goes after them).
-13. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through
+10. **Failures** (needs `land_passengers` from step 9, Contracts and ShipOperations).
+11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
+    shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
+12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).
+13. **Snapshot** (`const World&`; it reads every topic, so it goes after them).
+14. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through
     `Simulation`'s public members.
-14. **Thin `Simulation`:** drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
-    engines' references now point into a heap object that never moves), group the members into the `World`
-    sub-structs, delete the forwarders. `tick()` reads as the list in "Tick order" above.
-15. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
+15. **Thin `Simulation`:** drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
+    engines' references now point into a heap object that never moves), make `World` non-copyable and non-movable,
+    group the members into the `World` sub-structs, delete the forwarders. `tick()` reads as the list in "Tick
+    order" above.
+16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
 
-Suggested PRs: 1-2, 3-7, 8-11, 12-15. Each PR states the before/after numbers of the checks.
+Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.
 
 ## Tests to add
 
 - `tests/test_world.cpp` with a helper `make_world(data_root, adjust)` that builds a `World` the way
   `from_data_root` does (shared code, not a copy).
-- After step 4: a Statistics test (a hand-posted transfer appears in the right account and the monthly close
+- After step 7: a Statistics test (a hand-posted transfer appears in the right account and the monthly close
   samples it).
-- After step 5: a Patrols test (one cutter, one ship to inspect; the sortie is planned and paid).
+- After step 8: a Patrols test (one cutter, one ship to inspect; the sortie is planned and paid).
 - These show the gain the change is for; more such tests come with later work, not in this refactor.
 
 ## Checks after every commit
@@ -211,8 +249,8 @@ members spread over files") and the matching lines in `docs/architecture_overvie
 
 - **Silent reordering.** Moving code can change the order of iteration or of random draws. The byte-identical saves
   catch it; when one differs, bisect the commit rather than patch forward.
-- **Big cycles.** Step 9 touches about 2,800 lines. Keep forwarders until the whole cycle has moved, and do not
-  combine the move with any clean-up.
+- **Big cycles.** Step 5 moves about 2,800 lines in one commit. Keep it purely mechanical (no clean-up in
+  the same commit) and keep the outside forwarders until their callers have moved.
 - **Rebuild time** gets better only at the end; during the move every file still includes `Simulation.hpp`.
 - **Work in parallel with feature branches.** The roadmap's to-do items (engine-failure rescue, gravity wells) touch
   the same files. Do this refactor between features, or rebase features onto finished PRs, never the other way.

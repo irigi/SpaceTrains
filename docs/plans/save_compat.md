@@ -5,7 +5,7 @@ trigger is met.**
 
 - **Trigger:** long-running games matter, to the user or to other players: a game kept for weeks while the data is
   still being tuned.
-- Independent of Architectures 1-3. If Architecture 1 is under way, do this after its persistence step (step 13), so
+- Independent of Architectures 1-3. If Architecture 1 is under way, do this after its persistence step (step 14), so
   the code moves only once.
 
 ## Where it stands (main at PR #39)

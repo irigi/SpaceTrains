@@ -1,13 +1,13 @@
 # SpaceTrains Roadmap
 
-Consolidated with the user 2026-11-02. Order: **To do** (top, in order) → **Architecture changes** (recommended, none started) → **Parked** (kept in mind, not
+Consolidated with the user 2026-11-02. Order: **To do** (top, in order) → **Architecture changes** (recommended, the `Simulation` split under way) → **Parked** (kept in mind, not
 planned) → **Not doing** → standing decisions and checks → **Done**. The design as built is in `docs/modules/`
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (the four architecture plans); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
-**Status.** `main` holds everything up to PR #40 (station designs, eclipses, moons, Earth Sunward rename, sharper
+**Status.** `main` holds everything up to PR #41 (station designs, eclipses, moons, Earth Sunward rename, sharper
 moon textures and a Triton map, the outside review's architecture ideas and studies, the architecture plans in
-`docs/plans/`), no open PRs.
+`docs/plans/`, steps 1-2 of the `Simulation` split), no open PRs.
 Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 131 ships profitable,
 ~4,500 boardings, drift 0, ~150 s per run.
 
@@ -79,7 +79,7 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    game is and why (observer sandbox, physical and economic feasibility, 2D by design, technology era), pointing to
    `docs/modules/` for how it is built, so it cannot go stale again in the same way.
 
-## Architecture changes (recommended by an outside review, 2026-11-12; planned 2026-11-16, none started)
+## Architecture changes (recommended by an outside review, 2026-11-12; planned 2026-11-16; the `Simulation` split under way)
 
 The foundations (headless-first core, determinism, data-driven content, the benchmark discipline) are sound and
 nothing needs a rewrite; in particular **no port to Rust** (the gains, threading and memory safety, are already
@@ -104,8 +104,9 @@ the check is the standing one for refactors (test suites, byte-identical saves a
      The nested helpers (`MissionPass`, `InvestmentReview`) become the systems' own types.
    - **Gain:** each system testable with a small hand-built `World`; `const World&` shows which code only reads
      (what may run in parallel); shorter rebuilds; a clear place for anything new.
-   **Plan:** `docs/plans/simulation_split.md` (it moves Snapshot last, since Snapshot calls eight topics, and puts a
-   read-only query layer first).
+   **Plan:** `docs/plans/simulation_split.md` (it moves Snapshot last, since Snapshot calls eight topics, puts a
+   read-only query layer first, and moves the Market cycle early, since most topics price goods through it).
+   Steps 1-2 done (PR #41).
 
 2. **Split `godot/scripts/Main.gd`** (2,631 lines). It mixes five jobs. Suggested files, in this order:
    - `BridgeClient.gd`: starting and stopping the bridge, the command file, reading the snapshot, paths, designs,
