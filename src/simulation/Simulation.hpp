@@ -81,7 +81,7 @@ public:
     // Random events (step 28) are on unless switched off, e.g. to compare economies.
     void set_events_enabled(bool enabled) { events_enabled_ = enabled; }
 
-    // Save games (src/persistence/SimulationPersistence.cpp): the mutable state as JSON.
+    // Save games (persistence/SimulationPersistence.{hpp,cpp}): the mutable state as JSON.
     // load_state_json() expects a Simulation built from the same data files (checked by
     // fingerprint) and throws, leaving the simulation unchanged, on a bad or foreign save.
     [[nodiscard]] std::string save_state_json() const;
@@ -429,8 +429,6 @@ private:
     // their plans are computed together, so the pool stays busy. Same results as one by one.
     using MissionRequest = systems::MissionRequest;
     [[nodiscard]] std::vector<MissionChoice> choose_missions(const std::vector<MissionRequest>& requests);
-    // load_state_json without the restore on failure.
-    void read_state_json(const std::string& text);
     using DeferredPlan = simulation::DeferredPlan;
     void step_refitting_ship(domain::ShipState& ship);
     using LegEstimate = simulation::LegEstimate;

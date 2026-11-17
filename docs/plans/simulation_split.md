@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-13 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-13 (2026-11-17), 14 (2026-11-18);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -280,8 +280,12 @@ call-graph script over the `Simulation::` definitions (members already forwardin
     and the query forwarder `get_ship_render_position`); `bridge_path_id`, `write_ship_path_json` and
     `ship_systems_json` are file-local, and the query forwarder `mission_phase_name` is gone. Not mechanical:
     `bridge_path_id` never read the state, so it takes no `World` (as `per_capita_savings` in step 9).
-14. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through
-    `Simulation`'s public members.
+14. **Persistence** (done 2026-11-18): `save_state_json(const World&)` and `load_state_json(World&)`, still called
+    through `Simulation`'s public members.
+    As built: `persistence::data_fingerprint`, `save_state_json` and `load_state_json` in
+    `persistence/SimulationPersistence.hpp`; `load_state_json` keeps the restore on failure, and `read_state_json`
+    is file-local. The file's code moved from namespace `simulation` to `persistence`, so it names the simulation
+    types it uses with `using` declarations. `Simulation`'s three members forward to it.
 15. **Thin `Simulation`:** drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
     engines' references now point into a heap object that never moves), make `World` non-copyable and non-movable,
     group the members into the `World` sub-structs, delete the forwarders. `tick()` reads as the list in "Tick

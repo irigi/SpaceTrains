@@ -1,8 +1,9 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-13): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-14): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
+#include "persistence/SimulationPersistence.hpp"
 #include "simulation/query/Positions.hpp"
 
 namespace spacetrains::simulation {
@@ -610,6 +611,18 @@ std::string Simulation::build_bridge_snapshot_json(bool paused, std::uint64_t sn
 
 std::string Simulation::build_report() const {
     return systems::build_report(*this);
+}
+
+std::string Simulation::data_fingerprint() const {
+    return persistence::data_fingerprint(*this);
+}
+
+std::string Simulation::save_state_json() const {
+    return persistence::save_state_json(*this);
+}
+
+void Simulation::load_state_json(const std::string& text) {
+    persistence::load_state_json(*this, text);
 }
 
 }  // namespace spacetrains::simulation
