@@ -177,6 +177,11 @@ struct World {
         : universe_(std::move(universe)),
           mechanics_(universe_),
           economy_(universe_) {}
+    // Never copied or moved: the engines and the lookup maps hold references and pointers into it.
+    World(const World&) = delete;
+    World& operator=(const World&) = delete;
+    World(World&&) = delete;
+    World& operator=(World&&) = delete;
 
     domain::UniverseDefinition universe_;
     celestial::CelestialMechanics mechanics_;

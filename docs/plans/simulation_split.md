@@ -296,6 +296,13 @@ call-graph script over the `Simulation::` definitions (members already forwardin
       did after construction) and `make_world(data_root, atlas_file, adjust)`, which runs the three in that
       order. The constructor and `from_data_root` call the same functions; `tests/test_world.cpp` builds its
       World with `make_world`.
+    - 15b: `Simulation` holds `std::unique_ptr<World>` and no longer inherits; `World` is not copyable or movable,
+      and `from_data_root` returns `Simulation(make_world(...))`, so nothing relies on NRVO any more. The tick
+      (`step`, `tick`, `start_at`) is free functions on `World` in `Simulation.cpp`, converted like the systems;
+      `settle_local_economy`, `step_population` and `step_events` are file-local there. `Forwarders.cpp` is gone:
+      the 98 private members and their forwarders went (nothing outside called them), and the public members'
+      45 forwarders moved to `Simulation.cpp` on `*world_`. The public interface is unchanged; the patrols test
+      steps its `World` with `simulation::step`.
 16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
 
 Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.

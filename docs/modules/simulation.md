@@ -8,20 +8,20 @@ snapshots for the bridge, the headless reports and tests. Godot never owns gamep
 
 ## Files
 
-One class, its members spread over files by topic. A split into state and systems is under way
-(`docs/plans/simulation_split.md`): the state is already in `World`, the leaf lookups in `query/`, and the first systems in `systems/` (`Simulation`'s members of the same names forward
-to them, from `Forwarders.cpp` for the files that moved whole).
+State and systems (`docs/plans/simulation_split.md`): `World` holds all of the running state, `query/` the
+lookups every system uses, `systems/` the rules as free functions on `World`. `Simulation` owns the `World` and runs
+its tick; its public members forward to the systems for the bridge, the apps and the tests.
 
 | File | What |
 |---|---|
-| `Simulation.cpp` | construction, accessors, `step`/`tick`, local economy, population, events |
+| `Simulation.{hpp,cpp}` | the owner: `std::unique_ptr<World>`, the public interface (each member forwards to a system or query); the tick on a `World` (`step`, `tick`, `start_at`) with the local economy, population and events |
+| `WorldSetup.{hpp,cpp}` | building a `World`: `init_world` (a new game's set-up), `load_universe`, `attach_engines` (thread pool, atlas), `make_world` |
 | `CrewEnvironment.cpp` | crew radiation and the particle-event model |
 | `MoneyJournal.cpp` | the money journal and its history |
 | `SimulationInternal.hpp` | constants and helpers shared by these files (namespace `detail`) |
-| `World.hpp` | all of the running state, as plain data; `Simulation` inherits it (split step 1) |
-| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); ship cost and environment rates (`ShipRates`), money leaves (`Finance`: economy balances, colony state, station profits, faction credit limits), passenger leaves (`Passengers`: the travel switches, fares, value of time) and the clock (`Clock`: `first_tick_of_day`) (step 4); the `Simulation` members of the same names forward to them |
+| `World.hpp` | all of the running state, as plain data; never copied or moved (the engines hold references into it) |
+| `query/` | free functions on `World`: lookups and designs, account indices, positions, events and trades, labour leaves (split step 2); ship cost and environment rates (`ShipRates`), money leaves (`Finance`: economy balances, colony state, station profits, faction credit limits), passenger leaves (`Passengers`: the travel switches, fares, value of time) and the clock (`Clock`: `first_tick_of_day`) (step 4) |
 | `systems/` | the rules as free functions on `World`: `StationSystems` (the station systems view, display only; step 3); `Market` (reference prices, station prices and orders, emergencies, the daily market among ships), `Contracts` (liners, scheduled stops, rotation contracts), `MissionPlanning` (leg estimates and dispatch, `systems::MissionPass`) (step 5); `ShipOperations` (crew costs, provisions, radiation and particle events, wear and repair, boil-off, propellant; step 6); `Statistics` (the journal's accounts and monthly close, the flow record's stocks, the statistics JSON; step 7); `Patrols` (police cutters: sorties, inspections, the way home; step 8); `Households` (residents, colonies, labour, station incomes) and `Passengers` (travellers, fares and who boards, boarding and landing, rotation tours, reference fares) (step 9); `Failures` (failure clocks, derelicts, salvage races, replacement claims; step 10); `FleetInvestment` (treasuries, credit, ship sales and purchases, the file-local `InvestmentReview`; step 11); `ShipPhases` (a ship's phases: idle, refitting, awaiting departure, in transit, arrival; refits and the trajectory audit records; step 12); `Snapshot` (the snapshot, the bridge's JSON: snapshot, paths, designs; the text report; read only; step 13) |
-| `Forwarders.cpp` | `Simulation` members whose code moved whole to `systems/` (and the `query/` forwarders of topic files that are gone), each a one-line forwarder (until step 15) |
 
 What each topic does: `economy.md` (prices, orders, money) and `ships_and_fleet.md` (ships, dispatch, passengers).
 

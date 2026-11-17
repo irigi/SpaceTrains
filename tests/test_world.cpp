@@ -17,7 +17,6 @@
 
 namespace {
 
-using spacetrains::simulation::Simulation;
 using spacetrains::simulation::World;
 using spacetrains::simulation::make_world;
 namespace domain = spacetrains::domain;
@@ -34,12 +33,6 @@ void require_near(double actual, double expected, double tolerance, const std::s
     if (std::abs(actual - expected) > tolerance) {
         throw std::runtime_error(message + " (got " + std::to_string(actual) + ", expected " + std::to_string(expected) + ")");
     }
-}
-
-// A freshly started game from the data (make_world, the code from_data_root runs). The patrols
-// test still advances time through a Simulation (until step 15b gives World its own step).
-Simulation make_sim(const std::function<void(spacetrains::domain::UniverseDefinition&)>& adjust = {}) {
-    return adjust ? Simulation::from_data_root("data", adjust) : Simulation::from_data_root("data");
 }
 
 // Statistics (step 7): a hand-posted transfer lands in the right accounts, and the monthly close
@@ -101,11 +94,11 @@ void test_patrols() {
     using spacetrains::simulation::MoneyCategory;
     using spacetrains::domain::PatrolPhase;
     using spacetrains::domain::ShipMissionPhase;
-    auto sim = make_sim([](spacetrains::domain::UniverseDefinition& universe) {
+    const auto world = make_world("data", {}, [](spacetrains::domain::UniverseDefinition& universe) {
         universe.patrols.patrols = true;
         universe.patrols.bases = {{.faction_id = "earth", .station_id = "earth_orbit", .ships = 1}};
     });
-    World& w = sim.world();
+    World& w = *world;
     require(w.patrols_.size() == 1, "one base with one cutter gives one cutter");
     require(w.patrols_.front().phase == PatrolPhase::Docked && w.patrols_.front().propellant_kg > 0.0,
         "the cutter starts docked and fuelled");
@@ -124,10 +117,10 @@ void test_patrols() {
         }
         return false;
     };
-    sim.set_timewarp(day_s);
+    w.timewarp_factor_ = day_s;  // as Simulation::set_timewarp(day_s)
     for (int day = 0; day < 120 && !inspectable(); ++day) {
         w.patrols_.front().next_review_s = w.game_time_s_ + 1000.0 * day_s;
-        sim.step(1.0);
+        spacetrains::simulation::step(w, 1.0);
     }
     auto& cutter = w.patrols_.front();  // taken after the run, so no reference is held across ticks
     require(inspectable(), "some ship flies an interplanetary leg within 120 days");
