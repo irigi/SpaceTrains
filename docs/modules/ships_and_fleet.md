@@ -12,7 +12,7 @@ orders and money: `economy.md`.
 - `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
 - `src/simulation/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
 - `src/simulation/systems/Patrols.cpp`: police cutters and inspections;
-- `src/simulation/Passengers.cpp`, `CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
+- `src/simulation/systems/Passengers.cpp`, `src/simulation/CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
 
 **Data:** `data/economy/` (`ship_operations.csv`, `fleet_investment.csv`, `open_economy.csv`, `fuel_supply.csv`,
 `ship_environment.csv`, `passengers.csv`, `failures.csv`, `patrols.csv`, `patrol_bases.csv`), `data/ship_classes/` (classes, components, modules, hull slots, spares;

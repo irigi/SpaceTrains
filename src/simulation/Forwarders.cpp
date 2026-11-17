@@ -1,5 +1,5 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-8): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-9): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -334,6 +334,192 @@ void Simulation::step_patrols(double dt_s) {
 
 math::Vec3d Simulation::patrol_position(const domain::PatrolState& patrol) const {
     return systems::patrol_position(*this, patrol);
+}
+
+// Households (step 9), with the query forwarders that lived in its topic file.
+
+double Simulation::resident_wages_per_day(const domain::StationState& station) const {
+    return query::resident_wages_per_day(*this, station);
+}
+
+double Simulation::colony_wage_median(const domain::BackgroundEconomyDefinition& economy) const {
+    return query::colony_wage_median(*this, economy);
+}
+
+bool Simulation::in_labour_market(const domain::StationState& station) const {
+    return query::in_labour_market(*this, station);
+}
+
+double Simulation::station_wage_cr_per_day(const domain::StationState& station) const {
+    return query::station_wage_cr_per_day(*this, station);
+}
+
+double Simulation::station_workers(const domain::StationState& station) const {
+    return query::station_workers(*this, station);
+}
+
+double Simulation::station_lifetime_profit(const domain::StationState& station) const {
+    return query::station_lifetime_profit(*this, station);
+}
+
+void Simulation::step_households(double dt_s) {
+    systems::step_households(*this, dt_s);
+}
+
+double Simulation::colony_people_factor(const std::string& economy_id) const {
+    return systems::colony_people_factor(*this, economy_id);
+}
+
+double Simulation::colony_affordability(double account, double credit_line, double buffer) {
+    return systems::colony_affordability(account, credit_line, buffer);
+}
+
+double Simulation::colony_import_share(double affordability, bool essential) {
+    return systems::colony_import_share(affordability, essential);
+}
+
+void Simulation::step_surface_markets(double dt_s) {
+    systems::step_surface_markets(*this, dt_s);
+}
+
+double Simulation::labour_migrants_per_day(const domain::StationState& station) const {
+    return systems::labour_migrants_per_day(*this, station);
+}
+
+double Simulation::labour_emigrants_per_day(const domain::StationState& station) const {
+    return systems::labour_emigrants_per_day(*this, station);
+}
+
+double Simulation::settler_gain_tail(const domain::StationState& destination, double gain_cr) const {
+    return systems::settler_gain_tail(*this, destination, gain_cr);
+}
+
+double Simulation::traveller_budget_tail(const std::string& home_id, double cost_cr) const {
+    return systems::traveller_budget_tail(*this, home_id, cost_cr);
+}
+
+void Simulation::step_labour(double dt_s) {
+    systems::step_labour(*this, dt_s);
+}
+
+void Simulation::update_market_responses() {
+    systems::update_market_responses(*this);
+}
+
+std::string Simulation::station_economy_json(const domain::StationState& station) const {
+    return systems::station_economy_json(*this, station);
+}
+
+void Simulation::step_colony_labour(double dt_s) {
+    systems::step_colony_labour(*this, dt_s);
+}
+
+std::string Simulation::background_economies_json() const {
+    return systems::background_economies_json(*this);
+}
+
+const domain::StationDefinition* Simulation::yard_station_for(const domain::StationDefinition& home) const {
+    return systems::yard_station_for(*this, home);
+}
+
+// Passengers (step 9), with the query forwarders that lived in its topic file.
+
+bool Simulation::employer_pays(domain::PassengerKind kind) const {
+    return query::employer_pays(*this, kind);
+}
+
+bool Simulation::is_earth_gateway(const std::string& station_id) const {
+    return query::is_earth_gateway(*this, station_id);
+}
+
+const domain::PassengerDefinition::ReferenceFare* Simulation::reference_fare(
+    const std::string& origin_id, const std::string& destination_id) const {
+    return query::reference_fare(*this, origin_id, destination_id);
+}
+
+double Simulation::port_fuel_price(const std::string& station_id) const {
+    return systems::port_fuel_price(*this, station_id);
+}
+
+double Simulation::live_fare_cr(const std::string& origin_id, const std::string& destination_id,
+    const domain::PassengerDefinition::ReferenceFare& reference) const {
+    return systems::live_fare_cr(*this, origin_id, destination_id, reference);
+}
+
+const char* Simulation::passenger_kind_name(domain::PassengerKind kind) {
+    return systems::passenger_kind_name(kind);
+}
+
+double Simulation::settler_share(double payback_years) const {
+    return systems::settler_share(*this, payback_years);
+}
+
+void Simulation::post_travellers(domain::StationState& origin, domain::PassengerKind kind,
+    const std::string& destination_id, const std::string& work_station_id, double count, bool fixed) {
+    systems::post_travellers(*this, origin, kind, destination_id, work_station_id, count, fixed);
+}
+
+const std::string& Simulation::gateway_for(const std::string& station_id, bool to_station) const {
+    return systems::gateway_for(*this, station_id, to_station);
+}
+
+double Simulation::travellers_pending(const std::string& station_id, domain::PassengerKind kind) const {
+    return systems::travellers_pending(*this, station_id, kind);
+}
+
+void Simulation::compute_rotation_tours() {
+    systems::compute_rotation_tours(*this);
+}
+
+const Simulation::RotationTour* Simulation::rotation_tour(const std::string& station_id) const {
+    return systems::rotation_tour(*this, station_id);
+}
+
+double Simulation::rotation_positions(const domain::StationState& station) const {
+    return systems::rotation_positions(*this, station);
+}
+
+double Simulation::passenger_flow_per_day(const std::string& origin_id, const std::string& destination_id) const {
+    return systems::passenger_flow_per_day(*this, origin_id, destination_id);
+}
+
+double Simulation::carried_passengers_per_day(const std::string& origin_id, const std::string& destination_id) const {
+    return systems::carried_passengers_per_day(*this, origin_id, destination_id);
+}
+
+Simulation::PassengerRevenue Simulation::expected_passenger_revenue(const std::string& origin_id,
+    const std::string& destination_id, double days, double window_days, double berths, double open_share) const {
+    return systems::expected_passenger_revenue(*this, origin_id, destination_id, days, window_days, berths, open_share);
+}
+
+double Simulation::expected_fare_cr(const std::string& origin_id, const std::string& destination_id, double days,
+    double demand_per_trip, double berths) const {
+    return systems::expected_fare_cr(*this, origin_id, destination_id, days, demand_per_trip, berths);
+}
+
+void Simulation::step_passengers(double dt_s) {
+    systems::step_passengers(*this, dt_s);
+}
+
+void Simulation::board_passengers(domain::ShipState& ship, domain::StationState& origin,
+    const std::string& destination_id, const std::vector<MissionChoice::PassengerPick>& picks, double days) {
+    systems::board_passengers(*this, ship, origin, destination_id, picks, days);
+}
+
+void Simulation::land_passengers(domain::ShipState& ship, domain::StationState& destination) {
+    systems::land_passengers(*this, ship, destination);
+}
+
+std::string Simulation::ship_passengers_json(const domain::ShipState& ship, const domain::ShipClassDefinition& design) const {
+    return systems::ship_passengers_json(*this, ship, design);
+}
+
+std::string Simulation::station_passengers_json(const domain::StationState& station) const {
+    return systems::station_passengers_json(*this, station);
+}
+
+std::vector<Simulation::ReferenceFareRow> Simulation::compute_reference_fares() const {
+    return systems::compute_reference_fares(*this);
 }
 
 }  // namespace spacetrains::simulation

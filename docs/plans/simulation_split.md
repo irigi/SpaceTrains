@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-8 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-9 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -238,8 +238,18 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    are file-local and gone from `Simulation.hpp`. Not mechanical: `plan_patrol_home`'s default argument moved from
    the declaration to the definition, and `patrol_kg_per_s` is declared ahead (it is defined after its first
    caller). The Patrols test is in `tests/test_world.cpp`.
-9. **Households + Passengers** together (their cycle). Two commits if the diff is too big: Households first with
+9. **Households + Passengers** (done 2026-11-17) together (their cycle). Two commits if the diff is too big: Households first with
    forwarders for the four Passengers functions it calls, then Passengers.
+   As built: one commit (the conversion is scripted, `tmp/split_baseline/step9.py`, not committed).
+   `Households.cpp` moved whole to `systems/`; `Passengers.cpp` too, taking back the step-5 bodies
+   (`port_fuel_price`, `live_fare_cr`, `passenger_offer`) at their old places (`git diff -B -M` pairs the rename).
+   `PassengerBand`, `PassengerRevenue` and `ReferenceFareRow` live in `systems/Passengers.hpp` with aliases in
+   `Simulation`. Forwarders (in `Forwarders.cpp`) for the 33 members called from outside, for
+   `port_fuel_price` and `live_fare_cr`, and for the query forwarders still called; the eight query forwarders called only from these two files are gone, as are the
+   `Simulation` declarations of the members used only inside them. Seven used only in their own file
+   (`colony_sales_factor`, `colony_import_value_per_day`, `payback_years`, `reference_cost_cr`, `passenger_bands`,
+   `visitor_trips_per_day`, `expected_travellers`) are file-local, declared ahead in an anonymous namespace so the
+   code keeps its order. Not mechanical: `per_capita_savings` never read the state, so it takes no `World`.
 10. **Failures** (needs `land_passengers` from step 9, Contracts and ShipOperations).
 11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).

@@ -28,6 +28,7 @@
 #include "simulation/query/Passengers.hpp"
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Contracts.hpp"
+#include "simulation/systems/Households.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"
 #include "simulation/systems/Patrols.hpp"
@@ -92,15 +93,7 @@ public:
     // cost per berth one way (carrier_margin x (its days out + return_share x the way back, at its
     // daily cost, plus propellant) over berths x fill_ref, plus the passenger's provisions); median
     // over departure dates. Written by `spacetrains_headless --write-reference-fares`.
-    struct ReferenceFareRow {
-        std::string origin_id;
-        std::string destination_id;
-        double fare_cr {0.0};
-        double days {0.0};
-        std::string class_id;
-        double fuel_out_kg {0.0};
-        double fuel_back_kg {0.0};
-    };
+    using ReferenceFareRow = systems::ReferenceFareRow;
     [[nodiscard]] std::vector<ReferenceFareRow> compute_reference_fares() const;
     // Tests and debugging: overwrite one good's stock at a station.
     void set_station_stock(const std::string& station_id, const std::string& commodity_id, double units);
@@ -184,25 +177,11 @@ public:
     [[nodiscard]] bool employer_pays(domain::PassengerKind kind) const;
     // Share of a station's would-be settlers whose job repays a passage of this many years' wages.
     [[nodiscard]] double settler_share(double payback_years) const;
-    // The reference trip's cost to a settler in years of the resident wage.
-    [[nodiscard]] double payback_years(const std::string& origin_id, const std::string& destination_id) const;
     // Travellers by willingness band (what post_travellers would post over window_days of the
     // steady flows, plus those waiting spread over a route commitment), and the fares that
     // berths filled from them would take.
-    struct PassengerBand {
-        int band {0};
-        double people {0.0};
-        double max_cost_cr {0.0};
-        double value_of_time_cr_per_day {0.0};
-        bool queued {false};  // already waiting (not a flow still to come)
-        std::string home_pays {};   // a station whose residents pay out of their travel budget (households on)
-    };
-    struct PassengerRevenue {
-        double people {0.0};
-        double fares_cr {0.0};
-    };
-    [[nodiscard]] std::vector<PassengerBand> expected_travellers(const std::string& origin_id,
-        const std::string& destination_id, double window_days) const;
+    using PassengerBand = systems::PassengerBand;
+    using PassengerRevenue = systems::PassengerRevenue;
     [[nodiscard]] double carried_passengers_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] PassengerRevenue expected_passenger_revenue(const std::string& origin_id,
         const std::string& destination_id, double days, double window_days, double berths, double open_share) const;
@@ -217,13 +196,7 @@ public:
     // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
     // with the background economies at their gateways.
     [[nodiscard]] bool households_on() const { return query::households_on(*this); }
-    [[nodiscard]] double economy_balance(const std::string& economy_id) const;
-    [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
     [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
-    [[nodiscard]] double per_capita_savings(const domain::StationState& station) const;
-    // A boom or outage at a gateway scales what its colony sells there (events.csv).
-    [[nodiscard]] double colony_sales_factor(const domain::StationState& station, const std::string& commodity_id) const;
-    [[nodiscard]] double household_travel_budget(const std::string& home_id, double window_days) const;
     [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
     // Labour market (phase B, Households.cpp).
     [[nodiscard]] bool labour_on() const { return query::labour_on(*this); }
@@ -237,13 +210,9 @@ public:
     [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
     // The cash above which a station pays its faction tax: lower while the faction is in debt.
     [[nodiscard]] static double station_tax_ceiling(const domain::OpenEconomyDefinition& open, double treasury);
-    [[nodiscard]] double returner_gain_tail(double gain_cr) const;
     [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
 
 private:
-    // Economy overhaul (Households.cpp): the steps and the payments they make.
-    double& economy_account(const std::string& economy_id);
-    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares, int payee);
     void step_households(double dt_s);
     void step_surface_markets(double dt_s);
     void step_labour(double dt_s);
@@ -470,37 +439,16 @@ private:
     using MissionChoice = systems::MissionChoice;
     // --- Passengers (src/simulation/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
     [[nodiscard]] bool passengers_on() const { return query::passengers_on(*this); }
-    [[nodiscard]] bool passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const;
     [[nodiscard]] bool migration_by_ship() const { return query::migration_by_ship(*this); }
     [[nodiscard]] bool rotation_on() const { return query::rotation_on(*this); }
     [[nodiscard]] bool visits_on() const { return query::visits_on(*this); }
-    // Discretionary trips (step 5) per day origin -> destination at reference cost: a gravity
-    // model, visit_trips_per_person_year x the origin's people x the destination's share of the
-    // others, deterred by the trip's cost against a year's income (elasticity). Earth weighs in
-    // as earth_population_weight, shared by its gateways. 0 without a fare both ways.
-    [[nodiscard]] double visitor_trips_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] bool is_earth_gateway(const std::string& station_id) const;
-    // What a person and their consumables weigh over a leg of `days`.
-    [[nodiscard]] double passenger_kg(double days) const;
-    [[nodiscard]] double value_of_time_cr_per_day(domain::PassengerKind kind) const;
-    // A person's costs of a leg other than the fare: time (flight and the reconditioning after
-    // it) and radiation (as hazard pay values it).
-    [[nodiscard]] double passenger_nonfare_cr(double value_of_time, double days, double dose_msv_per_day) const;
     [[nodiscard]] const domain::PassengerDefinition::ReferenceFare* reference_fare(
         const std::string& origin_id, const std::string& destination_id) const;
-    // The generalized cost of the reference trip for someone with this value of time.
-    [[nodiscard]] double reference_cost_cr(const std::string& origin_id, const std::string& destination_id,
-        double value_of_time) const;
-    // Adds `count` people who want to travel at reference cost, spread over the demand bands
-    // (fare elasticity): more come if trips are cheaper, fewer if dearer. `fixed`: exactly
-    // `count` people travel (a relief, a worker going home), their budgets spread the same way.
-    [[nodiscard]] std::vector<PassengerBand> passenger_bands(domain::PassengerKind kind, const std::string& origin_id,
-        const std::string& destination_id, double count, bool fixed, const std::string& employer = {}) const;
     // Settlers a colony recruits on Earth (labour market): their employer id is "colony:<economy id>".
     [[nodiscard]] static bool colony_employer(const std::string& work_station_id) {
         return query::colony_employer(work_station_id);
     }
-    [[nodiscard]] double colony_recruits_per_day(const domain::BackgroundEconomyDefinition& economy) const;
 public:
     using ColonyState = simulation::ColonyState;
     // Colonies: their people against the data population (sales and imports scale with it when
@@ -514,9 +462,6 @@ public:
     [[nodiscard]] static double colony_affordability(double account, double credit_line, double buffer);
     // The share of a good's base imports a colony buys at affordability f (essentials first).
     [[nodiscard]] static double colony_import_share(double affordability, bool essential);
-    // Growth multiple from its import satisfaction (1 when off): 2 x satisfaction - 1.
-    [[nodiscard]] double colony_growth_factor(const std::string& economy_id) const;
-    [[nodiscard]] double colony_import_value_per_day(const std::string& economy_id) const;
 private:
     void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
         const std::string& work_station_id, double count, bool fixed = false);
@@ -543,9 +488,6 @@ private:
     // up to `berths`. A group pays the reference fare adjusted by how much faster (or slower)
     // and safer this trip is than the reference one, down to what it can still afford.
     using PassengerOffer = systems::PassengerOffer;
-    [[nodiscard]] PassengerOffer passenger_offer(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
-        const domain::StationState& origin, const domain::StationDefinition& destination, double days,
-        double propellant_cr_per_kg, double berths) const;
     void board_passengers(domain::ShipState& ship, domain::StationState& origin, const std::string& destination_id,
         const std::vector<MissionChoice::PassengerPick>& picks, double days);
     void land_passengers(domain::ShipState& ship, domain::StationState& destination);
