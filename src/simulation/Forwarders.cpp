@@ -1,5 +1,5 @@
-// Simulation members whose code moved to systems/ (docs/plans/simulation_split.md, step 5):
-// each forwards to its free function on World. Callers move over topic by topic; this file
+// Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
+// steps 5-6): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -137,6 +137,135 @@ Simulation::MissionChoice Simulation::choose_mission(
 
 std::vector<Simulation::MissionChoice> Simulation::choose_missions(const std::vector<MissionRequest>& requests) {
     return systems::choose_missions(*this, requests);
+}
+
+// ShipOperations (step 6), with the query forwarders that lived in its topic file.
+
+double Simulation::daily_capital_cost(const domain::ShipClassDefinition& ship_class) const {
+    return query::daily_capital_cost(*this, ship_class);
+}
+
+double Simulation::daily_crew_cost(
+    const domain::ShipClassDefinition& ship_class, const domain::StationState& market) const {
+    return systems::daily_crew_cost(*this, ship_class, market);
+}
+
+double Simulation::credit_line(const domain::ShipClassDefinition& ship_class) const {
+    return query::credit_line(ship_class);
+}
+
+double Simulation::persons_aboard(const domain::ShipState& ship) const {
+    return query::persons_aboard(*this, ship);
+}
+
+double Simulation::provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const {
+    return query::provisionable_days(*this, ship, market);
+}
+
+double Simulation::station_r_au(const domain::StationDefinition& station, double time_s) const {
+    return query::station_r_au(*this, station, time_s);
+}
+
+double Simulation::docked_dose_msv_per_day(const std::string& station_id, double time_s) const {
+    return query::docked_dose_msv_per_day(*this, station_id, time_s);
+}
+
+double Simulation::cabin_shield_g_cm2(const domain::ShipClassDefinition& design, double propellant_kg) const {
+    return query::cabin_shield_g_cm2(*this, design, propellant_kg);
+}
+
+double Simulation::leg_dose_msv_per_day(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const {
+    return query::leg_dose_msv_per_day(*this, design, from, to, time_s);
+}
+
+double Simulation::hazard_cr_per_day(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const {
+    return query::hazard_cr_per_day(*this, design, from, to, time_s);
+}
+
+bool Simulation::leg_dose_allowed(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) const {
+    return query::leg_dose_allowed(*this, design, from, to, time_s, days);
+}
+
+double Simulation::cargo_decay_per_day(const domain::ShipClassDefinition& design, const std::string& commodity_id) const {
+    return query::cargo_decay_per_day(*this, design, commodity_id);
+}
+
+double Simulation::drive_life_h(const domain::ShipClassDefinition& design) const {
+    return query::drive_life_h(*this, design);
+}
+
+double Simulation::drive_hours(const domain::ShipClassDefinition& design, const domain::TrajectoryPlan& plan) const {
+    return query::drive_hours(design, plan);
+}
+
+bool Simulation::drive_life_allows(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
+    const domain::TrajectoryPlan& plan) const {
+    return query::drive_life_allows(*this, ship, design, plan);
+}
+
+Simulation::OverhaulBill Simulation::overhaul_bill(const domain::ShipClassDefinition& design, double drive_share,
+    double radiator_share) const {
+    return query::overhaul_bill(*this, design, drive_share, radiator_share);
+}
+
+double Simulation::wear_cr_per_drive_hour(const domain::ShipClassDefinition& design) const {
+    return query::wear_cr_per_drive_hour(*this, design);
+}
+
+double Simulation::wear_cr_per_flight_day(const domain::ShipClassDefinition& design) const {
+    return query::wear_cr_per_flight_day(*this, design);
+}
+
+double Simulation::wear_cr_per_propellant_kg(const domain::ShipClassDefinition& design) const {
+    return query::wear_cr_per_propellant_kg(*this, design);
+}
+
+double Simulation::ship_r_au(const domain::ShipState& ship) const {
+    return query::ship_r_au(*this, ship);
+}
+
+double Simulation::boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r_au) const {
+    return query::boiloff_kg_per_day(*this, design, r_au);
+}
+
+double Simulation::leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design, double r1_au, double r2_au) const {
+    return query::leg_boiloff_kg_per_day(*this, design, r1_au, r2_au);
+}
+
+double Simulation::leg_boiloff_kg_per_day(const domain::ShipClassDefinition& design,
+    const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s) const {
+    return query::leg_boiloff_kg_per_day(*this, design, from, to, time_s);
+}
+
+double Simulation::purchasable_propellant_kg(const domain::ShipState& ship) const {
+    return query::purchasable_propellant_kg(*this, ship);
+}
+
+double Simulation::provisions_mass_kg(const domain::ShipState& ship) const {
+    return query::provisions_mass_kg(*this, ship);
+}
+
+void Simulation::buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing) {
+    systems::buy_provisions(*this, ship, market, days, departing);
+}
+
+bool Simulation::consider_repair(domain::ShipState& ship) {
+    return systems::consider_repair(*this, ship);
+}
+
+void Simulation::step_particle_events(double dt_s) {
+    systems::step_particle_events(*this, dt_s);
+}
+
+void Simulation::accrue_operating_costs(domain::ShipState& ship, double dt_s) {
+    systems::accrue_operating_costs(*this, ship, dt_s);
+}
+
+void Simulation::buy_propellant(domain::ShipState& ship, double kg) {
+    systems::buy_propellant(*this, ship, kg);
 }
 
 }  // namespace spacetrains::simulation

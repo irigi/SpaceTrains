@@ -64,7 +64,6 @@ add_library(spacetrains_core
     src/simulation/systems/Passengers.cpp
     src/simulation/systems/ShipOperations.cpp
     src/simulation/systems/StationSystems.cpp
-    src/simulation/ShipOperations.cpp
     src/simulation/ShipPhases.cpp
     src/simulation/FleetInvestment.cpp
     src/simulation/Failures.cpp

@@ -262,7 +262,6 @@ private:
     [[nodiscard]] double drive_life_h(const domain::ShipClassDefinition& design) const;
     [[nodiscard]] bool drive_life_allows(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
         const domain::TrajectoryPlan& plan) const;
-    void accrue_wear(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
     // Overhauls a worn drive or holed radiators where the port has the spares; true if the
     // ship went into the yard.
     bool consider_repair(domain::ShipState& ship);
@@ -361,8 +360,6 @@ private:
     [[nodiscard]] double provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const;
     void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
-    void pay_home_station(domain::ShipState& ship, double amount, MoneyCategory category);
-    void pay_crew(domain::ShipState& ship, double amount, MoneyCategory category);
     // Open economy: residents pay their station for the goods the economy step used up, at what
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.
@@ -612,7 +609,6 @@ private:
     // Whether a leg of this length keeps its crew under the career limit.
     [[nodiscard]] bool leg_dose_allowed(const domain::ShipClassDefinition& design,
         const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) const;
-    void accrue_radiation(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
     // Where a ship is from the Sun now: its station, or interpolated over its leg.
     [[nodiscard]] double ship_r_au(const domain::ShipState& ship) const;
     // Spoilage per day of a good in this design's hold (a cold hold slows food and medicine).

@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -213,9 +213,15 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    - Risk specific to this step: the parallel planning (`parallel_for` in `compute_reference_prices`, the
      deferred plans in `choose_missions` and the contract passes). The default-thread and one-thread saves must both
      match; run the one-thread check twice.
-6. **ShipOperations**, the parts that change state and price goods (`daily_crew_cost`, `buy_provisions`,
+6. **ShipOperations** (done 2026-11-17), the parts that change state and price goods (`daily_crew_cost`, `buy_provisions`,
    `buy_propellant`, `consider_repair`, crew pay, wear and repair, boil-off, particle events). Needs only Market and
    the rates from step 4.
+   As built: `systems/ShipOperations` holds the nine members that changed state; `ShipOperations.cpp` is gone.
+   Forwarders stay (in `Forwarders.cpp`, with the topic file's `query/` forwarders) for the five called from outside:
+   `buy_provisions` and `buy_propellant` (ShipPhases, Failures), `consider_repair` (ShipPhases),
+   `accrue_operating_costs` and `step_particle_events` (`tick`). `pay_crew`, `pay_home_station`, `accrue_radiation`
+   and `accrue_wear` were called only from inside, so they are file-local and their `Simulation` declarations are
+   gone. Saves and audit identical, `--profile` unchanged (21.2 s / 365 days, as step 5).
 7. **Statistics** (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`). Needs StationSystems
    and `query/Finance`.
 8. **Patrols** (453 lines; needs `station_price` and `daily_crew_cost`).
