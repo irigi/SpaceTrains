@@ -29,6 +29,7 @@
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Contracts.hpp"
 #include "simulation/systems/Failures.hpp"
+#include "simulation/systems/FleetInvestment.hpp"
 #include "simulation/systems/Households.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"
@@ -344,12 +345,8 @@ private:
     void step_treasuries(double dt_s);
     void step_population(double dt_s);
     void step_events(double dt_s);
-    // Station money (step 17). Consumption per day of a station's goods at reference prices:
-    // its upkeep goods only (for the core-crew subsidy), or every consumed good (its import bill).
-    [[nodiscard]] double consumption_value_per_day(const domain::StationDefinition& station, bool upkeep_only) const;
     // What a faction may still spend on ships: its treasury plus what it may borrow.
     [[nodiscard]] double faction_credit_limit(const std::string& faction_id) const;
-    [[nodiscard]] double faction_spendable(const std::string& faction_id) const;
     [[nodiscard]] double internal_money_supply() const;
     // The fleet's total hold, against max_fleet_hold_units (step 21).
     [[nodiscard]] double fleet_hold_units() const;
@@ -369,7 +366,6 @@ private:
     // Fleet investment (docs/modules/ships_and_fleet.md): owners sell ships laid up for long,
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
-    void sell_ship(std::size_t index);
     // Failures and salvage (systems/Failures.cpp; docs/modules/ships_and_fleet.md, "Failures and salvage").
     void init_failure_clocks();
     void step_failures();
@@ -380,11 +376,6 @@ private:
     void init_patrols();
     void step_patrols(double dt_s);
     [[nodiscard]] math::Vec3d patrol_position(const domain::PatrolState& patrol) const;
-    // One step of a fleet review: probes a batch of candidates (their cargo runs from the
-    // yard, kept in review_probes_ for the rest of the review), or, once every candidate that
-    // could still win has been probed, buys the best one.
-    enum class CommissionStep { Probed, Bought, NothingToBuy };
-    CommissionStep commission_step();
     void step_idle_ship(domain::ShipState& ship);
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.
@@ -453,7 +444,6 @@ private:
     [[nodiscard]] std::vector<MissionChoice> choose_missions(const std::vector<MissionRequest>& requests);
     // load_state_json without the restore on failure.
     void read_state_json(const std::string& text);
-    class InvestmentReview;  // FleetInvestment.cpp
     using DeferredPlan = simulation::DeferredPlan;
     // Part C: at its home base a ship may refit to another tank variant of its hull when
     // the missions that opens repay the yard bill. Returns true if the ship went into the yard.

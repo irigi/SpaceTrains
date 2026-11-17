@@ -1,5 +1,5 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-10): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-11): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -538,6 +538,28 @@ bool Simulation::consider_salvage(domain::ShipState& ship, double spot_per_day) 
 
 void Simulation::reach_derelict(domain::ShipState& ship) {
     systems::reach_derelict(*this, ship);
+}
+
+// FleetInvestment (step 11), with the query forwarder that lived in its topic file.
+
+double Simulation::internal_money_supply() const {
+    return systems::internal_money_supply(*this);
+}
+
+void Simulation::step_treasuries(double dt_s) {
+    systems::step_treasuries(*this, dt_s);
+}
+
+double Simulation::faction_credit_limit(const std::string& faction_id) const {
+    return query::faction_credit_limit(*this, faction_id);
+}
+
+double Simulation::station_tax_ceiling(const domain::OpenEconomyDefinition& open, double treasury) {
+    return systems::station_tax_ceiling(open, treasury);
+}
+
+void Simulation::step_fleet_investment() {
+    systems::step_fleet_investment(*this);
 }
 
 }  // namespace spacetrains::simulation

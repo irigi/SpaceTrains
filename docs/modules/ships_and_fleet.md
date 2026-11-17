@@ -9,7 +9,7 @@ orders and money: `economy.md`.
 - `src/simulation/systems/MissionPlanning.cpp`: leg estimates and dispatch (`systems::MissionPass`);
 - `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
   refits;
-- `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
+- `src/simulation/systems/FleetInvestment.cpp`: selling and buying ships (`InvestmentReview`);
 - `src/simulation/systems/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
 - `src/simulation/systems/Patrols.cpp`: police cutters and inspections;
 - `src/simulation/systems/Passengers.cpp`, `src/simulation/CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).

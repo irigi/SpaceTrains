@@ -155,7 +155,7 @@ limit the fleet size (not profiled). Profile before touching them.
 - **A thin player stake** (outside review 2026-11-12). The player becomes the treasurer of one faction and
   nothing more: they decide when that faction buys or sells a ship, of which class and tank size, and where it is
   based. Everything else stays autonomous: the ships still dispatch themselves, and the other factions keep
-  today's rules (`FleetInvestment.cpp`), so the player competes with the same logic that runs now. The purchase
+  today's rules (`systems/FleetInvestment.cpp`), so the player competes with the same logic that runs now. The purchase
   valuations the factions already compute are shown to the player as advice (for example "a plasma freighter based at Ceres is
   expected to return 9% a year"). It gives the watching a stake (my ships, my balance sheet, was my purchase
   right?) at a small cost: a switch that takes one faction out of the automatic review, three or four commands

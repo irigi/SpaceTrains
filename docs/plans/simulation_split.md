@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -257,8 +257,17 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    `primary_body_id` are gone. Not mechanical: `failures_on` (inline in `Simulation.hpp`, used only here) is
    file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written): it is
    file-local and `[[maybe_unused]]`, kept as it was rather than deleted inside a move.
-11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
+11. **FleetInvestment** (done 2026-11-17; 1,038 lines; `InvestmentReview` becomes the system's own class). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
+    As built: the `tick` link was the word in comments ("one purchase per tick"), nothing more. `FleetInvestment.cpp`
+    moved whole to `systems/`. `InvestmentReview` is a file-local class holding `World& sim_` (the name kept, as
+    `MissionPass` did in step 5), its `sim_.f(...)` calls now `query::`/`systems::` calls; `CommissionStep`,
+    `commission_step`, `consumption_value_per_day`, `faction_spendable` and `sell_ship` are file-local.
+    Forwarders for `internal_money_supply`, `step_treasuries`, `step_fleet_investment` (all from `Simulation.cpp`),
+    the static `station_tax_ceiling` (the economy test) and the query forwarder `faction_credit_limit` (Snapshot).
+    `FitOption` stays: it belongs to `neighbouring_fits` in `Simulation.cpp` (refits, used by ShipPhases).
+    Not mechanical: `register_design(sim_, hull->id, {module.id})` names its one-element vector first; as a free
+    function call GCC 13 warned of a dangling reference (a false positive: the design lives in the World's cache).
 12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).
 13. **Snapshot** (`const World&`; it reads every topic, so it goes after them).
 14. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through

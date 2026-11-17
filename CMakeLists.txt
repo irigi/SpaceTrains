@@ -60,6 +60,7 @@ add_library(spacetrains_core
     src/simulation/Forwarders.cpp
     src/simulation/systems/Contracts.cpp
     src/simulation/systems/Failures.cpp
+    src/simulation/systems/FleetInvestment.cpp
     src/simulation/systems/Households.cpp
     src/simulation/systems/Market.cpp
     src/simulation/systems/MissionPlanning.cpp
@@ -69,7 +70,6 @@ add_library(spacetrains_core
     src/simulation/systems/StationSystems.cpp
     src/simulation/systems/Statistics.cpp
     src/simulation/ShipPhases.cpp
-    src/simulation/FleetInvestment.cpp
     src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/MoneyJournal.cpp
