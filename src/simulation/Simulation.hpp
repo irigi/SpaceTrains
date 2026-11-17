@@ -28,6 +28,7 @@
 #include "simulation/query/Passengers.hpp"
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Contracts.hpp"
+#include "simulation/systems/Failures.hpp"
 #include "simulation/systems/Households.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"
@@ -369,61 +370,12 @@ private:
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);
-    // Failures and salvage (Failures.cpp; docs/modules/ships_and_fleet.md, "Failures and salvage").
-    [[nodiscard]] bool failures_on() const { return universe_.failures.failures; }
-    // A uniform draw in (0, 1] from the ship's own stream (data seed, ship id, salt).
-    [[nodiscard]] double ship_uniform(const std::string& ship_id, const std::string& salt) const;
-    [[nodiscard]] double weibull_scale_s() const;
-    // Draws the ship's failure age: as a new hull, or (starting fleet) at an age from the
-    // fleet's steady state, conditional on having lived that long.
-    void draw_failure_clock(domain::ShipState& ship, bool aged);
+    // Failures and salvage (systems/Failures.cpp; docs/modules/ships_and_fleet.md, "Failures and salvage").
     void init_failure_clocks();
     void step_failures();
-    void fail_ship(std::size_t index);
-    [[nodiscard]] bool local_leg(const domain::MissionAssignment& mission) const;
-    [[nodiscard]] double sun_mu() const;
-    [[nodiscard]] double cargo_value_cr(const std::vector<domain::CargoLot>& cargo, const std::string& station_id) const;
-    void step_derelicts();
-    // A salvage run: from the ship's port to the derelict (rendezvous) and on to a station.
-    struct SalvagePlan {
-        bool feasible {false};
-        std::string destination_id;
-        double depart_s {0.0};
-        double rendezvous_s {0.0};
-        double arrival_s {0.0};
-        double propellant_load_kg {0.0};
-        double propellant_used_kg {0.0};
-        std::vector<math::Vec3d> path;
-        std::vector<double> times;
-        std::vector<double> propellant;   // aboard (plasma ships burn as they go)
-        std::string trajectory_type;
-        double best_dv_mps {0.0};        // diagnostics: cheapest way out found, and what the ship has
-        double dv_available_mps {0.0};
-    };
-    // Pure (runs in parallel): leg one only, or both legs (home to the best of the ship's home,
-    // the derelict's destination and its origin). The cheapest run (propellant at the fuel price,
-    // days at cr_per_day, less the prize at the port), meeting the wreck by latest_meet_s.
-    [[nodiscard]] SalvagePlan plan_salvage(const domain::ShipState& ship, const domain::DerelictState& derelict,
-        bool both_legs, double latest_meet_s, double fuel_cr_per_kg, double cr_per_day) const;
-    [[nodiscard]] std::string primary_body_id(const std::string& station_id) const;
-    [[nodiscard]] bool can_race(const domain::ShipState& ship) const;
-    void start_salvage_run(domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
-        double value_cr, double cost_cr);
-    void review_salvage();
-    // The ship's best salvage run now (dispatch compares it with its best mission): profit per
-    // day over the run, or nothing.
-    struct SalvageOption {
-        std::size_t derelict_index {0};
-        SalvagePlan plan;
-        double value_cr {0.0};
-        double cost_cr {0.0};
-        double per_day {0.0};
-    };
-    [[nodiscard]] std::optional<SalvageOption> best_salvage_for(const domain::ShipState& ship, double spot_per_day) const;
     // Dispatch hook: sets out on a salvage run if one pays more per day than `spot_per_day`.
     bool consider_salvage(domain::ShipState& ship, double spot_per_day);
     void reach_derelict(domain::ShipState& ship);
-    [[nodiscard]] int fleet_places_held_for_others(const std::string& faction_id) const;
     // Police inspections (Patrols.cpp).
     void init_patrols();
     void step_patrols(double dt_s);

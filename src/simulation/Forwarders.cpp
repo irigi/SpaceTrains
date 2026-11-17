@@ -1,5 +1,5 @@
 // Simulation members whose code moved to systems/ or query/ (docs/plans/simulation_split.md,
-// steps 5-9): each forwards to its free function on World. Callers move over topic by topic; this file
+// steps 5-10): each forwards to its free function on World. Callers move over topic by topic; this file
 // is deleted in step 15.
 
 #include "simulation/Simulation.hpp"
@@ -520,6 +520,24 @@ std::string Simulation::station_passengers_json(const domain::StationState& stat
 
 std::vector<Simulation::ReferenceFareRow> Simulation::compute_reference_fares() const {
     return systems::compute_reference_fares(*this);
+}
+
+// Failures (step 10).
+
+void Simulation::init_failure_clocks() {
+    systems::init_failure_clocks(*this);
+}
+
+void Simulation::step_failures() {
+    systems::step_failures(*this);
+}
+
+bool Simulation::consider_salvage(domain::ShipState& ship, double spot_per_day) {
+    return systems::consider_salvage(*this, ship, spot_per_day);
+}
+
+void Simulation::reach_derelict(domain::ShipState& ship) {
+    systems::reach_derelict(*this, ship);
 }
 
 }  // namespace spacetrains::simulation

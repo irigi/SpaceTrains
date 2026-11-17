@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-9 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -250,7 +250,14 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    (`colony_sales_factor`, `colony_import_value_per_day`, `payback_years`, `reference_cost_cr`, `passenger_bands`,
    `visitor_trips_per_day`, `expected_travellers`) are file-local, declared ahead in an anonymous namespace so the
    code keeps its order. Not mechanical: `per_capita_savings` never read the state, so it takes no `World`.
-10. **Failures** (needs `land_passengers` from step 9, Contracts and ShipOperations).
+10. **Failures** (done 2026-11-17; 812 lines; needs `land_passengers` from step 9, Contracts and ShipOperations).
+   As built: `Failures.cpp` moved whole to `systems/` (converted by `tmp/split_baseline/topic.py`, step 9's script
+   made general). Forwarders for the four called from outside (`init_failure_clocks` from the constructor and the
+   loader, `step_failures` from `tick`, `consider_salvage` and `reach_derelict` from ShipPhases); eleven used only
+   here are file-local, with `SalvagePlan` and `SalvageOption`; the query forwarders `sun_mu`, `local_leg` and
+   `primary_body_id` are gone. Not mechanical: `failures_on` (inline in `Simulation.hpp`, used only here) is
+   file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written), so as a
+   free function it is public in `Failures.hpp` to stay a pure move (file-local it would warn as unused).
 11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
 12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).

@@ -10,7 +10,7 @@ orders and money: `economy.md`.
 - `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
   refits;
 - `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
-- `src/simulation/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
+- `src/simulation/systems/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
 - `src/simulation/systems/Patrols.cpp`: police cutters and inspections;
 - `src/simulation/systems/Passengers.cpp`, `src/simulation/CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
 
@@ -214,7 +214,7 @@ berths, and those that left empty while people waited), and the legs flown in al
   filled the fleet with small ships and was slower.
 - Debug: `SPACETRAINS_TRACE_INVESTMENT=1`, `SPACETRAINS_TRACE_SHIP=<id>`.
 
-## Failures and salvage (`Failures.cpp`, `data/economy/failures.csv`)
+## Failures and salvage (`systems/Failures.cpp`, `data/economy/failures.csv`)
 
 Switches: `failures` (the clocks) and `salvage` (races for derelicts); with `failures` 0 the game is exactly as
 before. Debug: `SPACETRAINS_TRACE_FAILURES=1` (clocks at start, each derelict's state), `SPACETRAINS_TRACE_SALVAGE=1`.

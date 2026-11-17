@@ -5,7 +5,7 @@
 // for its cargo and scrap. The owner loses the hull, the cargo and the delivery, and has the
 // first right to the lost ship's place under the fleet cap for a while.
 
-#include "simulation/Simulation.hpp"
+#include "simulation/systems/Failures.hpp"
 
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/KeplerPropagation.hpp"
@@ -19,11 +19,76 @@
 #include <numbers>
 
 #include "simulation/SimulationInternal.hpp"
+#include "simulation/query/Accounts.hpp"
+#include "simulation/query/Events.hpp"
+#include "simulation/query/Lookups.hpp"
 #include "simulation/query/Positions.hpp"
+#include "simulation/query/ShipRates.hpp"
+#include "simulation/systems/Contracts.hpp"
+#include "simulation/systems/Market.hpp"
+#include "simulation/systems/Passengers.hpp"
+#include "simulation/systems/ShipOperations.hpp"
 
-namespace spacetrains::simulation {
+namespace spacetrains::simulation::systems {
 
 using namespace detail;
+
+namespace {
+
+[[nodiscard]] bool failures_on(const World& w) { return w.universe_.failures.failures; }
+
+// A salvage run: from the ship's port to the derelict (rendezvous) and on to a station.
+struct SalvagePlan {
+    bool feasible {false};
+    std::string destination_id;
+    double depart_s {0.0};
+    double rendezvous_s {0.0};
+    double arrival_s {0.0};
+    double propellant_load_kg {0.0};
+    double propellant_used_kg {0.0};
+    std::vector<math::Vec3d> path;
+    std::vector<double> times;
+    std::vector<double> propellant;   // aboard (plasma ships burn as they go)
+    std::string trajectory_type;
+    double best_dv_mps {0.0};        // diagnostics: cheapest way out found, and what the ship has
+    double dv_available_mps {0.0};
+};
+
+// The ship's best salvage run now (dispatch compares it with its best mission): profit per
+// day over the run, or nothing.
+struct SalvageOption {
+    std::size_t derelict_index {0};
+    SalvagePlan plan;
+    double value_cr {0.0};
+    double cost_cr {0.0};
+    double per_day {0.0};
+};
+
+// Defined below, file-local.
+// A uniform draw in (0, 1] from the ship's own stream (data seed, ship id, salt).
+[[nodiscard]] double ship_uniform(const World& w, const std::string& ship_id, const std::string& salt);
+[[nodiscard]] double weibull_scale_s(const World& w);
+// Draws the ship's failure age: as a new hull, or (starting fleet) at an age from the
+// fleet's steady state, conditional on having lived that long.
+void draw_failure_clock(World& w, domain::ShipState& ship, bool aged);
+[[nodiscard]] double cargo_value_cr(const World& w, const std::vector<domain::CargoLot>& cargo,
+    const std::string& station_id);
+void fail_ship(World& w, std::size_t index);
+void step_derelicts(World& w);
+[[nodiscard]] bool can_race(const World& w, const domain::ShipState& ship);
+// Pure (runs in parallel): leg one only, or both legs (home to the best of the ship's home,
+// the derelict's destination and its origin). The cheapest run (propellant at the fuel price,
+// days at cr_per_day, less the prize at the port), meeting the wreck by latest_meet_s.
+[[nodiscard]] SalvagePlan plan_salvage(const World& w, const domain::ShipState& ship,
+    const domain::DerelictState& derelict, bool both_legs, double latest_meet_s, double fuel_cr_per_kg,
+    double cr_per_day);
+void start_salvage_run(World& w, domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
+    double value_cr, double cost_cr);
+[[nodiscard]] std::optional<SalvageOption> best_salvage_for(const World& w, const domain::ShipState& ship,
+    double spot_per_day);
+void review_salvage(World& w);
+
+}  // namespace
 
 namespace {
 
@@ -37,10 +102,8 @@ std::uint64_t fnv1a(std::uint64_t hash, const std::string& text) {
     return (hash ^ 0xffULL) * 1099511628211ULL;  // a separator, so "ab"+"c" differs from "a"+"bc"
 }
 
-}  // namespace
-
-double Simulation::ship_uniform(const std::string& ship_id, const std::string& salt) const {
-    std::uint64_t hash = 1469598103934665603ULL ^ universe_.event_seed;
+double ship_uniform(const World& w, const std::string& ship_id, const std::string& salt) {
+    std::uint64_t hash = 1469598103934665603ULL ^ w.universe_.event_seed;
     hash = fnv1a(hash, ship_id);
     hash = fnv1a(hash, salt);
     std::mt19937_64 rng(hash);
@@ -49,43 +112,45 @@ double Simulation::ship_uniform(const std::string& ship_id, const std::string& s
     return (static_cast<double>(rng() >> 11) + 1.0) / 9007199254740992.0;
 }
 
-double Simulation::weibull_scale_s() const {
-    const auto& f = universe_.failures;
-    const double mean_s = universe_.ship_operations.lifetime_years * f.mean_life_factor * kYearS;
+double weibull_scale_s(const World& w) {
+    const auto& f = w.universe_.failures;
+    const double mean_s = w.universe_.ship_operations.lifetime_years * f.mean_life_factor * kYearS;
     return mean_s / std::tgamma(1.0 + 1.0 / f.weibull_shape);
 }
 
-void Simulation::draw_failure_clock(domain::ShipState& ship, bool aged) {
-    const double k = universe_.failures.weibull_shape;
-    const double lambda = weibull_scale_s();
+void draw_failure_clock(World& w, domain::ShipState& ship, bool aged) {
+    const double k = w.universe_.failures.weibull_shape;
+    const double lambda = weibull_scale_s(w);
     double age_s = 0.0;
     if (aged) {
         // The steady-state age of a fleet that replaces what fails has density ∝ survival S(a):
         // draw by rejection under S on [0, 4λ] (S(4λ) is negligible for k >= 1).
         for (int attempt = 0; attempt < 1000; ++attempt) {
-            const double a = 4.0 * lambda * ship_uniform(ship.id, std::format("age{}", attempt));
-            if (ship_uniform(ship.id, std::format("accept{}", attempt)) <= std::exp(-std::pow(a / lambda, k))) {
+            const double a = 4.0 * lambda * ship_uniform(w, ship.id, std::format("age{}", attempt));
+            if (ship_uniform(w, ship.id, std::format("accept{}", attempt)) <= std::exp(-std::pow(a / lambda, k))) {
                 age_s = a;
                 break;
             }
         }
     }
     // The life, conditional on having reached age_s: S(T)/S(a) = U.
-    const double u = ship_uniform(ship.id, aged ? "life_aged" : "life");
+    const double u = ship_uniform(w, ship.id, aged ? "life_aged" : "life");
     const double life_s = lambda * std::pow(std::pow(age_s / lambda, k) - std::log(u), 1.0 / k);
-    ship.built_s = game_time_s_ - age_s;
+    ship.built_s = w.game_time_s_ - age_s;
     ship.fails_at_s = ship.built_s + std::max(life_s, age_s + 86400.0);
     ship.fault_pending = false;
 }
 
-void Simulation::init_failure_clocks() {
-    if (!failures_on()) {
+}  // namespace
+
+void init_failure_clocks(World& w) {
+    if (!failures_on(w)) {
         return;
     }
     static const bool trace = std::getenv("SPACETRAINS_TRACE_FAILURES") != nullptr;
-    for (auto& ship : ships_) {
+    for (auto& ship : w.ships_) {
         if (ship.fails_at_s <= 0.0) {
-            draw_failure_clock(ship, ship.commissioned_s <= 0.0);
+            draw_failure_clock(w, ship, ship.commissioned_s <= 0.0);
             if (trace) {
                 std::cerr << std::format("[FAILURE] clock {}: built day {:.0f}, fails day {:.0f}\n", ship.name,
                     ship.built_s / 86400.0, ship.fails_at_s / 86400.0);
@@ -94,26 +159,22 @@ void Simulation::init_failure_clocks() {
     }
 }
 
-double Simulation::sun_mu() const {
-    return query::sun_mu(*this);
-}
+namespace {
 
-bool Simulation::local_leg(const domain::MissionAssignment& mission) const {
-    return query::local_leg(*this, mission);
-}
-
-double Simulation::cargo_value_cr(const std::vector<domain::CargoLot>& cargo, const std::string& station_id) const {
-    const auto& station = get_station_definition(station_id);
+double cargo_value_cr(const World& w, const std::vector<domain::CargoLot>& cargo, const std::string& station_id) {
+    const auto& station = query::get_station_definition(w, station_id);
     double value = 0.0;
     for (const auto& lot : cargo) {
-        value += lot.contract_value > 0.0 ? lot.contract_value : lot.units * economy_.reference_price(station, lot.commodity_id);
+        value += lot.contract_value > 0.0 ? lot.contract_value : lot.units * w.economy_.reference_price(station, lot.commodity_id);
     }
     return value;
 }
 
-int Simulation::fleet_places_held_for_others(const std::string& faction_id) const {
+}  // namespace
+
+int fleet_places_held_for_others(const World& w, const std::string& faction_id) {
     int held = 0;
-    for (const auto& [owner, expiries] : replacement_claims_) {
+    for (const auto& [owner, expiries] : w.replacement_claims_) {
         if (owner != faction_id) {
             held += static_cast<int>(expiries.size());
         }
@@ -121,91 +182,93 @@ int Simulation::fleet_places_held_for_others(const std::string& faction_id) cons
     return held;
 }
 
-void Simulation::step_failures() {
-    if (!failures_on()) {
+void step_failures(World& w) {
+    if (!failures_on(w)) {
         return;
     }
     // Exposure for the mean-life factor: once a day, the cargo value in flight and the hull value.
-    if (game_time_s_ >= next_exposure_sample_s_) {
-        next_exposure_sample_s_ = game_time_s_ + 86400.0;
-        for (const auto& ship : ships_) {
-            failure_audit_.hull_value_cr_days += ship_design(ship).ship_value_cr;
+    if (w.game_time_s_ >= w.next_exposure_sample_s_) {
+        w.next_exposure_sample_s_ = w.game_time_s_ + 86400.0;
+        for (const auto& ship : w.ships_) {
+            w.failure_audit_.hull_value_cr_days += query::ship_design(w, ship).ship_value_cr;
             // What the owner paid for the cargo is what a failure takes (the margin is a profit
             // not made, which the charge need not cover).
             if (ship.phase == domain::ShipMissionPhase::InTransit) {
-                failure_audit_.cargo_aboard_cr_days += ship.active_mission.purchase_cost;
+                w.failure_audit_.cargo_aboard_cr_days += ship.active_mission.purchase_cost;
             }
         }
     }
-    for (std::size_t i = ships_.size(); i-- > 0;) {
-        auto& ship = ships_[i];
+    for (std::size_t i = w.ships_.size(); i-- > 0;) {
+        auto& ship = w.ships_[i];
         if (ship.fails_at_s <= 0.0) {
-            draw_failure_clock(ship, false);  // a new hull (commissioned since the last tick)
+            draw_failure_clock(w, ship, false);  // a new hull (commissioned since the last tick)
         }
-        if (!ship.fault_pending && game_time_s_ >= ship.fails_at_s) {
+        if (!ship.fault_pending && w.game_time_s_ >= ship.fails_at_s) {
             if (ship.phase == domain::ShipMissionPhase::InTransit) {
-                fail_ship(i);
+                fail_ship(w, i);
                 continue;
             }
             // Faults show under load: the next leg, at a point drawn from the ship's stream.
             ship.fault_pending = true;
-            ship.fault_leg_fraction = ship_uniform(ship.id, "leg");
-            ++failure_audit_.faults_armed_in_port;
+            ship.fault_leg_fraction = ship_uniform(w, ship.id, "leg");
+            ++w.failure_audit_.faults_armed_in_port;
         }
         if (ship.fault_pending && ship.phase == domain::ShipMissionPhase::InTransit) {
             const auto& mission = ship.active_mission;
             const double strikes_s = mission.departure_time_s
                 + ship.fault_leg_fraction * std::max(0.0, mission.arrival_time_s - mission.departure_time_s);
-            if (game_time_s_ >= strikes_s) {
-                fail_ship(i);
+            if (w.game_time_s_ >= strikes_s) {
+                fail_ship(w, i);
             }
         }
     }
-    step_derelicts();
+    step_derelicts(w);
 }
 
-void Simulation::fail_ship(std::size_t index) {
-    auto& ship = ships_[index];
-    const auto& design = ship_design(ship);
+namespace {
+
+void fail_ship(World& w, std::size_t index) {
+    auto& ship = w.ships_[index];
+    const auto& design = query::ship_design(w, ship);
     auto& mission = ship.active_mission;
-    const bool local = local_leg(mission);
-    const double age_years = (game_time_s_ - ship.built_s) / kYearS;
+    const bool local = query::local_leg(w, mission);
+    const double age_years = (w.game_time_s_ - ship.built_s) / kYearS;
     const double cargo_value = mission.purchase_cost;
-    ++failure_audit_.failures;
-    ++failure_audit_.by_class[design.hull_id.empty() ? design.id : design.hull_id];
-    failure_audit_.age_years_sum += age_years;
-    failure_audit_.hulls_lost_cr += design.ship_value_cr;
-    failure_audit_.cargo_lost_cr += cargo_value;
+    ++w.failure_audit_.failures;
+    ++w.failure_audit_.by_class[design.hull_id.empty() ? design.id : design.hull_id];
+    w.failure_audit_.age_years_sum += age_years;
+    w.failure_audit_.hulls_lost_cr += design.ship_value_cr;
+    w.failure_audit_.cargo_lost_cr += cargo_value;
 
     // A racer that fails drops out of its race.
-    for (auto& derelict : derelicts_) {
+    for (auto& derelict : w.derelicts_) {
         if (derelict.claimant_ship_id == ship.id) {
             derelict.claimant_ship_id.clear();
             derelict.claim_eta_s = 0.0;
         }
     }
 
-    auto& home = get_station_state(ship.home_station_id);
-    auto& destination = get_station_state(mission.destination_station_id);
-    const auto& destination_def = get_station_definition(mission.destination_station_id);
+    auto& home = query::get_station_state(w, ship.home_station_id);
+    auto& destination = query::get_station_state(w, mission.destination_station_id);
+    const auto& destination_def = query::get_station_definition(w, mission.destination_station_id);
     // People aboard leave in the lifeboat and are picked up and taken on to the destination by
     // rescue craft we do not simulate (assumption; a timed crew rescue is a later extension).
-    land_passengers(ship, destination);
+    systems::land_passengers(w, ship, destination);
 
     std::string where;
     if (local) {
         // Near a planet the station's tugs bring the hulk in at once: its cargo goes into the
         // destination's stock and the outside economy pays the station the scrap.
-        const double scrap = universe_.failures.scrap_fraction * design.ship_value_cr;
+        const double scrap = w.universe_.failures.scrap_fraction * design.ship_value_cr;
         for (const auto& lot : mission.cargo) {
             destination.inventory[lot.commodity_id] += lot.units;
         }
-        outside_economy_credits_ -= scrap;
+        w.outside_economy_credits_ -= scrap;
         destination.credits += scrap;
-        journal_.record(account_earth(), account_station(destination), MoneyCategory::Salvage, scrap);
-        failure_audit_.scrap_paid_cr += scrap;
-        ++failure_audit_.local_recoveries;
-        add_event(std::format("{} broke down near {} after {:.1f} years in service; towed in, its cargo ({}) landed there",
+        w.journal_.record(query::account_earth(), query::account_station(w, destination), MoneyCategory::Salvage, scrap);
+        w.failure_audit_.scrap_paid_cr += scrap;
+        ++w.failure_audit_.local_recoveries;
+        query::add_event(w, std::format("{} broke down near {} after {:.1f} years in service; towed in, its cargo ({}) landed there",
             ship.name, destination_def.name, age_years, mission.cargo.empty() ? "none" : describe_cargo(mission.cargo)), "alert");
     } else {
         domain::DerelictState derelict;
@@ -219,84 +282,78 @@ void Simulation::fail_ship(std::size_t index) {
         derelict.destination_station_id = mission.destination_station_id;
         derelict.cargo = mission.cargo;
         derelict.ship_value_cr = design.ship_value_cr;
-        derelict.failed_at_s = game_time_s_;
-        derelict.expires_s = game_time_s_ + universe_.failures.claim_days * 86400.0;
+        derelict.failed_at_s = w.game_time_s_;
+        derelict.expires_s = w.game_time_s_ + w.universe_.failures.claim_days * 86400.0;
         // Its state now: position on the planned path, velocity across an hour either side.
         const auto at = [&](double t) {
             return interpolate_timed_sampled_path(mission.sampled_path, mission.sampled_times_s, t);
         };
-        const double t0 = std::max(mission.sampled_times_s.empty() ? game_time_s_ : mission.sampled_times_s.front(), game_time_s_ - 3600.0);
-        const double t1 = std::min(mission.sampled_times_s.empty() ? game_time_s_ : mission.sampled_times_s.back(), game_time_s_ + 3600.0);
-        derelict.epoch_position_m = get_ship_render_position(ship);
+        const double t0 = std::max(mission.sampled_times_s.empty() ? w.game_time_s_ : mission.sampled_times_s.front(), w.game_time_s_ - 3600.0);
+        const double t1 = std::min(mission.sampled_times_s.empty() ? w.game_time_s_ : mission.sampled_times_s.back(), w.game_time_s_ + 3600.0);
+        derelict.epoch_position_m = query::get_ship_render_position(w, ship);
         derelict.epoch_velocity_mps = t1 > t0 ? (at(t1) - at(t0)) / (t1 - t0) : math::Vec3d {};
-        trajectory::sample_kepler(derelict.epoch_position_m, derelict.epoch_velocity_mps, game_time_s_, derelict.expires_s,
-            kDerelictSampleS, sun_mu(), derelict.sampled_path, derelict.sampled_times_s);
+        trajectory::sample_kepler(derelict.epoch_position_m, derelict.epoch_velocity_mps, w.game_time_s_, derelict.expires_s,
+            kDerelictSampleS, query::sun_mu(w), derelict.sampled_path, derelict.sampled_times_s);
         const double r_au = derelict.epoch_position_m.length() / 1.495978707e11;
         // Debug aid: SPACETRAINS_TRACE_FAILURES=1 logs each derelict's state at failure (stderr).
         if (static const bool trace = std::getenv("SPACETRAINS_TRACE_FAILURES") != nullptr; trace) {
             const double v = derelict.epoch_velocity_mps.length();
             std::cerr << std::format("[FAILURE] day {:.2f} {} ({}) {} -> {} type {} r {:.3f} AU v {:.0f} m/s circ {:.0f} samples {} "
                                      "t0 {:.2f} t1 {:.2f}\n",
-                game_time_s_ / 86400.0, ship.name, ship.class_id, mission.origin_station_id, mission.destination_station_id,
-                mission.trajectory_type, r_au, v, std::sqrt(sun_mu() / derelict.epoch_position_m.length()),
+                w.game_time_s_ / 86400.0, ship.name, ship.class_id, mission.origin_station_id, mission.destination_station_id,
+                mission.trajectory_type, r_au, v, std::sqrt(query::sun_mu(w) / derelict.epoch_position_m.length()),
                 mission.sampled_path.size(), t0 / 86400.0, t1 / 86400.0);
         }
-        add_event(std::format("{} disabled {:.2f} AU from the Sun after {:.1f} years in service, drifting with {}",
+        query::add_event(w, std::format("{} disabled {:.2f} AU from the Sun after {:.1f} years in service, drifting with {}",
             ship.name, r_au, age_years, mission.cargo.empty() ? "an empty hold" : describe_cargo(mission.cargo)), "alert");
-        ++failure_audit_.derelicts;
-        derelicts_.push_back(std::move(derelict));
+        ++w.failure_audit_.derelicts;
+        w.derelicts_.push_back(std::move(derelict));
     }
 
     // The owner's first right to the lost ship's place under the cap.
-    if (universe_.failures.replacement_days > 0.0) {
-        replacement_claims_[ship.faction_id].push_back(game_time_s_ + universe_.failures.replacement_days * 86400.0);
+    if (w.universe_.failures.replacement_days > 0.0) {
+        w.replacement_claims_[ship.faction_id].push_back(w.game_time_s_ + w.universe_.failures.replacement_days * 86400.0);
     }
     // The ship's cash, or its debt, goes to the home station, as when a ship is sold.
     home.credits += ship.credits;
     home.ledger.dividends += ship.credits;
-    journal_.record(account_fleet(ship.faction_id), account_station(home), MoneyCategory::ShipSaleCash, ship.credits);
+    w.journal_.record(query::account_fleet(w, ship.faction_id), query::account_station(w, home), MoneyCategory::ShipSaleCash, ship.credits);
     ship.ledger.dividends += ship.credits;
     ship.credits = 0.0;
     ship.phase = domain::ShipMissionPhase::Idle;
     ship.active_mission = {};
-    sold_ships_.push_back(std::move(ship));
-    ships_.erase(ships_.begin() + static_cast<std::ptrdiff_t>(index));
+    w.sold_ships_.push_back(std::move(ship));
+    w.ships_.erase(w.ships_.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
-void Simulation::step_derelicts() {
-    for (std::size_t i = derelicts_.size(); i-- > 0;) {
-        if (game_time_s_ >= derelicts_[i].expires_s) {
-            add_event(std::format("The wreck of {} is written off: nobody reached it in {:.0f} days", derelicts_[i].name,
-                universe_.failures.claim_days), "alert");
-            ++failure_audit_.expired;
-            derelicts_.erase(derelicts_.begin() + static_cast<std::ptrdiff_t>(i));
+void step_derelicts(World& w) {
+    for (std::size_t i = w.derelicts_.size(); i-- > 0;) {
+        if (w.game_time_s_ >= w.derelicts_[i].expires_s) {
+            query::add_event(w, std::format("The wreck of {} is written off: nobody reached it in {:.0f} days", w.derelicts_[i].name,
+                w.universe_.failures.claim_days), "alert");
+            ++w.failure_audit_.expired;
+            w.derelicts_.erase(w.derelicts_.begin() + static_cast<std::ptrdiff_t>(i));
         }
     }
     // Replacement claims run out.
-    for (auto& [faction_id, expiries] : replacement_claims_) {
+    for (auto& [faction_id, expiries] : w.replacement_claims_) {
         const auto before = expiries.size();
-        std::erase_if(expiries, [&](double until_s) { return game_time_s_ >= until_s; });
-        failure_audit_.replacement_claims_lapsed += static_cast<int>(before - expiries.size());
+        std::erase_if(expiries, [&](double until_s) { return w.game_time_s_ >= until_s; });
+        w.failure_audit_.replacement_claims_lapsed += static_cast<int>(before - expiries.size());
     }
-    if (universe_.failures.salvage && !derelicts_.empty() && game_time_s_ >= next_salvage_review_s_) {
-        next_salvage_review_s_ = game_time_s_ + universe_.failures.salvage_review_days * 86400.0;
-        review_salvage();
+    if (w.universe_.failures.salvage && !w.derelicts_.empty() && w.game_time_s_ >= w.next_salvage_review_s_) {
+        w.next_salvage_review_s_ = w.game_time_s_ + w.universe_.failures.salvage_review_days * 86400.0;
+        review_salvage(w);
     }
 }
 
-std::string Simulation::primary_body_id(const std::string& station_id) const {
-    return query::primary_body_id(*this, station_id);
-}
-
-bool Simulation::can_race(const domain::ShipState& ship) const {
+bool can_race(const World& w, const domain::ShipState& ship) {
     // Docked and free (a laid-up ship rehires its crew for it): not bound by a contract, a liner's loop or a new ship's route,
     // and not carrying a fault that is about to show.
-    return (ship.phase == domain::ShipMissionPhase::Idle || ship.phase == domain::ShipMissionPhase::LaidUp) && !under_contract(ship) && liner_stops(ship) == nullptr
-        && !(!ship.route_destination_id.empty() && game_time_s_ < ship.route_until_s) && !ship.fault_pending
+    return (ship.phase == domain::ShipMissionPhase::Idle || ship.phase == domain::ShipMissionPhase::LaidUp) && !systems::under_contract(w, ship) && systems::liner_stops(w, ship) == nullptr
+        && !(!ship.route_destination_id.empty() && w.game_time_s_ < ship.route_until_s) && !ship.fault_pending
         && ship.current_station_id.size() > 0;
 }
-
-namespace {
 
 math::Vec3d circular_velocity(const math::Vec3d& r, double mu) {
     const double rm = std::max(1.0, r.length());
@@ -318,18 +375,16 @@ std::vector<domain::CargoLot> lots_that_fit(const std::vector<domain::CargoLot>&
     return taken;
 }
 
-}  // namespace
-
-Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, const domain::DerelictState& derelict,
-    bool both_legs, double latest_meet_s, double fuel_cr_per_kg, double cr_per_day) const {
+SalvagePlan plan_salvage(const World& w, const domain::ShipState& ship, const domain::DerelictState& derelict,
+    bool both_legs, double latest_meet_s, double fuel_cr_per_kg, double cr_per_day) {
     // The cheapest salvage run, as the trade planners pick a trip: propellant at the origin's fuel
     // price plus the ship's daily costs, less the prize where it is sold (ports differ); the way out
     // and the way home are chosen together. A race only adds the deadline `latest_meet_s` (meet the
     // wreck before the current claimant, by the margin).
     SalvagePlan plan;
-    const auto& design = ship_design(ship);
-    const double mu = sun_mu();
-    const double now = game_time_s_;
+    const auto& design = query::ship_design(w, ship);
+    const double mu = query::sun_mu(w);
+    const double now = w.game_time_s_;
     const double meet_limit_s = std::min(derelict.expires_s, latest_meet_s);
     if (meet_limit_s - now < 2.0 * 86400.0) {
         return plan;
@@ -337,18 +392,18 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     const auto derelict_at = [&](double t) {
         return trajectory::propagate_kepler(derelict.epoch_position_m, derelict.epoch_velocity_mps, t - derelict.failed_at_s, mu);
     };
-    const double load = std::min(design.propellant_capacity_kg, ship.propellant_kg + purchasable_propellant_kg(ship));
+    const double load = std::min(design.propellant_capacity_kg, ship.propellant_kg + query::purchasable_propellant_kg(w, ship));
     if (load <= 0.0) {
         return plan;
     }
     const auto taken = lots_that_fit(derelict.cargo, design.cargo_capacity_units);
     double cargo_kg = 0.0;
     for (const auto& lot : taken) {
-        cargo_kg += lot.units * get_commodity(lot.commodity_id).mass_per_unit_kg;
+        cargo_kg += lot.units * query::get_commodity(w, lot.commodity_id).mass_per_unit_kg;
     }
     const double dry = design.dry_mass_kg;
     const double reserve = PROPELLANT_RESERVE_FRACTION * load;
-    const auto& origin = get_station_definition(ship.current_station_id);
+    const auto& origin = query::get_station_definition(w, ship.current_station_id);
     std::vector<std::string> ports;
     for (const auto& id : {ship.home_station_id, derelict.destination_station_id, derelict.origin_station_id}) {
         if (std::find(ports.begin(), ports.end(), id) == ports.end()) {
@@ -361,7 +416,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     const auto prize_kg = [&](const std::string& port) {
         double value = 0.0;
         for (const auto& lot : taken) {
-            value += lot.units * economy_.reference_price(get_station_definition(port), lot.commodity_id);
+            value += lot.units * w.economy_.reference_price(query::get_station_definition(w, port), lot.commodity_id);
         }
         return value / fuel_price;
     };
@@ -373,7 +428,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
         trajectory::ChaseUnits units;
         units.mu_m3_s2 = mu;
         units.length_m = std::max(0.2 * 1.495978707e11, d_now.position_m.length());
-        const auto r0 = mechanics_.get_station_position(origin, now);
+        const auto r0 = w.mechanics_.get_station_position(origin, now);
         const trajectory::ChaseRequest leg1 {
             .position_m = r0,
             .velocity_mps = circular_velocity(r0, mu),
@@ -415,9 +470,9 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
             for (const auto& port : ports) {
                 // The port's planet, sampled every two days for 500 days.
                 domain::TrajectoryPlan planet;
-                const auto planet_id = primary_body_id(port);
+                const auto planet_id = query::primary_body_id(w, port);
                 for (double t = rendezvous_s; t <= rendezvous_s + 500.0 * 86400.0; t += 2.0 * 86400.0) {
-                    planet.sampled_path.push_back(mechanics_.get_body_position(planet_id, t));
+                    planet.sampled_path.push_back(w.mechanics_.get_body_position(planet_id, t));
                     planet.sampled_times_s.push_back(t);
                 }
                 const auto target = trajectory::path_target(planet, rendezvous_s, home_units);
@@ -523,7 +578,7 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     plan.dv_available_mps = ve * std::log((dry + load) / (dry + reserve));
     for (const double wait_days : {0.0, 5.0, 10.0, 20.0, 40.0}) {
         const double depart = now + wait_days * 86400.0;
-        const auto r0 = mechanics_.get_station_position(origin, depart);
+        const auto r0 = w.mechanics_.get_station_position(origin, depart);
         const auto v0 = circular_velocity(r0, mu);
         for (int i = 0; i < 30; ++i) {
             const double transit = 10.0 * 86400.0 * std::pow(40.0, i / 29.0);  // 10 to 400 days
@@ -576,12 +631,12 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
         const auto d_rv = derelict_at(leg.rendezvous_s);
         const double m1 = dry + load - leg.used_kg + cargo_kg;
         for (const auto& port : ports) {
-            const auto planet_id = primary_body_id(port);
+            const auto planet_id = query::primary_body_id(w, port);
             const double prize = prize_kg(port);
             for (int i = 0; i < 30; ++i) {
                 const double transit = 10.0 * 86400.0 * std::pow(50.0, i / 29.0);  // 10 to 500 days
                 const double arrive = leg.rendezvous_s + transit;
-                const auto rp = mechanics_.get_body_position(planet_id, arrive);
+                const auto rp = w.mechanics_.get_body_position(planet_id, arrive);
                 const auto lam = cheapest_arc(d_rv.position_m, d_rv.velocity_mps, rp, circular_velocity(rp, mu), transit);
                 if (!lam.found) {
                     continue;
@@ -627,42 +682,42 @@ Simulation::SalvagePlan Simulation::plan_salvage(const domain::ShipState& ship, 
     return plan;
 }
 
-void Simulation::start_salvage_run(domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
+void start_salvage_run(World& w, domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
     double value_cr, double cost_cr) {
-    const auto& design = ship_design(ship);
-    auto& origin_state = get_station_state(ship.current_station_id);
-    const auto& origin_def = get_station_definition(ship.current_station_id);
-    const auto& destination_def = get_station_definition(plan.destination_id);
-    buy_propellant(ship, plan.propellant_load_kg - ship.propellant_kg);
-    const double mission_days = (plan.arrival_s - game_time_s_) / 86400.0;
+    const auto& design = query::ship_design(w, ship);
+    auto& origin_state = query::get_station_state(w, ship.current_station_id);
+    const auto& origin_def = query::get_station_definition(w, ship.current_station_id);
+    const auto& destination_def = query::get_station_definition(w, plan.destination_id);
+    systems::buy_propellant(w, ship, plan.propellant_load_kg - ship.propellant_kg);
+    const double mission_days = (plan.arrival_s - w.game_time_s_) / 86400.0;
     ship.leg_dose_msv = 0.0;
-    buy_provisions(ship, origin_state, mission_days * PROVISION_MARGIN + std::max(PROVISION_MIN_RETURN_DAYS, mission_days), true);
-    buy_provisions(ship, origin_state, PROVISION_ENDURANCE_DAYS, false);
+    systems::buy_provisions(w, ship, origin_state, mission_days * PROVISION_MARGIN + std::max(PROVISION_MIN_RETURN_DAYS, mission_days), true);
+    systems::buy_provisions(w, ship, origin_state, PROVISION_ENDURANCE_DAYS, false);
     const bool plasma = design.propulsion_type == "variable_isp";
     if (!plasma) {
         // Impulsive burns: booked at the start, as for other nuclear-thermal missions.
         ship.propellant_kg -= plan.propellant_used_kg;
-        if (universe_.ship_environment.wear) {
+        if (w.universe_.ship_environment.wear) {
             domain::TrajectoryPlan burn;
             burn.propellant_required_kg = plan.propellant_used_kg;
-            ship.engine_wear = std::min(1.0, ship.engine_wear + drive_hours(design, burn) / drive_life_h(design));
+            ship.engine_wear = std::min(1.0, ship.engine_wear + query::drive_hours(design, burn) / query::drive_life_h(w, design));
         }
     }
-    const double time_cost_per_day = daily_capital_cost(design) + daily_crew_cost(design, origin_state)
-        + wear_cr_per_flight_day(design);
-    const bool waits = plan.depart_s > game_time_s_;
+    const double time_cost_per_day = query::daily_capital_cost(w, design) + systems::daily_crew_cost(w, design, origin_state)
+        + query::wear_cr_per_flight_day(w, design);
+    const bool waits = plan.depart_s > w.game_time_s_;
     ship.phase = waits ? domain::ShipMissionPhase::AwaitingDeparture : domain::ShipMissionPhase::InTransit;
     domain::MissionAssignment mission;
     mission.origin_station_id = origin_def.id;
     mission.destination_station_id = plan.destination_id;
     mission.departure_time_s = plan.depart_s;
     mission.arrival_time_s = plan.arrival_s;
-    mission.wait_time_s = plan.depart_s - game_time_s_;
+    mission.wait_time_s = plan.depart_s - w.game_time_s_;
     mission.coast_time_s = plan.arrival_s - plan.depart_s;
-    mission.total_travel_time_s = plan.arrival_s - game_time_s_;
+    mission.total_travel_time_s = plan.arrival_s - w.game_time_s_;
     mission.remaining_travel_time_s = mission.total_travel_time_s;
     mission.propellant_cost_kg = plan.propellant_used_kg;
-    mission.fuel_cost = plan.propellant_used_kg / FUEL_UNITS_TO_KG * station_price(origin_state, "fuel");
+    mission.fuel_cost = plan.propellant_used_kg / FUEL_UNITS_TO_KG * systems::station_price(w, origin_state, "fuel");
     mission.expected_revenue = value_cr;
     mission.operating_cost = time_cost_per_day * mission_days;
     mission.sampled_path = plan.path;
@@ -678,7 +733,7 @@ void Simulation::start_salvage_run(domain::ShipState& ship, domain::DerelictStat
     const bool overtakes = !derelict.claimant_ship_id.empty();
     std::string overtaken;
     if (overtakes) {
-        for (const auto& other : ships_) {
+        for (const auto& other : w.ships_) {
             if (other.id == derelict.claimant_ship_id) {
                 overtaken = other.name;
             }
@@ -687,56 +742,56 @@ void Simulation::start_salvage_run(domain::ShipState& ship, domain::DerelictStat
     derelict.claimant_ship_id = ship.id;
     derelict.claim_eta_s = plan.rendezvous_s;
     ++derelict.racers;
-    ++failure_audit_.racers_sent;
-    add_event(std::format("{} {} {} to salvage the wreck of {}: rendezvous day {:.0f}{}, then to {} (worth ~{:.0f} cr, costs ~{:.0f})",
+    ++w.failure_audit_.racers_sent;
+    query::add_event(w, std::format("{} {} {} to salvage the wreck of {}: rendezvous day {:.0f}{}, then to {} (worth ~{:.0f} cr, costs ~{:.0f})",
         ship.name, waits ? "will leave" : "sets out from", origin_def.name, derelict.name, plan.rendezvous_s / 86400.0,
         overtakes ? std::format(", ahead of {}", overtaken.empty() ? std::string("an earlier racer") : overtaken) : std::string(),
         destination_def.name, value_cr, cost_cr), "mission");
 }
 
-std::optional<Simulation::SalvageOption> Simulation::best_salvage_for(const domain::ShipState& ship, double spot_per_day) const {
-    const auto& f = universe_.failures;
-    if (!f.salvage || derelicts_.empty() || !can_race(ship)) {
+std::optional<SalvageOption> best_salvage_for(const World& w, const domain::ShipState& ship, double spot_per_day) {
+    const auto& f = w.universe_.failures;
+    if (!f.salvage || w.derelicts_.empty() || !can_race(w, ship)) {
         return std::nullopt;
     }
     std::optional<SalvageOption> best;
-    const auto& design = ship_design(ship);
-    const auto& origin_state = get_station_state(ship.current_station_id);
-    const double per_day_cost = daily_capital_cost(design) + daily_crew_cost(design, origin_state) + wear_cr_per_flight_day(design);
-    const double fuel_cr_per_kg = station_price(origin_state, "fuel") / FUEL_UNITS_TO_KG;
-    for (std::size_t i = 0; i < derelicts_.size(); ++i) {
-        const auto& derelict = derelicts_[i];
+    const auto& design = query::ship_design(w, ship);
+    const auto& origin_state = query::get_station_state(w, ship.current_station_id);
+    const double per_day_cost = query::daily_capital_cost(w, design) + systems::daily_crew_cost(w, design, origin_state) + query::wear_cr_per_flight_day(w, design);
+    const double fuel_cr_per_kg = systems::station_price(w, origin_state, "fuel") / FUEL_UNITS_TO_KG;
+    for (std::size_t i = 0; i < w.derelicts_.size(); ++i) {
+        const auto& derelict = w.derelicts_[i];
         if (derelict.racers >= static_cast<int>(f.max_racers)) {
             continue;
         }
         // A new racer must meet the wreck sooner than the current claimant, by the margin.
         const double best_s = derelict.claimant_ship_id.empty() ? std::numeric_limits<double>::infinity()
-                                                                : derelict.claim_eta_s - game_time_s_;
-        const double latest_meet_s = game_time_s_ + best_s * (1.0 - f.racer_margin);
-        const auto out = plan_salvage(ship, derelict, false, latest_meet_s, fuel_cr_per_kg, per_day_cost);
-        if (!out.feasible || out.rendezvous_s - game_time_s_ >= best_s * (1.0 - f.racer_margin)) {
+                                                                : derelict.claim_eta_s - w.game_time_s_;
+        const double latest_meet_s = w.game_time_s_ + best_s * (1.0 - f.racer_margin);
+        const auto out = plan_salvage(w, ship, derelict, false, latest_meet_s, fuel_cr_per_kg, per_day_cost);
+        if (!out.feasible || out.rendezvous_s - w.game_time_s_ >= best_s * (1.0 - f.racer_margin)) {
             continue;
         }
         // Even the whole prize over the way out alone must beat the best mission: the bound
         // spares the way home's planning most of the time.
         double prize = f.scrap_fraction * derelict.ship_value_cr;
         for (const auto& lot : lots_that_fit(derelict.cargo, design.cargo_capacity_units)) {
-            prize += lot.units * economy_.reference_price(get_station_definition(derelict.destination_station_id), lot.commodity_id);
+            prize += lot.units * w.economy_.reference_price(query::get_station_definition(w, derelict.destination_station_id), lot.commodity_id);
         }
-        if (1.5 * prize / std::max(1.0, (out.rendezvous_s - game_time_s_) / 86400.0) <= std::max(0.0, spot_per_day)) {
+        if (1.5 * prize / std::max(1.0, (out.rendezvous_s - w.game_time_s_) / 86400.0) <= std::max(0.0, spot_per_day)) {
             continue;
         }
-        auto full = plan_salvage(ship, derelict, true, latest_meet_s, fuel_cr_per_kg, per_day_cost);
-        if (!full.feasible || full.rendezvous_s - game_time_s_ >= best_s * (1.0 - f.racer_margin)) {
+        auto full = plan_salvage(w, ship, derelict, true, latest_meet_s, fuel_cr_per_kg, per_day_cost);
+        if (!full.feasible || full.rendezvous_s - w.game_time_s_ >= best_s * (1.0 - f.racer_margin)) {
             continue;
         }
-        const auto& port = get_station_definition(full.destination_id);
+        const auto& port = query::get_station_definition(w, full.destination_id);
         double value = f.scrap_fraction * derelict.ship_value_cr;
         for (const auto& lot : lots_that_fit(derelict.cargo, design.cargo_capacity_units)) {
-            value += lot.units * economy_.reference_price(port, lot.commodity_id);
+            value += lot.units * w.economy_.reference_price(port, lot.commodity_id);
         }
-        const double days = std::max(1.0, (full.arrival_s - game_time_s_) / 86400.0);
-        const double cost = full.propellant_used_kg / FUEL_UNITS_TO_KG * station_price(origin_state, "fuel") + days * per_day_cost;
+        const double days = std::max(1.0, (full.arrival_s - w.game_time_s_) / 86400.0);
+        const double cost = full.propellant_used_kg / FUEL_UNITS_TO_KG * systems::station_price(w, origin_state, "fuel") + days * per_day_cost;
         const double per_day = (value - cost) / days;
         if (value > cost && (!best || per_day > best->per_day)) {
             best = SalvageOption {.derelict_index = i, .plan = std::move(full), .value_cr = value, .cost_cr = cost, .per_day = per_day};
@@ -745,68 +800,74 @@ std::optional<Simulation::SalvageOption> Simulation::best_salvage_for(const doma
     return best;
 }
 
-bool Simulation::consider_salvage(domain::ShipState& ship, double spot_per_day) {
+}  // namespace
+
+bool consider_salvage(World& w, domain::ShipState& ship, double spot_per_day) {
     // Planning a chase takes milliseconds: a ship that passed looks again after a few days.
     constexpr double kLookAgainDays = 5.0;
-    if (game_time_s_ < ship.next_salvage_look_s) {
+    if (w.game_time_s_ < ship.next_salvage_look_s) {
         return false;
     }
-    ship.next_salvage_look_s = game_time_s_ + kLookAgainDays * 86400.0;
-    const auto option = best_salvage_for(ship, spot_per_day);
+    ship.next_salvage_look_s = w.game_time_s_ + kLookAgainDays * 86400.0;
+    const auto option = best_salvage_for(w, ship, spot_per_day);
     static const bool trace = std::getenv("SPACETRAINS_TRACE_SALVAGE") != nullptr;
     if (trace && option) {
         std::cerr << std::format("[SALVAGE] day {:.1f} {} at {}: wreck of {} pays {:.0f} cr/day against {:.0f} (worth {:.0f}, costs {:.0f})\n",
-            game_time_s_ / 86400.0, ship.name, ship.current_station_id, derelicts_[option->derelict_index].name, option->per_day,
+            w.game_time_s_ / 86400.0, ship.name, ship.current_station_id, w.derelicts_[option->derelict_index].name, option->per_day,
             spot_per_day, option->value_cr, option->cost_cr);
     }
     if (!option || option->per_day <= spot_per_day) {
         return false;
     }
     if (ship.phase == domain::ShipMissionPhase::LaidUp) {
-        add_event(std::format("{} rehired its crew at {}", ship.name, get_station_definition(ship.current_station_id).name), "mission");
+        query::add_event(w, std::format("{} rehired its crew at {}", ship.name, query::get_station_definition(w, ship.current_station_id).name), "mission");
     }
-    start_salvage_run(ship, derelicts_[option->derelict_index], option->plan, option->value_cr, option->cost_cr);
+    start_salvage_run(w, ship, w.derelicts_[option->derelict_index], option->plan, option->value_cr, option->cost_cr);
     return true;
 }
 
-void Simulation::review_salvage() {
+namespace {
+
+void review_salvage(World& w) {
     // Ships that found nothing to do (idle or laid up) look at the open derelicts now and then;
     // busy ones weigh salvage against their missions at dispatch (consider_salvage).
-    for (std::size_t i = 0; i < ships_.size(); ++i) {
-        if (can_race(ships_[i])) {
-            (void)consider_salvage(ships_[i], 0.0);
+    for (std::size_t i = 0; i < w.ships_.size(); ++i) {
+        if (can_race(w, w.ships_[i])) {
+            (void)consider_salvage(w, w.ships_[i], 0.0);
         }
     }
 }
 
-void Simulation::reach_derelict(domain::ShipState& ship) {
+}  // namespace
+
+void reach_derelict(World& w, domain::ShipState& ship) {
     auto& mission = ship.active_mission;
     mission.salvage_done = true;
-    const auto it = std::find_if(derelicts_.begin(), derelicts_.end(), [&](const auto& d) { return d.id == mission.salvage_derelict_id; });
-    const auto& destination = get_station_definition(mission.destination_station_id);
-    if (it == derelicts_.end()) {
-        ++failure_audit_.races_lost;
-        add_event(std::format("{} reaches the drift of a wreck already taken; heads on to {} empty", ship.name, destination.name),
+    const auto it = std::find_if(w.derelicts_.begin(), w.derelicts_.end(), [&](const auto& d) { return d.id == mission.salvage_derelict_id; });
+    const auto& destination = query::get_station_definition(w, mission.destination_station_id);
+    if (it == w.derelicts_.end()) {
+        ++w.failure_audit_.races_lost;
+        query::add_event(w, std::format("{} reaches the drift of a wreck already taken; heads on to {} empty", ship.name, destination.name),
             "mission");
         return;
     }
-    const auto& design = ship_design(ship);
+    const auto& design = query::ship_design(w, ship);
     const auto taken = lots_that_fit(it->cargo, design.cargo_capacity_units);
     for (const auto& lot : taken) {
         mission.cargo.push_back(lot);
     }
-    const double scrap = universe_.failures.scrap_fraction * it->ship_value_cr;
-    outside_economy_credits_ -= scrap;
+    const double scrap = w.universe_.failures.scrap_fraction * it->ship_value_cr;
+    w.outside_economy_credits_ -= scrap;
     ship.credits += scrap;
     ship.lifetime_profit += scrap;
     ship.ledger.cargo_revenue += scrap;
-    journal_.record(account_earth(), account_fleet(ship.faction_id), MoneyCategory::Salvage, scrap);
-    failure_audit_.scrap_paid_cr += scrap;
-    failure_audit_.cargo_recovered_cr += cargo_value_cr(taken, destination.id);
-    ++failure_audit_.salvaged;
-    add_event(std::format("{} salvages the wreck of {} ({:.0f} cr scrap{}); on to {}", ship.name, it->name, scrap,
+    w.journal_.record(query::account_earth(), query::account_fleet(w, ship.faction_id), MoneyCategory::Salvage, scrap);
+    w.failure_audit_.scrap_paid_cr += scrap;
+    w.failure_audit_.cargo_recovered_cr += cargo_value_cr(w, taken, destination.id);
+    ++w.failure_audit_.salvaged;
+    query::add_event(w, std::format("{} salvages the wreck of {} ({:.0f} cr scrap{}); on to {}", ship.name, it->name, scrap,
         taken.empty() ? std::string() : ", cargo " + describe_cargo(taken), destination.name), "trade");
-    derelicts_.erase(it);
+    w.derelicts_.erase(it);
 }
 
-}  // namespace spacetrains::simulation
+}  // namespace spacetrains::simulation::systems
