@@ -74,7 +74,7 @@ func _measure_smoothness(seconds: float, timewarp: float) -> void:
     var frames := 0
     var longest_stall := 0.0
     var stall := 0.0
-    var last_time := float(main.get("display_time_s"))
+    var last_time := float(main.clock.display_time_s)
     var elapsed := 0.0
     var slow_frames := 0
     while elapsed < seconds:
@@ -84,16 +84,16 @@ func _measure_smoothness(seconds: float, timewarp: float) -> void:
         frames += 1
         if delta > 0.05:
             slow_frames += 1
-        var now := float(main.get("display_time_s"))
+        var now := float(main.clock.display_time_s)
         if now <= last_time:
             stalled_frames += 1
             stall += delta
             longest_stall = maxf(longest_stall, stall)
             if stall > 1.0 and stall - delta <= 1.0:
                 print("[ShotTour] stall >1 s at display day %.2f: last snapshot day %.2f (%.2f s ago), pace %.0f, seq %d" % [
-                    now / 86400.0, float(main.get("snapshot_game_time_s")) / 86400.0,
-                    main._wall_time_s() - float(main.get("snapshot_wall_s")), float(main.get("sim_pace")),
-                    int(main.get("current_snapshot_seq"))])
+                    now / 86400.0, float(main.clock.snapshot_game_time_s) / 86400.0,
+                    main.clock.wall_time_s() - float(main.clock.snapshot_wall_s), float(main.clock.sim_pace),
+                    int(main.bridge.snapshot_seq)])
         else:
             stall = 0.0
         last_time = now
@@ -105,12 +105,12 @@ func _run() -> void:
     # late game with modules fitted and worn drives.
     for arg in OS.get_cmdline_user_args():
         if arg.begins_with("--shot-load="):
-            main.command_request += 1
-            main.command_save_path = ""
-            main.command_load_path = arg.trim_prefix("--shot-load=")
-            main._write_bridge_commands()
+            main.bridge.command_request += 1
+            main.bridge.command_save_path = ""
+            main.bridge.command_load_path = arg.trim_prefix("--shot-load=")
+            main.bridge.write_commands()
             await get_tree().create_timer(8.0).timeout
-            print("[ShotTour] loaded %s: display day %.1f" % [main.command_load_path, float(main.get("display_time_s")) / 86400.0])
+            print("[ShotTour] loaded %s: display day %.1f" % [main.bridge.command_load_path, float(main.clock.display_time_s) / 86400.0])
     # Run the simulation a while (fast) so the panels have history, then back to 1 day/s.
     var start_day := 3.0
     for arg in OS.get_cmdline_user_args():
@@ -119,24 +119,24 @@ func _run() -> void:
     if start_day > 10.0:
         main._on_timewarp_changed(432000.0)
     var waited := 0.0
-    while float(main.get("display_time_s")) < start_day * 86400.0 and waited < 120.0:
+    while float(main.clock.display_time_s) < start_day * 86400.0 and waited < 120.0:
         await get_tree().create_timer(0.5).timeout
         waited += 0.5
     main._on_timewarp_changed(86400.0)
-    var rig: Node3D = main.get("camera_rig")
+    var rig: Node3D = main.camera_rig
     _apply_debug_flags()
     for arg in OS.get_cmdline_user_args():
         if arg == "--shot-pause":
-            var before := float(main.get("display_time_s"))
+            var before := float(main.clock.display_time_s)
             main._on_pause_toggled()
             await get_tree().create_timer(0.5).timeout
-            var spin_before := float(main.get("spin_clock_s"))
+            var spin_before := float(main.clock.spin_clock_s)
             await get_tree().create_timer(2.5).timeout
-            print("[ShotTour] pause: station spin clock moved %.3f s while paused" % (float(main.get("spin_clock_s")) - spin_before))
-            var paused_at := float(main.get("display_time_s"))
+            print("[ShotTour] pause: station spin clock moved %.3f s while paused" % (float(main.clock.spin_clock_s) - spin_before))
+            var paused_at := float(main.clock.display_time_s)
             main._on_pause_toggled()
             await get_tree().create_timer(1.0).timeout
-            var after := float(main.get("display_time_s"))
+            var after := float(main.clock.display_time_s)
             print("[ShotTour] pause: moved %.2f d while paused 3 s (from %.2f), %.2f d in the first second after resuming" % [
                 (paused_at - before) / 86400.0, before / 86400.0, (after - paused_at) / 86400.0])
             get_tree().quit()
@@ -235,7 +235,7 @@ func _run() -> void:
             await _shoot("ship_selected_far")
             break
     # A ship just leaving a planet, close up: it must ride the planet's rail.
-    var now_s := float(main.get("display_time_s"))
+    var now_s := float(main.clock.display_time_s)
     for ship_id in main.entity_details.keys():
         var ship: Dictionary = main.entity_details[ship_id]
         if main.entity_kinds.get(ship_id, "") == "ship" and String(ship.get("phase", "")) == "in_transit" \
@@ -251,13 +251,13 @@ func _run() -> void:
             break
     # Quick save, run on, quick load: the clock must come back to the saved day.
     if OS.get_cmdline_user_args().has("--shot-saveload"):
-        var saved_day := float(main.get("display_time_s")) / 86400.0
+        var saved_day := float(main.clock.display_time_s) / 86400.0
         main._request_save_or_load(true)
         await get_tree().create_timer(3.0).timeout
         main._request_save_or_load(false)
         await get_tree().create_timer(2.0).timeout
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
-            saved_day, float(main.get("display_time_s")) / 86400.0, String(main.get("bridge_status_text"))])
+            saved_day, float(main.clock.display_time_s) / 86400.0, String(main.bridge.status_text)])
         await _shoot("after_load")
     # The ship systems section of the inspector (schematic), for one ship of each drive: a
     # burning thermal ship if there is one, then the same with the mouse over the schematic.
@@ -317,7 +317,7 @@ func _run() -> void:
             if propulsion == "nuclear_thermal":
                 var burning: Dictionary = main.entity_details[pick].duplicate()
                 burning["engine_state"] = "burning"
-                var designs: Dictionary = main.get("bridge_designs")
+                var designs: Dictionary = main.bridge_designs
                 schematic.set_ship(designs.get(String(burning.get("design_id", burning.get("class_id", ""))), {}), burning)
                 await _shoot("ship_systems_nuclear_thermal_burning")
     # The 3D models up close, one per hull that is flying (paused, so they hold still).
@@ -378,9 +378,9 @@ func _close_zoom_shots(rig: Node3D) -> void:
     var helio_ship := ""
     for ship_id in main.entity_details.keys():
         if main.entity_kinds.get(ship_id, "") != "ship" or String(main.entity_details[ship_id].get("phase", "")) != "in_transit" \
-                or not main.ship_paths.has(ship_id):
+                or not main.path_motion.ship_paths.has(ship_id):
             continue
-        if bool(main.ship_paths[ship_id].get("helio", false)):
+        if bool(main.path_motion.ship_paths[ship_id].get("helio", false)):
             if helio_ship == "":
                 helio_ship = ship_id
         elif local_ship == "":
@@ -404,16 +404,16 @@ func _close_zoom_shots(rig: Node3D) -> void:
         await _shoot("close_%s_path_later" % pick[1])
         var started := Time.get_ticks_usec()
         for i in 20:
-            main._update_fine_paths()
+            main.fine_lines.update_fine_paths()
         var cached_ms := float(Time.get_ticks_usec() - started) / 20000.0
         started = Time.get_ticks_usec()
         for i in 5:
-            for entry in main.fine_paths.values():
+            for entry in main.fine_lines.fine_paths.values():
                 entry["camera"] = 1.0e-9  # force a rebuild
-            main._update_fine_paths()
+            main.fine_lines.update_fine_paths()
         var rebuild_ms := float(Time.get_ticks_usec() - started) / 5000.0
         print("[ShotTour] close %s: min_distance %.8f, fine paths %d drawn, %.2f ms per frame (%.2f ms when all rebuilt)" % [
-            pick[1], float(rig.get("min_distance")), main.fine_paths.values().filter(func(e): return e["node"] != null and e["node"].visible).size(),
+            pick[1], float(rig.get("min_distance")), main.fine_lines.fine_paths.values().filter(func(e): return e["node"] != null and e["node"].visible).size(),
             cached_ms, rebuild_ms])
     if main.entity_nodes.has("earth_orbit") and main.entity_nodes.has("earth"):
         main.select_entity("earth_orbit", "station", true)
@@ -438,11 +438,11 @@ func _close_zoom_shots(rig: Node3D) -> void:
 func _station_shots(rig: Node3D) -> void:
     # The detailed models are built in the background after start-up; fly in once they are.
     var waited := 0
-    while not bool(main.get("_stations_prefetched")) and waited < 1800:
+    while not bool(main._stations_prefetched) and waited < 1800:
         await get_tree().process_frame
         waited += 1
     print("[ShotTour] stations: detailed models ready %.1f s after start-up, at most %.1f ms of a frame spent on them" % [
-        float(main.get("stations_prefetched_ms")) / 1000.0, float(main.get("prefetch_worst_ms"))])
+        float(main.stations_prefetched_ms) / 1000.0, float(main.prefetch_worst_ms)])
     var ids: Array = []
     for entity_id in main.entity_nodes.keys():
         if main.entity_kinds.get(entity_id, "") == "station":
@@ -476,7 +476,7 @@ func _arrival_shots(rig: Node3D) -> void:
     var soonest := INF
     var waited := 0
     while waited < 240:
-        var now := float(main.get("display_time_s"))
+        var now := float(main.clock.display_time_s)
         soonest = INF
         for ship_id in main.entity_details.keys():
             var ship: Dictionary = main.entity_details[ship_id]
@@ -494,14 +494,14 @@ func _arrival_shots(rig: Node3D) -> void:
         print("[ShotTour] arrival: no ship in flight")
         return
     var station_id := String(main.entity_details[pick].get("destination_station_id", ""))
-    print("[ShotTour] arrival: %s to %s in %.2f d" % [pick, station_id, (soonest - float(main.get("display_time_s"))) / 86400.0])
+    print("[ShotTour] arrival: %s to %s in %.2f d" % [pick, station_id, (soonest - float(main.clock.display_time_s)) / 86400.0])
     main.select_entity(station_id, "station", true)
     var station: Node3D = main.entity_nodes[station_id]
     rig.set("distance", main.map_icons.model_world_size(station) * 6.0)
     rig.set("pitch", -0.6)
     rig.call("_update_transform")
     main._on_timewarp_changed(21600.0)
-    while float(main.get("display_time_s")) < float(main.entity_details[pick].get("arrival_time_s", 0.0)) - 3.0 * 3600.0:
+    while float(main.clock.display_time_s) < float(main.entity_details[pick].get("arrival_time_s", 0.0)) - 3.0 * 3600.0:
         await get_tree().process_frame
     main._on_timewarp_changed(600.0)
     var frame := 0
@@ -512,7 +512,7 @@ func _arrival_shots(rig: Node3D) -> void:
         await get_tree().process_frame
         var ship: Dictionary = main.entity_details[pick]
         var node: Node3D = main.entity_nodes[pick]
-        var offset := (node.global_position - station.global_position) / float(main.get("ship_metres_to_world"))
+        var offset := (node.global_position - station.global_position) / float(main.ship_metres_to_world)
         var step := offset.distance_to(last_offset)
         if docked_at < 0 and String(ship.get("phase", "")) != "in_transit":
             docked_at = frame
@@ -520,7 +520,7 @@ func _arrival_shots(rig: Node3D) -> void:
         # on approach even at 600x: arrivals are at speed, the burns are impulsive).
         if frame % 120 == 0 or (step > 60.0 and offset.length() < 5000.0 and last_offset.length() < 5000.0):
             print("[ShotTour] arrival t%+.0f s: %.0f m from the station centre, moved %.0f m this frame (%s)" % [
-                float(main.get("display_time_s")) - float(ship.get("arrival_time_s", 0.0)), offset.length(), step, String(ship.get("phase", ""))])
+                float(main.clock.display_time_s) - float(ship.get("arrival_time_s", 0.0)), offset.length(), step, String(ship.get("phase", ""))])
         if frame % 90 == 0 and offset.length() < 6000.0:
             await _shoot("arrival_%04d" % frame)
         last_offset = offset
@@ -531,17 +531,17 @@ func _arrival_shots(rig: Node3D) -> void:
 # How far each planned path's ends are from its stations (a ship jumps by this much when
 # it docks or leaves; it matters at true scale).
 func _report_path_end_gaps() -> void:
-    for ship_id in main.ship_paths.keys():
+    for ship_id in main.path_motion.ship_paths.keys():
         var ship: Dictionary = main.entity_details.get(ship_id, {})
-        var path: Dictionary = main.ship_paths[ship_id]
+        var path: Dictionary = main.path_motion.ship_paths[ship_id]
         var gaps := []
         for end in [["origin_station_id", float(path["departure"])], ["destination_station_id", float(path["arrival"])]]:
-            var orbit: Dictionary = main.station_orbits.get(String(ship.get(end[0], "")), {})
+            var orbit: Dictionary = main.path_motion.station_orbits.get(String(ship.get(end[0], "")), {})
             if orbit.is_empty():
                 gaps.append(-1.0)
                 continue
-            var base: PackedFloat64Array = main._body_at_m(String(orbit["body"]), end[1])
-            var p: PackedFloat64Array = main._rail_point_m(path, end[1])
+            var base: PackedFloat64Array = main.path_motion.body_at_m(String(orbit["body"]), end[1])
+            var p: PackedFloat64Array = main.path_motion.rail_point_m(path, end[1])
             var dx: float = p[0] - (base[0] + cos(float(orbit["theta"])) * float(orbit["r"]))
             var dy: float = p[1] - base[1]
             var dz: float = p[2] - (base[2] + sin(float(orbit["theta"])) * float(orbit["r"]))
@@ -564,16 +564,16 @@ func _docked_close_shot(rig: Node3D) -> void:
             var at := camera.unproject_position(node.global_position)
             var off := Vector2(main.map_icons.projected_model_pixels(node) * 0.6, 0.0)
             main._pick_entity(at + off)
-            var on_ship := String(main.get("selected_id"))
+            var on_ship := String(main.selected_id)
             main.select_entity(String(main.entity_details[ship_id].get("current_station_id", "")), "station", true)
-            rig.set("distance", main.map_icons.model_world_size(main.entity_nodes[main.get("selected_id")]) * 2.5)
+            rig.set("distance", main.map_icons.model_world_size(main.entity_nodes[main.selected_id]) * 2.5)
             rig.call("_update_transform")
             await get_tree().create_timer(0.3).timeout
-            var station: Node3D = main.entity_nodes[main.get("selected_id")]
+            var station: Node3D = main.entity_nodes[main.selected_id]
             var ring_at := camera.unproject_position(station.global_position) + Vector2(main.map_icons.projected_model_pixels(station) * 0.7, 0.0)
             main.select_entity(ship_id, "ship")
             main._pick_entity(ring_at)
-            print("[ShotTour] pick: ship body off the icon -> %s (want %s); inside the ring -> %s" % [on_ship, ship_id, String(main.get("selected_id"))])
+            print("[ShotTour] pick: ship body off the icon -> %s (want %s); inside the ring -> %s" % [on_ship, ship_id, String(main.selected_id)])
             return
 
 # Frame rate at the current view: mean and worst frame over two seconds.
@@ -729,13 +729,13 @@ func _local_path_shots(rig: Node3D) -> void:
 func _local_path_picks() -> Dictionary:
     var picks := {}
     for ship_id in main.entity_details.keys():
-        if main.entity_kinds.get(ship_id, "") != "ship" or not main.ship_paths.has(ship_id):
+        if main.entity_kinds.get(ship_id, "") != "ship" or not main.path_motion.ship_paths.has(ship_id):
             continue
         var detail: Dictionary = main.entity_details[ship_id]
         var kind := String(detail.get("trajectory_type", ""))
         if String(detail.get("phase", "")) != "in_transit" or (not kind.ends_with("planet_system") and kind != "keplerian_local"):
             continue
-        if not picks.has(kind) and String(main.ship_paths[ship_id].get("frame", "earth")) == "earth":
+        if not picks.has(kind) and String(main.path_motion.ship_paths[ship_id].get("frame", "earth")) == "earth":
             picks[kind] = ship_id
     return picks
 
@@ -921,7 +921,7 @@ func _planet_shots(rig: Node3D) -> void:
         main.select_entity(body_id, "body", true)
         await get_tree().create_timer(0.3).timeout
         var to_sun: Vector3 = (sun.global_position - node.global_position).normalized() if sun != null else Vector3.FORWARD
-        var radius := float(main.call("_body_display_scale", body_id))
+        var radius := float(main._body_display_scale(body_id))
         for view in [["1.3r", 1.3, 0.7], ["3r", 3.0, 0.7], ["12r", 12.0, 0.7], ["night", 4.0, 2.4]]:
             rig.set("yaw", atan2(to_sun.x, to_sun.z) + float(view[2]))
             rig.set("pitch", -0.25)

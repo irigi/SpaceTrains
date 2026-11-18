@@ -1,6 +1,7 @@
 # Plan: split `godot/scripts/Main.gd` (Architecture 2)
 
-Written 2026-11-16 from the roadmap's Architecture item 2 (outside review 2026-11-12). Not started.
+Written 2026-11-16 from the roadmap's Architecture item 2 (outside review 2026-11-12). Done 2026-11-18 (steps 0-6,
+branch `refactor/main_gd_split`; "As built" below).
 
 **Display-only refactor: what is on screen must not change**, and the simulation is not touched (the 365-day
 economy audit stays byte-identical by construction).
@@ -104,3 +105,45 @@ In every step, update `ShotTour.gd` and `DebugShot.gd` to the new paths (`main.c
 - **Typed GDScript.** Keep the existing static types on moved functions; the parse check catches mismatches only
   where types are declared.
 - A display bug found during the split is fixed in its own commit after the split, not inside a move.
+
+## As built (2026-11-18)
+
+One commit per step. Each moved function was diffed against its original after the renames; the differences
+are only those listed here. `Main.gd` is 1,157 lines (was 2,631).
+
+- **Step 0:** the 28 `main.get("…")` lookups and the `main.call("_body_display_scale", …)` in `ShotTour.gd` are
+  direct access.
+- **Step 1, `DisplayClock.gd`:** `on_snapshot(game_time_s, wall_s)` (the `sim_pace` lines), `advance(delta, paused,
+  timewarp)`, `advance_spin(paused)` returning the wall step, `advance_visual_phases(wall_dt, body_orbits,
+  station_orbits, timewarp)`, `reset()`, `wall_time_s()`. `SIM_TICK_S` and `DISPLAY_MAX_LEAD_REAL_S` moved with it.
+- **Step 2, `BridgeClient.gd`** (a Node child of Main, for `_exit_tree`): `start()`, `poll()`,
+  `retry_pending_write()`, `update_status()`, `set_paused`, `set_timewarp`, `request_porkchops(text)`,
+  `request_save(path)`, `request_load(path)`, `write_commands()`; signals `snapshot_received`, `snapshot_rejected`
+  (debug print only), `designs_received`, `stats_received`, `porkchops_received`, `status_changed`, `epoch_changed`.
+  Differences from the target above:
+  - Main keeps `bridge_state`, `bridge_designs` and `porkchop_data` as its handlers' copies (40 display references
+    read them); the client keeps the same state for its own checks.
+  - `current_paused` and `current_timewarp` stay in Main (the UI's values) and are handed to the client on every
+    change.
+  - Whether the statistics file is wanted, and whether it may be read now, are two callables from Main (the two
+    expressions of before). `_update_porkchop_request` and `_update_flow_overlay` still read the Statistics panel's
+    private fields with `get(...)`: the public getter is left for later.
+- **Step 3, `PathMotion.gd`:** the 28 position functions; those called from outside lost the underscore.
+  `cache_orbits(state)` takes the snapshot; `begin_frame()`, `forget_ship(id)` and `reset()` replace the clear,
+  the erase and the reset in Main. `POSITION_SCALE` lives here (Main's constant reads it).
+- **Step 4, `Berths.gd`:** `place_docked_ship`, `ease_into_berth`, `rebuild(state)` (the names `place` and `ease`
+  were not used: `ease` is a GDScript built-in). `setup()` runs after the user arguments, which set the scale.
+- **Step 5, `FineLines.gd`:** a Node child of Main (it needs `get_viewport()`); its meshes still go under
+  `world_root` and `entity_root`. The four entry points that read the selection or the render origin take them as
+  arguments; Main's `_body_color`, `_body_display_scale` and `_scaled_position` reach it as callables.
+  `forget_ship(id)` and `reset()` hold the lines that `_apply_snapshot` and `_reset_timeline` had.
+- **Two weak spots for later edits** (Review 3; correct today): `current_paused`/`current_timewarp` exist in Main and
+  in the client, so new code that changes Main's must call `bridge.set_paused`/`set_timewarp`; FineLines keeps the
+  selection and the render origin from the last entry point that took them, so an internal function that reads them
+  must be reached only through those entry points.
+- **Checks:** parse check of every changed script (`--check-only` exits 0 even when a dependency fails to compile, so
+  the output is searched for errors), the key-bindings test, and the shot tours on every commit against two runs on
+  `main` (the numbers in the PR). The tours run one section per run (each section quits when done), start at day 30
+  (the stations' detailed models are ready by then), and `--shot-pause` runs alone: on `main` it crashes Godot a
+  moment after its section, in worker-built station meshes (5 of 5 runs, 2026-11-17 night).
+
