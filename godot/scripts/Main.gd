@@ -49,6 +49,8 @@ var bridge: BridgeClientScript
 # Where things are drawn (PathMotion.gd): orbits and planned paths, positions at the display
 # clock's time, relative to the focus.
 var path_motion := PathMotionScript.new()
+# Docked ships' berth slots and poses (Berths.gd).
+var berths := BerthsScript.new()
 var entity_root: Node3D
 var selected_id := ""
 var selected_kind := ""
@@ -126,6 +128,7 @@ const EconomyHistoryScript := preload("res://scripts/EconomyHistory.gd")
 const DisplayClockScript := preload("res://scripts/DisplayClock.gd")
 const BridgeClientScript := preload("res://scripts/BridgeClient.gd")
 const PathMotionScript := preload("res://scripts/PathMotion.gd")
+const BerthsScript := preload("res://scripts/Berths.gd")
 
 var ui_root: Control
 var top_bar: PanelContainer
@@ -189,6 +192,7 @@ func _ready() -> void:
             ship_metres_to_world = POSITION_SCALE * maxf(float(arg.trim_prefix("--model-scale=")), 1.0e-3)
         if arg.begins_with("--shot-tour="):
             add_child(load("res://scripts/ShotTour.gd").new())
+    berths.setup(entity_nodes, entity_details, ship_metres_to_world)
     _start_music()
     if bridge.bridge_started:
         _set_status("Starting bridge…\n%s" % bridge.executable_path)
@@ -570,7 +574,7 @@ func _apply_snapshot() -> void:
     for ship_id in path_motion.ship_paths.keys():
         if not seen_ids.has(ship_id):
             path_motion.forget_ship(ship_id)
-    _rebuild_docked_slots()
+    berths.rebuild(bridge_state)
     if _profile_enabled: _profiled("  upsert entities", upsert_started)
     var trails_started := Time.get_ticks_usec()
     _update_ship_trails()
@@ -673,12 +677,12 @@ func _update_nodes(delta: float) -> void:
             stations_prefetched_ms = Time.get_ticks_msec()
     # Docked ships, and ships near a station, after every station has its position for this frame.
     for entity_id in docked:
-        _place_docked_ship(entity_nodes[entity_id], entity_id)
+        berths.place_docked_ship(entity_nodes[entity_id], entity_id)
     _update_eclipses()
     for entity_id in entity_nodes.keys():
         if entity_kinds.get(entity_id, "") == "ship" \
                 and String((entity_details.get(entity_id, {}) as Dictionary).get("phase", "idle")) == "in_transit":
-            _ease_into_berth(entity_nodes[entity_id], entity_id)
+            berths.ease_into_berth(entity_nodes[entity_id], entity_id)
     for entity_id in entity_nodes.keys():
         if entity_kinds.get(entity_id, "") == "ship":
             var node: Node3D = entity_nodes[entity_id]
@@ -776,125 +780,6 @@ func _jet_power_w(class_id: String) -> float:
             power = float(component.get("power_w", 0.0))
     jet_power_by_class[class_id] = power
     return power
-
-# A docked ship sits at one of its station's berths (StationModels: the ends of the
-# berthing arms), bow to the hub; ships beyond the berth count queue further out. A ship
-# keeps its slot while docked; an arriving ship takes the lowest free one (_docked_slots).
-func _place_docked_ship(node: Node3D, ship_id: String) -> void:
-    var detail: Dictionary = entity_details.get(ship_id, {})
-    var station: Node3D = entity_nodes.get(String(detail.get("current_station_id", "")))
-    var pose := _berth_pose(station, int(_docked_slots.get(ship_id, 0)), float(node.get_meta("length_m", 50.0)))
-    if pose.is_empty():
-        return
-    node.position = pose["position"]
-    node.basis = (pose["basis"] as Basis).scaled(Vector3.ONE * ship_metres_to_world)
-
-# Where a ship of this length sits at a berth slot: {position, basis (unscaled)}, or {}.
-func _berth_pose(station: Node3D, slot: int, length_m: float) -> Dictionary:
-    if station == null or not station.has_meta("berths"):
-        return {}
-    var berths: Array = station.get_meta("berths")
-    if berths.is_empty():
-        return {}
-    var berth: Dictionary = berths[slot % berths.size()]
-    var layer := slot / berths.size()
-    var dir := (station.basis * (berth["dir"] as Vector3)).normalized()
-    var axis := (station.basis * Vector3(0.0, 0.0, 1.0)).normalized()
-    # Queued ships stand off a ship length apart (the longest is ~140 m).
-    var out_m := length_m * 0.5 + 3.0 + float(layer) * 160.0
-    return {"position": station.position + station.basis * (berth["pos"] as Vector3) + dir * out_m * ship_metres_to_world,
-        "basis": Basis.looking_at(-dir, axis)}
-
-# Near a station a ship in flight eases between its path (which ends at the station's
-# centre) and its berth: the one it left, or the lowest free one where it is going. The
-# blend follows distance (full within 1.3 station radii, none beyond 4), so the ship
-# docks without a jump and passes over the habitat ring rather than through it.
-func _ease_into_berth(node: Node3D, ship_id: String) -> void:
-    var detail: Dictionary = entity_details.get(ship_id, {})
-    var best: Node3D = null
-    var best_id := ""
-    var best_d := INF
-    for key in ["origin_station_id", "destination_station_id"]:
-        var station_id := String(detail.get(key, ""))
-        var station: Node3D = entity_nodes.get(station_id)
-        if station == null:
-            continue
-        var d := node.position.distance_to(station.position)
-        if d < best_d:
-            best = station
-            best_id = station_id
-            best_d = d
-    if best == null:
-        return
-    var radius := float(best.get_meta("radius_m", 1000.0)) * best.scale.x
-    var w := 1.0 - smoothstep(1.3 * radius, 4.0 * radius, best_d)
-    if w <= 0.0:
-        return
-    var slot := 0
-    var last: Array = _last_berth.get(ship_id, [])
-    if not last.is_empty() and String(last[0]) == best_id and best_id == String(detail.get("origin_station_id", "")):
-        slot = int(last[1])
-    else:
-        slot = _free_slot(best_id)
-    var pose := _berth_pose(best, slot, float(node.get_meta("length_m", 50.0)))
-    if pose.is_empty():
-        return
-    node.position += ((pose["position"] as Vector3) - best.position) * w
-    var turn := node.basis.get_rotation_quaternion().slerp((pose["basis"] as Basis).get_rotation_quaternion(), w)
-    node.basis = Basis(turn).scaled(Vector3.ONE * ship_metres_to_world)
-
-var _docked_slots: Dictionary = {}    # ship id -> berth slot, while docked
-var _docked_station: Dictionary = {}  # ship id -> station id, while docked
-var _last_berth: Dictionary = {}      # ship id -> [station id, slot] of its last stay
-
-func _rebuild_docked_slots() -> void:
-    var by_station := {}
-    for ship in bridge_state.get("ships", []):
-        if String(ship.get("phase", "idle")) in ["in_transit", "derelict", "patrol"]:
-            continue
-        var station_id := String(ship.get("current_station_id", ""))
-        if not by_station.has(station_id):
-            by_station[station_id] = []
-        by_station[station_id].append(String(ship["id"]))
-    var kept := {}
-    for station_id in by_station.keys():
-        var ids: Array = by_station[station_id]
-        ids.sort()
-        for ship_id in ids:
-            if String(_docked_station.get(ship_id, "")) == station_id:
-                kept[ship_id] = int(_docked_slots[ship_id])
-    var slots := {}
-    var stations := {}
-    for station_id in by_station.keys():
-        var used := {}
-        for ship_id in by_station[station_id]:
-            if kept.has(ship_id):
-                used[kept[ship_id]] = true
-        var next := 0
-        for ship_id in by_station[station_id]:
-            var slot: int
-            if kept.has(ship_id):
-                slot = kept[ship_id]
-            else:
-                while used.has(next):
-                    next += 1
-                slot = next
-                used[slot] = true
-            slots[ship_id] = slot
-            stations[ship_id] = station_id
-            _last_berth[ship_id] = [station_id, slot]
-    _docked_slots = slots
-    _docked_station = stations
-
-func _free_slot(station_id: String) -> int:
-    var used := {}
-    for ship_id in _docked_station.keys():
-        if String(_docked_station[ship_id]) == station_id:
-            used[int(_docked_slots[ship_id])] = true
-    var slot := 0
-    while used.has(slot):
-        slot += 1
-    return slot
 
 # --- Orbit rings near the focus -----------------------------------------------
 
