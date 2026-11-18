@@ -46,6 +46,8 @@ func _ready() -> void:
         if arg.begins_with("--shot-tour="):
             out_dir = arg.trim_prefix("--shot-tour=")
     main = get_parent()
+    # The save/load section must not overwrite the player's quicksave.
+    main.quicksave_name = "shot_tour"
     _run.call_deferred()
 
 func _apply_debug_flags() -> void:
@@ -254,10 +256,24 @@ func _run() -> void:
         var saved_day := float(main.clock.display_time_s) / 86400.0
         main._request_save_or_load(true)
         await get_tree().create_timer(3.0).timeout
+        # The visual angles (station orbits, planet spins) must come back too: the side file holds
+        # them as they were when the bridge saved. The load runs paused (the angles stand still),
+        # and they are compared 2 s after it, so anything that moved them after the restore shows.
+        var view: Dictionary = main._read_view(main._view_path(main._quicksave_path()))
+        var saved_phase: Dictionary = view.get("visual_phase", {})
+        var moved := _largest_angle_difference(saved_phase, main.clock.visual_phase)
+        main._on_pause_toggled()
         main._request_save_or_load(false)
         await get_tree().create_timer(2.0).timeout
+        var error := _largest_angle_difference(saved_phase, main.clock.visual_phase)
+        main._on_pause_toggled()
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
             saved_day, float(main.clock.display_time_s) / 86400.0, String(main.bridge.status_text)])
+        if saved_phase.is_empty() or not String(main.bridge.status_text).begins_with("Loaded"):
+            print("[ShotTour] save/load: FAILED, no side file or no load (%d angles)" % saved_phase.size())
+        else:
+            print("[ShotTour] save/load: %d visual angles, moved up to %.3f rad before the load, %.6f rad from the saved ones after it" % [
+                saved_phase.size(), moved, error])
         await _shoot("after_load")
     # The ship systems section of the inspector (schematic), for one ship of each drive: a
     # burning thermal ship if there is one, then the same with the mouse over the schematic.
@@ -929,3 +945,11 @@ func _planet_shots(rig: Node3D) -> void:
             rig.call("_update_transform")
             await get_tree().create_timer(0.5).timeout
             await _shoot("planet_%s_%s" % [body_id, view[0]])
+
+# The largest difference (rad, wrapped to [0, pi]) between two sets of angles by id; -1 if none.
+func _largest_angle_difference(a: Dictionary, b: Dictionary) -> float:
+    var largest := -1.0
+    for entity_id in a:
+        if b.has(entity_id):
+            largest = maxf(largest, absf(angle_difference(float(a[entity_id]), float(b[entity_id]))))
+    return largest

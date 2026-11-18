@@ -52,7 +52,12 @@
   the planets' north poles point up; the view was upside down before. Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
   fixed `theta_rad` and the planner is untouched. Both run on the wall clock at the timewarp rate (stop while paused),
   capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
-  are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `DisplayClock.advance_visual_phases` keeps the phases;
+  are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `DisplayClock.advance_visual_phases` keeps the phases.
+  A save keeps them, with the station spin clock, in a side file next to it (`quicksave.view.json`,
+  `DisplayClock.export_view`, written with the snapshot whose `bridge.request` and `status` report the save done, so a
+  failed save leaves it alone), and a load reads and restores them with the loaded game's first snapshot (`import_view` from
+  `_reset_timeline`, 2026-11-18; before, a load kept the angles the screen had, so a station sunlit when saved could
+  come back in shadow). A save without the side file loads with the angles as they are;
   `PathMotion.station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
   stations (`_station_blend_m`: the start follows the origin station's drawn position, the end the destination's,
   fading linearly along the flight), so ships leave and arrive where the station is drawn.
@@ -188,7 +193,9 @@
     (`StationModels.prefetch`, ~0.2-0.6 s each on a worker thread, Ceres ~1.4 s, all ready ~6 s after start);
     the meshes are made on the main thread, at most ~23 ms of one frame per station (Ceres). A station is never drawn coarse
     while it is big on screen (`--shot-stations` waits for the background builds, then counts such frames
-    while flying in to each station: 0).
+    while flying in to each station: 0). Builds still running when the game quits are waited for
+    (`wait_for_builds` in both model scripts, from `Main._exit_tree`): left running, they called into scripts being
+    freed and Godot crashed on exit (2026-11-18; tours quitting during the start-up prefetch, under load).
   - Mercury's shield part turns about the station's axis to face the Sun each frame (`spin_rings` with the Sun's
     position).
   - The real sizes need no altitude cap (stations orbit at least 200 km up); `_station_display_scale` keeps one

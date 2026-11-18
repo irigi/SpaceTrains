@@ -56,8 +56,8 @@
   nuclear-thermal burn, for the map glow), `radiator_temperature_k`, `cargo_mass_kg`, `provisions_mass_kg`);
   passengers aboard; the station systems view (`systems`);
   station targets, demand/unmet totals, import/export flows, fuel factory, export market, ledger; an `economy`
-  block (demand, unmet, exports, fleet purchases); `bridge.epoch` (changes with every load) and `bridge.status`
-  (save/load result).
+  block (demand, unmet, exports, fleet purchases); `bridge.epoch` (changes with every load), `bridge.status`
+  (save/load result) and `bridge.request` (the save/load request number that status answers).
 - Command JSON (`paused`, `timewarp_factor`, `stats_open`, and save/load requests: a `request` number with
   `save_path` or `load_path`). The UI writes it aside and renames it, and the bridge ignores a file without its
   closing brace, so a request is never read half-written and lost. Quicksaves are written aside and renamed too;

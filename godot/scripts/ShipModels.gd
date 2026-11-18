@@ -83,6 +83,17 @@ static func request(key: String, design: Dictionary, lod: int) -> bool:
         _mutex.unlock())
     return false
 
+# Waits for every background build still running (call before the game quits: a build left
+# running calls into scripts that are being freed, and Godot crashes on exit). The results are
+# dropped.
+static func wait_for_builds() -> void:
+    for task in _pending.values():
+        WorkerThreadPool.wait_for_task_completion(int(task))
+    _pending.clear()
+    _mutex.lock()
+    _finished.clear()
+    _mutex.unlock()
+
 # A stand-in design until the designs file has been read: a habitat, hold, tanks and an
 # engine of a typical freighter (with radiators for a plasma ship).
 static func fallback_design(propulsion: String) -> Dictionary:

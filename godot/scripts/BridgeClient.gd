@@ -37,6 +37,9 @@ var data_root := ""
 var atlas_path := ""
 var bridge_log_path := ""
 var bridge_started := false
+# Why the bridge did not start (empty when it did): start() runs before Main's status label
+# exists, so Main shows this once its UI is built.
+var start_error := ""
 # What the command file says: pause, timewarp, the save/load request, the porkchop pairs.
 var paused := false
 var timewarp := 86400.0
@@ -50,6 +53,9 @@ var command_write_pending := false
 var state: Dictionary = {}
 var snapshot_seq := -1
 var snapshot_arrival_s := 0.0
+# The sequence number of the last snapshot parsed, accepted or not: a snapshot is parsed once,
+# so a rejected (older) one is not parsed again every frame while its file stays.
+var _parsed_seq := -1
 var epoch := 0
 var status_text := ""
 var status_until_s := 0.0
@@ -186,10 +192,10 @@ func _remove_stale_session_files() -> void:
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
         var hint := "The installation is incomplete." if OS.has_feature("template") else "Build the project first."
-        status_changed.emit("Simulation bridge not found:\n%s\n%s" % [executable_path, hint])
+        _start_failed("Simulation bridge not found:\n%s\n%s" % [executable_path, hint])
         return
     if not DirAccess.dir_exists_absolute(data_root):
-        status_changed.emit("Game data not found:\n%s" % data_root)
+        _start_failed("Game data not found:\n%s" % data_root)
         return
 
     var args := [
@@ -207,10 +213,14 @@ func _start_bridge() -> void:
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
-        status_changed.emit("Failed to start bridge process.")
+        _start_failed("Failed to start bridge process.")
         bridge_started = false
     else:
         bridge_started = true
+
+func _start_failed(text: String) -> void:
+    start_error = text
+    status_changed.emit(text)
 
 # Written aside and renamed, so the bridge never reads a half-written command (a save or
 # load request read half-written was lost).
@@ -300,7 +310,7 @@ func _attach_paths() -> int:
 func _read_snapshot() -> void:
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
-    if seq_text != "" and int(seq_text) == snapshot_seq:
+    if seq_text != "" and int(seq_text) == _parsed_seq:
         return
     if not FileAccess.file_exists(snapshot_path):
         return
@@ -314,6 +324,7 @@ func _read_snapshot() -> void:
     if parse_status != OK or typeof(json.data) != TYPE_DICTIONARY:
         return
     var new_seq := int(json.data.get("snapshot_seq", -1))
+    _parsed_seq = new_seq
     if new_seq <= snapshot_seq:
         return
     var new_game_time_s := float(json.data.get("game_time_s", 0.0))

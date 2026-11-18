@@ -100,6 +100,26 @@ func advance_visual_phases(wall_dt: float, body_orbits: Dictionary, station_orbi
         var rate := BodySpinScript.station_rate(String(orbit["body"]), float(orbit["r"]), timewarp)
         visual_phase[station_id] = fmod(float(visual_phase.get(station_id, 0.0)) + rate * wall_dt, TAU)
 
+# The visual angles and the spin clock, as a save's side file keeps them (they are not in the
+# simulation, so a loaded game would otherwise keep the angles the screen had).
+func export_view() -> Dictionary:
+    return {"version": 1, "visual_phase": visual_phase.duplicate(), "spin_clock_s": spin_clock_s}
+
+# Restores what export_view gave (a loaded game). Anything missing or not a number is left as it is.
+func import_view(view: Dictionary) -> void:
+    if not _is_number(view.get("version")) or int(view["version"]) != 1:
+        return
+    var phases: Variant = view.get("visual_phase")
+    if typeof(phases) == TYPE_DICTIONARY:
+        for entity_id in phases:
+            if _is_number(phases[entity_id]):
+                visual_phase[String(entity_id)] = fmod(float(phases[entity_id]), TAU)
+    if _is_number(view.get("spin_clock_s")):
+        spin_clock_s = float(view["spin_clock_s"])
+
+static func _is_number(value: Variant) -> bool:
+    return typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT
+
 # A new timeline (a loaded game): the clock waits for its first snapshot again.
 func reset() -> void:
     display_time_s = -1.0

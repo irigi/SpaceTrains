@@ -1889,6 +1889,17 @@ static func request_detail(data: Dictionary) -> bool:
         _mutex.unlock())
     return false
 
+# Waits for every background build still running (call before the game quits: a build left
+# running calls into scripts that are being freed, and Godot crashes on exit). The results are
+# dropped.
+static func wait_for_builds() -> void:
+    for task in _pending.values():
+        WorkerThreadPool.wait_for_task_completion(int(task))
+    _pending.clear()
+    _mutex.lock()
+    _finished.clear()
+    _mutex.unlock()
+
 # Builds every station's detailed model in the background, one at a time (so start-up
 # and play are not starved of worker threads). Call each frame; true once all are ready.
 static func prefetch(stations: Array) -> bool:

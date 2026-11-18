@@ -181,6 +181,9 @@ func _ready() -> void:
     _start_music()
     if bridge.bridge_started:
         _set_status("Starting bridge…\n%s" % bridge.executable_path)
+    else:
+        # Emitted by bridge.start() before the status label existed.
+        _set_status(bridge.start_error)
 
 # Background music (Music.gd), except in shot tours, headless runs and with --no-music.
 func _start_music() -> void:
@@ -339,6 +342,12 @@ func _profiled(name: String, started_usec: int) -> void:
     _profile_totals[name] = float(_profile_totals.get(name, 0.0)) + ms
     _profile_worst[name] = maxf(float(_profile_worst.get(name, 0.0)), ms)
 
+# The game is quitting (get_tree().quit() or the window closed): models still being built on
+# worker threads must finish first, or they call into scripts being freed and Godot crashes.
+func _exit_tree() -> void:
+    ShipModelsScript.wait_for_builds()
+    StationModelsScript.wait_for_builds()
+
 func _process(delta: float) -> void:
     debug_frame += 1
     var t := Time.get_ticks_usec()
@@ -426,15 +435,65 @@ func _unhandled_input(event: InputEvent) -> void:
         if event.double_click and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
 
+# The quick save's name in user://saves: shot tours use their own (ShotTour.gd), so they never
+# overwrite the player's quicksave.
+var quicksave_name := "quicksave"
+
 func _quicksave_path() -> String:
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://saves"))
-    return ProjectSettings.globalize_path("user://saves/quicksave.json")
+    return ProjectSettings.globalize_path("user://saves/%s.json" % quicksave_name)
 
 func _request_save_or_load(save: bool) -> void:
     if save:
         bridge.request_save(_quicksave_path())
+        _view_save = {"request": bridge.command_request, "path": _view_path(_quicksave_path())}
     else:
         bridge.request_load(_quicksave_path())
+        _view_load_path = _view_path(_quicksave_path())
+
+# The visual angles (station orbits round their planets, planet spins: DisplayClock) are not in
+# the simulation, so a save keeps them in a side file next to it, <save>.view.json, and a load
+# restores them with the loaded game's first snapshot (_reset_timeline). Older saves have none:
+# the angles then stay as they are.
+# A save request ({request, path}) whose side file is written with the snapshot that reports it
+# saved (the angles of that moment, when the bridge saved): a failed save, or one overtaken by a
+# load, leaves the side file alone.
+var _view_save: Dictionary = {}
+# The side file of the last load requested: read when the loaded game arrives (after any save
+# still in flight has written its side file).
+var _view_load_path := ""
+
+func _view_path(save_path: String) -> String:
+    return save_path.get_basename() + ".view.json"
+
+func _write_view_once_saved(state: Dictionary) -> void:
+    if _view_save.is_empty():
+        return
+    var info: Dictionary = state.get("bridge", {})
+    if int(info.get("request", -1)) < int(_view_save["request"]):
+        return
+    if String(info.get("status", "")).begins_with("Saved"):
+        _write_view(String(_view_save["path"]), clock.export_view())
+    _view_save = {}
+
+# Written aside and renamed, as the bridge's files are.
+func _write_view(path: String, view: Dictionary) -> void:
+    var file := FileAccess.open(path + ".tmp", FileAccess.WRITE)
+    if file == null:
+        push_warning("Could not write %s" % path)
+        return
+    file.store_string(JSON.stringify(view, "", true, true))
+    file.close()
+    if DirAccess.rename_absolute(path + ".tmp", path) != OK:
+        push_warning("Could not write %s" % path)
+
+func _read_view(path: String) -> Dictionary:
+    if not FileAccess.file_exists(path):
+        return {}
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(path)) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return {}
+    return json.data
 
 # Ship designs by class id ({name, ..., components: [...]}): the parts of every class for the
 # inspector's ship systems section. Written once by the bridge (per-ship fits later).
@@ -501,6 +560,7 @@ func _on_snapshot_rejected(seq: int, game_time_s: float, shown_game_time_s: floa
 
 func _on_snapshot_received(state: Dictionary, _seq: int) -> void:
     bridge_state = state
+    _write_view_once_saved(state)
     clock.on_snapshot(float(state.get("game_time_s", 0.0)), bridge.snapshot_arrival_s)
     _apply_snapshot()
 
@@ -913,6 +973,9 @@ func _entity_name_map() -> Dictionary:
 
 func _reset_timeline() -> void:
     clock.reset()
+    if _view_load_path != "":
+        clock.import_view(_read_view(_view_load_path))
+        _view_load_path = ""
     path_motion.reset()
     economy_history.clear()
     fine_lines.reset()
