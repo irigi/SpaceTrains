@@ -170,18 +170,6 @@ double cargo_value_cr(const World& w, const std::vector<domain::CargoLot>& cargo
     return value;
 }
 
-// Places under the fleet cap held for factions other than `faction_id` (replacement claims after a
-// loss). Not called today (none since it was written); kept as it was, file-local.
-[[maybe_unused]] int fleet_places_held_for_others(const World& w, const std::string& faction_id) {
-    int held = 0;
-    for (const auto& [owner, expiries] : w.state.replacement_claims) {
-        if (owner != faction_id) {
-            held += static_cast<int>(expiries.size());
-        }
-    }
-    return held;
-}
-
 }  // namespace
 
 

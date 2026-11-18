@@ -258,8 +258,8 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    loader, `step_failures` from `tick`, `consider_salvage` and `reach_derelict` from ShipPhases); eleven used only
    here are file-local, with `SalvagePlan` and `SalvageOption`; the query forwarders `sun_mu`, `local_leg` and
    `primary_body_id` are gone. Not mechanical: `failures_on` (inline in `Simulation.hpp`, used only here) is
-   file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written): it is
-   file-local and `[[maybe_unused]]`, kept as it was rather than deleted inside a move.
+   file-local on `const World&`; `fleet_places_held_for_others` had no caller (none since it was written): it was
+   kept file-local and `[[maybe_unused]]` in the move, then deleted afterwards.
 11. **FleetInvestment** (done 2026-11-17; 1,038 lines; `InvestmentReview` becomes the system's own class). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
     As built: the `tick` link was the word in comments ("one purchase per tick"), nothing more. `FleetInvestment.cpp`
