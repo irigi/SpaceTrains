@@ -8,6 +8,9 @@ and the economy audit byte for byte, and keep `--profile` at least as fast as be
 
 ## Where it stands (main at PR #39)
 
+This section describes the code before the split (line numbers, member names, "today"); steps 15-16 changed what
+it says about ownership, the move hazard and `DeferredPlan`. The tick and set-up orders are unchanged.
+
 - `Simulation` (`src/simulation/Simulation.hpp`, 982 lines) is one class with all running state and every rule as a
   member. Sixteen files define its members: the fifteen topic files in `src/simulation/` (`modules/simulation.md`)
   and `src/persistence/SimulationPersistence.cpp`, which reads and writes nearly all state. `CrewEnvironment.cpp`,

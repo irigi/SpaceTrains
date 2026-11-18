@@ -191,7 +191,7 @@ struct ShipState {
     std::string faction_id;
     std::string class_id;
     // Modules fitted at the home yard (tier 2, docs/modules/ships_and_fleet.md). The
-    // ship flies the design class_id + fit (Simulation::ship_design).
+    // ship flies the design class_id + fit (query::ship_design).
     std::vector<std::string> fit;
     std::string home_station_id;
     std::string current_station_id;
