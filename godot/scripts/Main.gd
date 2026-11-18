@@ -181,6 +181,9 @@ func _ready() -> void:
     _start_music()
     if bridge.bridge_started:
         _set_status("Starting bridge…\n%s" % bridge.executable_path)
+    else:
+        # Emitted by bridge.start() before the status label existed.
+        _set_status(bridge.start_error)
 
 # Background music (Music.gd), except in shot tours, headless runs and with --no-music.
 func _start_music() -> void:

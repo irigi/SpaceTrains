@@ -37,6 +37,9 @@ var data_root := ""
 var atlas_path := ""
 var bridge_log_path := ""
 var bridge_started := false
+# Why the bridge did not start (empty when it did): start() runs before Main's status label
+# exists, so Main shows this once its UI is built.
+var start_error := ""
 # What the command file says: pause, timewarp, the save/load request, the porkchop pairs.
 var paused := false
 var timewarp := 86400.0
@@ -186,10 +189,10 @@ func _remove_stale_session_files() -> void:
 func _start_bridge() -> void:
     if not FileAccess.file_exists(executable_path):
         var hint := "The installation is incomplete." if OS.has_feature("template") else "Build the project first."
-        status_changed.emit("Simulation bridge not found:\n%s\n%s" % [executable_path, hint])
+        _start_failed("Simulation bridge not found:\n%s\n%s" % [executable_path, hint])
         return
     if not DirAccess.dir_exists_absolute(data_root):
-        status_changed.emit("Game data not found:\n%s" % data_root)
+        _start_failed("Game data not found:\n%s" % data_root)
         return
 
     var args := [
@@ -207,10 +210,14 @@ func _start_bridge() -> void:
     ]
     bridge_pid = OS.create_process(executable_path, args, false)
     if bridge_pid <= 0:
-        status_changed.emit("Failed to start bridge process.")
+        _start_failed("Failed to start bridge process.")
         bridge_started = false
     else:
         bridge_started = true
+
+func _start_failed(text: String) -> void:
+    start_error = text
+    status_changed.emit(text)
 
 # Written aside and renamed, so the bridge never reads a half-written command (a save or
 # load request read half-written was lost).
