@@ -39,7 +39,7 @@ Rules:
 | `trajectory` | `modules/trajectory.md` | Kepler and VariableISP planners, path sampling, audit, chase solver |
 | `variable_isp` | `modules/trajectory.md` | the atlas, the integrator and the general-boundary solver |
 | `economy` | `modules/economy.md` | production, price curves, surface markets |
-| `simulation` | `modules/simulation.md` | the running game; ships (`modules/ships_and_fleet.md`) and economy rules (`modules/economy.md`) |
+| `simulation` | `modules/simulation.md` | the running game: `World` (all state), the rules as systems on it (`systems/`, `query/`), `Simulation` the owner that runs the tick; ships (`modules/ships_and_fleet.md`) and economy rules (`modules/economy.md`) |
 | `persistence` | `modules/persistence.md` | save games (JSON) |
 | `bridge` | `modules/bridge.md` | the file-backed link to Godot |
 | `app` | README | `spacetrains_headless`: runs, reports, audits, benchmarks' engine |
@@ -52,8 +52,8 @@ Background: `game_design.md` (the game), `ship_technology.md` (the ships' physic
 ## A tick
 
 ```
-Simulation::step(real_dt)                     whole ticks of 0.1 day
-  └─ tick()
+Simulation::step(real_dt)                     whole ticks of 0.1 day (simulation::step on the World)
+  └─ tick(World&)
        ├─ economy: production and consumption (EconomySystem::step); residents pay for what they used
        ├─ households, surface markets, labour, colonies, population, passengers
        ├─ events, particle events
