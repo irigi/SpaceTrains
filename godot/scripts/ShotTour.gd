@@ -404,16 +404,16 @@ func _close_zoom_shots(rig: Node3D) -> void:
         await _shoot("close_%s_path_later" % pick[1])
         var started := Time.get_ticks_usec()
         for i in 20:
-            main._update_fine_paths()
+            main.fine_lines.update_fine_paths()
         var cached_ms := float(Time.get_ticks_usec() - started) / 20000.0
         started = Time.get_ticks_usec()
         for i in 5:
-            for entry in main.fine_paths.values():
+            for entry in main.fine_lines.fine_paths.values():
                 entry["camera"] = 1.0e-9  # force a rebuild
-            main._update_fine_paths()
+            main.fine_lines.update_fine_paths()
         var rebuild_ms := float(Time.get_ticks_usec() - started) / 5000.0
         print("[ShotTour] close %s: min_distance %.8f, fine paths %d drawn, %.2f ms per frame (%.2f ms when all rebuilt)" % [
-            pick[1], float(rig.get("min_distance")), main.fine_paths.values().filter(func(e): return e["node"] != null and e["node"].visible).size(),
+            pick[1], float(rig.get("min_distance")), main.fine_lines.fine_paths.values().filter(func(e): return e["node"] != null and e["node"].visible).size(),
             cached_ms, rebuild_ms])
     if main.entity_nodes.has("earth_orbit") and main.entity_nodes.has("earth"):
         main.select_entity("earth_orbit", "station", true)
