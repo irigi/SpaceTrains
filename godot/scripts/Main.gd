@@ -442,8 +442,36 @@ func _quicksave_path() -> String:
 func _request_save_or_load(save: bool) -> void:
     if save:
         bridge.request_save(_quicksave_path())
+        _write_view(_view_path(_quicksave_path()))
     else:
         bridge.request_load(_quicksave_path())
+        _pending_view = _read_view(_view_path(_quicksave_path()))
+
+# The visual angles (station orbits round their planets, planet spins: DisplayClock) are not in
+# the simulation, so a save keeps them in a side file next to it, <save>.view.json, and a load
+# restores them with the loaded game's first snapshot (_reset_timeline). Older saves have none:
+# the angles then stay as they are.
+var _pending_view: Dictionary = {}
+
+func _view_path(save_path: String) -> String:
+    return save_path.get_basename() + ".view.json"
+
+# Written aside and renamed, as the bridge's files are.
+func _write_view(path: String) -> void:
+    var file := FileAccess.open(path + ".tmp", FileAccess.WRITE)
+    if file == null:
+        return
+    file.store_string(JSON.stringify(clock.export_view(), "", true, true))
+    file.close()
+    DirAccess.rename_absolute(path + ".tmp", path)
+
+func _read_view(path: String) -> Dictionary:
+    if not FileAccess.file_exists(path):
+        return {}
+    var json := JSON.new()
+    if json.parse(FileAccess.get_file_as_string(path)) != OK or typeof(json.data) != TYPE_DICTIONARY:
+        return {}
+    return json.data
 
 # Ship designs by class id ({name, ..., components: [...]}): the parts of every class for the
 # inspector's ship systems section. Written once by the bridge (per-ship fits later).
@@ -922,6 +950,8 @@ func _entity_name_map() -> Dictionary:
 
 func _reset_timeline() -> void:
     clock.reset()
+    clock.import_view(_pending_view)
+    _pending_view = {}
     path_motion.reset()
     economy_history.clear()
     fine_lines.reset()
