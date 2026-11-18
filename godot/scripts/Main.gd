@@ -435,9 +435,13 @@ func _unhandled_input(event: InputEvent) -> void:
         if event.double_click and selected_id != "" and entity_targets.has(selected_id):
             _focus_entity(selected_id, selected_kind)
 
+# The quick save's name in user://saves: shot tours use their own (ShotTour.gd), so they never
+# overwrite the player's quicksave.
+var quicksave_name := "quicksave"
+
 func _quicksave_path() -> String:
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://saves"))
-    return ProjectSettings.globalize_path("user://saves/quicksave.json")
+    return ProjectSettings.globalize_path("user://saves/%s.json" % quicksave_name)
 
 func _request_save_or_load(save: bool) -> void:
     if save:

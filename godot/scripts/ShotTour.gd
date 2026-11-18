@@ -46,6 +46,8 @@ func _ready() -> void:
         if arg.begins_with("--shot-tour="):
             out_dir = arg.trim_prefix("--shot-tour=")
     main = get_parent()
+    # The save/load section must not overwrite the player's quicksave.
+    main.quicksave_name = "shot_tour"
     _run.call_deferred()
 
 func _apply_debug_flags() -> void:
