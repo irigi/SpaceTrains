@@ -53,6 +53,9 @@ var command_write_pending := false
 var state: Dictionary = {}
 var snapshot_seq := -1
 var snapshot_arrival_s := 0.0
+# The sequence number of the last snapshot parsed, accepted or not: a rejected (older) one is
+# not parsed again every frame while its file stays.
+var _parsed_seq := -1
 var epoch := 0
 var status_text := ""
 var status_until_s := 0.0
@@ -307,7 +310,7 @@ func _attach_paths() -> int:
 func _read_snapshot() -> void:
     # The bridge bumps a small sequence file with every snapshot: parse only new ones.
     var seq_text := FileAccess.get_file_as_string(snapshot_path + ".seq")
-    if seq_text != "" and int(seq_text) == snapshot_seq:
+    if seq_text != "" and (int(seq_text) == snapshot_seq or int(seq_text) == _parsed_seq):
         return
     if not FileAccess.file_exists(snapshot_path):
         return
@@ -321,6 +324,7 @@ func _read_snapshot() -> void:
     if parse_status != OK or typeof(json.data) != TYPE_DICTIONARY:
         return
     var new_seq := int(json.data.get("snapshot_seq", -1))
+    _parsed_seq = new_seq
     if new_seq <= snapshot_seq:
         return
     var new_game_time_s := float(json.data.get("game_time_s", 0.0))
