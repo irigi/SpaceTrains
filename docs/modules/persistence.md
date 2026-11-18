@@ -20,7 +20,11 @@ data files.
 - Bridge: the command file's `request` number with `save_path` or `load_path`; the snapshot's `bridge.status` reports
   the result and `bridge.epoch` changes on every load.
 - UI: F5 quick save, F9 quick load (`user://saves/quicksave.json`); on a new epoch the UI forgets its timeline
-  (display clock, cached paths, price and economy history).
+  (display clock, cached paths, price and economy history). Shot tours save to `user://saves/shot_tour.json`
+  instead, so they never overwrite the player's quicksave.
+- Display-only state that is not in the simulation (the visual angles of station orbits and planet spins, the
+  station spin clock) goes in an optional side file written by Godot, `<save>.view.json` (`{"version": 1,
+  "visual_phase": {id: rad}, "spin_clock_s": s}`). The bridge never reads it; a save without it loads as before.
 
 ## Invariants
 

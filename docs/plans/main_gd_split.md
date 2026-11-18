@@ -145,5 +145,6 @@ are only those listed here. `Main.gd` is 1,157 lines (was 2,631).
   the output is searched for errors), the key-bindings test, and the shot tours on every commit against two runs on
   `main` (the numbers in the PR). The tours run one section per run (each section quits when done), start at day 30
   (the stations' detailed models are ready by then), and `--shot-pause` runs alone: on `main` it crashes Godot a
-  moment after its section, in worker-built station meshes (5 of 5 runs, 2026-11-17 night).
+  moment after its section, in worker-built station meshes (5 of 5 runs, 2026-11-17 night; a quit while a
+  background build ran, fixed 2026-11-18 by waiting for the builds in `Main._exit_tree`).
 
