@@ -28,10 +28,14 @@
 #include "simulation/query/Passengers.hpp"
 #include "simulation/query/ShipRates.hpp"
 #include "simulation/systems/Contracts.hpp"
+#include "simulation/systems/Failures.hpp"
+#include "simulation/systems/Households.hpp"
 #include "simulation/systems/Market.hpp"
 #include "simulation/systems/MissionPlanning.hpp"
 #include "simulation/systems/Passengers.hpp"
+#include "simulation/systems/Patrols.hpp"
 #include "simulation/systems/ShipOperations.hpp"
+#include "simulation/systems/Statistics.hpp"
 #include "trajectory/ChaseSolver.hpp"
 #include "trajectory/TrajectoryAudit.hpp"
 #include "trajectory/TrajectoryPlanner.hpp"
@@ -90,15 +94,7 @@ public:
     // cost per berth one way (carrier_margin x (its days out + return_share x the way back, at its
     // daily cost, plus propellant) over berths x fill_ref, plus the passenger's provisions); median
     // over departure dates. Written by `spacetrains_headless --write-reference-fares`.
-    struct ReferenceFareRow {
-        std::string origin_id;
-        std::string destination_id;
-        double fare_cr {0.0};
-        double days {0.0};
-        std::string class_id;
-        double fuel_out_kg {0.0};
-        double fuel_back_kg {0.0};
-    };
+    using ReferenceFareRow = systems::ReferenceFareRow;
     [[nodiscard]] std::vector<ReferenceFareRow> compute_reference_fares() const;
     // Tests and debugging: overwrite one good's stock at a station.
     void set_station_stock(const std::string& station_id, const std::string& commodity_id, double units);
@@ -138,6 +134,10 @@ public:
     [[nodiscard]] double station_profit_last_year(const domain::StationState& station) const;
     // The money journal (MoneyJournal.hpp): every transfer by account and category, and its history.
     [[nodiscard]] const MoneyJournal& money_journal() const { return journal_; }
+    // The running state, for calling systems:: and query:: on it directly (tests; after step 15 of
+    // docs/plans/simulation_split.md, Simulation holds the World and this stays).
+    [[nodiscard]] World& world() { return *this; }
+    [[nodiscard]] const World& world() const { return *this; }
     // What moved where (FlowRecord.hpp): goods, passengers, lanes, with a monthly history.
     [[nodiscard]] const FlowRecord& flow_record() const { return flows_; }
     // The real balance of a journal account (Earth, a colony, a faction, a station, its residents,
@@ -178,25 +178,11 @@ public:
     [[nodiscard]] bool employer_pays(domain::PassengerKind kind) const;
     // Share of a station's would-be settlers whose job repays a passage of this many years' wages.
     [[nodiscard]] double settler_share(double payback_years) const;
-    // The reference trip's cost to a settler in years of the resident wage.
-    [[nodiscard]] double payback_years(const std::string& origin_id, const std::string& destination_id) const;
     // Travellers by willingness band (what post_travellers would post over window_days of the
     // steady flows, plus those waiting spread over a route commitment), and the fares that
     // berths filled from them would take.
-    struct PassengerBand {
-        int band {0};
-        double people {0.0};
-        double max_cost_cr {0.0};
-        double value_of_time_cr_per_day {0.0};
-        bool queued {false};  // already waiting (not a flow still to come)
-        std::string home_pays {};   // a station whose residents pay out of their travel budget (households on)
-    };
-    struct PassengerRevenue {
-        double people {0.0};
-        double fares_cr {0.0};
-    };
-    [[nodiscard]] std::vector<PassengerBand> expected_travellers(const std::string& origin_id,
-        const std::string& destination_id, double window_days) const;
+    using PassengerBand = systems::PassengerBand;
+    using PassengerRevenue = systems::PassengerRevenue;
     [[nodiscard]] double carried_passengers_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] PassengerRevenue expected_passenger_revenue(const std::string& origin_id,
         const std::string& destination_id, double days, double window_days, double berths, double open_share) const;
@@ -208,18 +194,12 @@ public:
         double demand_per_trip, double berths) const;
     using RotationTour = simulation::RotationTour;
     [[nodiscard]] const std::map<std::string, RotationTour>& rotation_tours() const { return rotation_tours_; }
-    // Economy overhaul (Households.cpp): residents' wages and spending, station incomes, trade
+    // Economy overhaul (systems/Households.cpp): residents' wages and spending, station incomes, trade
     // with the background economies at their gateways.
     [[nodiscard]] bool households_on() const { return query::households_on(*this); }
-    [[nodiscard]] double economy_balance(const std::string& economy_id) const;
-    [[nodiscard]] double economy_credit_line(const std::string& economy_id) const;
     [[nodiscard]] double resident_wages_per_day(const domain::StationState& station) const;
-    [[nodiscard]] double per_capita_savings(const domain::StationState& station) const;
-    // A boom or outage at a gateway scales what its colony sells there (events.csv).
-    [[nodiscard]] double colony_sales_factor(const domain::StationState& station, const std::string& commodity_id) const;
-    [[nodiscard]] double household_travel_budget(const std::string& home_id, double window_days) const;
     [[nodiscard]] const domain::StationDefinition* yard_station_for(const domain::StationDefinition& home) const;
-    // Labour market (phase B, Households.cpp).
+    // Labour market (phase B, systems/Households.cpp).
     [[nodiscard]] bool labour_on() const { return query::labour_on(*this); }
     [[nodiscard]] bool in_labour_market(const domain::StationState& station) const;
     [[nodiscard]] double station_wage_cr_per_day(const domain::StationState& station) const;
@@ -231,13 +211,9 @@ public:
     [[nodiscard]] domain::OrderView order_view(const domain::StationState& state, const std::string& commodity_id) const;
     // The cash above which a station pays its faction tax: lower while the faction is in debt.
     [[nodiscard]] static double station_tax_ceiling(const domain::OpenEconomyDefinition& open, double treasury);
-    [[nodiscard]] double returner_gain_tail(double gain_cr) const;
     [[nodiscard]] double traveller_budget_tail(const std::string& home_id, double cost_cr) const;
 
 private:
-    // Economy overhaul (Households.cpp): the steps and the payments they make.
-    double& economy_account(const std::string& economy_id);
-    void pay_traveller_fare(domain::StationState& origin, const domain::PassengerGroup& group, double fares, int payee);
     void step_households(double dt_s);
     void step_surface_markets(double dt_s);
     void step_labour(double dt_s);
@@ -262,7 +238,6 @@ private:
     [[nodiscard]] double drive_life_h(const domain::ShipClassDefinition& design) const;
     [[nodiscard]] bool drive_life_allows(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
         const domain::TrajectoryPlan& plan) const;
-    void accrue_wear(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
     // Overhauls a worn drive or holed radiators where the port has the spares; true if the
     // ship went into the yard.
     bool consider_repair(domain::ShipState& ship);
@@ -361,8 +336,6 @@ private:
     [[nodiscard]] double provisionable_days(const domain::ShipState& ship, const domain::StationState& market) const;
     void buy_provisions(domain::ShipState& ship, domain::StationState& market, double days, bool departing);
     void accrue_operating_costs(domain::ShipState& ship, double dt_s);
-    void pay_home_station(domain::ShipState& ship, double amount, MoneyCategory category);
-    void pay_crew(domain::ShipState& ship, double amount, MoneyCategory category);
     // Open economy: residents pay their station for the goods the economy step used up, at what
     // the station paid ships for them; local production is free (step 17). The other side of
     // every payment is the external account.
@@ -397,87 +370,16 @@ private:
     // and every review the treasuries commission the ship with the best expected return.
     void step_fleet_investment();
     void sell_ship(std::size_t index);
-    // Failures and salvage (Failures.cpp; docs/modules/ships_and_fleet.md, "Failures and salvage").
-    [[nodiscard]] bool failures_on() const { return universe_.failures.failures; }
-    // A uniform draw in (0, 1] from the ship's own stream (data seed, ship id, salt).
-    [[nodiscard]] double ship_uniform(const std::string& ship_id, const std::string& salt) const;
-    [[nodiscard]] double weibull_scale_s() const;
-    // Draws the ship's failure age: as a new hull, or (starting fleet) at an age from the
-    // fleet's steady state, conditional on having lived that long.
-    void draw_failure_clock(domain::ShipState& ship, bool aged);
+    // Failures and salvage (systems/Failures.cpp; docs/modules/ships_and_fleet.md, "Failures and salvage").
     void init_failure_clocks();
     void step_failures();
-    void fail_ship(std::size_t index);
-    [[nodiscard]] bool local_leg(const domain::MissionAssignment& mission) const;
-    [[nodiscard]] double sun_mu() const;
-    [[nodiscard]] double cargo_value_cr(const std::vector<domain::CargoLot>& cargo, const std::string& station_id) const;
-    void step_derelicts();
-    // A salvage run: from the ship's port to the derelict (rendezvous) and on to a station.
-    struct SalvagePlan {
-        bool feasible {false};
-        std::string destination_id;
-        double depart_s {0.0};
-        double rendezvous_s {0.0};
-        double arrival_s {0.0};
-        double propellant_load_kg {0.0};
-        double propellant_used_kg {0.0};
-        std::vector<math::Vec3d> path;
-        std::vector<double> times;
-        std::vector<double> propellant;   // aboard (plasma ships burn as they go)
-        std::string trajectory_type;
-        double best_dv_mps {0.0};        // diagnostics: cheapest way out found, and what the ship has
-        double dv_available_mps {0.0};
-    };
-    // Pure (runs in parallel): leg one only, or both legs (home to the best of the ship's home,
-    // the derelict's destination and its origin). The cheapest run (propellant at the fuel price,
-    // days at cr_per_day, less the prize at the port), meeting the wreck by latest_meet_s.
-    [[nodiscard]] SalvagePlan plan_salvage(const domain::ShipState& ship, const domain::DerelictState& derelict,
-        bool both_legs, double latest_meet_s, double fuel_cr_per_kg, double cr_per_day) const;
-    [[nodiscard]] std::string primary_body_id(const std::string& station_id) const;
-    [[nodiscard]] bool can_race(const domain::ShipState& ship) const;
-    void start_salvage_run(domain::ShipState& ship, domain::DerelictState& derelict, const SalvagePlan& plan,
-        double value_cr, double cost_cr);
-    void review_salvage();
-    // The ship's best salvage run now (dispatch compares it with its best mission): profit per
-    // day over the run, or nothing.
-    struct SalvageOption {
-        std::size_t derelict_index {0};
-        SalvagePlan plan;
-        double value_cr {0.0};
-        double cost_cr {0.0};
-        double per_day {0.0};
-    };
-    [[nodiscard]] std::optional<SalvageOption> best_salvage_for(const domain::ShipState& ship, double spot_per_day) const;
     // Dispatch hook: sets out on a salvage run if one pays more per day than `spot_per_day`.
     bool consider_salvage(domain::ShipState& ship, double spot_per_day);
     void reach_derelict(domain::ShipState& ship);
-    [[nodiscard]] int fleet_places_held_for_others(const std::string& faction_id) const;
-    // Police inspections (Patrols.cpp).
+    // Police inspections (systems/Patrols.cpp).
     void init_patrols();
     void step_patrols(double dt_s);
-    struct PatrolSortie {
-        bool feasible {false};
-        std::string target_ship_id;
-        double meet_s {0.0};
-        double propellant_kg {0.0};
-        std::vector<math::Vec3d> path;
-        std::vector<double> times;
-        std::vector<double> propellant;
-        double objective {0.0};
-    };
-    // Pure (runs in parallel): the cheapest meeting with `target` from the cutter's state now,
-    // with a way home after the inspection.
-    [[nodiscard]] PatrolSortie plan_sortie(const domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v,
-        const domain::ShipState& target) const;
-    // The cheapest way home from (r, v) at t_s with the load aboard, keeping `reserve_kg` (to the
-    // home planet); `estimate_only`: time and propellant from the grid, no refinement or path.
-    [[nodiscard]] trajectory::ChasePlan plan_patrol_home(const domain::PatrolState& patrol, const math::Vec3d& r,
-        const math::Vec3d& v, double t_s, double propellant_kg, double reserve_kg, bool estimate_only = false) const;
-    [[nodiscard]] double patrol_kg_per_s(const domain::PatrolState& patrol) const;
-    bool start_sortie(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
-    void send_patrol_home(domain::PatrolState& patrol, const math::Vec3d& r, const math::Vec3d& v);
     [[nodiscard]] math::Vec3d patrol_position(const domain::PatrolState& patrol) const;
-    void pay_patrol(const domain::PatrolState& patrol, double amount);
     // One step of a fleet review: probes a batch of candidates (their cargo runs from the
     // yard, kept in review_probes_ for the rest of the review), or, once every candidate that
     // could still win has been probed, buys the best one.
@@ -487,39 +389,18 @@ private:
     // Dispatch's best mission for a ship flown as `ship_class` (its own class, or a tank
     // variant it could refit to). Planning only: changes nothing but the plan caches.
     using MissionChoice = systems::MissionChoice;
-    // --- Passengers (src/simulation/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
+    // --- Passengers (src/simulation/systems/Passengers.cpp, docs/modules/ships_and_fleet.md) ---
     [[nodiscard]] bool passengers_on() const { return query::passengers_on(*this); }
-    [[nodiscard]] bool passenger_leg_waiting(const domain::StationState& origin, const std::string& destination_id) const;
     [[nodiscard]] bool migration_by_ship() const { return query::migration_by_ship(*this); }
     [[nodiscard]] bool rotation_on() const { return query::rotation_on(*this); }
     [[nodiscard]] bool visits_on() const { return query::visits_on(*this); }
-    // Discretionary trips (step 5) per day origin -> destination at reference cost: a gravity
-    // model, visit_trips_per_person_year x the origin's people x the destination's share of the
-    // others, deterred by the trip's cost against a year's income (elasticity). Earth weighs in
-    // as earth_population_weight, shared by its gateways. 0 without a fare both ways.
-    [[nodiscard]] double visitor_trips_per_day(const std::string& origin_id, const std::string& destination_id) const;
     [[nodiscard]] bool is_earth_gateway(const std::string& station_id) const;
-    // What a person and their consumables weigh over a leg of `days`.
-    [[nodiscard]] double passenger_kg(double days) const;
-    [[nodiscard]] double value_of_time_cr_per_day(domain::PassengerKind kind) const;
-    // A person's costs of a leg other than the fare: time (flight and the reconditioning after
-    // it) and radiation (as hazard pay values it).
-    [[nodiscard]] double passenger_nonfare_cr(double value_of_time, double days, double dose_msv_per_day) const;
     [[nodiscard]] const domain::PassengerDefinition::ReferenceFare* reference_fare(
         const std::string& origin_id, const std::string& destination_id) const;
-    // The generalized cost of the reference trip for someone with this value of time.
-    [[nodiscard]] double reference_cost_cr(const std::string& origin_id, const std::string& destination_id,
-        double value_of_time) const;
-    // Adds `count` people who want to travel at reference cost, spread over the demand bands
-    // (fare elasticity): more come if trips are cheaper, fewer if dearer. `fixed`: exactly
-    // `count` people travel (a relief, a worker going home), their budgets spread the same way.
-    [[nodiscard]] std::vector<PassengerBand> passenger_bands(domain::PassengerKind kind, const std::string& origin_id,
-        const std::string& destination_id, double count, bool fixed, const std::string& employer = {}) const;
     // Settlers a colony recruits on Earth (labour market): their employer id is "colony:<economy id>".
     [[nodiscard]] static bool colony_employer(const std::string& work_station_id) {
         return query::colony_employer(work_station_id);
     }
-    [[nodiscard]] double colony_recruits_per_day(const domain::BackgroundEconomyDefinition& economy) const;
 public:
     using ColonyState = simulation::ColonyState;
     // Colonies: their people against the data population (sales and imports scale with it when
@@ -533,9 +414,6 @@ public:
     [[nodiscard]] static double colony_affordability(double account, double credit_line, double buffer);
     // The share of a good's base imports a colony buys at affordability f (essentials first).
     [[nodiscard]] static double colony_import_share(double affordability, bool essential);
-    // Growth multiple from its import satisfaction (1 when off): 2 x satisfaction - 1.
-    [[nodiscard]] double colony_growth_factor(const std::string& economy_id) const;
-    [[nodiscard]] double colony_import_value_per_day(const std::string& economy_id) const;
 private:
     void post_travellers(domain::StationState& origin, domain::PassengerKind kind, const std::string& destination_id,
         const std::string& work_station_id, double count, bool fixed = false);
@@ -562,9 +440,6 @@ private:
     // up to `berths`. A group pays the reference fare adjusted by how much faster (or slower)
     // and safer this trip is than the reference one, down to what it can still afford.
     using PassengerOffer = systems::PassengerOffer;
-    [[nodiscard]] PassengerOffer passenger_offer(const domain::ShipState& ship, const domain::ShipClassDefinition& design,
-        const domain::StationState& origin, const domain::StationDefinition& destination, double days,
-        double propellant_cr_per_kg, double berths) const;
     void board_passengers(domain::ShipState& ship, domain::StationState& origin, const std::string& destination_id,
         const std::vector<MissionChoice::PassengerPick>& picks, double days);
     void land_passengers(domain::ShipState& ship, domain::StationState& destination);
@@ -612,7 +487,6 @@ private:
     // Whether a leg of this length keeps its crew under the career limit.
     [[nodiscard]] bool leg_dose_allowed(const domain::ShipClassDefinition& design,
         const domain::StationDefinition& from, const domain::StationDefinition& to, double time_s, double days) const;
-    void accrue_radiation(domain::ShipState& ship, const domain::ShipClassDefinition& design, double days);
     // Where a ship is from the Sun now: its station, or interpolated over its leg.
     [[nodiscard]] double ship_r_au(const domain::ShipState& ship) const;
     // Spoilage per day of a good in this design's hold (a cold hold slows food and medicine).

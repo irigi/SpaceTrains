@@ -5,9 +5,9 @@ planned) → **Not doing** → standing decisions and checks → **Done**. The d
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (the four architecture plans); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
 
-**Status.** `main` holds everything up to PR #41 (station designs, eclipses, moons, Earth Sunward rename, sharper
+**Status.** `main` holds everything up to PR #43 (station designs, eclipses, moons, Earth Sunward rename, sharper
 moon textures and a Triton map, the outside review's architecture ideas and studies, the architecture plans in
-`docs/plans/`, steps 1-2 of the `Simulation` split), no open PRs.
+`docs/plans/`, steps 1-5 of the `Simulation` split), no open PRs.
 Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 131 ships profitable,
 ~4,500 boardings, drift 0, ~150 s per run.
 
@@ -106,7 +106,7 @@ the check is the standing one for refactors (test suites, byte-identical saves a
      (what may run in parallel); shorter rebuilds; a clear place for anything new.
    **Plan:** `docs/plans/simulation_split.md` (it moves Snapshot last, since Snapshot calls eight topics, puts a
    read-only query layer first, and moves the Market cycle early, since most topics price goods through it).
-   Steps 1-2 done (PR #41).
+   Steps 1-2 done (PR #41), 3-5 (PR #43).
 
 2. **Split `godot/scripts/Main.gd`** (2,631 lines). It mixes five jobs. Suggested files, in this order:
    - `BridgeClient.gd`: starting and stopping the bridge, the command file, reading the snapshot, paths, designs,

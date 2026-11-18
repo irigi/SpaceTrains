@@ -1,6 +1,6 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
@@ -213,15 +213,50 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    - Risk specific to this step: the parallel planning (`parallel_for` in `compute_reference_prices`, the
      deferred plans in `choose_missions` and the contract passes). The default-thread and one-thread saves must both
      match; run the one-thread check twice.
-6. **ShipOperations**, the parts that change state and price goods (`daily_crew_cost`, `buy_provisions`,
+6. **ShipOperations** (done 2026-11-17), the parts that change state and price goods (`daily_crew_cost`, `buy_provisions`,
    `buy_propellant`, `consider_repair`, crew pay, wear and repair, boil-off, particle events). Needs only Market and
    the rates from step 4.
-7. **Statistics** (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`). Needs StationSystems
+   As built: `systems/ShipOperations` holds the nine members that changed state; `ShipOperations.cpp` is gone.
+   Forwarders stay (in `Forwarders.cpp`, with the topic file's `query/` forwarders) for the five called from outside:
+   `buy_provisions` and `buy_propellant` (ShipPhases, Failures), `consider_repair` (ShipPhases),
+   `accrue_operating_costs` and `step_particle_events` (`tick`). `pay_crew`, `pay_home_station`, `accrue_radiation`
+   and `accrue_wear` were called only from inside, so they are file-local and their `Simulation` declarations are
+   gone. Saves and audit identical, `--profile` unchanged (21.2 s / 365 days, as step 5).
+7. **Statistics** (done 2026-11-17) (journal set-up and the monthly close, `build_stats_json`, `flow_stocks`). Needs StationSystems
    and `query/Finance`.
-8. **Patrols** (453 lines; needs `station_price` and `daily_crew_cost`).
-9. **Households + Passengers** together (their cycle). Two commits if the diff is too big: Households first with
+   As built: `Statistics.cpp` moved whole to `systems/` (five members: `setup_money_journal`, `flow_stocks`,
+   `account_balance`, `close_journal_period`, `build_stats_json`); all five keep forwarders (the constructor, `tick`,
+   persistence, the bridge, reports and a test call them), in `Forwarders.cpp` with the file's `query/` forwarders.
+   The Statistics test is in `tests/test_world.cpp`. It reaches the state through a new public
+   `Simulation::world()`, not `make_world`: the constructor still calls members of steps 8-11 (`init_patrols`,
+   `init_failure_clocks`, `compute_rotation_tours`, ...), so a `World` cannot be built without a `Simulation`
+   until step 15.
+8. **Patrols** (done 2026-11-17; 453 lines; needs `station_price` and `daily_crew_cost`).
+   As built: `Patrols.cpp` moved whole to `systems/`. Forwarders for the three called from outside (`init_patrols`
+   from the constructor, `step_patrols` from `tick`, `patrol_position` from Snapshot); the other six (`pay_patrol`,
+   `plan_patrol_home`, `patrol_kg_per_s`, `plan_sortie`, `start_sortie`, `send_patrol_home`) and `PatrolSortie`
+   are file-local and gone from `Simulation.hpp`. Not mechanical: `plan_patrol_home`'s default argument moved from
+   the declaration to the definition, and `patrol_kg_per_s` is declared ahead (it is defined after its first
+   caller). The Patrols test is in `tests/test_world.cpp`.
+9. **Households + Passengers** (done 2026-11-17) together (their cycle). Two commits if the diff is too big: Households first with
    forwarders for the four Passengers functions it calls, then Passengers.
-10. **Failures** (needs `land_passengers` from step 9, Contracts and ShipOperations).
+   As built: one commit (the conversion is scripted; the script is not committed).
+   `Households.cpp` moved whole to `systems/`; `Passengers.cpp` too, taking back the step-5 bodies
+   (`port_fuel_price`, `live_fare_cr`, `passenger_offer`) at their old places (`git diff -B -M` pairs the rename).
+   `PassengerBand`, `PassengerRevenue` and `ReferenceFareRow` live in `systems/Passengers.hpp` with aliases in
+   `Simulation`. Forwarders (in `Forwarders.cpp`) for the 33 members called from outside, for
+   `port_fuel_price` and `live_fare_cr`, and for the query forwarders still called; the seven query forwarders called only from these two files are gone (and the `passenger_offer` forwarder), as are the
+   `Simulation` declarations of the members used only inside them. Seven used only in their own file
+   (`colony_sales_factor`, `colony_import_value_per_day`, `payback_years`, `reference_cost_cr`, `passenger_bands`,
+   `visitor_trips_per_day`, `expected_travellers`) are file-local, declared ahead in an anonymous namespace so the
+   code keeps its order. Not mechanical: `per_capita_savings` never read the state, so it takes no `World`.
+10. **Failures** (done 2026-11-17; 812 lines; needs `land_passengers` from step 9, Contracts and ShipOperations).
+   As built: `Failures.cpp` moved whole to `systems/` (converted by step 9's script made general; not committed). Forwarders for the four called from outside (`init_failure_clocks` from the constructor and the
+   loader, `step_failures` from `tick`, `consider_salvage` and `reach_derelict` from ShipPhases); eleven used only
+   here are file-local, with `SalvagePlan` and `SalvageOption`; the query forwarders `sun_mu`, `local_leg` and
+   `primary_body_id` are gone. Not mechanical: `failures_on` (inline in `Simulation.hpp`, used only here) is
+   file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written): it is
+   file-local and `[[maybe_unused]]`, kept as it was rather than deleted inside a move.
 11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
 12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).
@@ -240,6 +275,7 @@ Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after 
 
 - `tests/test_world.cpp` with a helper `make_world(data_root, adjust)` that builds a `World` the way
   `from_data_root` does (shared code, not a copy).
+  Until step 15 the test file has `make_sim` instead and works on `sim.world()` (see step 7).
 - After step 7: a Statistics test (a hand-posted transfer appears in the right account and the monthly close
   samples it).
 - After step 8: a Patrols test (one cutter, one ship to inspect; the sortie is planned and paid).
