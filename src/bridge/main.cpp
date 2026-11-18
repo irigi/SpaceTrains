@@ -279,6 +279,9 @@ int main(int argc, char** argv) {
     // drops what it remembered of the old timeline).
     int epoch = 0;
     std::string command_status;
+    // The last save/load request number handled (the snapshot reports it, so the UI knows which
+    // request command_status answers).
+    double last_request = -1.0;
     std::string paths_signature = "-";
     std::uint64_t paths_seq = 0;
     std::string designs_signature = "-";
@@ -391,7 +394,8 @@ int main(int argc, char** argv) {
         }
         auto json = simulation.build_bridge_snapshot_json(paused, seq, snapshot_real_time_s, false);
         json.pop_back();  // the closing brace
-        json += std::format(",\"bridge\":{{\"epoch\":{},\"status\":\"{}\"}}}}", epoch, command_status);
+        json += std::format(",\"bridge\":{{\"epoch\":{},\"status\":\"{}\",\"request\":{:.0f}}}}}", epoch, command_status,
+            last_request);
         write_text_file(config.snapshot_file, json);
         // The UI polls this small file every frame and reads the snapshot only when it changes.
         write_text_file(config.snapshot_file + ".seq", std::to_string(seq));
@@ -405,7 +409,6 @@ int main(int argc, char** argv) {
     // Longer stalls (a debugger, a suspended laptop) drop time rather than race.
     constexpr double kMaxCatchUpS = 4.0;
     std::string last_command_text;
-    double last_request = -1.0;
     auto last_snapshot = std::chrono::steady_clock::now();
     bool dirty = false;  // a change not yet in a snapshot
     double owed_real_s = 0.0;  // real time the simulation has not caught up yet

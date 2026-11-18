@@ -446,28 +446,46 @@ func _quicksave_path() -> String:
 func _request_save_or_load(save: bool) -> void:
     if save:
         bridge.request_save(_quicksave_path())
-        _write_view(_view_path(_quicksave_path()))
+        _view_save = {"request": bridge.command_request, "path": _view_path(_quicksave_path())}
     else:
         bridge.request_load(_quicksave_path())
-        _pending_view = _read_view(_view_path(_quicksave_path()))
+        _view_load_path = _view_path(_quicksave_path())
 
 # The visual angles (station orbits round their planets, planet spins: DisplayClock) are not in
 # the simulation, so a save keeps them in a side file next to it, <save>.view.json, and a load
 # restores them with the loaded game's first snapshot (_reset_timeline). Older saves have none:
 # the angles then stay as they are.
-var _pending_view: Dictionary = {}
+# A save request ({request, path}) whose side file is written with the snapshot that reports it
+# saved (the angles of that moment, when the bridge saved): a failed save, or one overtaken by a
+# load, leaves the side file alone.
+var _view_save: Dictionary = {}
+# The side file of the last load requested: read when the loaded game arrives (after any save
+# still in flight has written its side file).
+var _view_load_path := ""
 
 func _view_path(save_path: String) -> String:
     return save_path.get_basename() + ".view.json"
 
+func _write_view_once_saved(state: Dictionary) -> void:
+    if _view_save.is_empty():
+        return
+    var info: Dictionary = state.get("bridge", {})
+    if int(info.get("request", -1)) < int(_view_save["request"]):
+        return
+    if String(info.get("status", "")).begins_with("Saved"):
+        _write_view(String(_view_save["path"]), clock.export_view())
+    _view_save = {}
+
 # Written aside and renamed, as the bridge's files are.
-func _write_view(path: String) -> void:
+func _write_view(path: String, view: Dictionary) -> void:
     var file := FileAccess.open(path + ".tmp", FileAccess.WRITE)
     if file == null:
+        push_warning("Could not write %s" % path)
         return
-    file.store_string(JSON.stringify(clock.export_view(), "", true, true))
+    file.store_string(JSON.stringify(view, "", true, true))
     file.close()
-    DirAccess.rename_absolute(path + ".tmp", path)
+    if DirAccess.rename_absolute(path + ".tmp", path) != OK:
+        push_warning("Could not write %s" % path)
 
 func _read_view(path: String) -> Dictionary:
     if not FileAccess.file_exists(path):
@@ -542,6 +560,7 @@ func _on_snapshot_rejected(seq: int, game_time_s: float, shown_game_time_s: floa
 
 func _on_snapshot_received(state: Dictionary, _seq: int) -> void:
     bridge_state = state
+    _write_view_once_saved(state)
     clock.on_snapshot(float(state.get("game_time_s", 0.0)), bridge.snapshot_arrival_s)
     _apply_snapshot()
 
@@ -954,8 +973,9 @@ func _entity_name_map() -> Dictionary:
 
 func _reset_timeline() -> void:
     clock.reset()
-    clock.import_view(_pending_view)
-    _pending_view = {}
+    if _view_load_path != "":
+        clock.import_view(_read_view(_view_load_path))
+        _view_load_path = ""
     path_motion.reset()
     economy_history.clear()
     fine_lines.reset()

@@ -255,20 +255,25 @@ func _run() -> void:
     if OS.get_cmdline_user_args().has("--shot-saveload"):
         var saved_day := float(main.clock.display_time_s) / 86400.0
         main._request_save_or_load(true)
-        # The visual angles (station orbits, planet spins) must come back too: compared when the
-        # loaded game's first snapshot restores them (Main handles epoch_changed first).
-        var saved_phase: Dictionary = main.clock.visual_phase.duplicate()
-        var restored := {"moved": -1.0, "error": -1.0}
         await get_tree().create_timer(3.0).timeout
-        restored["moved"] = _largest_angle_difference(saved_phase, main.clock.visual_phase)
-        main.bridge.epoch_changed.connect(func() -> void:
-            restored["error"] = _largest_angle_difference(saved_phase, main.clock.visual_phase), CONNECT_ONE_SHOT)
+        # The visual angles (station orbits, planet spins) must come back too: the side file holds
+        # them as they were when the bridge saved. The load runs paused (the angles stand still),
+        # and they are compared 2 s after it, so anything that moved them after the restore shows.
+        var view: Dictionary = main._read_view(main._view_path(main._quicksave_path()))
+        var saved_phase: Dictionary = view.get("visual_phase", {})
+        var moved := _largest_angle_difference(saved_phase, main.clock.visual_phase)
+        main._on_pause_toggled()
         main._request_save_or_load(false)
         await get_tree().create_timer(2.0).timeout
+        var error := _largest_angle_difference(saved_phase, main.clock.visual_phase)
+        main._on_pause_toggled()
         print("[ShotTour] save/load: saved at day %.1f, after load display day %.1f, status '%s'" % [
             saved_day, float(main.clock.display_time_s) / 86400.0, String(main.bridge.status_text)])
-        print("[ShotTour] save/load: %d visual angles, moved up to %.3f rad before the load, %.6f rad from the saved ones after it" % [
-            saved_phase.size(), float(restored["moved"]), float(restored["error"])])
+        if saved_phase.is_empty() or not String(main.bridge.status_text).begins_with("Loaded"):
+            print("[ShotTour] save/load: FAILED, no side file or no load (%d angles)" % saved_phase.size())
+        else:
+            print("[ShotTour] save/load: %d visual angles, moved up to %.3f rad before the load, %.6f rad from the saved ones after it" % [
+                saved_phase.size(), moved, error])
         await _shoot("after_load")
     # The ship systems section of the inspector (schematic), for one ship of each drive: a
     # burning thermal ship if there is one, then the same with the mouse over the schematic.

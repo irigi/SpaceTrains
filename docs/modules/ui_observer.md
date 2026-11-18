@@ -54,7 +54,8 @@
   capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
   are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `DisplayClock.advance_visual_phases` keeps the phases.
   A save keeps them, with the station spin clock, in a side file next to it (`quicksave.view.json`,
-  `DisplayClock.export_view`), and a load restores them with the loaded game's first snapshot (`import_view` from
+  `DisplayClock.export_view`, written with the snapshot whose `bridge.request` and `status` report the save done, so a
+  failed save leaves it alone), and a load reads and restores them with the loaded game's first snapshot (`import_view` from
   `_reset_timeline`, 2026-11-18; before, a load kept the angles the screen had, so a station sunlit when saved could
   come back in shadow). A save without the side file loads with the angles as they are;
   `PathMotion.station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
