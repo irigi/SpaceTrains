@@ -7,10 +7,11 @@ data files.
 
 ## Interfaces
 
-- `Simulation::save_state_json()` / `Simulation::load_state_json(text)` (`src/persistence/SimulationPersistence.cpp`).
-  A load throws on a bad or foreign file and leaves the game as it was: it saves the state first and loads that
+- `persistence::save_state_json(const World&)` / `persistence::load_state_json(World&, text)`
+  (`src/persistence/SimulationPersistence.{hpp,cpp}`), called through `Simulation::save_state_json()` /
+  `Simulation::load_state_json(text)`. A load throws on a bad or foreign file and leaves the game as it was: it saves the state first and loads that
   back if anything in the file fails.
-- `Simulation::data_fingerprint()`: FNV-1a over the definitions a save depends on (stations, ship classes, goods,
+- `persistence::data_fingerprint(const World&)` (and `Simulation::data_fingerprint()`): FNV-1a over the definitions a save depends on (stations, ship classes, goods,
   recipes, the passenger, environment and labour settings); a save made with other data is refused. It is
   deliberately narrower than the bridge's opening-cache key, so a save still loads after, say, a price tweak.
 - `persistence::Json` (`src/persistence/Json.*`): a small JSON value with ordered objects; numbers are written in the

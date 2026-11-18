@@ -1,6 +1,6 @@
 # SpaceTrains Roadmap
 
-Consolidated with the user 2026-11-02. Order: **To do** (top, in order) → **Architecture changes** (recommended, the `Simulation` split under way) → **Parked** (kept in mind, not
+Consolidated with the user 2026-11-02. Order: **To do** (top, in order) → **Architecture changes** (recommended, the `Simulation` split done) → **Parked** (kept in mind, not
 planned) → **Not doing** → standing decisions and checks → **Done**. The design as built is in `docs/modules/`
 (start with `docs/architecture_overview.md`); plans being worked on are in `docs/plans/` (the four architecture plans); shelved concepts in
 `docs/archive/`; studies in `docs/studies/`.
@@ -79,7 +79,7 @@ Benchmark (4 starts × 1,460 days, 2026-10-26): unmet demand 0.2 ± 0.2%, 87 of 
    game is and why (observer sandbox, physical and economic feasibility, 2D by design, technology era), pointing to
    `docs/modules/` for how it is built, so it cannot go stale again in the same way.
 
-## Architecture changes (recommended by an outside review, 2026-11-12; planned 2026-11-16; the `Simulation` split under way)
+## Architecture changes (recommended by an outside review, 2026-11-12; planned 2026-11-16; the `Simulation` split done)
 
 The foundations (headless-first core, determinism, data-driven content, the benchmark discipline) are sound and
 nothing needs a rewrite; in particular **no port to Rust** (the gains, threading and memory safety, are already
@@ -106,7 +106,8 @@ the check is the standing one for refactors (test suites, byte-identical saves a
      (what may run in parallel); shorter rebuilds; a clear place for anything new.
    **Plan:** `docs/plans/simulation_split.md` (it moves Snapshot last, since Snapshot calls eight topics, puts a
    read-only query layer first, and moves the Market cycle early, since most topics price goods through it).
-   Steps 1-2 done (PR #41), 3-5 (PR #43).
+   **Done** (2026-11-18): steps 1-2 (PR #41), 3-5 (PR #43), 6-10 (PR #44), 11-16 (`refactor/world_split_4`).
+   `Simulation` owns a `std::unique_ptr<World>` and runs the tick; the rules are systems on `World`.
 
 2. **Split `godot/scripts/Main.gd`** (2,631 lines; done 2026-11-18 on `refactor/main_gd_split`, `Main.gd` is now
    1,157 lines, see the plan's "As built"). It mixed five jobs. Files, in this order:
@@ -156,7 +157,7 @@ limit the fleet size (not profiled). Profile before touching them.
 - **A thin player stake** (outside review 2026-11-12). The player becomes the treasurer of one faction and
   nothing more: they decide when that faction buys or sells a ship, of which class and tank size, and where it is
   based. Everything else stays autonomous: the ships still dispatch themselves, and the other factions keep
-  today's rules (`FleetInvestment.cpp`), so the player competes with the same logic that runs now. The purchase
+  today's rules (`systems/FleetInvestment.cpp`), so the player competes with the same logic that runs now. The purchase
   valuations the factions already compute are shown to the player as advice (for example "a plasma freighter based at Ceres is
   expected to return 9% a year"). It gives the watching a stake (my ships, my balance sheet, was my purchase
   right?) at a small cost: a switch that takes one faction out of the automatic review, three or four commands

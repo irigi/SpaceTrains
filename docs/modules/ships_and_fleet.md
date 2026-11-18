@@ -7,9 +7,9 @@ orders and money: `economy.md`.
 - `src/simulation/systems/ShipOperations.cpp`: capital and crew costs, provisions, radiation, wear and repair, boil-off,
   propellant purchases;
 - `src/simulation/systems/MissionPlanning.cpp`: leg estimates and dispatch (`systems::MissionPass`);
-- `src/simulation/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
+- `src/simulation/systems/ShipPhases.cpp`: a ship's phases (idle, refitting, awaiting departure, in transit, arrival) and
   refits;
-- `src/simulation/FleetInvestment.cpp`: selling and buying ships (`Simulation::InvestmentReview`);
+- `src/simulation/systems/FleetInvestment.cpp`: selling and buying ships (`InvestmentReview`);
 - `src/simulation/systems/Failures.cpp`: failure clocks, derelicts, salvage races, replacement claims;
 - `src/simulation/systems/Patrols.cpp`: police cutters and inspections;
 - `src/simulation/systems/Passengers.cpp`, `src/simulation/CrewEnvironment.cpp`, `src/domain/ShipDesign.cpp` (designs from parts).
@@ -36,7 +36,7 @@ and provisioning.
 
 ## Dispatch (`choose_mission`)
 
-A dispatch pass (`Simulation::MissionPass`) plans one ship's options from its port and picks the best by profit
+A dispatch pass (`systems::MissionPass`, file-local in `systems/MissionPlanning.cpp`) plans one ship's options from its port and picks the best by profit
 per day. Plans it has not computed yet are queued and computed in parallel, then the pass is repeated, so the last
 pass is exactly the sequential result (`choose_mission`, `choose_missions` for several ships at once). Its steps,
 in order:
@@ -185,7 +185,7 @@ berths, and those that left empty while people waited), and the legs flown in al
   - The passenger bound assumes a ship twice as fast as the reference carrier, filled the same way, and is
     taken as the larger of the cargo and passenger bounds (a passenger run is valued on its own).
 
-## Fleet investment (`step_fleet_investment`, `Simulation::InvestmentReview`)
+## Fleet investment (`step_fleet_investment`, `InvestmentReview`, file-local in `systems/FleetInvestment.cpp`)
 
 - **Selling:** a ship laid up for `layup_sale_days` without a break is sold for `salvage_fraction` of its value
   to its faction's treasury. Its cash or debt goes to its home station. It stays in the audit as `(sold)`.

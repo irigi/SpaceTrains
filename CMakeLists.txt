@@ -49,6 +49,7 @@ add_library(spacetrains_core
     src/variable_isp/GeneralTransfer.cpp
     src/economy/EconomySystem.cpp
     src/simulation/Simulation.cpp
+    src/simulation/WorldSetup.cpp
     src/simulation/query/Accounts.cpp
     src/simulation/query/Events.cpp
     src/simulation/query/Finance.cpp
@@ -57,20 +58,19 @@ add_library(spacetrains_core
     src/simulation/query/Passengers.cpp
     src/simulation/query/Positions.cpp
     src/simulation/query/ShipRates.cpp
-    src/simulation/Forwarders.cpp
     src/simulation/systems/Contracts.cpp
     src/simulation/systems/Failures.cpp
+    src/simulation/systems/FleetInvestment.cpp
     src/simulation/systems/Households.cpp
     src/simulation/systems/Market.cpp
     src/simulation/systems/MissionPlanning.cpp
     src/simulation/systems/Passengers.cpp
     src/simulation/systems/Patrols.cpp
+    src/simulation/systems/ShipPhases.cpp
+    src/simulation/systems/Snapshot.cpp
     src/simulation/systems/ShipOperations.cpp
     src/simulation/systems/StationSystems.cpp
     src/simulation/systems/Statistics.cpp
-    src/simulation/ShipPhases.cpp
-    src/simulation/FleetInvestment.cpp
-    src/simulation/Snapshot.cpp
     src/simulation/CrewEnvironment.cpp
     src/simulation/MoneyJournal.cpp
     src/simulation/FlowRecord.cpp

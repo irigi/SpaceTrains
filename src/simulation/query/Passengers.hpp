@@ -10,15 +10,15 @@
 
 namespace spacetrains::simulation::query {
 
-[[nodiscard]] inline bool passengers_on(const World& w) { return w.universe_.passengers.enabled != 0.0; }
+[[nodiscard]] inline bool passengers_on(const World& w) { return w.data.universe.passengers.enabled != 0.0; }
 [[nodiscard]] inline bool migration_by_ship(const World& w) {
-    return passengers_on(w) && w.universe_.passengers.migration != 0.0;
+    return passengers_on(w) && w.data.universe.passengers.migration != 0.0;
 }
 [[nodiscard]] inline bool rotation_on(const World& w) {
-    return passengers_on(w) && w.universe_.passengers.rotation != 0.0;
+    return passengers_on(w) && w.data.universe.passengers.rotation != 0.0;
 }
 [[nodiscard]] inline bool visits_on(const World& w) {
-    return passengers_on(w) && w.universe_.passengers.discretionary != 0.0;
+    return passengers_on(w) && w.data.universe.passengers.discretionary != 0.0;
 }
 [[nodiscard]] bool employer_pays(const World& w, domain::PassengerKind kind);
 [[nodiscard]] double passenger_kg(const World& w, double days);

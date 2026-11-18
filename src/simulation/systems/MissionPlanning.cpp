@@ -10,6 +10,7 @@
 #include <format>
 #include <iostream>
 #include <limits>
+#include <utility>
 
 #include "simulation/SimulationInternal.hpp"
 #include "simulation/query/Lookups.hpp"
@@ -38,9 +39,9 @@ LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class
     const auto fuel_bucket = static_cast<std::int64_t>(std::floor(available_propellant_kg / fuel_step_kg));
     constexpr double PAYLOAD_STEP_KG = 2000.0;
     const auto payload_bucket = static_cast<std::int64_t>(std::ceil(std::max(0.0, payload_kg) / PAYLOAD_STEP_KG));
-    w.leg_estimates_.erase(w.leg_estimates_.begin(),
-        w.leg_estimates_.lower_bound(static_cast<std::int64_t>(std::floor(w.game_time_s_ / BUCKET_S))));
-    auto& slot = w.leg_estimates_[bucket];
+    w.caches.leg_estimates.erase(w.caches.leg_estimates.begin(),
+        w.caches.leg_estimates.lower_bound(static_cast<std::int64_t>(std::floor(w.state.game_time_s / BUCKET_S))));
+    auto& slot = w.caches.leg_estimates[bucket];
     const auto key = std::format("{}|{}|{}|{}|{}", ship_class.id, origin.id, destination.id, fuel_bucket, payload_bucket);
     // Measured from this caller's departure, not the bucket edge.
     // A leg that would take its crew past the career limit is not flown (tier 2 radiation).
@@ -58,9 +59,9 @@ LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class
     probe.class_id = ship_class.id;
     probe.current_station_id = origin.id;
     probe.propellant_kg = 0.0;
-    const auto& planner = (ship_class.propulsion_type == "variable_isp" && w.variable_isp_planner_)
-        ? static_cast<trajectory::ITrajectoryPlanner&>(*w.variable_isp_planner_)
-        : static_cast<trajectory::ITrajectoryPlanner&>(*w.kepler_planner_);
+    const auto& planner = (ship_class.propulsion_type == "variable_isp" && w.engines.variable_isp_planner)
+        ? static_cast<trajectory::ITrajectoryPlanner&>(*w.engines.variable_isp_planner)
+        : static_cast<trajectory::ITrajectoryPlanner&>(*w.engines.kepler_planner);
     const double purchasable_kg = static_cast<double>(fuel_bucket) * fuel_step_kg;
     if (purchasable_kg <= 0.0) {
         slot.emplace(key, LegEstimate {});
@@ -69,8 +70,8 @@ LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class
     // Plan with this class's typical costs: provisions at base prices, so an estimate does
     // not depend on the port's prices on the day the bucket was first planned. (Built only
     // here: nearly every call is answered from the cache above.)
-    double typical_crew_cost = ship_class.crew_size * w.universe_.ship_operations.wage_cr_per_crew_day;
-    for (const auto& [commodity_id, units_per_crew_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
+    double typical_crew_cost = ship_class.crew_size * w.data.universe.ship_operations.wage_cr_per_crew_day;
+    for (const auto& [commodity_id, units_per_crew_day] : w.data.universe.ship_operations.life_support_units_per_crew_day) {
         typical_crew_cost += ship_class.crew_size * units_per_crew_day * query::get_commodity(w, commodity_id).base_price;
     }
     const trajectory::PlanningOptions options {
@@ -96,14 +97,14 @@ LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class
             .arrival_time_s = plan.arrival_time_s,
         };
     };
-    if (w.deferred_plans_ != nullptr) {
+    if (w.caches.deferred_plans != nullptr) {
         // Inside a choose_mission pass: plan later, in parallel with the others.
         systems::defer_plan(w, std::format("leg|{}|{}", bucket, key), {
-            .compute = [&planner, &origin, &destination, probe, &ship_class, plan_departure_s, options] {
+            .compute = [&planner, &origin, &destination, probe, &ship_class, plan_departure_s, options](const World&) {
                 return planner.plan_transfer(origin, destination, probe, ship_class, plan_departure_s, options);
             },
             .commit = [&w, bucket, key, to_estimate](domain::TrajectoryPlan&& plan) {
-                w.leg_estimates_[bucket].emplace(key, to_estimate(plan));
+                w.caches.leg_estimates[bucket].emplace(key, to_estimate(plan));
             },
         });
         return {};
@@ -114,9 +115,9 @@ LegEstimate estimate_leg(World& w, const domain::ShipClassDefinition& ship_class
 }
 
 void defer_plan(World& w, const std::string& key, DeferredPlan request) {
-    ++w.missing_plans_;
-    if (w.deferred_keys_.insert(key).second) {
-        w.deferred_plans_->push_back(std::move(request));
+    ++w.caches.missing_plans;
+    if (w.caches.deferred_keys.insert(key).second) {
+        w.caches.deferred_plans->push_back(std::move(request));
     }
 }
 
@@ -126,18 +127,18 @@ MissionChoice choose_mission(World& w, const domain::ShipState& ship, const doma
     std::unordered_map<std::string, domain::TrajectoryPlan> plans;
     for (;;) {
         std::vector<DeferredPlan> deferred;
-        w.deferred_plans_ = &deferred;
-        w.deferred_keys_.clear();
-        w.deferred_prefix_.clear();
+        w.caches.deferred_plans = &deferred;
+        w.caches.deferred_keys.clear();
+        w.caches.deferred_prefix.clear();
         std::string trace_text;
         auto choice = systems::choose_mission_pass(w, ship, ship_class, trace, earliest_departure_s, cargo_only, plans, trace_text);
-        w.deferred_plans_ = nullptr;
+        w.caches.deferred_plans = nullptr;
         if (deferred.empty()) {
             std::cerr << trace_text;
             return choice;
         }
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.engines.thread_pool->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(std::as_const(w)); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
@@ -151,28 +152,28 @@ std::vector<MissionChoice> choose_missions(World& w, const std::vector<MissionRe
     std::vector<bool> done(requests.size(), false);
     for (bool all_done = requests.empty(); !all_done;) {
         std::vector<DeferredPlan> deferred;
-        w.deferred_plans_ = &deferred;
-        w.deferred_keys_.clear();
+        w.caches.deferred_plans = &deferred;
+        w.caches.deferred_keys.clear();
         all_done = true;
         for (std::size_t r = 0; r < requests.size(); ++r) {
             if (done[r]) {
                 continue;
             }
-            const auto missing_before = w.missing_plans_;
-            w.deferred_prefix_ = std::format("{}#", r);
+            const auto missing_before = w.caches.missing_plans;
+            w.caches.deferred_prefix = std::format("{}#", r);
             std::string trace_text;
             const auto& request = requests[r];
             choices[r] = systems::choose_mission_pass(w, *request.ship, *request.ship_class, false, request.earliest_departure_s,
                 request.cargo_only, plans[r], trace_text);
             // A pass that found every plan is final (a plan another request queued first in
             // this pass still counts as missing).
-            done[r] = w.missing_plans_ == missing_before;
+            done[r] = w.caches.missing_plans == missing_before;
             all_done = all_done && done[r];
         }
-        w.deferred_plans_ = nullptr;
-        w.deferred_prefix_.clear();
+        w.caches.deferred_plans = nullptr;
+        w.caches.deferred_prefix.clear();
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.engines.thread_pool->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(std::as_const(w)); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
@@ -244,7 +245,7 @@ private:
     std::string& trace_text;
 
     // Plans start at the earliest departure; forecasts of stocks count from now.
-    const double delay_days = std::max(0.0, earliest_departure_s - sim_.game_time_s_) / 86400.0;
+    const double delay_days = std::max(0.0, earliest_departure_s - sim_.state.game_time_s) / 86400.0;
     domain::StationState& origin_state = query::get_station_state(sim_, ship.current_station_id);
     const domain::StationDefinition& origin_def = query::get_station_definition(sim_, ship.current_station_id);
 
@@ -270,11 +271,11 @@ private:
     // A liner (step 22) flies only to the stop after the one it is at, forever.
     // A ship under a rotation contract flies its loop the same way.
     const bool liner = !cargo_only && systems::scheduled_stops(sim_, ship) != nullptr;
-    const bool on_route = liner || (!cargo_only && !ship.route_destination_id.empty() && sim_.game_time_s_ < ship.route_until_s);
+    const bool on_route = liner || (!cargo_only && !ship.route_destination_id.empty() && sim_.state.game_time_s < ship.route_until_s);
     // Every day of a mission (waiting for the window included) costs capital,
     // wages and provisions; missions are compared on profit after that cost.
     const double time_cost_per_day = query::daily_capital_cost(sim_, ship_class) + systems::daily_crew_cost(sim_, ship_class, origin_state)
-        + query::hazard_cr_per_day(sim_, ship_class, origin_def, origin_def, sim_.game_time_s_) + query::wear_cr_per_flight_day(sim_, ship_class);
+        + query::hazard_cr_per_day(sim_, ship_class, origin_def, origin_def, sim_.state.game_time_s) + query::wear_cr_per_flight_day(sim_, ship_class);
     // The crew must be provisionable from here for the whole mission.
     // (The return-leg reserve is bought too, but only if the station has it.)
     const double max_mission_days = query::provisionable_days(sim_, ship, origin_state) / PROVISION_MARGIN;
@@ -283,9 +284,9 @@ private:
     // The plan depends on the destination and the cargo mass, so plan each (destination,
     // cargo tonne) once per scoring pass rather than once per commodity. Plasma plans cost
     // ~8 ms each.
-    const trajectory::ITrajectoryPlanner& planner = (ship_class.propulsion_type == "variable_isp" && sim_.variable_isp_planner_)
-        ? static_cast<trajectory::ITrajectoryPlanner&>(*sim_.variable_isp_planner_)
-        : static_cast<trajectory::ITrajectoryPlanner&>(*sim_.kepler_planner_);
+    const trajectory::ITrajectoryPlanner& planner = (ship_class.propulsion_type == "variable_isp" && sim_.engines.variable_isp_planner)
+        ? static_cast<trajectory::ITrajectoryPlanner&>(*sim_.engines.variable_isp_planner)
+        : static_cast<trajectory::ITrajectoryPlanner&>(*sim_.engines.kepler_planner);
     // Propellant is priced at what this port charges (never below base), so where fuel is
     // scarce the planners fly slower, cheaper transfers.
     const double planning_fuel_price = std::max(query::get_commodity(sim_, "fuel").base_price, systems::station_price(sim_, origin_state, "fuel"));
@@ -311,7 +312,7 @@ private:
     // real cost of leaving from here (the tanks' contents are not).
     const double origin_fuel_premium = std::max(0.0, systems::station_price(sim_, origin_state, "fuel") - origin_fuel_price);
     std::unordered_map<std::string, std::vector<FollowUp>> follow_ups_by_destination;  // by destination, arrival and fuel
-    const std::unordered_map<std::string, double>& origin_rates = sim_.economy_.get_station_net_rates(origin_def);
+    const std::unordered_map<std::string, double>& origin_rates = sim_.engines.economy.get_station_net_rates(origin_def);
     std::vector<Offer> offers = origin_offers();
     // Propellant bought for the mission is paid at this port's price.
     const double marginal_fuel_price_per_kg = (origin_fuel_price + origin_fuel_premium) / FUEL_UNITS_TO_KG;
@@ -325,7 +326,7 @@ private:
     // Traces are kept until the pass that has every plan, so each line is printed once.
     void trace_line(const std::string& text) {
         if (trace) {
-            trace_text += std::format("[trace day {:.1f}] {} ({}, {}) at {}: {}\n", sim_.game_time_s_ / 86400.0, ship.name,
+            trace_text += std::format("[trace day {:.1f}] {} ({}, {}) at {}: {}\n", sim_.state.game_time_s / 86400.0, ship.name,
                 query::mission_phase_name(ship.phase), ship_class.id, ship.current_station_id, text);
         }
     }
@@ -337,7 +338,7 @@ private:
     }
     // No leg may take the crew signed on for it past its career dose limit (tier 2).
     bool dose_allows(const domain::StationDefinition& to, double days) {
-        return query::leg_dose_allowed(sim_, ship_class, origin_def, to, sim_.game_time_s_, days);
+        return query::leg_dose_allowed(sim_, ship_class, origin_def, to, sim_.state.game_time_s, days);
     }
     // A ship must be able to leave its destination again: the fuel it has left on
     // arrival plus what the station can sell must cover a leg as long as this one,
@@ -357,7 +358,7 @@ private:
         // price, the ship carries its return fuel rather than buying it there.
         const double dest_fuel_kg = tankering && systems::station_price(sim_, dest_state, "fuel") > TANKERING_PRICE_RATIO * planning_fuel_price
             ? 0.0
-            : fuel_for_sale_on_arrival_kg(sim_.economy_, destination, dest_state,
+            : fuel_for_sale_on_arrival_kg(sim_.engines.economy, destination, dest_state,
                   delay_days + plan.travel_time_s / 86400.0);
         double needed_kg = plan.propellant_required_kg;
         if (ship_class.propulsion_type != "variable_isp" && exhaust_velocity_mps > 0.0) {
@@ -367,7 +368,7 @@ private:
             needed_kg = (ship_class.dry_mass_kg + provisions_kg) * (mass_ratio - 1.0);
         }
         // The way back boils off too (as long a coast, the other way round).
-        const double boiled_back_kg = query::leg_boiloff_kg_per_day(sim_, ship_class, destination, origin_def, sim_.game_time_s_)
+        const double boiled_back_kg = query::leg_boiloff_kg_per_day(sim_, ship_class, destination, origin_def, sim_.state.game_time_s)
             * plan.coast_time_s / 86400.0;
         return std::max(0.0,
             needed_kg * (1.0 + PROPELLANT_RESERVE_FRACTION) + boiled_back_kg - after_arrival_kg - dest_fuel_kg);
@@ -388,7 +389,7 @@ private:
                 ? std::max(0.0, ship_class.propellant_capacity_kg - std::max(0.0, ship.propellant_kg))
                 : origin_fuel_for_sale_kg,
             .reserve_fraction = PROPELLANT_RESERVE_FRACTION,
-            .boiloff_kg_per_day = query::leg_boiloff_kg_per_day(sim_, ship_class, origin_def, destination, sim_.game_time_s_),
+            .boiloff_kg_per_day = query::leg_boiloff_kg_per_day(sim_, ship_class, origin_def, destination, sim_.state.game_time_s),
             .include_path = false,  // the chosen mission is planned again with its path
         };
     }
@@ -398,7 +399,7 @@ private:
         const double cargo_bucket_kg = std::ceil(std::max(0.0, cargo_kg) / 1000.0) * 1000.0;
         // Riders adding less than rider_time_min_share of the ship's own time cost fly on the plan
         // without them; above, their time is bucketed in rider_time_relative_step of it.
-        const auto& pax = sim_.universe_.passengers;
+        const auto& pax = sim_.data.universe.passengers;
         const double riders = std::max(0.0, rider_time_cr_per_day);
         const double rider_step = std::max(1.0, pax.rider_time_relative_step * time_cost_per_day);
         const double rider_bucket = riders < pax.rider_time_min_share * time_cost_per_day
@@ -418,10 +419,10 @@ private:
             plan.summary = "pending";
             return plan;
         }();
-        systems::defer_plan(sim_, sim_.deferred_prefix_ + "plan|" + key, {
+        systems::defer_plan(sim_, sim_.caches.deferred_prefix + "plan|" + key, {
             .compute = [&planner = planner, &origin_def = origin_def, &destination, &ship = ship, &ship_class = ship_class,
-                           departure_s = std::max(sim_.game_time_s_, earliest_departure_s),
-                           options = planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank)] {
+                           departure_s = std::max(sim_.state.game_time_s, earliest_departure_s),
+                           options = planning_options(destination, cargo_bucket_kg, rider_bucket, full_tank)](const World&) {
                 return planner.plan_transfer(origin_def, destination, ship, ship_class, departure_s, options);
             },
             .commit = [&plans = plans, key](domain::TrajectoryPlan&& plan) { plans.emplace(key, std::move(plan)); },
@@ -473,18 +474,18 @@ private:
     // take the largest surplus: at Ceres a bulk good, so the platinum looked open to all.)
     std::unordered_map<std::string, double> open_surplus(const domain::StationDefinition& station_def,
         const domain::StationState& station_state, double days_ahead = 0.0) {
-        const auto& rates = sim_.economy_.get_station_net_rates(station_def);
+        const auto& rates = sim_.engines.economy.get_station_net_rates(station_def);
         std::unordered_map<std::string, double> surplus_by_commodity;
         for (const auto& [commodity_id, stock] : station_state.inventory) {
             const double rate = rates.contains(commodity_id) ? rates.at(commodity_id) : 0.0;
             if (rate > 0.0) {
-                const double cap = sim_.economy_.production_cap_units(station_def, commodity_id, rate);
+                const double cap = sim_.engines.economy.production_cap_units(station_def, commodity_id, rate);
                 const double forecast = std::max(stock, std::min(cap, stock + rate * days_ahead));
                 surplus_by_commodity[commodity_id] = forecast - (8.0 + rate * 7.0);
             }
         }
         std::vector<const domain::ShipState*> unplanned;
-        for (const auto& other : sim_.ships_) {
+        for (const auto& other : sim_.state.ships) {
             if (other.id == ship.id) {
                 continue;
             }
@@ -519,7 +520,7 @@ private:
     bool can_leave_again(const domain::StationDefinition& next, const LegEstimate& leg,
         double departure_kg, double days_ahead) {
         const double left_kg = std::max(0.0, departure_kg - leg.propellant_kg);
-        const double for_sale_kg = fuel_for_sale_on_arrival_kg(sim_.economy_, next, query::get_station_state(sim_, next.id),
+        const double for_sale_kg = fuel_for_sale_on_arrival_kg(sim_.engines.economy, next, query::get_station_state(sim_, next.id),
             days_ahead + leg.travel_days);
         return left_kg + for_sale_kg >= leg.propellant_kg * (1.0 + PROPELLANT_RESERVE_FRACTION);
     }
@@ -533,7 +534,7 @@ private:
         const double follow_days = delay_days + plan.travel_time_s / 86400.0;
         const double departure_kg = std::min(ship_class.propellant_capacity_kg,
             arrival_kg + fuel_for_sale_on_arrival_kg(
-                sim_.economy_, destination, dest_state, delay_days + plan.travel_time_s / 86400.0));
+                sim_.engines.economy, destination, dest_state, delay_days + plan.travel_time_s / 86400.0));
         // The follow-ups depend on when the ship arrives and with how much fuel it can leave, so
         // a lighter load (earlier, more fuel left) gets its own (before: one set per destination,
         // from whichever plan asked first).
@@ -549,11 +550,11 @@ private:
                 continue;
             }
             const double decay_per_day = query::cargo_decay_per_day(sim_, ship_class, commodity_id);
-            for (const auto& next : sim_.universe_.stations) {
+            for (const auto& next : sim_.data.universe.stations) {
                 if (next.id == destination.id || !route_leg_allowed(destination.id, next.id)) {
                     continue;
                 }
-                const auto& next_rates = sim_.economy_.get_station_net_rates(next);
+                const auto& next_rates = sim_.engines.economy.get_station_net_rates(next);
                 const auto& next_state = query::get_station_state(sim_, next.id);
                 const bool consumes = (next_rates.contains(commodity_id) && next_rates.at(commodity_id) < 0.0)
                     || next_state.order_stats.contains(commodity_id);
@@ -568,7 +569,7 @@ private:
                         provisions_kg + 0.25 * full_units * query::get_commodity(sim_, commodity_id).mass_per_unit_kg);
                     if (light.feasible) {
                         const auto quote = systems::order_quote(sim_, next_state, commodity_id,
-                            sim_.game_time_s_ + (follow_days + light.travel_days) * 86400.0, ship.id);
+                            sim_.state.game_time_s + (follow_days + light.travel_days) * 86400.0, ship.id);
                         for (const double breakpoint : {quote.open_units, quote.open_units + quote.extra_units}) {
                             if (breakpoint > 1.0 && breakpoint < full_units) {
                                 lots.push_back(breakpoint);
@@ -618,13 +619,13 @@ private:
         }
         // Passengers waiting there for another station (a forecast from who waits now).
         if (!cargo_only && ship_class.berths >= 1.0 && !dest_state.waiting.empty()) {
-            for (const auto& next : sim_.universe_.stations) {
+            for (const auto& next : sim_.data.universe.stations) {
                 if (next.id == destination.id || !route_leg_allowed(destination.id, next.id)
                     || !query::passenger_leg_waiting(sim_, dest_state, next.id)) {
                     continue;
                 }
                 const auto leg = systems::estimate_leg(sim_, ship_class, destination, next, plan.arrival_time_s, departure_kg,
-                    provisions_kg + ship_class.berths * query::passenger_kg(sim_, sim_.economy_.transfer_days(destination, next)));
+                    provisions_kg + ship_class.berths * query::passenger_kg(sim_, sim_.engines.economy.transfer_days(destination, next)));
                 if (!leg.feasible || !can_leave_again(next, leg, departure_kg, follow_days)) {
                     continue;
                 }
@@ -665,7 +666,7 @@ private:
             }
             // A follow-up is a forecast; one that starts years from now is worth less (a light
             // freighter at Mars waited out 1,385 days for science samples forecast at Ceres).
-            const double horizon = sim_.universe_.market.follow_up_horizon_days;
+            const double horizon = sim_.data.universe.market.follow_up_horizon_days;
             const double weight = horizon > 0.0 && option.profit > 0.0 ? std::exp(-leg_days / horizon) : 1.0;
             const double score = (leg_profit + weight * option.profit) / std::max(1.0, leg_days + option.days);
             if (score > best) {
@@ -705,7 +706,7 @@ private:
     // hold.) Fleet investment probes (cargo_only) get each manifest of several goods as lots
     // sharing a run number.
     void score_cargo_runs() {
-        for (const auto& destination : sim_.universe_.stations) {
+        for (const auto& destination : sim_.data.universe.stations) {
             if (offers.empty() && !passengers_waiting) {
                 break;
             }
@@ -713,7 +714,7 @@ private:
                 continue;
             }
             const auto& destination_state = query::get_station_state(sim_, destination.id);
-            const auto& destination_rates = sim_.economy_.get_station_net_rates(destination);
+            const auto& destination_rates = sim_.engines.economy.get_station_net_rates(destination);
             struct Good {
                 const Offer* offer {nullptr};
                 const domain::CommodityDefinition* commodity {nullptr};
@@ -742,7 +743,7 @@ private:
                 // An export market never starves: Earth's economy takes what arrives. The price clamp
                 // saturates, so a starving station cannot bid any higher; the score is weighted by
                 // how few days of stock it has left.
-                const double days_left = rate < 0.0 && !sim_.economy_.is_export_market(destination, offer.commodity_id)
+                const double days_left = rate < 0.0 && !sim_.engines.economy.is_export_market(destination, offer.commodity_id)
                     ? stock / std::abs(rate) : std::numeric_limits<double>::infinity();
                 goods.push_back({.offer = &offer, .commodity = &commodity, .ordered = ordered,
                     .urgency = std::clamp(14.0 / std::max(days_left, 0.5), 1.0, 5.0)});
@@ -764,7 +765,7 @@ private:
             // Without goods the empty plan gives the propellant per kg (berths weigh little; at the
             // same mass ratio, propellant grows with the mass it moves).
             const bool from_empty = goods.empty();
-            const double laden_kg = goods.empty() ? berths * query::passenger_kg(sim_, sim_.economy_.transfer_days(origin_def, destination))
+            const double laden_kg = goods.empty() ? berths * query::passenger_kg(sim_, sim_.engines.economy.transfer_days(origin_def, destination))
                                                   : ship_class.cargo_capacity_units * heaviest_kg;
             const auto& laden = from_empty ? probe : plan_to(destination, laden_kg);
             const auto& half_laden = from_empty ? probe : plan_to(destination, 0.5 * laden_kg);
@@ -784,7 +785,7 @@ private:
                 }
             }
             const double probe_days = probe.travel_time_s / 86400.0;
-            const double arrival_s = sim_.game_time_s_ + (delay_days + probe_days) * 86400.0;
+            const double arrival_s = sim_.state.game_time_s + (delay_days + probe_days) * 86400.0;
             const auto riders = riders_here
                 ? systems::passenger_offer(sim_, ship, ship_class, origin_state, destination, probe_days,
                       propellant_per_kg * marginal_fuel_price_per_kg, berths)
@@ -800,7 +801,7 @@ private:
             double hold_left = ship_class.cargo_capacity_units;
             if (destination.storage_capacity_units > 0.0) {
                 hold_left = std::min(hold_left, std::max(0.0,
-                    destination.storage_capacity_units - sim_.economy_.storage_used_units(destination, destination_state.inventory)));
+                    destination.storage_capacity_units - sim_.engines.economy.storage_used_units(destination, destination_state.inventory)));
             }
             double credits_left = spendable_credits;
             const double chunk = std::max(1.0, ship_class.cargo_capacity_units / 40.0);
@@ -990,9 +991,9 @@ private:
     // riders' time (full berths at the reference fill, a resident's time and dose per day), and
     // on a full tank (see planning_options).
     double probe_rider_day_cr() const {
-        return sim_.universe_.market.fill_ref
+        return sim_.data.universe.market.fill_ref
             * query::passenger_nonfare_cr(sim_, query::value_of_time_cr_per_day(sim_, domain::PassengerKind::Migrant), 1.0,
-                sim_.universe_.ship_environment.radiation ? sim_.universe_.ship_environment.gcr_msv_per_day : 0.0);
+                sim_.data.universe.ship_environment.radiation ? sim_.data.universe.ship_environment.gcr_msv_per_day : 0.0);
     }
 
     // Fleet investment probes of a ship with berths: one passenger option per destination it can
@@ -1000,11 +1001,11 @@ private:
     void score_berth_probes() {
         const double probe_rider_day_cr = this->probe_rider_day_cr();
         if (cargo_only && query::passengers_on(sim_) && ship_class.berths >= 1.0) {
-            for (const auto& destination : sim_.universe_.stations) {
+            for (const auto& destination : sim_.data.universe.stations) {
                 if (destination.id == origin_def.id || query::reference_fare(sim_, origin_def.id, destination.id) == nullptr) {
                     continue;
                 }
-                const double load_kg = ship_class.berths * query::passenger_kg(sim_, sim_.economy_.transfer_days(origin_def, destination));
+                const double load_kg = ship_class.berths * query::passenger_kg(sim_, sim_.engines.economy.transfer_days(origin_def, destination));
                 const auto fuel_plan = plan_with_return_fuel(destination, load_kg, ship_class.berths * probe_rider_day_cr, true);
                 const auto& plan = *fuel_plan.plan;
                 if (!plan.feasible || !fuel_plan.feasible) {
@@ -1033,7 +1034,7 @@ private:
         const double probe_rider_day_cr = this->probe_rider_day_cr();
         if (cargo_only && query::passengers_on(sim_) && ship_class.berths <= 0.0
             && ship_class.fit.empty()) {
-            for (const auto& module : sim_.universe_.ship_modules) {
+            for (const auto& module : sim_.data.universe.ship_modules) {
                 if (module.hull_id != ship_class.id || module.slot != "cabin" || !query::module_has_active_effect(sim_, module)) {
                     continue;
                 }
@@ -1043,11 +1044,11 @@ private:
                     continue;
                 }
                 const double module_kg = std::max(0.0, design.dry_mass_kg - ship_class.dry_mass_kg);
-                for (const auto& destination : sim_.universe_.stations) {
+                for (const auto& destination : sim_.data.universe.stations) {
                     if (destination.id == origin_def.id || query::reference_fare(sim_, origin_def.id, destination.id) == nullptr) {
                         continue;
                     }
-                    const double load_kg = module_kg + design.berths * query::passenger_kg(sim_, sim_.economy_.transfer_days(origin_def, destination));
+                    const double load_kg = module_kg + design.berths * query::passenger_kg(sim_, sim_.engines.economy.transfer_days(origin_def, destination));
                     const auto fuel_plan = plan_with_return_fuel(destination, load_kg, design.berths * probe_rider_day_cr, true);
                     const auto& plan = *fuel_plan.plan;
                     if (!plan.feasible || !fuel_plan.feasible) {
@@ -1056,7 +1057,7 @@ private:
                     const double travel_days = plan.travel_time_s / 86400.0;
                     const double crew = std::max(1.0, design.crew_size);
                     if (travel_days > max_mission_days * crew / (crew + design.berths)
-                        || !query::leg_dose_allowed(sim_, design, origin_def, destination, sim_.game_time_s_, travel_days)
+                        || !query::leg_dose_allowed(sim_, design, origin_def, destination, sim_.state.game_time_s, travel_days)
                         || !query::drive_life_allows(sim_, ship, design, plan)) {
                         continue;
                     }
@@ -1073,7 +1074,7 @@ private:
 
     // Empty legs toward a better pickup compete with cargo runs on the same two-leg terms.
     void score_empty_legs() {
-        for (const auto& destination : sim_.universe_.stations) {
+        for (const auto& destination : sim_.data.universe.stations) {
             if (cargo_only || destination.id == origin_def.id || !route_leg_allowed(origin_def.id, destination.id)) {
                 continue;
             }
@@ -1162,15 +1163,15 @@ private:
                 if (surplus <= 1.0) continue;
                 // Sum up how urgently this commodity is needed across the whole system.
                 double system_urgency = 0.0;
-                for (const auto& other : sim_.universe_.stations) {
+                for (const auto& other : sim_.data.universe.stations) {
                     if (other.id == station_def.id) continue;
-                    const auto& other_rates = sim_.economy_.get_station_net_rates(other);
+                    const auto& other_rates = sim_.engines.economy.get_station_net_rates(other);
                     const double other_rate = other_rates.count(commodity_id) ? other_rates.at(commodity_id) : 0.0;
                     if (other_rate >= 0.0) continue;
                     const auto& other_state = query::get_station_state(sim_, other.id);
                     const double other_stock = other_state.inventory.count(commodity_id)
                         ? other_state.inventory.at(commodity_id) : 0.0;
-                    const double days_rem = sim_.economy_.is_export_market(other, commodity_id) ? 30.0
+                    const double days_rem = sim_.engines.economy.is_export_market(other, commodity_id) ? 30.0
                         : other_stock > 0.0 ? other_stock / std::abs(other_rate) : 0.0;
                     system_urgency += std::max(1.0, 30.0 / std::max(1.0, days_rem)) * std::abs(other_rate);
                 }
@@ -1191,9 +1192,9 @@ private:
                 const double load = std::min(surplus, ship_class.cargo_capacity_units);
                 if (load <= 1.0) continue;
                 const double buy_cost = systems::trade_value(sim_, station_state, commodity_id, -load);
-                for (const auto& other : sim_.universe_.stations) {
+                for (const auto& other : sim_.data.universe.stations) {
                     if (other.id == station_def.id) continue;
-                    const auto& other_rates = sim_.economy_.get_station_net_rates(other);
+                    const auto& other_rates = sim_.engines.economy.get_station_net_rates(other);
                     const auto& other_state = query::get_station_state(sim_, other.id);
                     const bool consumes = (other_rates.contains(commodity_id) && other_rates.at(commodity_id) < 0.0)
                         || other_state.order_stats.contains(commodity_id);
@@ -1204,7 +1205,7 @@ private:
             return best_value;
         };
 
-        for (const auto& destination : sim_.universe_.stations) {
+        for (const auto& destination : sim_.data.universe.stations) {
             if (destination.id == origin_def.id) {
                 continue;
             }
@@ -1235,7 +1236,7 @@ private:
             if (!fuel_plan.feasible) {
                 trace_line(std::format("reposition -> {}: could not refuel to leave again nor carry the fuel (burns {:.0f} of {:.0f} kg, port sells {:.0f} kg)",
                     destination.id, plan.propellant_required_kg, plan.propellant_load_kg,
-                    fuel_for_sale_on_arrival_kg(sim_.economy_, destination, query::get_station_state(sim_, destination.id),
+                    fuel_for_sale_on_arrival_kg(sim_.engines.economy, destination, query::get_station_state(sim_, destination.id),
                         delay_days + reposition_days)));
                 continue;
             }
@@ -1249,7 +1250,7 @@ private:
             }
             // Crowd penalty: don't send the whole fleet to the same "best" station.
             int congestion = 0;
-            for (const auto& other : sim_.ships_) {
+            for (const auto& other : sim_.state.ships) {
                 if (other.id == ship.id) {
                     continue;
                 }
@@ -1292,7 +1293,7 @@ private:
             const auto& inputs = it->second;
             choice.plan_options = planning_options(*inputs.destination, inputs.cargo_kg, inputs.rider_time_cr_per_day,
                 inputs.full_tank);
-            choice.plan_departure_s = std::max(sim_.game_time_s_, earliest_departure_s);
+            choice.plan_departure_s = std::max(sim_.state.game_time_s, earliest_departure_s);
         }
         choice.carried_propellant_kg = best_carried_kg;
         choice.pickup_commodity_id = best_pickup_commodity;

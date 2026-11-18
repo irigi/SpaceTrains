@@ -11,8 +11,8 @@
 namespace spacetrains::simulation::query {
 
 [[nodiscard]] inline const ColonyState* colony_state(const World& w, const std::string& economy_id) {
-    const auto it = w.colony_state_.find(economy_id);
-    return it == w.colony_state_.end() ? nullptr : &it->second;
+    const auto it = w.state.colony_state.find(economy_id);
+    return it == w.state.colony_state.end() ? nullptr : &it->second;
 }
 [[nodiscard]] double faction_credit_limit(const World& w, const std::string& faction_id);
 [[nodiscard]] double economy_balance(const World& w, const std::string& economy_id);

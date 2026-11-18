@@ -1,9 +1,8 @@
 #pragma once
 
 // The running game's state: everything Simulation holds, as plain data (docs/plans/simulation_split.md).
-// Step 1 of the split: the members are here verbatim and Simulation inherits them privately; the
-// rules still live in Simulation's member functions. Later steps move the rules into systems that
-// take World& (or const World&), group these members, and hold the World behind a pointer.
+// Simulation owns one; the rules are systems (systems/, query/) that take World& or const World&.
+// The members are grouped by what they are: static data, engines, the saved state, caches, audits.
 
 #include <array>
 #include <cstdint>
@@ -137,9 +136,14 @@ struct ColonyState {
     double wage_median {0.0};          // its wage median now (cr per day)
 };
 
+struct World;
+
 // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
+// compute takes the World as const, but the type cannot stop a lambda from capturing state by
+// reference: computes capture only const references and values (check that in a new one);
+// commit runs on the simulation thread.
 struct DeferredPlan {
-    std::function<domain::TrajectoryPlan()> compute;
+    std::function<domain::TrajectoryPlan(const World&)> compute;
     std::function<void(domain::TrajectoryPlan&&)> commit;
 };
 
@@ -151,7 +155,7 @@ struct LegEstimate {
     double arrival_time_s {0.0};   // cached; travel_days is derived per caller
 };
 
-// One cargo run a fleet review's probe found for a new ship (World::review_probes_).
+// One cargo run a fleet review's probe found for a new ship (World::state.review_probes).
 struct ProbedRun {
     std::string destination_id;
     std::string commodity_id;
@@ -171,102 +175,143 @@ inline constexpr double TICK_S = 0.1 * 86400.0;
 // (Simulation::PASSENGER_GOOD).
 inline constexpr const char* PASSENGER_GOOD = "passengers";
 
-struct World {
-    // The engines keep references into universe_ and mechanics_, so these three come first.
-    explicit World(domain::UniverseDefinition universe)
-        : universe_(std::move(universe)),
-          mechanics_(universe_),
-          economy_(universe_) {}
+// Static data and lookups: the universe from the data files and what is derived from it at the
+// start. Not saved (a save loads into a World built from the same data).
+struct StaticData {
+    explicit StaticData(domain::UniverseDefinition loaded) : universe(std::move(loaded)) {}
 
-    domain::UniverseDefinition universe_;
-    celestial::CelestialMechanics mechanics_;
-    economy::EconomySystem economy_;
-    variable_isp::VariableIspAtlas atlas_;
-    bool atlas_loaded_ {false};
-    std::unique_ptr<trajectory::KeplerTrajectoryPlanner> kepler_planner_;
-    std::unique_ptr<trajectory::VariableIspTrajectoryPlanner> variable_isp_planner_;
-    double game_time_s_ {0.0};
-    double untimed_s_ {0.0};   // game time step() was given that no tick has used yet
-    double outside_economy_credits_ {0.0};   // Earth's economy (the outside account)
-    // The other background economies' accounts (economy overhaul), by id.
-    std::map<std::string, double> background_credits_;
-    // The colonies' people (labour market), by economy id.
-    std::map<std::string, double> background_population_;
-    std::map<std::string, ColonyState> colony_state_;
-    std::map<std::string, double> faction_treasuries_;
-    // The money journal and its account indices (MoneyJournal.hpp).
-    MoneyJournal journal_;
-    FlowRecord flows_;
-    std::unordered_map<std::string, int> colony_accounts_;
-    std::unordered_map<std::string, int> faction_accounts_;
-    std::unordered_map<std::string, int> fleet_accounts_;
-    int first_station_account_ {0};
-    int first_household_account_ {0};
-    double seeded_money_supply_ {0.0};   // grows by the working capital of new ships
-    double next_investment_review_s_ {0.0};
-    int investment_purchases_left_ {0};   // of the current review, one per tick
-    double next_purchase_s_ {0.0};        // no purchase before this (purchase_spacing_days)
-    // A review's probes, by "hull class|yard": the cargo runs a new ship could fly. Saved with
-    // the game (the review spans several ticks).
-    std::map<std::string, std::vector<ProbedRun>> review_probes_;
-    domain::FleetInvestmentLedger investment_ledger_;
-    // Step 17: taxes each faction collects per day (365-day average) and interest paid on debt.
-    std::map<std::string, double> faction_tax_per_day_;
-    double faction_interest_paid_ {0.0};
-    // Emergency deliveries open now, and the totals since the start.
-    std::vector<domain::Emergency> emergencies_;
-    int emergencies_opened_ {0};
-    // Random events (step 28): the generator (seeded from the data and the start date) and
-    // how many of each event have struck.
-    std::mt19937_64 event_rng_ {0};
-    bool events_enabled_ {true};
-    std::map<std::string, int> events_started_;
-    double emergency_paid_ {0.0};   // by the faction treasuries, in premiums
-    std::vector<domain::ShipState> sold_ships_;
-    // Failures and salvage: derelicts drifting now, and each faction's replacement claims (when
-    // each runs out). Saved.
-    std::vector<domain::DerelictState> derelicts_;
-    std::map<std::string, std::vector<double>> replacement_claims_;
-    double next_salvage_review_s_ {0.0};
-    bool replacement_tried_ {false};   // this review's replacement purchase found nothing worth buying
-    double next_exposure_sample_s_ {0.0};
-    FailureAudit failure_audit_;           // audit only, not saved
-    std::vector<domain::PatrolState> patrols_;   // police cutters (saved)
-    PatrolAudit patrol_audit_;             // audit only, not saved
-    double timewarp_factor_ {3600.0};
-    std::vector<domain::StationState> stations_;
-    std::vector<domain::ShipState> ships_;
-    std::vector<domain::EventEntry> recent_events_;
+    domain::UniverseDefinition universe;
+    // The money journal's account indices (set up from the data, not saved).
+    std::unordered_map<std::string, int> colony_accounts;
+    std::unordered_map<std::string, int> faction_accounts;
+    std::unordered_map<std::string, int> fleet_accounts;
+    int first_station_account {0};
+    int first_household_account {0};
+    bool events_enabled {true};   // random events on (a switch for the run, not saved)
     // Each station's stock at the start (from the data, so a loaded game rebuilds the same):
     // lifetime profit counts the stock's value gain against it. (Recomputed from today's rates
     // it grew with the population, and the reported profit drifted.)
-    std::unordered_map<std::string, domain::Inventory> starting_inventories_;
-    std::vector<domain::TradeEntry> recent_trades_;
-    double delivered_paid_cr_ {0.0};       // audit only, not saved
-    RadiationAudit radiation_audit_;       // audit only, not saved
-    PassengerAudit passenger_audit_;       // audit only, not saved
-    std::map<std::string, RotationTour> rotation_tours_;  // from data, not saved
-    mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache_;  // time, AU
-    double delivered_reference_cr_ {0.0};
-    bool trajectory_audit_enabled_ {false};
-    std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records_;
+    std::unordered_map<std::string, domain::Inventory> starting_inventories;
+    std::map<std::string, RotationTour> rotation_tours;  // from data, not saved
+    std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id;
+    std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id;
+    std::unordered_map<std::string, const domain::ShipModuleDefinition*> modules_by_key;  // "hull|module"
+    std::unordered_set<std::string> active_effects;  // module effect keys switched on
+};
+
+// The engines: orbital mechanics, the economy's price model, the atlas and the planners, the
+// thread pool. Not saved.
+struct Engines {
+    // The mechanics and the economy keep references into the universe (and the planners into the
+    // mechanics and the atlas), so they come first.
+    explicit Engines(const domain::UniverseDefinition& universe) : mechanics(universe), economy(universe) {}
+
+    celestial::CelestialMechanics mechanics;
+    economy::EconomySystem economy;
+    variable_isp::VariableIspAtlas atlas;
+    bool atlas_loaded {false};
+    std::unique_ptr<trajectory::KeplerTrajectoryPlanner> kepler_planner;
+    std::unique_ptr<trajectory::VariableIspTrajectoryPlanner> variable_isp_planner;
+    std::unique_ptr<util::ThreadPool> thread_pool;
+};
+
+// Everything save_state_json writes: the clock, stations, ships and the other entities, the
+// money, the journal and the flow record, fleet investment and salvage, the random streams and
+// events.
+struct State {
+    double game_time_s {0.0};
+    double untimed_s {0.0};   // game time step() was given that no tick has used yet
+    double outside_economy_credits {0.0};   // Earth's economy (the outside account)
+    // The other background economies' accounts (economy overhaul), by id.
+    std::map<std::string, double> background_credits;
+    // The colonies' people (labour market), by economy id.
+    std::map<std::string, double> background_population;
+    std::map<std::string, ColonyState> colony_state;
+    std::map<std::string, double> faction_treasuries;
+    // The money journal (MoneyJournal.hpp) and the flow record (FlowRecord.hpp).
+    MoneyJournal journal;
+    FlowRecord flows;
+    double seeded_money_supply {0.0};   // grows by the working capital of new ships
+    double next_investment_review_s {0.0};
+    int investment_purchases_left {0};   // of the current review, one per tick
+    double next_purchase_s {0.0};        // no purchase before this (purchase_spacing_days)
+    // A review's probes, by "hull class|yard": the cargo runs a new ship could fly. Saved with
+    // the game (the review spans several ticks).
+    std::map<std::string, std::vector<ProbedRun>> review_probes;
+    domain::FleetInvestmentLedger investment_ledger;
+    // Step 17: taxes each faction collects per day (365-day average) and interest paid on debt.
+    std::map<std::string, double> faction_tax_per_day;
+    double faction_interest_paid {0.0};
+    // Emergency deliveries open now, and the totals since the start.
+    std::vector<domain::Emergency> emergencies;
+    int emergencies_opened {0};
+    // Random events (step 28): the generator (seeded from the data and the start date) and
+    // how many of each event have struck.
+    std::mt19937_64 event_rng {0};
+    std::map<std::string, int> events_started;
+    double emergency_paid {0.0};   // by the faction treasuries, in premiums
+    std::vector<domain::ShipState> sold_ships;
+    // Failures and salvage: derelicts drifting now, and each faction's replacement claims (when
+    // each runs out). Saved.
+    std::vector<domain::DerelictState> derelicts;
+    std::map<std::string, std::vector<double>> replacement_claims;
+    double next_salvage_review_s {0.0};
+    bool replacement_tried {false};   // this review's replacement purchase found nothing worth buying
+    std::vector<domain::PatrolState> patrols;   // police cutters (saved)
+    double timewarp_factor {3600.0};
+    std::vector<domain::StationState> stations;
+    std::vector<domain::ShipState> ships;
+    std::vector<domain::EventEntry> recent_events;
+    std::vector<domain::TradeEntry> recent_trades;
+    // Solar particle events draw from their own stream, so station events stay as they were.
+    std::mt19937_64 environment_rng;
+};
+
+// Pure caches and the planning passes' own state: each a function of its key, so keeping one
+// across a load changes nothing (a load clears the leg estimates; the rest are kept).
+struct Caches {
+    mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache;  // time, AU
     // estimate_leg() cache: departure bucket -> "class|from|to|fuel bucket" -> estimate.
-    std::map<std::int64_t, std::unordered_map<std::string, LegEstimate>> leg_estimates_;
+    std::map<std::int64_t, std::unordered_map<std::string, LegEstimate>> leg_estimates;
     // Plans the current choose_mission pass is missing (null outside choose_mission).
-    std::vector<DeferredPlan>* deferred_plans_ {nullptr};
-    std::unordered_set<std::string> deferred_keys_;
-    std::string deferred_prefix_;   // keeps one request's private plan keys apart from another's
-    std::size_t missing_plans_ {0};  // plans read as missing, queued now or by an earlier request
-    std::unique_ptr<util::ThreadPool> thread_pool_;
-    std::unordered_map<std::string, const domain::StationDefinition*> station_defs_by_id_;
-    std::unordered_map<std::string, const domain::ShipClassDefinition*> ship_classes_by_id_;
+    std::vector<DeferredPlan>* deferred_plans {nullptr};
+    std::unordered_set<std::string> deferred_keys;
+    std::string deferred_prefix;   // keeps one request's private plan keys apart from another's
+    std::size_t missing_plans {0};  // plans read as missing, queued now or by an earlier request
     // Fitted designs by design id. A std::map, so references handed out stay valid; derived
     // from data and fits only, never saved.
-    std::map<std::string, domain::ShipClassDefinition> designs_;
-    std::unordered_map<std::string, const domain::ShipModuleDefinition*> modules_by_key_;  // "hull|module"
-    std::unordered_set<std::string> active_effects_;  // module effect keys switched on
-    // Solar particle events draw from their own stream, so station events stay as they were.
-    std::mt19937_64 environment_rng_;
+    std::map<std::string, domain::ShipClassDefinition> designs;
+};
+
+// Counters for reports and audits. Not saved.
+struct Audits {
+    double next_exposure_sample_s {0.0};   // the failure audit samples exposure once a day
+    FailureAudit failure_audit;           // audit only, not saved
+    PatrolAudit patrol_audit;             // audit only, not saved
+    double delivered_paid_cr {0.0};       // audit only, not saved
+    RadiationAudit radiation_audit;       // audit only, not saved
+    PassengerAudit passenger_audit;       // audit only, not saved
+    double delivered_reference_cr {0.0};
+    bool trajectory_audit_enabled {false};
+    std::vector<trajectory::TrajectoryAuditRecord> trajectory_audit_records;
+};
+
+struct World {
+    // data comes first: the engines keep references into the universe.
+    explicit World(domain::UniverseDefinition universe)
+        : data(std::move(universe)),
+          engines(data.universe) {}
+    // Never copied or moved: the engines and the lookup maps hold references and pointers into it.
+    World(const World&) = delete;
+    World& operator=(const World&) = delete;
+    World(World&&) = delete;
+    World& operator=(World&&) = delete;
+
+    StaticData data;
+    Engines engines;
+    State state;
+    Caches caches;
+    Audits audits;
 };
 
 }  // namespace spacetrains::simulation

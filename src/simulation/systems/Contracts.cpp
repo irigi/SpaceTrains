@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 
 #include "simulation/SimulationInternal.hpp"
 #include "simulation/query/Lookups.hpp"
@@ -18,7 +19,7 @@ using namespace detail;
 
 double fleet_hold_units(const World& w) {
     double units = 0.0;
-    for (const auto& ship : w.ships_) {
+    for (const auto& ship : w.state.ships) {
         if (systems::liner_stops(w, ship) == nullptr) {  // liners are a public service, outside the cap
             units += query::ship_design(w, ship).cargo_capacity_units;
         }
@@ -27,13 +28,13 @@ double fleet_hold_units(const World& w) {
 }
 
 std::size_t fleet_ship_count(const World& w) {
-    return static_cast<std::size_t>(std::count_if(w.ships_.begin(), w.ships_.end(),
+    return static_cast<std::size_t>(std::count_if(w.state.ships.begin(), w.state.ships.end(),
         [&](const domain::ShipState& ship) { return systems::liner_stops(w, ship) == nullptr; }));
 }
 
 const std::vector<std::string>* liner_stops(const World& w, const domain::ShipState& ship) {
-    const auto it = w.universe_.liners.find(ship.id);
-    return it == w.universe_.liners.end() ? nullptr : &it->second;
+    const auto it = w.data.universe.liners.find(ship.id);
+    return it == w.data.universe.liners.end() ? nullptr : &it->second;
 }
 
 std::string next_liner_stop(const World& w, const domain::ShipState& ship, const std::string& from_id) {
@@ -46,7 +47,7 @@ std::string next_liner_stop(const World& w, const domain::ShipState& ship, const
 }
 
 bool under_contract(const World& w, const domain::ShipState& ship) {
-    return !ship.contract.stops.empty() && w.game_time_s_ < ship.contract.until_s;
+    return !ship.contract.stops.empty() && w.state.game_time_s < ship.contract.until_s;
 }
 
 const std::vector<std::string>* scheduled_stops(const World& w, const domain::ShipState& ship) {
@@ -78,7 +79,7 @@ double contract_dwell_days(const domain::ShipContract& contract) {
 
 double contracted_flow(const World& w, const std::string& station_id, const std::string& commodity_id) {
     double flow = 0.0;
-    for (const auto& ship : w.ships_) {
+    for (const auto& ship : w.state.ships) {
         if (!systems::under_contract(w, ship) || ship.contract.cycle_days <= 0.0) {
             continue;
         }
@@ -94,18 +95,18 @@ double contracted_flow(const World& w, const std::string& station_id, const std:
 void with_parallel_plans(World& w, const std::string& prefix, const std::function<void()>& pass) {
     for (;;) {
         std::vector<DeferredPlan> deferred;
-        auto* const outer = w.deferred_plans_;
-        w.deferred_plans_ = &deferred;
-        w.deferred_keys_.clear();
-        w.deferred_prefix_ = prefix;
+        auto* const outer = w.caches.deferred_plans;
+        w.caches.deferred_plans = &deferred;
+        w.caches.deferred_keys.clear();
+        w.caches.deferred_prefix = prefix;
         pass();
-        w.deferred_plans_ = outer;
-        w.deferred_prefix_.clear();
+        w.caches.deferred_plans = outer;
+        w.caches.deferred_prefix.clear();
         if (deferred.empty()) {
             return;
         }
         std::vector<domain::TrajectoryPlan> results(deferred.size());
-        w.thread_pool_->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(); });
+        w.engines.thread_pool->parallel_for(deferred.size(), [&](std::size_t i) { results[i] = deferred[i].compute(std::as_const(w)); });
         for (std::size_t i = 0; i < deferred.size(); ++i) {
             deferred[i].commit(std::move(results[i]));
         }
@@ -114,28 +115,28 @@ void with_parallel_plans(World& w, const std::string& prefix, const std::functio
 
 std::pair<domain::ShipContract, double> find_contract(World& w, const domain::ShipState& ship,
     const domain::ShipClassDefinition& ship_class) {
-    const auto& market = w.universe_.market;
+    const auto& market = w.data.universe.market;
     constexpr double day_s = 86400.0;
     const auto& origin = query::get_station_definition(w, ship.current_station_id);
     const double hold = ship_class.cargo_capacity_units;
     if (hold <= 0.0) {
         return {{}, 0.0};
     }
-    double crew = ship_class.crew_size * w.universe_.ship_operations.wage_cr_per_crew_day;
-    for (const auto& [good, units_per_crew_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
+    double crew = ship_class.crew_size * w.data.universe.ship_operations.wage_cr_per_crew_day;
+    for (const auto& [good, units_per_crew_day] : w.data.universe.ship_operations.life_support_units_per_crew_day) {
         crew += ship_class.crew_size * units_per_crew_day * query::get_commodity(w, good).base_price;
     }
-    const double time_cost = query::daily_capital_cost(w, ship_class) + crew + query::hazard_cr_per_day(w, ship_class, origin, origin, w.game_time_s_)
+    const double time_cost = query::daily_capital_cost(w, ship_class) + crew + query::hazard_cr_per_day(w, ship_class, origin, origin, w.state.game_time_s)
         + query::wear_cr_per_flight_day(w, ship_class);
     const double fuel_base = query::get_commodity(w, economy::FUEL_ID).base_price;
-    const auto n = w.universe_.stations.size();
+    const auto n = w.data.universe.stations.size();
     // Every leg once, from today's bucket (later legs' windows are not dated: an estimate).
     std::vector<LegEstimate> legs(n * n);
     systems::with_parallel_plans(w, "contract#", [&] {
         for (std::size_t a = 0; a < n; ++a) {
             for (std::size_t b = 0; b < n; ++b) {
                 if (a != b) {
-                    legs[a * n + b] = systems::estimate_leg(w, ship_class, w.universe_.stations[a], w.universe_.stations[b], w.game_time_s_,
+                    legs[a * n + b] = systems::estimate_leg(w, ship_class, w.data.universe.stations[a], w.data.universe.stations[b], w.state.game_time_s,
                         ship_class.propellant_capacity_kg, market.fill_ref * hold * 100.0);
                 }
             }
@@ -151,15 +152,15 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
     std::vector<std::vector<Need>> needs(n);
     std::vector<std::unordered_map<std::string, std::pair<double, double>>> spares(n);  // good -> (units now, per day)
     for (std::size_t i = 0; i < n; ++i) {
-        const auto& station = w.universe_.stations[i];
+        const auto& station = w.data.universe.stations[i];
         const auto& state = query::get_station_state(w, station.id);
-        const auto& rates = w.economy_.get_station_net_rates(station);
+        const auto& rates = w.engines.economy.get_station_net_rates(station);
         for (const auto& [commodity_id, rate] : rates) {
-            const bool makes = commodity_id == economy::FUEL_ID ? w.economy_.fuel_factory_output(station) > 0.0 : rate > 0.0;
+            const bool makes = commodity_id == economy::FUEL_ID ? w.engines.economy.fuel_factory_output(station) > 0.0 : rate > 0.0;
             if (makes) {
                 const auto stock = state.inventory.find(commodity_id);
                 const double spare = std::max(0.0, (stock == state.inventory.end() ? 0.0 : stock->second) - (8.0 + std::max(0.0, rate) * 7.0));
-                const double per_day = commodity_id == economy::FUEL_ID ? w.economy_.fuel_factory_output(station) : rate;
+                const double per_day = commodity_id == economy::FUEL_ID ? w.engines.economy.fuel_factory_output(station) : rate;
                 spares[i][commodity_id] = {spare, std::max(0.0, per_day)};
             }
         }
@@ -175,13 +176,13 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
             // The price a loop is signed at: the order's market price where ships compete,
             // else the going rate, never above today's bid.
             double price = market.competitive > 0.0 && stats.market_price > 0.0 ? stats.market_price : stats.going_rate;
-            price = std::min(price, std::max(stats.order_price, w.economy_.reference_price(station, commodity_id)));
+            price = std::min(price, std::max(stats.order_price, w.engines.economy.reference_price(station, commodity_id)));
             needs[i].push_back({commodity_id, free_use, price, std::max(stats.going_rate, price)});
         }
     }
     std::size_t origin_index = n;
     for (std::size_t i = 0; i < n; ++i) {
-        if (w.universe_.stations[i].id == origin.id) {
+        if (w.data.universe.stations[i].id == origin.id) {
             origin_index = i;
         }
     }
@@ -214,7 +215,7 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
         for (std::size_t k = 0; k < loop.size(); ++k) {
             const auto from = loop[k];
             const auto to = loop[(k + 1) % loop.size()];
-            const auto& from_state = query::get_station_state(w, w.universe_.stations[from].id);
+            const auto& from_state = query::get_station_state(w, w.data.universe.stations[from].id);
             const double fuel_price = std::max(fuel_base, systems::station_price(w, from_state, economy::FUEL_ID));
             profit -= loop_legs[k].propellant_kg / FUEL_UNITS_TO_KG * fuel_price
                 + loop_legs[k].propellant_kg * query::wear_cr_per_propellant_kg(w, ship_class);
@@ -245,7 +246,7 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
                 }
                 room -= units;
                 profit += units * pick.margin;
-                deliveries.push_back({.to_station_id = w.universe_.stations[to].id,
+                deliveries.push_back({.to_station_id = w.data.universe.stations[to].id,
                     .commodity_id = pick.need->commodity_id, .units = units, .unit_price = pick.need->price});
                 buys.push_back(pick.need->price - pick.margin);
                 caps.push_back(pick.need->cap);
@@ -282,7 +283,7 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
         if (contract != nullptr) {
             *contract = {};
             for (std::size_t k = 0; k < loop.size(); ++k) {
-                contract->stops.push_back(w.universe_.stations[loop[k]].id);
+                contract->stops.push_back(w.data.universe.stations[loop[k]].id);
                 contract->leg_days.push_back(loop_legs[k].travel_days);
             }
             contract->deliveries = std::move(deliveries);
@@ -336,10 +337,10 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
         for (std::size_t r = 0; r < ranked.size(); ++r) {
             const auto& candidate = ranked[r].second;
             dated[r].clear();
-            double t = w.game_time_s_;
+            double t = w.state.game_time_s;
             for (std::size_t k = 0; k < candidate.size(); ++k) {
-                const auto leg = systems::estimate_leg(w, ship_class, w.universe_.stations[candidate[k]],
-                    w.universe_.stations[candidate[(k + 1) % candidate.size()]], t, ship_class.propellant_capacity_kg,
+                const auto leg = systems::estimate_leg(w, ship_class, w.data.universe.stations[candidate[k]],
+                    w.data.universe.stations[candidate[(k + 1) % candidate.size()]], t, ship_class.propellant_capacity_kg,
                     market.fill_ref * hold * 100.0);
                 dated[r].push_back(leg);
                 t += leg.travel_days * day_s;
@@ -362,8 +363,8 @@ std::pair<domain::ShipContract, double> find_contract(World& w, const domain::Sh
     // What the ship earns on it (cost-plus: its markup on the loop's cost).
     best_score = best_profit;
     if (!best.stops.empty()) {
-        best.signed_s = w.game_time_s_;
-        best.until_s = w.game_time_s_ + market.contract_term_days * day_s;
+        best.signed_s = w.state.game_time_s;
+        best.until_s = w.state.game_time_s + market.contract_term_days * day_s;
     }
     return {best, best_score};
 }

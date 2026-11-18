@@ -1,12 +1,15 @@
 # Plan: split `Simulation` into state and systems (Architecture 1)
 
-Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17);
+Written 2026-11-16 from the roadmap's Architecture item 1 (outside review 2026-11-12). Steps 1-2 done (PR #41), 3-5 (PR #43), 6-10 (2026-11-17), 11-13 (2026-11-17), 14-16 (2026-11-18);
 the order of the rest was revised after step 2 (see "Steps").
 
 **This is a refactor: behaviour must not change.** Every commit must keep the test suites green, reproduce the saves
 and the economy audit byte for byte, and keep `--profile` at least as fast as before (see "Checks").
 
 ## Where it stands (main at PR #39)
+
+This section describes the code before the split (line numbers, member names, "today"); steps 15-16 changed what
+it says about ownership, the move hazard and `DeferredPlan`. The tick and set-up orders are unchanged.
 
 - `Simulation` (`src/simulation/Simulation.hpp`, 982 lines) is one class with all running state and every rule as a
   member. Sixteen files define its members: the fifteen topic files in `src/simulation/` (`modules/simulation.md`)
@@ -257,17 +260,69 @@ call-graph script over the `Simulation::` definitions (members already forwardin
    `primary_body_id` are gone. Not mechanical: `failures_on` (inline in `Simulation.hpp`, used only here) is
    file-local on `const World&`; `fleet_places_held_for_others` has no caller (none since it was written): it is
    file-local and `[[maybe_unused]]`, kept as it was rather than deleted inside a move.
-11. **FleetInvestment** (`InvestmentReview` becomes `systems::InvestmentReview`). Check first why the call graph
+11. **FleetInvestment** (done 2026-11-17; 1,038 lines; `InvestmentReview` becomes the system's own class). Check first why the call graph
     shows `step_fleet_investment` calling `tick` (likely a name in a comment or a nested trial run).
-12. **ShipPhases** (it calls nearly everything, so it goes last among the rules).
-13. **Snapshot** (`const World&`; it reads every topic, so it goes after them).
-14. **Persistence:** `save_state_json(const World&)` and `load_state_json(World&)`, still called through
-    `Simulation`'s public members.
-15. **Thin `Simulation`:** drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
+    As built: the `tick` link was the word in comments ("one purchase per tick"), nothing more. `FleetInvestment.cpp`
+    moved whole to `systems/`. `InvestmentReview` is a file-local class holding `World& sim_` (the name kept, as
+    `MissionPass` did in step 5), its `sim_.f(...)` calls now `query::`/`systems::` calls; `CommissionStep`,
+    `commission_step`, `consumption_value_per_day`, `faction_spendable` and `sell_ship` are file-local.
+    Forwarders for `internal_money_supply`, `step_treasuries`, `step_fleet_investment` (all from `Simulation.cpp`),
+    the static `station_tax_ceiling` (the economy test) and the query forwarder `faction_credit_limit` (Snapshot).
+    `FitOption` stays: it belongs to `neighbouring_fits` in `Simulation.cpp` (refits, used by ShipPhases).
+    Not mechanical: `register_design(sim_, hull->id, {module.id})` names its one-element vector first; as a free
+    function call GCC 13 warned of a dangling reference (a false positive: the design lives in the World's cache).
+12. **ShipPhases** (done 2026-11-17; 643 lines; it calls nearly everything, so it goes last among the rules).
+    As built: `ShipPhases.cpp` moved whole to `systems/`, taking from `Simulation.cpp` the two members only it
+    calls, `neighbouring_fits` (with `FitOption`) and `record_trajectory_audit`, at its end. Forwarders for the
+    four phase steps (`tick` calls them); `consider_refit`, `refit_bill` and the two taken over are file-local
+    (`neighbouring_fits` keeps its default `radiator_bucket = 1.0` on its declaration ahead).
+13. **Snapshot** (done 2026-11-17; 946 lines; `const World&`; it reads every topic, so it goes after them).
+    As built: `Snapshot.cpp` moved whole to `systems/`; every function takes `const World&`. Forwarders for the
+    seven called from the bridge, the headless app and the tests (`snapshot`, `build_report`,
+    `build_bridge_snapshot_json`, `build_bridge_paths_json`, `build_bridge_designs_json`, `bridge_paths_signature`,
+    and the query forwarder `get_ship_render_position`); `bridge_path_id`, `write_ship_path_json` and
+    `ship_systems_json` are file-local, and the query forwarder `mission_phase_name` is gone. Not mechanical:
+    `bridge_path_id` never read the state, so it takes no `World` (as `per_capita_savings` in step 9).
+14. **Persistence** (done 2026-11-18): `save_state_json(const World&)` and `load_state_json(World&)`, still called
+    through `Simulation`'s public members.
+    As built: `persistence::data_fingerprint`, `save_state_json` and `load_state_json` in
+    `persistence/SimulationPersistence.hpp`; `load_state_json` keeps the restore on failure, and `read_state_json`
+    is file-local. The file's code moved from namespace `simulation` to `persistence`, so it names the simulation
+    types it uses with `using` declarations. `Simulation`'s three members forward to it.
+15. **Thin `Simulation`** (done 2026-11-18): drop the inheritance, hold `std::unique_ptr<World>` (this removes the move hazard: the
     engines' references now point into a heap object that never moves), make `World` non-copyable and non-movable,
     group the members into the `World` sub-structs, delete the forwarders. `tick()` reads as the list in "Tick
     order" above.
+    As built, in commits checked one by one:
+    - 15a: `WorldSetup.{hpp,cpp}`: `init_world(World&)` is the constructor's body (converted as a system; the
+      set-up order is unchanged), `load_universe`, `attach_engines` (thread pool and atlas, as `from_data_root`
+      did after construction) and `make_world(data_root, atlas_file, adjust)`, which runs the three in that
+      order. The constructor and `from_data_root` call the same functions; `tests/test_world.cpp` builds its
+      World with `make_world`.
+    - 15b: `Simulation` holds `std::unique_ptr<World>` and no longer inherits; `World` is not copyable or movable,
+      and `from_data_root` returns `Simulation(make_world(...))`, so nothing relies on NRVO any more. The tick
+      (`step`, `tick`, `start_at`) is free functions on `World` in `Simulation.cpp`, converted like the systems;
+      `settle_local_economy`, `step_population` and `step_events` are file-local there. `Forwarders.cpp` is gone:
+      the 98 private members and their forwarders went (nothing outside called them), and the public members'
+      45 forwarders moved to `Simulation.cpp` on `*world_`. The public interface is unchanged; the patrols test
+      steps its `World` with `simulation::step`.
+    - 15c: `DeferredPlan::compute` takes `const World&`; the three places that run them pass
+      `std::as_const(w)`. Found: the two compute lambdas (`MissionPlanning.cpp`, leg estimates and
+      `MissionPass::plan_to`) already captured only `const` references (planner, definitions, ship, class)
+      and values, so no worker wrote state. They do not use the World they are given; the type records the
+      rule, and a review of a new compute still has to look at its captures.
+    - 15d: `World` is five sub-structs, `data` (`StaticData`), `engines`, `state`, `caches` and `audits`; every
+      access is scripted from `w.ships_` to `w.state.ships_` (the compiler checks that none is missed). `State`
+      is exactly what `save_state_json` writes (34 members). Placed differently from the table above: the
+      journal's account indices go to `data` (built from the data at the start, not saved), `events_enabled_`
+      to `data` (a switch for the run, not saved), and `next_exposure_sample_s_` to `audits` (it only times
+      the failure audit's daily sample). `World` builds `data` first, then `engines` from `data.universe_`.
 16. **Optional:** drop the trailing underscores in `World` (mechanical rename, its own commit).
+    Done 2026-11-18: scripted on the grouped accesses (`w.state.ships_` to `w.state.ships`) and the declarations
+    in the five groups. Every access goes through a group, so a new name cannot meet a local of the same name
+    (a local `ships` beside `w.state.ships`); no two members differed only by the underscore. Other classes'
+    own members (`EconomySystem::universe_`, the planners' `mechanics_`) keep theirs. The tables above name the
+    members as they were before steps 15d and 16.
 
 Suggested PRs: 1-2 (done), 3-4, 5, 6-10, 11-16. Each PR states the before/after numbers of the checks.
 

@@ -8,7 +8,7 @@ fleet investment are in `ships_and_fleet.md`.
 - `src/simulation/systems/Market.cpp`: station orders, emergencies, the daily market among ships, reference prices;
 - `src/simulation/systems/Households.cpp`: residents, colonies, labour, station incomes, settling the local economy;
 - `src/simulation/systems/Contracts.cpp`: liners and rotation contracts;
-- `src/simulation/FleetInvestment.cpp`: treasuries, credit, taxes (and fleet investment);
+- `src/simulation/systems/FleetInvestment.cpp`: treasuries, credit, taxes (and fleet investment);
 - `src/simulation/MoneyJournal.{hpp,cpp}`, `systems/Statistics.cpp`: the money journal and statistics.
 
 **Data:** `data/commodities/`, `data/recipes/`, `data/economy/` (one CSV per topic, `key,value` where it is a list
@@ -64,7 +64,7 @@ on cost, not be cut off by rules.
   8-10× use it idled plants and cut jobs everywhere; it needs capacity sized to use first.
 - **Machinery** wears at 0.05% a day in stock.
 - **Unmet demand:** stock-outs of upkeep and consume goods, and for an input the output it failed to feed.
-- **Stations start stocked** (`Simulation::starting_inventory`): every ordered good at its order-up-to level S
+- **Stations start stocked** (`systems::starting_inventory`): every ordered good at its order-up-to level S
   (below), within 85% of storage. *Why:* starting at the target stock was the largest single gain in supply
   (2026-10-08).
 
@@ -106,7 +106,7 @@ Ships take slices of it as contracts at departure and are paid that flat unit pr
   discount, beyond that at the floor (0.25 × reference), so no ship is ever stuck with cargo. Contracted arrivals,
   and a rotation contract's deliveries still to come, count in the projected stock (each lot decays at its carrier's
   hold rate).
-- **Emergencies** (`Simulation::step_emergencies`): when oxygen or water's projected stock runs out within 21 days,
+- **Emergencies** (`systems::step_emergencies`): when oxygen or water's projected stock runs out within 21 days,
   the faction offers a premium above the station's cap for 30 days of use, raised 1.5× every 15 days nobody takes
   it, up to `life_value`. It closes when 14 days are covered.
 

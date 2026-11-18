@@ -84,7 +84,7 @@ void defer_plan(World& w, const std::string& key, DeferredPlan request);
     const domain::ShipClassDefinition& ship_class, bool trace, double earliest_departure_s, bool cargo_only = false);
 [[nodiscard]] std::vector<MissionChoice> choose_missions(World& w, const std::vector<MissionRequest>& requests);
 // One pass of choose_mission. Plans it has no result for yet are queued in
-// deferred_plans_ and read as infeasible; choose_mission computes the queue in parallel
+// caches.deferred_plans and read as infeasible; choose_mission computes the queue in parallel
 // and repeats the pass until nothing is missing, so the last pass is exactly the
 // sequential result.
 [[nodiscard]] MissionChoice choose_mission_pass(World& w, const domain::ShipState& ship,

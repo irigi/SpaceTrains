@@ -73,7 +73,7 @@ const char* passenger_kind_name(domain::PassengerKind kind) {
 }
 
 double settler_share(const World& w, double payback_years) {
-    const auto& pax = w.universe_.passengers;
+    const auto& pax = w.data.universe.passengers;
     if (payback_years <= 0.0 || pax.settler_payback_half_years <= 0.0) {
         return 1.0;
     }
@@ -114,7 +114,7 @@ double reference_cost_cr(const World& w, const std::string& origin_id, const std
     if (reference == nullptr) {
         return std::numeric_limits<double>::infinity();
     }
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     return systems::live_fare_cr(w, origin_id, destination_id, *reference)
         + query::passenger_nonfare_cr(w, value_of_time, reference->days, env.radiation ? env.gcr_msv_per_day : 0.0);
 }
@@ -125,7 +125,7 @@ std::vector<PassengerBand> passenger_bands(const World& w, domain::PassengerKind
     if (count <= 0.0) {
         return out;
     }
-    const auto& pax = w.universe_.passengers;
+    const auto& pax = w.data.universe.passengers;
     const double value_of_time = query::value_of_time_cr_per_day(w, kind);
     const double reference = reference_cost_cr(w, origin_id, destination_id, value_of_time);
     if (!std::isfinite(reference)) {
@@ -190,8 +190,8 @@ void post_travellers(World& w, domain::StationState& origin, domain::PassengerKi
     const double dose_msv = 0.0;
     for (const auto& [band, people, max_cost, value_of_time, queued, home_pays] :
         passenger_bands(w, kind, origin.station_id, destination_id, count, fixed, work_station_id)) {
-        w.passenger_audit_.posted[static_cast<std::size_t>(kind)] += people;
-        w.passenger_audit_.routes[{origin.station_id, destination_id}].posted += people;
+        w.audits.passenger_audit.posted[static_cast<std::size_t>(kind)] += people;
+        w.audits.passenger_audit.routes[{origin.station_id, destination_id}].posted += people;
         auto group = std::find_if(origin.waiting.begin(), origin.waiting.end(), [&](const domain::PassengerGroup& g) {
             return g.kind == kind && g.band == band && g.destination_id == destination_id
                 && g.work_station_id == work_station_id && g.dose_msv == dose_msv;
@@ -202,7 +202,7 @@ void post_travellers(World& w, domain::StationState& origin, domain::PassengerKi
                 .destination_id = destination_id,
                 .work_station_id = work_station_id,
                 .count = people,
-                .since_s = w.game_time_s_,
+                .since_s = w.state.game_time_s,
                 .max_cost_cr = max_cost,
                 .value_of_time_cr_per_day = value_of_time,
                 .dose_msv = dose_msv,
@@ -210,7 +210,7 @@ void post_travellers(World& w, domain::StationState& origin, domain::PassengerKi
             });
         } else {
             // The group's waiting time is the mean of its people's.
-            group->since_s = (group->since_s * group->count + w.game_time_s_ * people) / (group->count + people);
+            group->since_s = (group->since_s * group->count + w.state.game_time_s * people) / (group->count + people);
             group->count += people;
             group->max_cost_cr = max_cost;
         }
@@ -218,7 +218,7 @@ void post_travellers(World& w, domain::StationState& origin, domain::PassengerKi
 }
 
 const std::string& gateway_for(const World& w, const std::string& station_id, bool to_station) {
-    const auto& gateways = w.universe_.passengers.earth_gateways;
+    const auto& gateways = w.data.universe.passengers.earth_gateways;
     const std::string* best = &gateways.front();
     double best_fare = std::numeric_limits<double>::infinity();
     for (const auto& gateway : gateways) {
@@ -233,7 +233,7 @@ const std::string& gateway_for(const World& w, const std::string& station_id, bo
 
 double travellers_pending(const World& w, const std::string& station_id, domain::PassengerKind kind) {
     double pending = 0.0;
-    for (const auto& station : w.stations_) {
+    for (const auto& station : w.state.stations) {
         for (const auto& group : station.waiting) {
             if (group.kind == kind && !query::colony_employer(group.work_station_id) && (kind == domain::PassengerKind::Emigrant
                     ? station.station_id == station_id : group.destination_id == station_id)) {
@@ -241,7 +241,7 @@ double travellers_pending(const World& w, const std::string& station_id, domain:
             }
         }
     }
-    for (const auto& ship : w.ships_) {
+    for (const auto& ship : w.state.ships) {
         for (const auto& lot : ship.passengers) {
             if (lot.kind == kind && !query::colony_employer(lot.work_station_id) && (kind == domain::PassengerKind::Emigrant
                     ? lot.origin_id == station_id : lot.destination_id == station_id)) {
@@ -257,8 +257,8 @@ double colony_recruits_per_day(const World& w, const domain::BackgroundEconomyDe
     if (!query::labour_on(w) || !query::migration_by_ship(w) || economy.immigration_share <= 0.0) {
         return 0.0;
     }
-    const auto colony = w.background_population_.find(economy.id);
-    if (colony == w.background_population_.end() || query::economy_balance(w, economy.id) <= 0.0) {
+    const auto colony = w.state.background_population.find(economy.id);
+    if (colony == w.state.background_population.end() || query::economy_balance(w, economy.id) <= 0.0) {
         return 0.0;   // it pays passages out of savings
     }
     return colony->second * economy.growth_per_year * economy.immigration_share * std::max(0.0, colony_growth_factor(w, economy.id))
@@ -266,15 +266,15 @@ double colony_recruits_per_day(const World& w, const domain::BackgroundEconomyDe
 }
 
 void compute_rotation_tours(World& w) {
-    w.rotation_tours_.clear();
+    w.data.rotation_tours.clear();
     if (!query::rotation_on(w)) {
         return;
     }
-    const auto& pax = w.universe_.passengers;
-    const auto& env = w.universe_.ship_environment;
+    const auto& pax = w.data.universe.passengers;
+    const auto& env = w.data.universe.ship_environment;
     const double wage = query::value_of_time_cr_per_day(w, domain::PassengerKind::RotationOut);
     const double dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
-    for (const auto& station : w.universe_.stations) {
+    for (const auto& station : w.data.universe.stations) {
         if (query::is_earth_gateway(w, station.id)) {
             continue;
         }
@@ -289,7 +289,7 @@ void compute_rotation_tours(World& w) {
         const double round_trip = fares + query::passenger_nonfare_cr(w, wage, out->days, dose_rate)
             + query::passenger_nonfare_cr(w, wage, home->days, dose_rate);
         const double tour_days = std::sqrt(round_trip * 365.0 / (pax.hardship_per_year * wage));
-        w.rotation_tours_[station.id] = {
+        w.data.rotation_tours[station.id] = {
             .out_gateway = out_gateway,
             .home_gateway = home_gateway,
             .tour_days = tour_days,
@@ -299,12 +299,12 @@ void compute_rotation_tours(World& w) {
 }
 
 const RotationTour* rotation_tour(const World& w, const std::string& station_id) {
-    const auto it = w.rotation_tours_.find(station_id);
-    return it == w.rotation_tours_.end() ? nullptr : &it->second;
+    const auto it = w.data.rotation_tours.find(station_id);
+    return it == w.data.rotation_tours.end() ? nullptr : &it->second;
 }
 
 double rotation_positions(const World& w, const domain::StationState& station) {
-    return w.universe_.passengers.rotation_share * station.population;
+    return w.data.universe.passengers.rotation_share * station.population;
 }
 
 namespace {
@@ -314,14 +314,14 @@ double visitor_trips_per_day(const World& w, const std::string& origin_id, const
         || query::reference_fare(w, origin_id, destination_id) == nullptr || query::reference_fare(w, destination_id, origin_id) == nullptr) {
         return 0.0;
     }
-    const auto& pax = w.universe_.passengers;
+    const auto& pax = w.data.universe.passengers;
     const double gateways = static_cast<double>(pax.earth_gateways.size());
     const auto people = [&](const std::string& station_id) {
         return query::is_earth_gateway(w, station_id) ? pax.earth_population_weight / gateways
                                             : query::get_station_state(w, station_id).population;
     };
     double others = 0.0;
-    for (const auto& station : w.universe_.stations) {
+    for (const auto& station : w.data.universe.stations) {
         if (station.id != origin_id && !(query::is_earth_gateway(w, origin_id) && query::is_earth_gateway(w, station.id))) {
             others += people(station.id);
         }
@@ -355,7 +355,7 @@ double passenger_flow_per_day(const World& w, const std::string& origin_id, cons
         // Labour market: vacancies posted to Earth, the unemployed going home.
         if (query::is_earth_gateway(w, origin_id) && !query::is_earth_gateway(w, destination_id) && gateway_for(w, destination_id, true) == origin_id) {
             flow += labour_migrants_per_day(w, query::get_station_state(w, destination_id));
-            for (const auto& economy : w.universe_.background_economies) {
+            for (const auto& economy : w.data.universe.background_economies) {
                 if (!economy.gateways.empty() && economy.gateways.front() == destination_id) {
                     flow += colony_recruits_per_day(w, economy);
                 }
@@ -365,8 +365,8 @@ double passenger_flow_per_day(const World& w, const std::string& origin_id, cons
             flow += labour_emigrants_per_day(w, query::get_station_state(w, origin_id));
         }
     } else if (query::migration_by_ship(w)) {
-        const auto& growth = w.universe_.growth;
-        const double floor_credits = w.universe_.open_economy.station_credit_floor;
+        const auto& growth = w.data.universe.growth;
+        const double floor_credits = w.data.universe.open_economy.station_credit_floor;
         if (query::is_earth_gateway(w, origin_id) && !query::is_earth_gateway(w, destination_id) && gateway_for(w, destination_id, true) == origin_id) {
             const auto& station = query::get_station_state(w, destination_id);
             const double ceiling = growth.max_population_factor
@@ -387,7 +387,7 @@ double passenger_flow_per_day(const World& w, const std::string& origin_id, cons
     // Those already waiting, spread over a new ship's route commitment.
     for (const auto& group : query::get_station_state(w, origin_id).waiting) {
         if (group.destination_id == destination_id) {
-            flow += group.count / std::max(1.0, w.universe_.fleet_investment.route_commitment_days);
+            flow += group.count / std::max(1.0, w.data.universe.fleet_investment.route_commitment_days);
         }
     }
     return flow;
@@ -429,7 +429,7 @@ std::vector<PassengerBand> expected_travellers(const World& w, const std::string
     if (query::migration_by_ship(w) && query::labour_on(w)) {
         if (query::is_earth_gateway(w, origin_id) && !query::is_earth_gateway(w, destination_id) && gateway_for(w, destination_id, true) == origin_id) {
             add(K::Migrant, labour_migrants_per_day(w, query::get_station_state(w, destination_id)), true);
-            for (const auto& economy : w.universe_.background_economies) {
+            for (const auto& economy : w.data.universe.background_economies) {
                 if (!economy.gateways.empty() && economy.gateways.front() == destination_id) {
                     if (const double recruits = colony_recruits_per_day(w, economy); recruits > 0.0) {
                         auto bands = passenger_bands(w, K::Migrant, origin_id, destination_id, recruits * window_days, true,
@@ -443,13 +443,13 @@ std::vector<PassengerBand> expected_travellers(const World& w, const std::string
             add(K::Emigrant, labour_emigrants_per_day(w, query::get_station_state(w, origin_id)), true);
         }
     } else if (query::migration_by_ship(w)) {
-        const auto& growth = w.universe_.growth;
+        const auto& growth = w.data.universe.growth;
         if (query::is_earth_gateway(w, origin_id) && !query::is_earth_gateway(w, destination_id) && gateway_for(w, destination_id, true) == origin_id) {
             const auto& station = query::get_station_state(w, destination_id);
             const double ceiling = growth.max_population_factor
                 * static_cast<double>(query::get_station_definition(w, destination_id).population);
             if (station.supply_index >= growth.grow_above
-                && station.credits >= w.universe_.open_economy.station_credit_floor && station.population < ceiling) {
+                && station.credits >= w.data.universe.open_economy.station_credit_floor && station.population < ceiling) {
                 add(K::Migrant, growth.growth_per_year * station.population / 365.25, false);
             }
         }
@@ -462,7 +462,7 @@ std::vector<PassengerBand> expected_travellers(const World& w, const std::string
     }
     // Those already waiting: a window as long as the route commitment or longer finds each of
     // them once (they are not a flow).
-    const double spread = std::min(1.0, window_days / std::max(1.0, w.universe_.fleet_investment.route_commitment_days));
+    const double spread = std::min(1.0, window_days / std::max(1.0, w.data.universe.fleet_investment.route_commitment_days));
     for (const auto& group : query::get_station_state(w, origin_id).waiting) {
         if (group.destination_id == destination_id && group.count > 0.0) {
             out.push_back({.band = group.band, .people = group.count * spread, .max_cost_cr = group.max_cost_cr,
@@ -480,7 +480,7 @@ double carried_passengers_per_day(const World& w, const std::string& origin_id, 
     // time each carrier takes to come round again (its trip out and back, taken as twice the
     // trip out).
     double rate = 0.0;
-    for (const auto& ship : w.ships_) {
+    for (const auto& ship : w.state.ships) {
         for (const auto& lot : ship.passengers) {
             if (lot.origin_id != origin_id || lot.destination_id != destination_id) {
                 continue;
@@ -502,7 +502,7 @@ PassengerRevenue expected_passenger_revenue(const World& w, const std::string& o
     if (reference == nullptr || berths < 1.0 || open_share <= 0.0) {
         return revenue;
     }
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     const double dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
     struct Candidate {
         double people;
@@ -585,8 +585,8 @@ double expected_fare_cr(const World& w, const std::string& origin_id, const std:
     if (reference == nullptr || berths < 1.0) {
         return 0.0;
     }
-    const auto& pax = w.universe_.passengers;
-    const auto& env = w.universe_.ship_environment;
+    const auto& pax = w.data.universe.passengers;
+    const auto& env = w.data.universe.ship_environment;
     const double dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
     const double vot = query::value_of_time_cr_per_day(w, domain::PassengerKind::Migrant);
     const double nonfare = query::passenger_nonfare_cr(w, vot, days, dose_rate);
@@ -603,10 +603,10 @@ void step_passengers(World& w, double dt_s) {
     const double dt_days = dt_s / 86400.0;
     // Rotation: each position is relieved once a tour. The station pays, so it sends for a
     // relief only while it can (above its credit floor by the fare); otherwise tours run long.
-    for (const auto& [station_id, tour] : w.rotation_tours_) {
+    for (const auto& [station_id, tour] : w.data.rotation_tours) {
         auto& station = query::get_station_state(w, station_id);
         const auto* fare = query::reference_fare(w, tour.out_gateway, station_id);
-        if (station.credits < w.universe_.open_economy.station_credit_floor + systems::live_fare_cr(w, tour.out_gateway, station_id, *fare)) {
+        if (station.credits < w.data.universe.open_economy.station_credit_floor + systems::live_fare_cr(w, tour.out_gateway, station_id, *fare)) {
             continue;
         }
         post_travellers(w, query::get_station_state(w, tour.out_gateway), domain::PassengerKind::RotationOut, station_id, station_id,
@@ -615,13 +615,13 @@ void step_passengers(World& w, double dt_s) {
     // Discretionary trips: posted at the origin; visitors whose stay is over head home.
     // With visitor_batch_days, the trips of a whole batch are posted at once when the batch
     // starts (game time has already advanced by this tick), so groups form a week at a time.
-    const double batch_s = w.universe_.passengers.visitor_batch_days * 86400.0;
+    const double batch_s = w.data.universe.passengers.visitor_batch_days * 86400.0;
     const bool post_visitors = batch_s <= 0.0
-        || std::floor(w.game_time_s_ / batch_s) != std::floor((w.game_time_s_ - dt_s) / batch_s);
-    const double visitor_days = batch_s > 0.0 ? w.universe_.passengers.visitor_batch_days : dt_days;
+        || std::floor(w.state.game_time_s / batch_s) != std::floor((w.state.game_time_s - dt_s) / batch_s);
+    const double visitor_days = batch_s > 0.0 ? w.data.universe.passengers.visitor_batch_days : dt_days;
     if (query::visits_on(w)) {
-        for (auto& origin : w.stations_) {
-            for (const auto& destination : w.universe_.stations) {
+        for (auto& origin : w.state.stations) {
+            for (const auto& destination : w.data.universe.stations) {
                 if (!post_visitors) {
                     break;
                 }
@@ -631,9 +631,9 @@ void step_passengers(World& w, double dt_s) {
                 }
             }
         }
-        for (auto& station : w.stations_) {
+        for (auto& station : w.state.stations) {
             std::erase_if(station.visiting, [&](const domain::PassengerGroup& stay) {
-                if (stay.since_s > w.game_time_s_) {
+                if (stay.since_s > w.state.game_time_s) {
                     return false;
                 }
                 post_travellers(w, station, domain::PassengerKind::VisitorHome, stay.destination_id, stay.destination_id,
@@ -644,20 +644,20 @@ void step_passengers(World& w, double dt_s) {
     }
     // Waiting costs time: a person whose budget the wait would use up leaves the queue. In
     // expectation the group thins at value of time / highest cost per day.
-    for (auto& station : w.stations_) {
+    for (auto& station : w.state.stations) {
         for (auto& group : station.waiting) {
             const double rate = group.max_cost_cr > 0.0 ? group.value_of_time_cr_per_day / group.max_cost_cr : 1.0;
             const double lost = group.count * (1.0 - std::exp(-rate * dt_days));
             group.count -= lost;
-            w.passenger_audit_.gave_up[static_cast<std::size_t>(group.kind)] += lost;
-            w.passenger_audit_.routes[{station.station_id, group.destination_id}].gave_up += lost;
+            w.audits.passenger_audit.gave_up[static_cast<std::size_t>(group.kind)] += lost;
+            w.audits.passenger_audit.routes[{station.station_id, group.destination_id}].gave_up += lost;
         }
         std::erase_if(station.waiting, [&](const domain::PassengerGroup& group) {
             if (group.count >= MIN_GROUP_COUNT) {
                 return false;
             }
-            w.passenger_audit_.gave_up[static_cast<std::size_t>(group.kind)] += group.count;
-            w.passenger_audit_.routes[{station.station_id, group.destination_id}].gave_up += group.count;
+            w.audits.passenger_audit.gave_up[static_cast<std::size_t>(group.kind)] += group.count;
+            w.audits.passenger_audit.routes[{station.station_id, group.destination_id}].gave_up += group.count;
             return true;
         });
     }
@@ -675,12 +675,12 @@ PassengerOffer passenger_offer(const World& w, const domain::ShipState& ship,
     if (reference == nullptr) {
         return offer;
     }
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     const auto& origin_def = query::get_station_definition(w, origin.station_id);
-    const double dose_rate = env.radiation ? query::leg_dose_msv_per_day(w, design, origin_def, destination, w.game_time_s_) : 0.0;
+    const double dose_rate = env.radiation ? query::leg_dose_msv_per_day(w, design, origin_def, destination, w.state.game_time_s) : 0.0;
     const double reference_dose_rate = env.radiation ? env.gcr_msv_per_day : 0.0;
     double provisions_per_day = 0.0;
-    for (const auto& [commodity_id, units_per_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
+    for (const auto& [commodity_id, units_per_day] : w.data.universe.ship_operations.life_support_units_per_crew_day) {
         provisions_per_day += units_per_day * systems::station_price(w, origin, commodity_id);
     }
     const double marginal = provisions_per_day * days + query::passenger_kg(w, days) * propellant_cr_per_kg;
@@ -747,7 +747,7 @@ PassengerOffer passenger_offer(const World& w, const domain::ShipState& ship,
             auto budget = budgets.find(group.work_station_id);
             if (budget == budgets.end()) {
                 budget = budgets.emplace(group.work_station_id, query::get_station_state(w, group.work_station_id).credits
-                    - w.universe_.open_economy.station_credit_floor).first;
+                    - w.data.universe.open_economy.station_credit_floor).first;
             }
             count = std::min(count, std::floor(std::max(0.0, budget->second) / fare + 1e-9));
             if (count < 1.0) {
@@ -814,8 +814,8 @@ void board_passengers(World& w, domain::ShipState& ship, domain::StationState& o
             auto& employer = query::get_station_state(w, group.work_station_id);
             employer.credits -= fares;
             employer.ledger.passages_paid += fares;
-            w.journal_.record(query::account_station(w, employer), query::account_fleet(w, ship.faction_id), MoneyCategory::FaresEmployer, fares);
-            if (w.universe_.passengers.passage_recovery_days > 0.0) {
+            w.state.journal.record(query::account_station(w, employer), query::account_fleet(w, ship.faction_id), MoneyCategory::FaresEmployer, fares);
+            if (w.data.universe.passengers.passage_recovery_days > 0.0) {
                 employer.passage_debt_cr += fares;
             }
         } else {
@@ -829,22 +829,22 @@ void board_passengers(World& w, domain::ShipState& ship, domain::StationState& o
             if (query::households_on(w) && group.kind == domain::PassengerKind::Emigrant) {
                 const double savings = count * per_capita_savings(origin);
                 origin.household_credits -= savings;
-                w.outside_economy_credits_ += savings;
-                w.journal_.record(query::account_households(w, origin), query::account_earth(), MoneyCategory::MigrantSavings, savings);
+                w.state.outside_economy_credits += savings;
+                w.state.journal.record(query::account_households(w, origin), query::account_earth(), MoneyCategory::MigrantSavings, savings);
             }
             origin.population = std::max(0.0, origin.population - count);
-            w.economy_.set_population(origin.station_id, origin.population);
+            w.engines.economy.set_population(origin.station_id, origin.population);
         }
-        w.passenger_audit_.boarded[kind] += count;
-        w.passenger_audit_.fares_cr[kind] += fares;
-        w.passenger_audit_.wait_days[kind] += count * std::max(0.0, w.game_time_s_ - group.since_s) / 86400.0;
+        w.audits.passenger_audit.boarded[kind] += count;
+        w.audits.passenger_audit.fares_cr[kind] += fares;
+        w.audits.passenger_audit.wait_days[kind] += count * std::max(0.0, w.state.game_time_s - group.since_s) / 86400.0;
         {
-            auto& route = w.passenger_audit_.routes[{origin.station_id, destination_id}];
+            auto& route = w.audits.passenger_audit.routes[{origin.station_id, destination_id}];
             route.boarded += count;
-            const auto& env = w.universe_.ship_environment;
+            const auto& env = w.data.universe.ship_environment;
             if (env.radiation) {
                 const double rate = query::leg_dose_msv_per_day(w, query::ship_design(w, ship), query::get_station_definition(w, origin.station_id),
-                    query::get_station_definition(w, destination_id), w.game_time_s_);
+                    query::get_station_definition(w, destination_id), w.state.game_time_s);
                 route.max_leg_dose_msv = std::max(route.max_leg_dose_msv, rate * days);
             }
             std::string design = ship.class_id;
@@ -862,13 +862,13 @@ void board_passengers(World& w, domain::ShipState& ship, domain::StationState& o
             .fare_cr = pick.fare_cr,
             .value_of_time_cr_per_day = group.value_of_time_cr_per_day,
             .dose_msv = group.dose_msv,
-            .boarded_s = w.game_time_s_,
+            .boarded_s = w.state.game_time_s,
         });
     }
     std::erase_if(origin.waiting, [](const domain::PassengerGroup& group) { return group.count < MIN_GROUP_COUNT; });
     if (!ship.passengers.empty()) {
-        ++w.passenger_audit_.departures_with_passengers;
-        w.passenger_audit_.berth_days += query::ship_design(w, ship).berths * days;
+        ++w.audits.passenger_audit.departures_with_passengers;
+        w.audits.passenger_audit.berth_days += query::ship_design(w, ship).berths * days;
         double people = 0.0;
         for (const auto& lot : ship.passengers) {
             people += lot.count;
@@ -897,38 +897,38 @@ void land_passengers(World& w, domain::ShipState& ship, domain::StationState& de
             }
             // A colony's recruits go on down to its surface.
             const bool recruits = lot.kind == domain::PassengerKind::Migrant && query::colony_employer(lot.work_station_id);
-            w.flows_.record(FlowKind::Passengers, lot.origin_id,
+            w.state.flows.record(FlowKind::Passengers, lot.origin_id,
                 recruits ? "surface:" + lot.work_station_id.substr(std::string("colony:").size()) : destination.station_id,
                 group, lot.count, lot.count * lot.fare_cr);
         }
-        w.passenger_audit_.landed[kind] += lot.count;
-        w.passenger_audit_.flight_days[kind] += lot.count * std::max(0.0, w.game_time_s_ - lot.boarded_s) / 86400.0;
+        w.audits.passenger_audit.landed[kind] += lot.count;
+        w.audits.passenger_audit.flight_days[kind] += lot.count * std::max(0.0, w.state.game_time_s - lot.boarded_s) / 86400.0;
         {
-            auto& route = w.passenger_audit_.routes[{lot.origin_id, destination.station_id}];
+            auto& route = w.audits.passenger_audit.routes[{lot.origin_id, destination.station_id}];
             route.landed += lot.count;
-            route.flight_days += lot.count * std::max(0.0, w.game_time_s_ - lot.boarded_s) / 86400.0;
+            route.flight_days += lot.count * std::max(0.0, w.state.game_time_s - lot.boarded_s) / 86400.0;
         }
         if (lot.kind == domain::PassengerKind::Migrant && query::colony_employer(lot.work_station_id)) {
             // A colony's recruits go down to the surface, with their savings.
             const auto economy_id = lot.work_station_id.substr(std::string("colony:").size());
-            w.background_population_[economy_id] += lot.count;
-            w.passenger_audit_.colony_recruits_landed += lot.count;
-            const double savings = lot.count * w.universe_.households.migrant_savings_cr;
-            w.outside_economy_credits_ -= savings;
+            w.state.background_population[economy_id] += lot.count;
+            w.audits.passenger_audit.colony_recruits_landed += lot.count;
+            const double savings = lot.count * w.data.universe.households.migrant_savings_cr;
+            w.state.outside_economy_credits -= savings;
             economy_account(w, economy_id) += savings;
-            w.journal_.record(query::account_earth(), query::account_economy(w, economy_id), MoneyCategory::MigrantSavings, savings);
+            w.state.journal.record(query::account_earth(), query::account_economy(w, economy_id), MoneyCategory::MigrantSavings, savings);
             continue;
         }
         if (lot.kind == domain::PassengerKind::Migrant && query::households_on(w) && query::is_earth_gateway(w, lot.origin_id)) {
             // Settlers from Earth bring their savings.
-            const double savings = lot.count * w.universe_.households.migrant_savings_cr;
-            w.outside_economy_credits_ -= savings;
+            const double savings = lot.count * w.data.universe.households.migrant_savings_cr;
+            w.state.outside_economy_credits -= savings;
             destination.household_credits += savings;
-            w.journal_.record(query::account_earth(), query::account_households(w, destination), MoneyCategory::MigrantSavings, savings);
+            w.state.journal.record(query::account_earth(), query::account_households(w, destination), MoneyCategory::MigrantSavings, savings);
         }
         if (lot.kind == domain::PassengerKind::Migrant || lot.kind == domain::PassengerKind::RotationOut) {
             destination.population += lot.count;
-            w.economy_.set_population(destination.station_id, destination.population);
+            w.engines.economy.set_population(destination.station_id, destination.population);
         }
         if (lot.kind == domain::PassengerKind::Visitor) {
             // Visitors stay a while, then go home (a stay per arrival).
@@ -937,7 +937,7 @@ void land_passengers(World& w, domain::ShipState& ship, domain::StationState& de
                 .destination_id = lot.origin_id,
                 .work_station_id = lot.origin_id,
                 .count = lot.count,
-                .since_s = w.game_time_s_ + w.universe_.passengers.visit_days * 86400.0,
+                .since_s = w.state.game_time_s + w.data.universe.passengers.visit_days * 86400.0,
             });
         }
         if (lot.kind == domain::PassengerKind::RotationOut) {
@@ -1004,8 +1004,8 @@ std::string station_passengers_json(const World& w, const domain::StationState& 
 }
 
 std::vector<ReferenceFareRow> compute_reference_fares(const World& w) {
-    const auto& pricing = w.universe_.pricing;
-    const auto& market = w.universe_.market;
+    const auto& pricing = w.data.universe.pricing;
+    const auto& market = w.data.universe.market;
     const auto departures = static_cast<int>(pricing.reference_departures);
     // Cabin carriers: every hull with each of its cabin modules (plain, shielded), and the
     // liners bare and with their cabin shields (a water wall, the cabins inside the tanks, both).
@@ -1030,13 +1030,13 @@ std::vector<ReferenceFareRow> compute_reference_fares(const World& w) {
         }
         carriers.push_back(std::move(design));
     };
-    for (const auto& ship_class : w.universe_.ship_classes) {
+    for (const auto& ship_class : w.data.universe.ship_classes) {
         // Liners in every tank size (more water round cabins inside the tanks), other hulls nominal.
         if (ship_class.id != ship_class.hull_id && ship_class.berths <= 0.0) {
             continue;
         }
         std::vector<const domain::ShipModuleDefinition*> shields;
-        for (const auto& module : w.universe_.ship_modules) {
+        for (const auto& module : w.data.universe.ship_modules) {
             if (module.hull_id != ship_class.hull_id) {
                 continue;
             }
@@ -1059,17 +1059,17 @@ std::vector<ReferenceFareRow> compute_reference_fares(const World& w) {
     }
     const double fuel_cr_per_kg = query::get_commodity(w, economy::FUEL_ID).base_price / FUEL_UNITS_TO_KG;
     double provisions_per_day = 0.0;
-    for (const auto& [commodity_id, units_per_day] : w.universe_.ship_operations.life_support_units_per_crew_day) {
+    for (const auto& [commodity_id, units_per_day] : w.data.universe.ship_operations.life_support_units_per_crew_day) {
         provisions_per_day += units_per_day * query::get_commodity(w, commodity_id).base_price;
     }
     const auto daily_cost = [&](const domain::ShipClassDefinition& design) {
-        return query::daily_capital_cost(w, design) + design.crew_size * w.universe_.ship_operations.wage_cr_per_crew_day
+        return query::daily_capital_cost(w, design) + design.crew_size * w.data.universe.ship_operations.wage_cr_per_crew_day
             + design.crew_size * provisions_per_day;
     };
     // A resident's time and dose per day aboard: the reference trip is the one with the lowest
     // cost to the passenger (fare plus time), so its planner trades propellant against the
     // ship's time and the passengers' too.
-    const auto& env = w.universe_.ship_environment;
+    const auto& env = w.data.universe.ship_environment;
     const double person_day_cr = query::passenger_nonfare_cr(w, query::value_of_time_cr_per_day(w, domain::PassengerKind::Migrant), 1.0,
         env.radiation ? env.gcr_msv_per_day : 0.0);
     struct Leg {
@@ -1081,15 +1081,15 @@ std::vector<ReferenceFareRow> compute_reference_fares(const World& w) {
     };
     std::vector<Leg> legs;
     const auto departure_s = [&](int d) { return d * 365.25 * 86400.0 / departures; };
-    for (const auto& from : w.universe_.stations) {
-        for (const auto& to : w.universe_.stations) {
+    for (const auto& from : w.data.universe.stations) {
+        for (const auto& to : w.data.universe.stations) {
             if (from.id == to.id) {
                 continue;
             }
             for (const auto& carrier : carriers) {
                 for (int d = 0; d < departures; ++d) {
                     legs.push_back({&from, &to, &carrier, departure_s(d),
-                        carrier.berths * query::passenger_kg(w, w.economy_.transfer_days(from, to))});
+                        carrier.berths * query::passenger_kg(w, w.engines.economy.transfer_days(from, to))});
                 }
             }
         }
@@ -1109,20 +1109,20 @@ std::vector<ReferenceFareRow> compute_reference_fares(const World& w) {
             .boiloff_kg_per_day = query::leg_boiloff_kg_per_day(w, *leg.carrier, *leg.from, *leg.to, leg.departure_s),
             .include_path = false,
         };
-        const auto& planner = (leg.carrier->propulsion_type == "variable_isp" && w.variable_isp_planner_)
-            ? static_cast<const trajectory::ITrajectoryPlanner&>(*w.variable_isp_planner_)
-            : static_cast<const trajectory::ITrajectoryPlanner&>(*w.kepler_planner_);
+        const auto& planner = (leg.carrier->propulsion_type == "variable_isp" && w.engines.variable_isp_planner)
+            ? static_cast<const trajectory::ITrajectoryPlanner&>(*w.engines.variable_isp_planner)
+            : static_cast<const trajectory::ITrajectoryPlanner&>(*w.engines.kepler_planner);
         return planner.plan_transfer(*leg.from, *leg.to, probe, *leg.carrier, leg.departure_s, options);
     };
     std::vector<domain::TrajectoryPlan> outbound(legs.size());
-    w.thread_pool_->parallel_for(legs.size(), [&](std::size_t i) { outbound[i] = plan_leg(legs[i]); });
+    w.engines.thread_pool->parallel_for(legs.size(), [&](std::size_t i) { outbound[i] = plan_leg(legs[i]); });
     std::vector<Leg> returns(legs.size());
     for (std::size_t i = 0; i < legs.size(); ++i) {
         returns[i] = {legs[i].to, legs[i].from, legs[i].carrier,
             outbound[i].feasible ? outbound[i].arrival_time_s : legs[i].departure_s, 0.0};
     }
     std::vector<domain::TrajectoryPlan> inbound(returns.size());
-    w.thread_pool_->parallel_for(returns.size(), [&](std::size_t i) {
+    w.engines.thread_pool->parallel_for(returns.size(), [&](std::size_t i) {
         if (outbound[i].feasible) {
             inbound[i] = plan_leg(returns[i]);
         }
@@ -1130,8 +1130,8 @@ std::vector<ReferenceFareRow> compute_reference_fares(const World& w) {
 
     std::vector<ReferenceFareRow> rows;
     std::size_t i = 0;
-    for (const auto& from : w.universe_.stations) {
-        for (const auto& to : w.universe_.stations) {
+    for (const auto& from : w.data.universe.stations) {
+        for (const auto& to : w.data.universe.stations) {
             if (from.id == to.id) {
                 continue;
             }
