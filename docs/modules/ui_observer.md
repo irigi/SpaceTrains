@@ -22,7 +22,12 @@
 
 | Script | What |
 |---|---|
-| `Main.gd` | starts the bridge, reads its files, places everything each frame (display clock, rails, docked berths), trails and fine paths, picking, focus |
+| `Main.gd` | scene set-up, input, selection and focus, the per-frame order of calls and the glue between the helpers below (the bridge's signals into the clock, the panels and `_apply_snapshot`) |
+| `BridgeClient.gd` | the bridge: starts and stops it, writes the command file, reads the snapshot and its side files (paths, designs, statistics, porkchops) and emits them as signals; status notices |
+| `DisplayClock.gd` | the display clock, the station spin clock and the visual phases of spins and station orbits |
+| `PathMotion.gd` | orbits and planned paths from the snapshots, and every position at the display time (rails, planet frames), relative to the focus |
+| `Berths.gd` | docked ships' berth slots, their poses, and the ease between a path and a berth |
+| `FineLines.gd` | orbit rings near the focus, planned paths and their fine stretches, history trails, burn markers, the destination ghost |
 | `MapIcons.gd` | the icon and label layer over the map, the selection ring, model pixel sizes |
 | `EconomyHistory.gd` | prices and unmet demand over time (trend arrows, the 30-day unmet share) |
 | `OrbitCamera.gd` | the camera rig |
@@ -34,7 +39,7 @@
 
 ## UI Surface
 
-- **Display clock** (`Main.gd:_advance_display_clock`): game time for the picture, advanced every frame at the
+- **Display clock** (`DisplayClock.gd:advance`): game time for the picture, advanced every frame at the
   simulation's measured pace (at most the requested timewarp), at most 3 s of real time ahead of the last snapshot,
   braking smoothly near that limit, never stepping back; held while paused; reset when a game is loaded (`bridge.epoch`).
 - **Positions per frame:** bodies and stations from their orbital elements (same formula as `CelestialMechanics`),
