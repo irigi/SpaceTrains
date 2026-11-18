@@ -14,7 +14,7 @@ its tick; its public members forward to the systems for the bridge, the apps and
 
 | File | What |
 |---|---|
-| `World.hpp` | all of the running state, as plain data, in five groups: `data` (the universe and the lookups built from it), `engines` (mechanics, economy, atlas, planners, thread pool), `state` (exactly what a save holds), `caches` (pure, empty after a load), `audits`; never copied or moved (the engines hold references into it) |
+| `World.hpp` | all of the running state, as plain data, in five groups: `data` (the universe and the lookups built from it), `engines` (mechanics, economy, atlas, planners, thread pool), `state` (exactly what a save holds), `caches` (pure functions of their keys, so a load may keep them), `audits`; never copied or moved (the engines hold references into it) |
 | `Simulation.{hpp,cpp}` | the owner: `std::unique_ptr<World>` and the public interface for the bridge, the apps and the tests (each member forwards to a system or query); the tick on a `World` (`step`, `tick`, `start_at`) with the local economy, population and events |
 | `WorldSetup.{hpp,cpp}` | building a `World`: `init_world` (a new game's set-up), `load_universe`, `attach_engines` (thread pool, atlas), `make_world` (all three; the tests use it) |
 | `query/` | small functions on `World` that every system uses: `Lookups` (stations, classes, bodies, goods, designs), `Accounts` (journal account indices), `Positions`, `Events` (events and trades), `Labour`, `ShipRates` (ship cost and environment rates), `Finance` (economy balances, colony state, station profits, credit limits), `Passengers` (the travel switches, fares, value of time), `Clock` |

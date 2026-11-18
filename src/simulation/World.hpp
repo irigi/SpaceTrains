@@ -139,8 +139,9 @@ struct ColonyState {
 struct World;
 
 // A plan a pass asked for: computed on a worker thread, then stored on the simulation thread.
-// A worker sees the World only as const (and captures nothing it could change); commit runs
-// on the simulation thread.
+// compute takes the World as const, but the type cannot stop a lambda from capturing state by
+// reference: computes capture only const references and values (check that in a new one);
+// commit runs on the simulation thread.
 struct DeferredPlan {
     std::function<domain::TrajectoryPlan(const World&)> compute;
     std::function<void(domain::TrajectoryPlan&&)> commit;
@@ -266,7 +267,8 @@ struct State {
     std::mt19937_64 environment_rng;
 };
 
-// Pure caches and the planning passes' own state: derived from the rest, empty after a load.
+// Pure caches and the planning passes' own state: each a function of its key, so keeping one
+// across a load changes nothing (a load clears the leg estimates; the rest are kept).
 struct Caches {
     mutable std::unordered_map<std::string, std::pair<double, double>> station_radius_cache;  // time, AU
     // estimate_leg() cache: departure bucket -> "class|from|to|fuel bucket" -> estimate.
