@@ -378,9 +378,9 @@ func _close_zoom_shots(rig: Node3D) -> void:
     var helio_ship := ""
     for ship_id in main.entity_details.keys():
         if main.entity_kinds.get(ship_id, "") != "ship" or String(main.entity_details[ship_id].get("phase", "")) != "in_transit" \
-                or not main.ship_paths.has(ship_id):
+                or not main.path_motion.ship_paths.has(ship_id):
             continue
-        if bool(main.ship_paths[ship_id].get("helio", false)):
+        if bool(main.path_motion.ship_paths[ship_id].get("helio", false)):
             if helio_ship == "":
                 helio_ship = ship_id
         elif local_ship == "":
@@ -531,17 +531,17 @@ func _arrival_shots(rig: Node3D) -> void:
 # How far each planned path's ends are from its stations (a ship jumps by this much when
 # it docks or leaves; it matters at true scale).
 func _report_path_end_gaps() -> void:
-    for ship_id in main.ship_paths.keys():
+    for ship_id in main.path_motion.ship_paths.keys():
         var ship: Dictionary = main.entity_details.get(ship_id, {})
-        var path: Dictionary = main.ship_paths[ship_id]
+        var path: Dictionary = main.path_motion.ship_paths[ship_id]
         var gaps := []
         for end in [["origin_station_id", float(path["departure"])], ["destination_station_id", float(path["arrival"])]]:
-            var orbit: Dictionary = main.station_orbits.get(String(ship.get(end[0], "")), {})
+            var orbit: Dictionary = main.path_motion.station_orbits.get(String(ship.get(end[0], "")), {})
             if orbit.is_empty():
                 gaps.append(-1.0)
                 continue
-            var base: PackedFloat64Array = main._body_at_m(String(orbit["body"]), end[1])
-            var p: PackedFloat64Array = main._rail_point_m(path, end[1])
+            var base: PackedFloat64Array = main.path_motion.body_at_m(String(orbit["body"]), end[1])
+            var p: PackedFloat64Array = main.path_motion.rail_point_m(path, end[1])
             var dx: float = p[0] - (base[0] + cos(float(orbit["theta"])) * float(orbit["r"]))
             var dy: float = p[1] - base[1]
             var dz: float = p[2] - (base[2] + sin(float(orbit["theta"])) * float(orbit["r"]))
@@ -729,13 +729,13 @@ func _local_path_shots(rig: Node3D) -> void:
 func _local_path_picks() -> Dictionary:
     var picks := {}
     for ship_id in main.entity_details.keys():
-        if main.entity_kinds.get(ship_id, "") != "ship" or not main.ship_paths.has(ship_id):
+        if main.entity_kinds.get(ship_id, "") != "ship" or not main.path_motion.ship_paths.has(ship_id):
             continue
         var detail: Dictionary = main.entity_details[ship_id]
         var kind := String(detail.get("trajectory_type", ""))
         if String(detail.get("phase", "")) != "in_transit" or (not kind.ends_with("planet_system") and kind != "keplerian_local"):
             continue
-        if not picks.has(kind) and String(main.ship_paths[ship_id].get("frame", "earth")) == "earth":
+        if not picks.has(kind) and String(main.path_motion.ship_paths[ship_id].get("frame", "earth")) == "earth":
             picks[kind] = ship_id
     return picks
 
