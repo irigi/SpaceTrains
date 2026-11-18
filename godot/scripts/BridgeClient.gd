@@ -92,16 +92,16 @@ func request_save(path: String) -> void:
     command_save_path = path
     command_load_path = ""
     write_commands()
-    show_notice("Saving…")
+    _show_notice("Saving…")
 
 func request_load(path: String) -> void:
     command_request += 1
     command_save_path = ""
     command_load_path = path
     write_commands()
-    show_notice("Loading…")
+    _show_notice("Loading…")
 
-func show_notice(text: String) -> void:
+func _show_notice(text: String) -> void:
     status_text = text
     status_until_s = clock.wall_time_s() + 3.0
     status_changed.emit(text)
@@ -321,7 +321,7 @@ func _read_snapshot() -> void:
     var bridge_info: Dictionary = json.data.get("bridge", {})
     var status := String(bridge_info.get("status", ""))
     if status != "" and status != String(state.get("bridge", {}).get("status", "")):
-        show_notice(status)
+        _show_notice(status)
     var new_epoch := int(bridge_info.get("epoch", 0))
     if new_epoch != epoch:
         # A loaded game: a new timeline, possibly earlier. Forget the old one.

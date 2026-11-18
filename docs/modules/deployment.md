@@ -28,7 +28,7 @@ The folder is only read. Saves, caches and logs go to Godot's `user://`
 
 ## How the game finds its parts
 
-`Main.gd` (`_resolve_install_paths`): an exported game (`OS.has_feature("template")`) looks next to its executable
+`BridgeClient.gd` (`_resolve_install_paths`): an exported game (`OS.has_feature("template")`) looks next to its executable
 for `bin/`, `data/` and `atlas/`; run from the editor binary (`godot4 --path godot`) it uses the source checkout:
 `build/bin`, `data/`, `tests/data/variable_isp/`. On Windows the bridge name gets `.exe`. The UI passes the bridge
 `--atlas` and `--log-file user://logs/bridge.log`; a bridge that stops is reported with the log's path. Session

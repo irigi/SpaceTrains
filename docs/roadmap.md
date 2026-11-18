@@ -109,7 +109,7 @@ the check is the standing one for refactors (test suites, byte-identical saves a
    Steps 1-2 done (PR #41).
 
 2. **Split `godot/scripts/Main.gd`** (2,631 lines; done 2026-11-18 on `refactor/main_gd_split`, `Main.gd` is now
-   1,179 lines, see the plan's "As built"). It mixed five jobs. Files, in this order:
+   1,157 lines, see the plan's "As built"). It mixed five jobs. Files, in this order:
    - `BridgeClient.gd`: starting and stopping the bridge, the command file, reading the snapshot, paths, designs,
      stats and porkchop files and their `.seq` files (`_start_bridge`, `_write_bridge_commands`, `_read_snapshot`,
      `_read_paths`, `_read_designs`, `_read_stats`, `_read_porkchops`). It emits signals; nothing else touches

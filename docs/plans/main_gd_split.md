@@ -109,7 +109,7 @@ In every step, update `ShotTour.gd` and `DebugShot.gd` to the new paths (`main.c
 ## As built (2026-11-18)
 
 One commit per step. Each moved function was diffed against its original after the renames; the differences
-are only those listed here. `Main.gd` is 1,179 lines (was 2,631).
+are only those listed here. `Main.gd` is 1,157 lines (was 2,631).
 
 - **Step 0:** the 28 `main.get("…")` lookups and the `main.call("_body_display_scale", …)` in `ShotTour.gd` are
   direct access.
@@ -137,6 +137,10 @@ are only those listed here. `Main.gd` is 1,179 lines (was 2,631).
   `world_root` and `entity_root`. The four entry points that read the selection or the render origin take them as
   arguments; Main's `_body_color`, `_body_display_scale` and `_scaled_position` reach it as callables.
   `forget_ship(id)` and `reset()` hold the lines that `_apply_snapshot` and `_reset_timeline` had.
+- **Two weak spots for later edits** (Review 3; correct today): `current_paused`/`current_timewarp` exist in Main and
+  in the client, so new code that changes Main's must call `bridge.set_paused`/`set_timewarp`; FineLines keeps the
+  selection and the render origin from the last entry point that took them, so an internal function that reads them
+  must be reached only through those entry points.
 - **Checks:** parse check of every changed script (`--check-only` exits 0 even when a dependency fails to compile, so
   the output is searched for errors), the key-bindings test, and the shot tours on every commit against two runs on
   `main` (the numbers in the PR). The tours run one section per run (each section quits when done), start at day 30

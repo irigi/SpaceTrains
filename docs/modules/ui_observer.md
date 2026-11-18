@@ -52,14 +52,14 @@
   the planets' north poles point up; the view was upside down before. Stations turn about their planet on the sim's angle plus a visual phase, so the sim keeps its
   fixed `theta_rad` and the planner is untouched. Both run on the wall clock at the timewarp rate (stop while paused),
   capped so no turn takes less than 4 s on screen (`MIN_TURN_WALL_S`); at 1× a station's orbit and a planet's spin
-  are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `Main._advance_visual_phases` keeps the phases;
-  `_station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
+  are the true ones. Moons are tidally locked: their spin is taken from their position (`BodySpin.locked_angle`), so the map's centre (the near side) faces the planet at any timewarp (2026-11-07; a separate spin capped at 4 s a turn drifted off the orbit above ~1 d/s). `DisplayClock.advance_visual_phases` keeps the phases;
+  `PathMotion.station_m` adds the visual offset, so docked ships ride the station. A flight's path ends blend onto the drawn
   stations (`_station_blend_m`: the start follows the origin station's drawn position, the end the destination's,
   fading linearly along the flight), so ships leave and arrive where the station is drawn.
 - **Paths within one planet's system** (Earth–Luna ferries, moon hops, hops between two stations of one body:
   `keplerian_planet_system`, `variable_isp_planet_system`, `keplerian_local`) are drawn around that planet, which is
   their `frame`: the planned line, its fine version near the camera, the history trail and the destination ghost are
-  kept relative to the planet and follow it every frame (`_update_path_frames`). In the Sun's frame Earth moves
+  kept relative to the planet and follow it every frame (`FineLines.update_path_frames`). In the Sun's frame Earth moves
   ~13 million km during a 5-day ferry hop, so the line was a streak along Earth's orbit with the transfer lost in it.
   The ship's position is the same either way (planet(t) + offset(t)); display only. Burn markers shrink to a few
   pixels close up (from afar they keep their old size, ~96,000 km).
