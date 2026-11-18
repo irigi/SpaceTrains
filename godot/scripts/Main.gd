@@ -339,6 +339,12 @@ func _profiled(name: String, started_usec: int) -> void:
     _profile_totals[name] = float(_profile_totals.get(name, 0.0)) + ms
     _profile_worst[name] = maxf(float(_profile_worst.get(name, 0.0)), ms)
 
+# The game is quitting (get_tree().quit() or the window closed): models still being built on
+# worker threads must finish first, or they call into scripts being freed and Godot crashes.
+func _exit_tree() -> void:
+    ShipModelsScript.wait_for_builds()
+    StationModelsScript.wait_for_builds()
+
 func _process(delta: float) -> void:
     debug_frame += 1
     var t := Time.get_ticks_usec()
